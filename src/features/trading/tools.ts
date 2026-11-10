@@ -31,7 +31,7 @@ export const TRADE_RECORD_TOOLS: LifeOpsToolDefinition[] = [
   },
   {
     name: "record_trade", safety: "direct-write",
-    description: "用户要求记交易时直接调用本工具。品种、市场、方向明确且最多三笔就保存。未知字段省略，盈亏由程序算。指定模型时查规则并引用原话。",
+    description: "记交易：品种、市场、方向明确且最多三笔可保存。每笔已说出的数量都填 qty，即使只报净盈亏。未知省略，盈亏由程序算；指定模型先查规则并引用原话。",
     parameters: { type: "object", additionalProperties: false, properties: {
       text: { type: "string", description: "可选，用户原话。" },
       trades: { type: "array", items: { type: "object", additionalProperties: false, properties: {
