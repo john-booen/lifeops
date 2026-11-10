@@ -1,0 +1,111 @@
+{
+  "version": 1,
+  "date": "2026-11-12",
+  "晨": [
+    {
+      "date": "2026-11-12",
+      "period": "晨",
+      "energy": 2,
+      "mood": 2,
+      "stress": 4,
+      "sleepHours": 5.5,
+      "sleepQuality": 2,
+      "keyEvents": [],
+      "plans": [
+        {
+          "text": "见客户",
+          "when": "今天"
+        },
+        {
+          "text": "写周报",
+          "when": "今天"
+        },
+        {
+          "text": "复盘交易",
+          "when": "今天"
+        },
+        {
+          "text": "跑 5 公里",
+          "when": "今天"
+        }
+      ],
+      "ideas": [],
+      "worries": [
+        "感到焦虑"
+      ],
+      "quotes": [
+        {
+          "field": "energy",
+          "text": "精力 2 分"
+        },
+        {
+          "field": "mood",
+          "text": "情绪 2 分"
+        },
+        {
+          "field": "stress",
+          "text": "压力 4 分"
+        },
+        {
+          "field": "sleepHours",
+          "text": "昨晚只睡了 5.5 小时"
+        },
+        {
+          "field": "sleepQuality",
+          "text": "睡眠质量 2 分"
+        }
+      ],
+      "sources": [
+        {
+          "path": "LifeOps/Journal/2026/11/2026-11-12早.md",
+          "sha256": "e252fa867fc7546b02d21131120cab52b56c7dce6ddecba2b8ae7b4ba51c7296"
+        }
+      ]
+    }
+  ],
+  "晚": [
+    {
+      "date": "2026-11-12",
+      "period": "晚",
+      "energy": 2,
+      "mood": 2,
+      "stress": 4,
+      "sleepHours": 5.5,
+      "sleepQuality": 2,
+      "keyEvents": [],
+      "plans": [],
+      "ideas": [],
+      "worries": [
+        "感到焦虑"
+      ],
+      "quotes": [
+        {
+          "field": "energy",
+          "text": "精力 2 分"
+        },
+        {
+          "field": "mood",
+          "text": "情绪 2 分"
+        },
+        {
+          "field": "stress",
+          "text": "压力 4 分"
+        },
+        {
+          "field": "sleepHours",
+          "text": "昨晚只睡了 5.5 小时"
+        },
+        {
+          "field": "sleepQuality",
+          "text": "睡眠质量 2 分"
+        }
+      ],
+      "sources": [
+        {
+          "path": "LifeOps/Journal/2026/11/2026-11-12晚.md",
+          "sha256": "18803ddc1cf531e18a6cf5b194207df244a86d01df92e2dd89eb058a665e2f87"
+        }
+      ]
+    }
+  ]
+}

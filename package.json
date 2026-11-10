@@ -1,0 +1,59 @@
+{
+  "name": "lifeops-assistant",
+  "version": "0.5.1",
+  "description": "Obsidian personal data steward for daily planning, habits, trading review, health notes, and AI-assisted summaries.",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs --watch",
+    "typecheck": "tsc --noEmit --skipLibCheck",
+    "bundle": "node esbuild.config.mjs",
+    "bundle:production": "node esbuild.config.mjs production",
+    "build": "npm run typecheck && npm test && npm run bundle",
+    "test-vault:rebuild": "node scripts/rebuild-test-vault.mjs",
+    "test-vault:verify": "node scripts/verify-test-vault.mjs",
+    "install:test-vault": "node scripts/install-plugin.mjs --target ./test-vault",
+    "release:prepare": "npm run typecheck && npm test && npm run bundle:production && node scripts/prepare-plugin-package.mjs",
+    "verify:build-boundary": "node scripts/verify-build-boundary.mjs",
+    "verify:package": "node scripts/verify-plugin-package.mjs",
+    "verify:secrets": "node scripts/verify-secret-boundary.mjs",
+    "verify:offline": "node scripts/offline-verify.mjs",
+    "test": "vitest run --dir tests",
+    "eval": "vitest run --config vitest.eval.config.mts",
+    "data:recovery": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/data-recovery.mjs",
+    "verify:privacy": "node scripts/verify-public-boundary.mjs"
+  },
+  "keywords": [
+    "obsidian",
+    "plugin",
+    "lifeops",
+    "habits",
+    "journal",
+    "trading"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/three": "^0.184.1",
+    "@types/ws": "^8.18.1",
+    "@vitest/coverage-v8": "4.1.12",
+    "builtin-modules": "^5.0.0",
+    "esbuild": "0.28.1",
+    "obsidian": "^1.12.3",
+    "tslib": "^2.8.1",
+    "typescript": "^6.0.3",
+    "vitest": "4.1.12"
+  },
+  "dependencies": {
+    "three": "^0.184.0",
+    "ws": "^8.21.0"
+  },
+  "overrides": {
+    "qs": "6.16.0",
+    "urllib": "2.44.1",
+    "vite": "8.1.6",
+    "postcss": "8.5.23",
+    "source-map-js": "1.2.2",
+    "moment": "2.31.0"
+  }
+}

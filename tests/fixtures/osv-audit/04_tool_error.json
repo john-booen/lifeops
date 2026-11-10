@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "id": "04_tool_error",
+  "synthetic": true,
+  "purpose": "Offline gate contract sample; not a new scan or security conclusion",
+  "input": {
+    "expectedLockSourcePath": "/synthetic/lifeops-ci02/package-lock.json",
+    "packageLock": {
+      "name": "lifeops-ci02-fictional-gate-fixture",
+      "version": "0.0.0",
+      "lockfileVersion": 3,
+      "requires": true,
+      "packages": {
+        "": {
+          "name": "lifeops-ci02-fictional-gate-fixture",
+          "version": "0.0.0",
+          "devDependencies": {
+            "esbuild": "0.28.0",
+            "moment": "2.30.1"
+          }
+        },
+        "node_modules/esbuild": {
+          "version": "0.28.0",
+          "resolved": "https://registry.npmjs.org/esbuild/-/esbuild-0.28.0.tgz",
+          "integrity": "sha512-sNR9MHpXSUV/XB4zmsFKN+QgVG82Cc7+/aaxJ8Adi8hyOac+EXptIp45QBPaVyX3N70664wRbTcLTOemCAnyqw==",
+          "dev": true
+        },
+        "node_modules/moment": {
+          "version": "2.30.1",
+          "resolved": "https://registry.npmjs.org/moment/-/moment-2.30.1.tgz",
+          "integrity": "sha512-uEmtNhbDOrWPFS+hdjFCBfy9f2YoyzRpwcl+DqpC6taX21FzsTLQVbMV/W7PzNSX6x/bhC1zA3c2UQ5NzH6how==",
+          "dev": true
+        }
+      }
+    },
+    "scannerExitCode": 2,
+    "scannerStderr": "SYNTHETIC FIXTURE: scanner tool error; no JSON result produced.",
+    "scannerResult": null
+  },
+  "expected": {
+    "gate": "fail",
+    "reason": "scanner_error",
+    "expectedPackageVersions": 2,
+    "noSecurityConclusion": true,
+    "scannerExitCodeMustRemain": 2
+  },
+  "derivation": {
+    "sources": {
+      "beforeResult": {
+        "relativePath": "output/dependency-offline-20261014-01/scan-result-04.json",
+        "sha256": "176cbfd35f0236ad9ee79592f54cb6c180000c41c66612b67d1a96ec5907fa28"
+      },
+      "beforeLock": {
+        "relativePath": "output/dependency-offline-20261014-01/scan-input/package-lock.json",
+        "sha256": "f34916e21c39acc4462cf7bfb390bbf121e8433c3a25d3f71cb575851003e37b"
+      },
+      "afterResult": {
+        "relativePath": "output/dependency-offline-20261014-01/scan-after-private-patch.json",
+        "sha256": "476ed628f1eaa306808dff58e39d347fc8dbca5ef76ca024b0079860fa707de3"
+      },
+      "afterLock": {
+        "relativePath": "output/dependency-offline-20261014-01/patch-workspace/package-lock.json",
+        "sha256": "44ba03e3296e6190aea59fd81cfd338905e18d1572a23a42506e19a629ee24fb"
+      }
+    },
+    "changes": [
+      "Two package records copied from the pinned afterResult, including their original vulnerability and group objects.",
+      "Source path replaced with a synthetic absolute path; root lock identity is fictional.",
+      "Lock entries reduced to exact selected versions and original resolved/integrity fields; not suitable for installation.",
+      "All scanner exit codes and failure mutations are fixture inputs, not newly observed process results.",
+      "Scanner exit is synthetically set to 2 and the result is absent; the error text is explicitly fictional."
+    ]
+  }
+}

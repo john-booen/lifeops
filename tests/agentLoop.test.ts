@@ -1,0 +1,908 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AiChatResult, AiToolCall, ChatMessage } from "../src/ai";
+import { DEFAULT_SETTINGS } from "../src/defaults";
+import { addDays, formatDate, todayString } from "../src/date";
+import type { StoreHost } from "../src/store/settingsSlice";
+import type { AgentLoopHost, AgentTurnInput } from "../src/agent/AgentLoop";
+import type { AgentModelRole } from "../src/agent/models";
+
+vi.mock("obsidian", () => ({
+  App: class {}, Plugin: class {}, TFile: class {}, TFolder: class {}, WorkspaceLeaf: class {}, ItemView: class {},
+  Modal: class {}, PluginSettingTab: class {}, Setting: class {}, Platform: { isDesktopApp: true }, Notice: class {},
+  normalizePath: (path: string) => path.replace(/\\/g, "/").replace(/\/{2,}/g, "/"), setIcon: vi.fn(), requestUrl: vi.fn()
+}));
+const { createFsApp } = await import("./helpers/fsApp");
+const { LifeOpsStore } = await import("../src/store");
+const { LifeOpsAi } = await import("../src/ai");
+const { default: Plugin } = await import("../src/main");
+const { runAgentTurn } = await import("../src/agent/run");
+const { AgentRuntime } = await import("../src/agentRuntime");
+const { AgentLoop } = await import("../src/agent/AgentLoop");
+const { voiceJobSpeech } = await import("../src/voice/jobs");
+const { buildResidentContext, RESIDENT_CONTEXT_BYTE_LIMIT } = await import("../src/agent/context");
+const { settingsForAgentModel } = await import("../src/agent/models");
+const { executeConfirmedToolBatch } = await import("../src/toolBatch");
+const { readTradeDatabase } = await import("../src/features/trading/persistence");
+const { runConfirmedToolAction } = await import("../src/toolRegistry");
+const now = new Date("2026-11-12T12:00:00+08:00");
+let root: string, store: StoreHost, host: AgentLoopHost, runtime: InstanceType<typeof AgentRuntime>;
+let responses: Array<AiChatResult | Error>, requests: ChatMessage[][], roles: AgentModelRole[];
+let catalogs: string[][], toolChoices: unknown[];
+
+function reply(content: string, toolCalls: AiToolCall[] = []): AiChatResult {
+  const usage = { status: "reported", inputTokens: 40, outputTokens: 5, totalTokens: 45 } as const;
+  return { content, toolCalls, reportedModel: "synthetic-model", responseUsage: usage,
+    providerRun: { requestedProvider: "custom", requestedModel: "synthetic-model", actualModel: "synthetic-model",
+      status: "success", fallbackUsed: false, attempts: [], responseUsage: usage } };
+}
+function input(overrides: Partial<AgentTurnInput> = {}): AgentTurnInput {
+  return { message: "请创建任务 纯虚构循环任务。", history: [], source: "text", now, ...overrides };
+}
+function tool(name: string, args: Record<string, unknown>, id = "synthetic-call"): AiToolCall {
+  return { name, arguments: args, id };
+}
+
+const tradeExamples = [
+  { message: "BTC 多 67000 进 68200 出 0.1 个 按突破模型 赚 120U", rows: [
+    { market: "加密", symbol: "BTC", direction: "long", entry: 67000, exit: 68200, qty: 0.1, qtyUnit: "个", modelId: "突破模型", pnl: 120 }
+  ], pnl: [120], source: ["stated"], currency: ["USD"] },
+  { message: "今天茅台做 T，1680 买 1695 卖 200 股", rows: [
+    { market: "A股", symbol: "茅台", direction: "long", entry: 1680, exit: 1695, qty: 200, qtyUnit: "股", openedAt: "2026-11-12" }
+  ], pnl: [3000], source: ["computed"], currency: ["CNY"] },
+  { message: "欧美空 1.0850 进 1.0820 出 1 手 没按止损", rows: [
+    { market: "外汇", symbol: "EUR/USD", direction: "short", entry: 1.085, exit: 1.082, qty: 1, qtyUnit: "手", notes: "没按止损" }
+  ], pnl: [300], source: ["computed"], currency: ["USD"] },
+  { message: "早上三笔：特斯拉多赚 300，英伟达多亏 120，纳指期货空赚 450", rows: [
+    { market: "美股", symbol: "特斯拉", direction: "long", pnl: 300 },
+    { market: "美股", symbol: "英伟达", direction: "long", pnl: -120 },
+    { market: "期货", symbol: "纳指期货", direction: "short", pnl: 450, currency: "USD" }
+  ], pnl: [300, -120, 450], source: ["stated", "stated", "stated"], currency: ["USD", "USD", "USD"] },
+  { message: "美股 ZTEST2 做空 5 股，进 100 出 98，手续费 1 美元；加密 ZTEST3 做多 2 个，实际净亏 7 美元。", rows: [
+    { market: "美股", symbol: "ZTEST2", direction: "short", qty: 5, entry: 100, exit: 98, fees: 1, pnl: 9 },
+    { market: "加密", symbol: "ZTEST3", direction: "long", qty: 2, pnl: -7 }
+  ], pnl: [9, -7], source: ["computed", "stated"], currency: ["USD", "USD"] }
+];
+
+it.each(tradeExamples)("records the trades selected by the model for $message", async ({ message, rows, pnl, source, currency }) => {
+  store.settings.tradingContractMultipliers = { "EUR/USD": 100000 };
+  responses.push(reply("", [tool("record_trade", { trades: rows })]), reply("交易已保存。"));
+  const result = await new AgentLoop(host).run(input({ message }));
+  const trades = (await readTradeDatabase(store)).trades;
+  expect(catalogs.some(names => names.includes("record_trade"))).toBe(true);
+  expect(result.toolCalls).toContainEqual({ name: "record_trade", ok: true });
+  expect(result.receipts).toHaveLength(1);
+  expect(result.receipts[0].tradeEdits?.map(edit => edit.id)).toEqual(trades.map(trade => trade.id));
+  expect(result.receipts[0].tradeEdits?.every(edit => edit.summary.includes("USD") || edit.summary.includes("CNY"))).toBe(true);
+  expect(trades.map(trade => trade.pnlSource)).toEqual(source);
+  expect(trades.map(trade => trade.currency)).toEqual(currency);
+  for (const [index, value] of pnl.entries()) {
+    expect(trades[index].pnl).toBeCloseTo(value);
+    expect(trades[index].openedAtPrecision).toBe("date");
+    expect(trades[index].source.kind).toBe("chat");
+  }
+  await runtime.undoOperation(result.receipts[0].operationId);
+  expect((await readTradeDatabase(store)).trades).toEqual([]);
+});
+
+it("requires missing data or a batch confirmation before recording any rows", async () => {
+  const row = tradeExamples[0].rows[0];
+  const missing = await runtime.executeAiToolCall(tool("record_trade", { trades: [row, { ...row, direction: undefined }] }), "kimi");
+  expect(missing.success).toBe(false);
+  expect(missing.output).toContain("请先问清");
+  const rows = [row, row, row, row];
+  responses.push(reply("", [tool("record_trade", { trades: rows })]), reply("请确认四笔记录。"));
+  const result = await new AgentLoop(host).run(input({ message: "请把我刚才列出的四笔虚构交易一起记下来。" }));
+  expect(result.confirmations).toHaveLength(1);
+  expect(result.confirmations[0]).toMatchObject({ type: "tool_batch", batchWriteCount: 4 });
+  expect((await readTradeDatabase(store)).trades).toEqual([]);
+  await executeConfirmedToolBatch(result.confirmations[0], runtime, () => undefined);
+  expect((await readTradeDatabase(store)).trades).toHaveLength(4);
+});
+
+it("updates the exact trade, rejects a stale delete card, and allows confirmed deletion and undo", async () => {
+  const saved = await runtime.executeAiToolCall(tool("record_trade", { trades: tradeExamples[0].rows }, "trade-add"), "kimi");
+  const id = saved.receipt!.tradeEdits![0].id;
+  const first = await runtime.executeAiToolCall(tool("delete_trade", { id }, "delete-first"), "kimi");
+  const confirmedContext = { store, refreshViews: async () => undefined };
+  expect((await readTradeDatabase(store)).trades).toHaveLength(1);
+  const changed = await runtime.executeAiToolCall(tool("update_trade", { id, patch: { pnl: 50, openedAt: "2026-11-13" } }, "trade-edit"), "kimi");
+  expect(changed.output).toContain("相差超过 5%");
+  expect((await readTradeDatabase(store)).trades[0]).toMatchObject({ id, pnl: 50, pnlSource: "stated", openedAtPrecision: "date" });
+  await expect(runConfirmedToolAction(first.actions[0], confirmedContext)).rejects.toThrow("交易已变化");
+  const current = await runtime.executeAiToolCall(tool("delete_trade", { id }, "delete-current"), "kimi");
+  expect((await readTradeDatabase(store)).trades).toHaveLength(1);
+  await runConfirmedToolAction(current.actions[0], confirmedContext);
+  expect((await readTradeDatabase(store)).trades).toHaveLength(0);
+  await runtime.undoOperation(`confirmed:${current.actions[0].id}`);
+  expect((await readTradeDatabase(store)).trades[0]).toMatchObject({ id, pnl: 50 });
+});
+
+it("uses the deep role on a configured trading note and saves anchored rules only after confirmation", async () => {
+  const path = `${store.settings.folders.tradingModels}/虚构纪律原文.md`;
+  const raw = "# 练习模型\n每笔交易入场后必须设置止损。\n";
+  await store.writeFile(path, raw);
+  const quote = "每笔交易入场后必须设置止损。";
+  const draft = { text: "入场后设置止损", kind: "risk", checkable: true, quote };
+  host.aiForRole = role => ({ async agentTurnStream(messages) {
+    roles.push(role);
+    if (role === "deep") {
+      expect(messages.at(-1)?.content).toBe(raw);
+      return reply(JSON.stringify({ rules: [draft] }));
+    }
+    const message = messages.at(-1);
+    if (message?.role !== "tool") return reply("", [tool("extract_trading_rules", { path }, "extract")]);
+    if (message.content.startsWith("{")) {
+      const { rules } = JSON.parse(message.content);
+      return reply("", [tool("propose_trading_research_change", { command: { kind: "save_model", input: { title: "练习模型", rules } } }, "prepare")]);
+    }
+    return reply("请核对规则确认卡。");
+  } });
+  const result = await new AgentLoop(host).run(input({ message: "请从虚构纪律原文提取练习模型的规则，给我一张确认卡。" }));
+  expect(roles).toContain("deep");
+  expect(result.confirmations).toHaveLength(1);
+  expect(result.confirmations[0].content).toContain(quote);
+  expect(result.confirmations[0].content).toContain(path);
+  expect((await store.getTradingSnapshot()).document.models).toEqual([]);
+  await runConfirmedToolAction(result.confirmations[0], { store, refreshViews: async () => undefined });
+  const version = (await store.getTradingSnapshot()).document.models[0].versions[0];
+  expect(version).toMatchObject({ title: "练习模型", revision: 1, rules: [{ ...draft, sourcePath: path }] });
+  expect(version.receipt).toBeUndefined();
+  expect(await store.readPath(path)).toBe(raw);
+
+  const id = version.rules![0].id;
+  const row = { market: "A股", symbol: "虚构标的", direction: "long", modelId: "练习模型" };
+  const userQuote = "入场后没有设止损";
+  const correct = await runtime.executeAiToolCall(tool("record_trade", { trades: [{ ...row, ruleChecks: [{ id, status: "violation", quote: userQuote }] }] }, "rule-checked"),
+    "kimi", `虚构交易，${userQuote}。`);
+  expect(correct.success, correct.output).toBe(true);
+  expect(correct.output).toContain("已核对违规 1 条");
+  const missing = await runtime.executeAiToolCall(tool("record_trade", { trades: [{ ...row, ruleChecks: [{ id, status: "violation", quote: userQuote }] }] }, "rule-unknown"),
+    "kimi", "虚构交易，只知道做多。");
+  expect(missing.output).toContain("规则核对还缺依据");
+  const rows = (await readTradeDatabase(store)).trades;
+  expect(rows).toMatchObject([
+    { modelId: version.modelId, modelVersionId: version.id, ruleViolations: [id], ruleCheckStatus: "checked" },
+    { modelId: version.modelId, modelVersionId: version.id, ruleViolations: [], ruleCheckStatus: "insufficient" }
+  ]);
+});
+
+it("never sends an excluded rule note or accepts a fabricated source quote", async () => {
+  const path = `${store.settings.folders.tradingModels}/虚构规则备份.md`;
+  await store.writeFile(path, "实际原文只说记录风险。\n");
+  store.settings.privacy!.excludedVaultPrefixes = [path];
+  responses.push(reply("", [tool("extract_trading_rules", { path }, "excluded")]), reply("请重新选择。"));
+  const excluded = await new AgentLoop(host).run(input({ message: "请提取这篇虚构规则备份里的完整交易规则。" }));
+  expect(excluded.toolCalls).toContainEqual({ name: "extract_trading_rules", ok: false });
+  expect(roles).not.toContain("deep");
+  store.settings.privacy!.excludedVaultPrefixes = [];
+  responses.push(reply("", [tool("extract_trading_rules", { path }, "bad-quote")]),
+    reply(JSON.stringify({ rules: [{ text: "设置固定百分比", kind: "risk", checkable: true, quote: "未出现的原话" }] })), reply("规则没有核对通过。"));
+  const badQuote = await new AgentLoop(host).run(input({ message: "请从这篇虚构备份提取可以核对的交易规则。" }));
+  expect(badQuote.toolCalls).toContainEqual({ name: "extract_trading_rules", ok: false });
+  expect(badQuote.confirmations).toEqual([]);
+  expect((await store.getTradingSnapshot()).document.models).toEqual([]);
+});
+
+beforeEach(async () => {
+  root = await mkdtemp(join(tmpdir(), "lifeops-agent-loop-"));
+  const settings = structuredClone(DEFAULT_SETTINGS);
+  settings.ai = { ...settings.ai, provider: "custom", endpoint: "https://fiction.invalid/chat", model: "synthetic-model", dataDisclosureAccepted: true };
+  settings.privacy = { excludedVaultPrefixes: [], plaintextCredentialStorageAccepted: true };
+  store = new LifeOpsStore(createFsApp(root), settings) as unknown as StoreHost;
+  await store.initializeVault();
+  runtime = new AgentRuntime({ store, refreshViews: async () => {} });
+  responses = []; requests = []; roles = []; catalogs = []; toolChoices = [];
+  host = {
+    settings, store,
+    aiForRole: role => {
+      roles.push(role);
+      return { agentTurnStream: vi.fn(async (messages, onText, options?: Parameters<InstanceType<typeof LifeOpsAi>["agentTurnStream"]>[2]) => {
+        requests.push(structuredClone(messages));
+        catalogs.push(options?.tools?.map(tool => tool.name) ?? []);
+        toolChoices.push(options?.toolChoice);
+        const response = responses.shift();
+        if (response instanceof Error) throw response;
+        if (!response) throw Error("Missing synthetic response");
+        if (response.content) onText(response.content);
+        return response;
+      }) };
+    },
+    executeTools: async (calls, message, signal, onResult) => {
+      const results = [];
+      for (const call of calls) {
+        const result = await runtime.executeAiToolCall(call, "kimi", message, { assertCurrent: () => signal?.throwIfAborted() });
+        onResult(call, result);
+        results.push(result);
+      }
+      return results;
+    },
+    offlineFallback: vi.fn(async () => null)
+  };
+});
+afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllGlobals(); await rm(root, { recursive: true, force: true }); });
+
+it("asks for an actual day for a vague weekend plan and never saves a guessed date", async () => {
+  const loop = new AgentLoop(host);
+  const ambiguous = await loop.run(input({ message: "周末我要给虚构盆栽换盆。" }));
+  expect(ambiguous.text).toBe("你想安排在周六还是周日？");
+  expect(ambiguous.receipts).toEqual([]);
+  expect(requests).toEqual([]);
+  expect((await store.readTaskDb()).tasks).toEqual([]);
+  responses.push(reply("已经安排在周六。", [tool("create_task", { title: "给虚构盆栽换盆", date: "2026-11-14" })]),
+    reply("已记下周六给虚构盆栽换盆。"));
+  const specified = await loop.run(input({ message: "周末我要在周六给虚构盆栽换盆。" }));
+  expect(specified.receipts).toHaveLength(1);
+  expect((await store.readTaskDb()).tasks[0].date).toBe("2026-11-14");
+});
+
+it("answers a voice correction or short yes with the correct period's task count and no write", async () => {
+  for (const [title, day] of [["虚构上月记录", "2026-10-28"], ["虚构上周记录甲", "2026-11-03"], ["虚构上周记录乙", "2026-11-06"]]) {
+    const task = await store.createTask({ title, date: day });
+    const completedAt = day + "T04:00:00.000Z";
+    await store.updateTask(task.id, item => ({
+      ...item, status: "completed", completedAt, completionLog: [{ completedAt, note: "" }]
+    }));
+  }
+  const loop = new AgentLoop(host);
+  const history = [
+    { role: "user", content: "上周完成了多少项任务？" },
+    { role: "assistant", content: "你是要查上周的实际完成数吗？" }
+  ] as AgentTurnInput["history"];
+  const onVoiceText = vi.fn();
+  const before = await readFile(join(root, store.taskDbPath()), "utf8");
+  const corrected = await loop.run(input({ source: "voice", message: "不对，是上个月。", history, onVoiceText }));
+  const accepted = await loop.run(input({ source: "voice", message: "对。", history, onVoiceText }));
+  expect(corrected.text).toBe("上个月已完成 1 个任务。");
+  expect(accepted.text).toBe("上周已完成 2 个任务。");
+  expect(onVoiceText.mock.calls.flat()).toEqual([corrected.text, accepted.text]);
+  expect(requests).toEqual([]);
+  expect(corrected.toolCalls).toEqual([{ name: "get_stats", ok: true }]);
+  expect(accepted.confirmations).toEqual([]);
+  expect(await readFile(join(root, store.taskDbPath()), "utf8")).toBe(before);
+});
+
+it("does not turn an unrelated confirmation into a task query", async () => {
+  responses.push(reply("请说清楚你想确认哪件事。"));
+  const result = await new AgentLoop(host).run(input({ source: "voice", message: "对。",
+    history: [{ role: "user", content: "上周完成了多少项任务？" },
+      { role: "assistant", content: "你确认要删除这条虚构任务吗？" }] }));
+  expect(result.toolCalls).toEqual([]);
+  expect(result.receipts).toEqual([]);
+  expect(requests).toHaveLength(1);
+});
+
+it("reports only the selected habit's actual compensation as an existing task", async () => {
+  const evening = new Date();
+  evening.setHours(21, 0, 0, 0);
+  for (const [name, minChars] of [["虚构阅读", 180], ["虚构跑步", 320]] as const) {
+    await store.createHabit({ name, frequencyUnit: "day", frequencyInterval: 1, targetCount: 1,
+      startDate: formatDate(evening), punishment: { enabled: true, rules: [{ kind: "reflection", minChars }] } });
+  }
+  await store.checkPunishments(evening);
+  const result = await new AgentLoop(host).run(input({ message: "虚构阅读没达标会怎样？" }));
+  expect(result.text).toContain("已有 1 项补偿待办");
+  expect(result.text).toContain("写反思至少 180 字");
+  expect(result.text).not.toContain("320");
+  expect(result.toolCalls).toEqual([{ name: "list_tasks", ok: true }]);
+  expect(result.receipts).toEqual([]);
+  expect(requests).toEqual([]);
+});
+
+describe("unified agent loop", () => {
+  it("streams text, retains only twelve history entries, and logs actual response counters", async () => {
+    responses.push(reply("你好，我在。"));
+    const chunks: string[] = [];
+    const result = await new AgentLoop(host).run(input({ message: "你好。", onText: delta => chunks.push(delta),
+      history: Array.from({ length: 20 }, (_, index) => ({ role: index % 2 ? "assistant" : "user", content: `虚构历史${index}` })) }));
+    expect(result.text).toBe("你好，我在。");
+    expect(chunks.join("")).toBe(result.text);
+    expect(requests[0]).toHaveLength(14);
+    expect(requests[0][1].content).toBe("虚构历史8");
+    expect(result.usage).toMatchObject({ model: "synthetic-model", inputTokens: 40, outputTokens: 5 });
+    const logs = (await readFile(join(root, store.qualityLogPath()), "utf8")).trim().split("\n").map(line => JSON.parse(line));
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatchObject({ captureMode: "agent-loop", toolCalls: [], actionSuggestions: 0 });
+    expect(logs[0].providerRuns[0]).toMatchObject({ actualModel: "synthetic-model", responseUsage: { inputTokens: 40, outputTokens: 5 } });
+  });
+
+  it("executes a real write, returns its receipt, and undoes that exact operation", async () => {
+    responses.push(reply("", [tool("create_task", { title: "纯虚构循环任务" })]), reply("已创建纯虚构循环任务。"));
+    const receipts = vi.fn();
+    const result = await new AgentLoop(host).run(input({ onReceipt: receipts }));
+    expect((await store.readTaskDb({ readOnly: true })).tasks.map(task => task.title)).toContain("纯虚构循环任务");
+    expect(result.receipts).toHaveLength(1);
+    expect(receipts).toHaveBeenCalledWith(result.receipts[0]);
+    expect(result.toolCalls).toEqual([{ name: "create_task", ok: true }]);
+    expect(requests[1].filter(message => message.role === "tool")).toHaveLength(1);
+    expect(result.usage.inputTokens).toBe(80);
+    await runtime.undoOperation(result.receipts[0].operationId);
+    expect((await store.readTaskDb({ readOnly: true })).tasks).toEqual([]);
+  });
+
+  it("renders the requested plain list using one model request and verified read results", async () => {
+    const date = formatDate(now);
+    await store.createTask({ title: "纯虚构待办", date, startTime: "15:00" });
+    responses.push(reply("", [tool("list_tasks", { date, directReply: true })]));
+    const chunks: string[] = [];
+    const result = await new AgentLoop(host).run(input({ message: "我今天还有什么任务没完成？", onText: delta => chunks.push(delta) }));
+    expect(requests).toHaveLength(1);
+    expect(roles).toEqual(["fast"]);
+    expect(result.toolCalls).toEqual([{ name: "list_tasks", ok: true }]);
+    expect(result.text).toContain("今天有 1 个未完成任务");
+    expect(result.text).toContain("纯虚构待办（计划 15:00 开始 · 结束未定）");
+    expect(chunks.join("")).toBe(result.text);
+    expect(result.usage.inputTokens).toBe(40);
+  });
+
+  it("expands advanced tools when the short-text model selects that capability", async () => {
+    responses.push(reply("", [tool("load_more_tools", {})]), reply("已准备好查询项目。"));
+    const result = await new AgentLoop(host).run(input({ message: "查我的项目" }));
+    expect(catalogs[0]).toContain("load_more_tools");
+    expect(catalogs[0]).not.toContain("query_projects");
+    expect(catalogs[1]).toContain("query_projects");
+    expect(result.toolCalls).toEqual([{ name: "load_more_tools", ok: true }]);
+  });
+
+  it("returns the exact habit name from the delete confirmation without another model call", async () => {
+    const habit = await store.createHabit({ name: "虚构阅读", frequencyUnit: "day", frequencyInterval: 1, targetCount: 1 });
+    responses.push(reply("", [tool("delete_habit", { name: habit.name })]));
+    const result = await new AgentLoop(host).run(input({ message: "删除虚构阅读习惯" }));
+    expect(result.text).toBe("已生成删除「虚构阅读」的确认卡，点击确认后才会删除。");
+    expect(result.confirmations).toMatchObject([{ type: "delete_habit", habitIds: [habit.id] }]);
+    expect(requests).toHaveLength(1);
+    expect((await store.readHabitDb()).habits.some(item => item.id === habit.id)).toBe(true);
+  });
+
+  it("makes an explicit tomorrow draft selection continue to a capacity-checked confirmation", async () => {
+    const date = addDays(todayString(), 1);
+    const prepare = vi.fn(async () => ({ id: "preview-tomorrow", type: "task_plan" as const, title: "确认安排",
+      description: "点确认后保存", content: "虚构草案", date, taskPlanToken: "preview-token" }));
+    runtime = new AgentRuntime({ store, refreshViews: async () => {}, prepareTaskPlan: prepare });
+    responses.push(reply("", [tool("plan_today", { draftTomorrow: true })]),
+      reply("", [tool("propose_task_plan", { tasks: [{ title: "准备虚构材料", date }] })]));
+    const result = await new AgentLoop(host).run(input({ message: "给我安排一下明天" }));
+    expect(toolChoices[1]).toEqual({ type: "function", function: { name: "propose_task_plan" } });
+    expect(prepare).toHaveBeenCalledOnce();
+    expect(result.confirmations).toMatchObject([{ type: "task_plan" }]);
+    expect((await store.readTaskDb()).tasks).toEqual([]);
+  });
+
+  it("keeps provisional tool text and generated write claims out of the voice stream", async () => {
+    const onVoiceText = vi.fn();
+    responses.push(reply("我已经记好了。", [tool("create_task", { title: "虚构语音回执" })]), reply("任务已创建。"));
+    const result = await new AgentLoop(host).run(input({ source: "voice", message: "把虚构语音回执记作待办。", onVoiceText }));
+    expect(result.receipts).toHaveLength(1);
+    expect(result.voiceSpeech).toBe("已创建任务：虚构语音回执。");
+    expect(onVoiceText).not.toHaveBeenCalled();
+    expect((await store.readTaskDb()).tasks).toMatchObject([{ title: "虚构语音回执" }]);
+  });
+
+  it("speaks only verified journal, habit and trading receipts and can undo a saved voice write", async () => {
+    const habit = await store.createHabit({ name: "虚构阅读习惯", frequencyUnit: "day", frequencyInterval: 1, targetCount: 1 });
+    const loop = new AgentLoop(host);
+    const voice = async (message: string, name: string, args: Record<string, unknown>) => {
+      responses.push(reply("", [tool(name, args)]), reply("模型输出的示例文字。"));
+      return loop.run(input({ source: "voice", message }));
+    };
+    const checkin = await voice("给虚构阅读习惯打卡", "complete_habit", { name: habit.name });
+    expect(checkin.voiceSpeech).toBe("已完成今日打卡：虚构阅读习惯。");
+    expect((await store.readHabitDb()).checkins).toContainEqual(expect.objectContaining({ habitId: habit.id, status: "done" }));
+    const note = await voice("记到晚间日记：虚构语音写入。", "append_journal_entry", { period: "晚", content: "虚构语音写入。" });
+    expect(note.voiceSpeech).toBe("好，已经记进日记了。");
+    expect(await store.readPath(store.dailyNotePath(todayString(), "晚"))).toContain("虚构语音写入。");
+    const trade = await voice("记一笔虚构交易，A股 ZTEST8 做多", "record_trade", {
+      trades: [{ market: "A股", symbol: "ZTEST8", direction: "long" }] });
+    expect(trade.voiceSpeech).toBe("已记下 1 笔交易。");
+    expect((await readTradeDatabase(store)).trades).toHaveLength(1);
+    const undo = await voice("撤销", "undo_latest_operation", {});
+    expect(undo.voiceSpeech).toBe("已撤销这次交易记录。");
+    expect((await readTradeDatabase(store)).trades).toHaveLength(0);
+  });
+
+  it("keeps an automatically saved memory when undoing the task from the same turn", async () => {
+    const loop = new AgentLoop(host);
+    const title = "虚构样品盒贴标签", preference = "我习惯用虚构绿色标签归档";
+    responses.push(reply("", [tool("create_task", { title }, "same-turn-task"), tool("append_memory_note", { content: preference }, "same-turn-memory")]), reply("已保存。"));
+    await loop.run(input({ message: `创建任务${title}。${preference}。` }));
+    expect((await store.readTaskDb()).tasks).toHaveLength(1);
+    expect((await store.readPersonalMemories()).records.map(record => record.content)).toContain(preference);
+
+    responses.push(reply("", [tool("undo_latest_operation", {})]));
+    const undo = await loop.run(input({ source: "voice", message: "撤销刚才那个。" }));
+    expect(undo.text).toContain(title);
+    expect(undo.voiceSpeech).toBe(undo.text);
+    expect((await store.readTaskDb()).tasks).toEqual([]);
+    expect((await store.readPersonalMemories()).records.map(record => record.content)).toContain(preference);
+
+    responses.push(reply("", [tool("undo_latest_operation", { memoryOnly: true })]));
+    const memoryUndo = await loop.run(input({ message: "撤销刚才保存的记忆。" }));
+    expect(memoryUndo.text).toContain("个人记忆");
+    expect((await store.readPersonalMemories()).records.map(record => record.content)).not.toContain(preference);
+  });
+
+  it("offers a completed read-only response to the voice output", async () => {
+    const onVoiceText = vi.fn();
+    responses.push(reply("正在查看。", [tool("get_stats", { domain: "tasks", range: "today" })]), reply("今天还没完成任务。"));
+    const result = await new AgentLoop(host).run(input({ source: "voice", message: "今天完成几个任务？", onVoiceText }));
+    expect(result.text).toBe("今天还没完成任务。");
+    expect(onVoiceText).toHaveBeenCalledExactlyOnceWith("今天还没完成任务。");
+  });
+
+  it("speaks a single requested count straight from the tool without a second model turn", async () => {
+    const habit = await store.createHabit({ name: "虚构跑步", frequencyUnit: "day", frequencyInterval: 1, targetCount: 1 });
+    await store.recordHabitStatus(habit.id, "done", todayString());
+    const onVoiceText = vi.fn();
+    responses.push(reply("", [tool("get_stats", { domain: "habits", range: "today", habitName: "虚构跑步", voiceAnswer: "habit_checkin" })]));
+    const result = await new AgentLoop(host).run(input({ source: "voice", message: "今天虚构跑步打卡了吗？", onVoiceText }));
+    expect(result.text).toBe("今天已给「虚构跑步」打卡。");
+    expect(onVoiceText).toHaveBeenCalledExactlyOnceWith(result.text);
+    expect(roles).toEqual(["fast"]);
+  });
+
+  it("speaks the requested top tasks in tool order without another model turn or a write", async () => {
+    const date = todayString();
+    await store.createTask({ title: "虚构归档", date, quadrant: "not-important-not-urgent" });
+    await store.createTask({ title: "虚构汇总", date, quadrant: "important-not-urgent" });
+    await store.createTask({ title: "虚构核对", date, quadrant: "important-urgent" });
+    const before = await store.readTaskDb();
+    const onVoiceText = vi.fn();
+    responses.push(reply("", [tool("plan_today", { voicePriorityCount: 2 })]));
+
+    const result = await new AgentLoop(host).run(input({ source: "voice", message: "今天该先做哪两件事？", onVoiceText }));
+
+    expect(result.text).toBe("先做「虚构核对」，今天到期，重要且紧急。然后做「虚构汇总」，今天到期，重要不紧急。");
+    expect(onVoiceText).toHaveBeenCalledExactlyOnceWith(result.text);
+    expect(requests).toHaveLength(1);
+    expect(await store.readTaskDb()).toEqual(before);
+  });
+
+  it("repairs a rejected tomorrow draft before showing the real confirmation", async () => {
+    const date = addDays(todayString(), 1);
+    const prepare = vi.fn(async (tasks) => {
+      if (tasks[0].time !== "09:00") throw Error("任务标题、日期或时间无法识别，请核对后再保存。");
+      return { id: "repaired-tomorrow", type: "task_plan" as const, title: "确认安排", description: "点确认后保存",
+        content: "虚构草案", date, taskPlanToken: "preview-token" };
+    });
+    runtime = new AgentRuntime({ store, refreshViews: async () => {}, prepareTaskPlan: prepare });
+    const onText = vi.fn();
+    responses.push(reply("", [tool("plan_today", { draftTomorrow: true })]),
+      reply("确认卡已生成", [tool("propose_task_plan", { tasks: [{ title: "准备虚构材料", date, time: "09:00–10:00" }] })]),
+      reply("", [tool("propose_task_plan", { tasks: [{ title: "准备虚构材料", date, time: "09:00" }] })]));
+    const result = await new AgentLoop(host).run(input({ message: "给我安排一下明天", onText }));
+    expect(catalogs.slice(1, 3)).toEqual([["propose_task_plan"], ["propose_task_plan"]]);
+    expect(prepare).toHaveBeenCalledTimes(2);
+    expect(result.confirmations).toMatchObject([{ type: "task_plan", content: "虚构草案", date }]);
+    expect(result.text).toContain("尚未保存任何任务");
+    expect(onText).not.toHaveBeenCalledWith("确认卡已生成");
+    expect((await store.readTaskDb()).tasks).toEqual([]);
+  });
+
+  it("limits execution to four tool rounds even if the final model response asks again", async () => {
+    host.executeTools = vi.fn(async (calls: AiToolCall[]) => calls.map(call => ({ callId: call.id!, success: true, output: "纯虚构查询结果", actions: [] })));
+    responses.push(...Array.from({ length: 5 }, () => reply("", [tool("query_vault", { domain: "task", operation: "list" })])));
+    const result = await new AgentLoop(host).run(input({ message: "读取纯虚构任务。" }));
+    expect(host.executeTools).toHaveBeenCalledTimes(4);
+    expect(requests).toHaveLength(5);
+    expect(result.toolCalls).toHaveLength(4);
+    expect(result.text).toContain("本轮处理已到上限");
+  });
+
+  it("requires confirmation before four writes in one response", async () => {
+    responses.push(reply("", Array.from({ length: 4 }, (_, index) => tool("create_task", { title: `纯虚构批量${index}` }, `call-${index}`))), reply("四项任务等待确认。"));
+    const execute = vi.spyOn(host, "executeTools");
+    const result = await new AgentLoop(host).run(input());
+    expect(execute).not.toHaveBeenCalled();
+    expect((await store.readTaskDb({ readOnly: true })).tasks).toEqual([]);
+    expect(result.confirmations).toHaveLength(1);
+    await executeConfirmedToolBatch(result.confirmations[0], runtime, () => {});
+    expect((await store.readTaskDb({ readOnly: true })).tasks).toHaveLength(4);
+  });
+
+  it("counts writes across rounds and confirms only the remaining write", async () => {
+    responses.push(...Array.from({ length: 4 }, (_, index) => reply("", [tool("create_task", { title: `纯虚构分轮${index}` })])), reply("三项已保存，剩余一项待确认。"));
+    const result = await new AgentLoop(host).run(input());
+    expect(result.receipts).toHaveLength(3);
+    expect((await store.readTaskDb({ readOnly: true })).tasks).toHaveLength(3);
+    expect(result.confirmations[0]).toMatchObject({ type: "tool_batch", batchWriteCount: 4 });
+    expect(result.confirmations[0].toolBatch).toHaveLength(1);
+    await executeConfirmedToolBatch(result.confirmations[0], runtime, () => {});
+    expect((await store.readTaskDb({ readOnly: true })).tasks.map(task => task.title).sort())
+      .toEqual(Array.from({ length: 4 }, (_, index) => `纯虚构分轮${index}`));
+  });
+
+  it("retains a committed receipt when cancellation arrives after a write", async () => {
+    const abort = new AbortController();
+    responses.push(reply("", [tool("create_task", { title: "纯虚构取消前已保存" })]));
+    const result = await new AgentLoop(host).run(input({ signal: abort.signal, onReceipt: () => abort.abort() }));
+    expect(result.receipts).toHaveLength(1);
+    expect(result.text).toContain("已创建");
+    expect(result.text).toContain("其余处理已停止");
+    expect((await store.readTaskDb({ readOnly: true })).tasks).toHaveLength(1);
+  });
+
+  it("keeps earlier receipts when a later model request fails", async () => {
+    responses.push(reply("", [tool("create_task", { title: "纯虚构回复失败前已保存" })]), Error("Synthetic provider failure"));
+    const result = await new AgentLoop(host).run(input());
+    expect(result.receipts).toHaveLength(1);
+    expect(result.text).toContain("后续回复未完成");
+    expect((await store.readTaskDb({ readOnly: true })).tasks).toHaveLength(1);
+  });
+
+  it("keeps deep analysis internal and preserves mixed call order", async () => {
+    const effects: string[] = [], chunks: string[] = [];
+    host.executeTools = async calls => calls.map(call => { effects.push(call.name); return { callId: call.id!, success: true, output: "纯虚构结果", actions: [] }; });
+    responses.push(reply("", [tool("query_vault", {}, "read"), tool("deep_analysis", { question: "纯虚构分析", scope: "纯虚构资料" }, "deep"), tool("create_task", {}, "write")]),
+      reply("仅供内部使用的纯虚构深度稿"), reply("分析完成。"));
+    const original = host.aiForRole;
+    host.aiForRole = role => { if (role === "deep") effects.push("deep"); return original(role); };
+    const result = await new AgentLoop(host).run(input({ source: "voice", onText: delta => chunks.push(delta) }));
+    expect(effects).toEqual(["query_vault", "deep", "create_task"]);
+    expect(roles).toEqual(["fast", "deep", "fast"]);
+    expect(chunks.join("")).toBe("分析完成。");
+    expect(result.usage.inputTokens).toBe(120);
+  });
+
+  it("does not estimate missing usage or call a model when disabled", async () => {
+    responses.push({ content: "纯虚构无用量回复", toolCalls: [] });
+    const result = await new AgentLoop(host).run(input());
+    expect(result.usage.inputTokens).toBeUndefined();
+    host.settings.ai.provider = "off";
+    const before = requests.length;
+    const offline = await new AgentLoop(host).run(input());
+    expect(requests).toHaveLength(before);
+    expect(host.offlineFallback).toHaveBeenCalled();
+    expect(offline.usage.model).toBe("offline");
+  });
+
+  it("bounds resident context and reads the injected date without changing files", async () => {
+    for (let index = 0; index < 20; index++) await store.createTask({ title: `纯虚构长标题${index}${"甲".repeat(100)}`, date: "2026-11-12" });
+    const before = await readFile(join(root, store.taskDbPath()), "utf8");
+    const context = await buildResidentContext(store, "纯虚构查询", now);
+    expect(Buffer.byteLength(context.text, "utf8")).toBeLessThanOrEqual(RESIDENT_CONTEXT_BYTE_LIMIT);
+    expect(context.text).toContain("2026-11-12");
+    expect(context.text).toContain("必须给确认卡");
+    expect(context.text).toContain("不得鼓励");
+    expect(await readFile(join(root, store.taskDbPath()), "utf8")).toBe(before);
+  });
+
+  it("selects existing model configurations without mutating stored settings", () => {
+    const settings = structuredClone(host.settings);
+    settings.ai = { ...settings.ai, fallbackProvider: "custom", fallbackEndpoint: "https://fiction-fast.invalid/chat", fallbackModel: "synthetic-fast" };
+    expect(settingsForAgentModel(settings, "fast").ai).toMatchObject({ model: "synthetic-fast", fallbackModel: "synthetic-model" });
+    expect(settingsForAgentModel(settings, "deep").ai.model).toBe("synthetic-model");
+    expect(settings.ai.model).toBe("synthetic-model");
+  });
+
+  it("requests DeepSeek non-thinking mode and records actual usage through the fallback transport", async () => {
+    const settings = structuredClone(host.settings);
+    settings.ai = { ...settings.ai, model: "deepseek-v4-flash", fallbackProvider: "custom",
+      fallbackEndpoint: "https://fiction-fallback.invalid/chat", fallbackModel: "kimi-k2.6" };
+    const wire = [
+      { model: "kimi-k2.6", choices: [{ index: 0, delta: { content: "纯虚构备用回复" }, finish_reason: null }] },
+      { model: "kimi-k2.6", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] },
+      { model: "kimi-k2.6", choices: [], usage: { prompt_tokens: 120, completion_tokens: 8, total_tokens: 128 } }
+    ].map(frame => `data: ${JSON.stringify(frame)}\n\n`).join("") + "data: [DONE]\n\n";
+    const fetch = vi.fn<typeof globalThis.fetch>().mockRejectedValueOnce(new TypeError("Synthetic transport failure"))
+      .mockResolvedValueOnce(new Response(wire, { headers: { "content-type": "text/event-stream" } }));
+    vi.stubGlobal("fetch", fetch);
+    const result = await new LifeOpsAi(settings).agentTurnStream([{ role: "user", content: "纯虚构问候" }], () => {}, { reasoning: "disabled" });
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([settings.ai.endpoint, settings.ai.fallbackEndpoint]);
+    expect(JSON.parse(fetch.mock.calls[0][1]!.body as string)).toMatchObject({
+      thinking: { type: "disabled" }, stream_options: { include_usage: true }
+    });
+    expect(result.providerRun).toMatchObject({ fallbackUsed: true, actualModel: "kimi-k2.6",
+      responseUsage: { status: "reported", inputTokens: 120, outputTokens: 8 } });
+  });
+
+  it("uses the plugin's tool executor and persists a normal text conversation through the new entry adapter", async () => {
+    const message = "请创建任务 纯虚构接入测试。";
+    responses.push(reply("", [tool("create_task", { title: "纯虚构接入测试" })]), reply("已创建纯虚构接入测试。"));
+    const plugin = Object.assign(Object.create(Plugin.prototype), { app: store.app, store, settings: store.settings,
+      ai: host.aiForRole("main"), lifecycleGeneration: 1, unloaded: false, refreshViews: async () => {} });
+    const streamed = vi.fn();
+    const result = await runAgentTurn.call(plugin, message, [], streamed, { source: "text" });
+    expect(result.receipts).toHaveLength(1);
+    expect(streamed).toHaveBeenLastCalledWith(result.reply);
+    const conversations = store.path(store.settings.folders.aiReports, "Conversations");
+    const file = store.app.vault.getMarkdownFiles().find(item => item.path.startsWith(`${conversations}/`));
+    expect(await store.readPath(file!.path)).toContain(message);
+    expect((await store.readTaskDb({ readOnly: true })).tasks.map(task => task.title)).toEqual(["纯虚构接入测试"]);
+  });
+});
+
+it("uses the four local commands without a model and gives undo receipts for local writes", async () => {
+  store.settings.ai.provider = "off";
+  const habit = await store.createHabit({ name: "纯虚构读书", frequencyUnit: "day", frequencyInterval: 1, targetCount: 1 });
+  const plugin = Object.assign(Object.create(Plugin.prototype), { app: store.app, store, settings: store.settings,
+    ai: host.aiForRole("main"), lifecycleGeneration: 1, unloaded: false, refreshViews: async () => {} });
+  const submit = (message: string) => plugin.submitAgentMessage(message, [], { selfTest: true });
+  expect((await submit("今天还有什么？")).reply).toContain("没有剩余");
+  const created = await submit("建任务：纯虚构整理资料");
+  expect(created.receipts).toHaveLength(1);
+  expect((await submit("/today")).reply).toContain("纯虚构整理资料");
+  const completed = await submit("完成任务：纯虚构整理资料");
+  expect(completed.receipts).toHaveLength(1);
+  expect((await store.readTaskDb({ readOnly: true })).tasks[0].status).toBe("completed");
+  const checked = await submit("打卡 纯虚构读书");
+  expect(checked.receipts).toHaveLength(1);
+  expect((await store.readHabitDb()).checkins).toEqual([expect.objectContaining({ habitId: habit.id, status: "done" })]);
+  const before = await readFile(join(root, store.habitDbPath()), "utf8");
+  expect((await submit("删除习惯 纯虚构读书")).actions).toEqual([]);
+  expect(await readFile(join(root, store.habitDbPath()), "utf8")).toBe(before);
+  expect(requests).toEqual([]);
+});
+
+it("keeps a successful query for a requested undo across model rounds", async () => {
+  const task = await runtime.executeAiToolCall(tool("create_task", { title: "纯虚构需撤销" }, "undo-original"), "kimi");
+  expect(task.success).toBe(true);
+  const plugin = Object.assign(Object.create(Plugin.prototype), { app: store.app, store, settings: store.settings,
+    ai: host.aiForRole("main"), lifecycleGeneration: 1, unloaded: false, refreshViews: async () => {} });
+  responses.push(
+    reply("", [tool("query_vault", { domain: "task", operation: "list" }, "prior-query")]),
+    reply("", [tool("undo_latest_operation", { taskTitle: "纯虚构需撤销", requirePriorQuery: true }, "undo-after-read")]),
+    reply("已撤销纯虚构需撤销。")
+  );
+  const result = await plugin.submitAgentMessage("请先查询任务，然后撤销刚创建的纯虚构需撤销。", [], { selfTest: true });
+  expect(result.reply).toContain("已撤销");
+  expect((await store.readTaskDb({ readOnly: true })).tasks).toEqual([]);
+  expect(requests).toHaveLength(3);
+});
+
+it("leaves the task alone after an unowned query requirement, then accepts an explicit corrected undo call", async () => {
+  const original = await runtime.executeAiToolCall(tool("create_task", { title: "虚构整理盒子" }, "undo-retry-original"), "kimi");
+  expect(original.success).toBe(true);
+  const plugin = Object.assign(Object.create(Plugin.prototype), { app: store.app, store, settings: store.settings,
+    ai: host.aiForRole("main"), lifecycleGeneration: 1, unloaded: false, refreshViews: async () => {} });
+  responses.push(
+    reply("", [tool("undo_latest_operation", { requirePriorQuery: true }, "unsupported-query-requirement")]),
+    reply("这次没有执行撤销。")
+  );
+  const refused = await plugin.submitAgentMessage("请先查记录再撤销刚才那个。", [], { selfTest: true });
+  expect(refused.reply).toContain("没有执行");
+  expect((await store.readTaskDb({ readOnly: true })).tasks).toHaveLength(1);
+  responses.push(
+    reply("", [tool("undo_latest_operation", { requirePriorQuery: true }, "mistaken-query-requirement")]),
+    reply("", [tool("undo_latest_operation", {}, "corrected-plain-undo")]),
+    reply("已撤销虚构整理盒子。")
+  );
+  const corrected = await plugin.submitAgentMessage("撤销刚才那个。", [], { selfTest: true });
+  expect(corrected.reply).toContain("已撤销");
+  expect((await store.readTaskDb({ readOnly: true })).tasks).toEqual([]);
+});
+
+describe("voice background AgentLoop", () => {
+  it.each(["delete_task", "delete_habit"] as const)("offers %s in the first voice turn and prepares confirmation before writing", async name => {
+    const task = await store.createTask({ title: "虚构样品清单" });
+    const habit = await store.createHabit({ name: "虚构阅读", frequencyUnit: "day", frequencyInterval: 1, targetCount: 1 });
+    const args = name === "delete_task" ? { taskIdOrTitle: task.title } : { name: habit.name };
+    const expectedTarget = name === "delete_task" ? { taskIds: [task.id] } : { habitIds: [habit.id] };
+    responses.push(reply("", [tool(name, args)]), reply("请先确认。"));
+
+    const result = await new AgentLoop(host).run(input({ source: "voice", message: `删除${name === "delete_task" ? task.title : habit.name}` }));
+
+    expect(catalogs[0]).toContain(name);
+    expect(result.toolCalls).toEqual([{ name, ok: true }]);
+    expect(result.confirmations).toMatchObject([{ type: name, ...expectedTarget }]);
+    expect((await store.readTaskDb({ readOnly: true })).tasks.some(row => row.id === task.id)).toBe(true);
+    expect((await store.readHabitDb()).habits.some(row => row.id === habit.id)).toBe(true);
+  });
+
+  it("keeps ordinary voice tools compact and gives the model a bounded read excerpt", async () => {
+    const execute = vi.spyOn(host, "executeTools").mockImplementation(async (calls, _message, _signal, onResult) => {
+      const result = { callId: calls[0].id!, output: "虚构原文。".repeat(700), success: true, actions: [] };
+      onResult(calls[0], result);
+      return [result];
+    });
+    responses.push(reply("", [{ id: "voice-read", name: "query_vault",
+      arguments: { domain: "journal", operation: "get", maxChars: 15000, limit: 10 } }]), reply("读到了虚构日记。"));
+    const result = await new AgentLoop(host).run(input({ source: "voice", message: "看看虚构日记" }));
+    expect(result.text).toBe("读到了虚构日记。");
+    expect(catalogs[0]).toContain("record_trade");
+    expect(catalogs[0]).toContain("learning_progress");
+    expect(catalogs[0]).not.toContain("advance_idea");
+    expect(execute.mock.calls[0][0][0].arguments).toMatchObject({ maxChars: 900, limit: 3 });
+    expect(requests[1].at(-1)?.content).toContain("只显示已查结果的前部");
+    expect(Buffer.byteLength(requests[1].at(-1)!.content)).toBeLessThan(1_650);
+  });
+
+  it("acknowledges a long job and keeps two fast questions responsive", async () => {
+    const { VoiceJobManager } = await import("../src/voice/jobs");
+    let finish!: (result: string) => void;
+    const manager = new VoiceJobManager(() => new Promise(resolve => { finish = resolve; }), vi.fn());
+    const loop = new AgentLoop(host);
+    responses.push(reply("", [{ id: "start-job", name: "start_background_job",
+      arguments: { title: "虚构交易月报", question: "复盘虚构交易", scope: "十月" } }]));
+    const voice = (message: string) => loop.run(input({ source: "voice", message, voiceJobs: manager }));
+    expect((await voice("复盘十月的虚构交易")).text).toBe("好，我去整理一下，好了告诉你。");
+    for (const [question, answer] of [["虚构问题一", "短答一。"], ["虚构问题二", "短答二。"]]) {
+      responses.push(reply("", [{ id: "route", name: "choose_voice_job_control", arguments: { intent: "ordinary" } }]), reply(answer));
+      expect((await voice(question)).text).toBe(answer);
+      expect(manager.list()[0].status).toBe("running");
+    }
+    expect(roles).toEqual(["fast", "fast", "fast", "fast", "fast"]);
+    finish("虚构十月报告。");
+    await vi.waitFor(() => expect(manager.list()[0].status).toBe("done"));
+    expect(manager.takeAnnouncement()?.result).toBe("虚构十月报告。");
+  });
+
+  it("preserves the user's relative month when the background dispatcher proposes the wrong year", async () => {
+    const { backgroundVoiceQuestion, VoiceJobManager } = await import("../src/voice/jobs");
+    const original = "总结上个月的虚构任务完成情况。";
+    const rewritten = "总结 2025 年 10 月的任务完成情况。";
+    const runBackground = vi.fn(async request => backgroundVoiceQuestion(request));
+    const manager = new VoiceJobManager(runBackground, vi.fn());
+    responses.push(reply("", [tool("start_background_job", { title: "上月任务完成情况", question: rewritten, scope: "2025-10" })]));
+
+    await new AgentLoop(host).run(input({ source: "voice", message: original, voiceJobs: manager }));
+
+    const background = await runBackground.mock.results[0].value;
+    expect(background.split("\n")[0]).toBe(original);
+    expect(background).toContain("日期和范围以用户原话为准");
+    expect(background).toContain(rewritten);
+  });
+
+  it("keeps a new background request separate from a fully played earlier result", async () => {
+    const { VoiceJobManager } = await import("../src/voice/jobs");
+    const manager = new VoiceJobManager(({ title }, signal) => title === "前一份虚构分析"
+      ? Promise.resolve("已经播完的虚构分析。")
+      : new Promise((_, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true })), vi.fn());
+    manager.start({ title: "前一份虚构分析", question: "虚构资料", scope: "" });
+    await vi.waitFor(() => expect(manager.list()[0].status).toBe("done"));
+    manager.settleAnnouncement(manager.takeAnnouncement()!.id, true);
+    responses.push(reply("", [tool("replay_job", { target: "latest" })]), reply("", [tool("start_background_job", {
+      title: "新的虚构分析", question: "请在后台整理新的虚构资料", scope: "" })]));
+    const result = await new AgentLoop(host).run(input({ source: "voice", message: "请在后台整理新的虚构资料", voiceJobs: manager }));
+    expect(catalogs[0]).not.toContain("replay_job");
+    expect(result.text).toBe("好，我去整理一下，好了告诉你。");
+    expect(manager.list().map(job => job.status)).toEqual(["done", "running"]);
+    expect(manager.takeAnnouncement()).toBeUndefined();
+    manager.stop();
+  });
+
+  it.each(["cancel_job", "undo_latest_operation"])("undoes the latest saved task with an unfinished replay and the model intent %s", async intent => {
+    const { VoiceJobManager } = await import("../src/voice/jobs");
+    const manager = new VoiceJobManager(async () => "可续播的虚构分析。", vi.fn());
+    manager.start({ title: "虚构分析", question: "虚构资料", scope: "" });
+    await vi.waitFor(() => expect(manager.list()[0].status).toBe("done"));
+    manager.settleAnnouncement(manager.takeAnnouncement()!.id, false);
+    await runtime.executeAiToolCall(tool("create_task", { title: "纯虚构待撤销标签" }, "voice-undo-after-replay"), "kimi");
+    responses.push(reply("", [tool("choose_voice_job_control", { intent, target: intent === "cancel_job" ? "ambiguous" : "latest" })]));
+    if (intent === "cancel_job") responses.push(reply("", [tool("undo_latest_operation", {})]), reply("已撤销。"));
+
+    const result = await new AgentLoop(host).run(input({ source: "voice", message: "撤销。", voiceJobs: manager }));
+
+    expect(result.voiceSpeech).toContain("已撤销创建任务「纯虚构待撤销标签」");
+    expect(result.toolCalls).toContainEqual({ name: "undo_latest_operation", ok: true });
+    expect((await store.readTaskDb()).tasks).toEqual([]);
+    expect(manager.list()[0]).toMatchObject({ status: "done", announced: false });
+  });
+
+  it("cancels ten background jobs through the foreground tool and clarifies multiple matches", async () => {
+    const { VoiceJobManager } = await import("../src/voice/jobs");
+    const signals: AbortSignal[] = [];
+    const manager = new VoiceJobManager((_input, signal) => {
+      signals.push(signal);
+      return new Promise((_, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }));
+    }, vi.fn());
+    const loop = new AgentLoop(host);
+    const cancel = (target: string) => {
+      responses.push(reply("", [{ id: "cancel-job", name: "choose_voice_job_control", arguments: { intent: "cancel_job", target } }]));
+      return loop.run(input({ source: "voice", message: "上面那个不用了", voiceJobs: manager }));
+    };
+    manager.start({ title: "虚构交易", question: "虚构", scope: "" });
+    manager.start({ title: "虚构学习", question: "虚构", scope: "" });
+    manager.start({ title: "虚构阅读", question: "虚构", scope: "" });
+    expect(manager.start({ title: "超限", question: "虚构", scope: "" })).toContain("三个");
+    expect((await cancel("ambiguous")).text).toContain("虚构交易、虚构学习、虚构阅读");
+    expect(signals.every(signal => !signal.aborted)).toBe(true);
+    expect((await cancel(manager.list()[1].id)).text).toContain("已经取消");
+    expect(signals.map(signal => signal.aborted)).toEqual([false, true, false]);
+    expect((await cancel("latest")).text).toContain("虚构阅读");
+    expect((await cancel(manager.list()[0].id)).text).toContain("虚构交易");
+    for (let index = 0; index < 7; index++) {
+      manager.start({ title: `虚构任务${index}`, question: "虚构", scope: "" });
+      expect((await cancel("ambiguous")).text).toContain(`已经取消「虚构任务${index}」`);
+    }
+    expect(signals).toHaveLength(10);
+    expect(signals.every(signal => signal.aborted)).toBe(true);
+    expect(manager.list().every(job => job.status === "cancelled")).toBe(true);
+  });
+
+  it("uses the deep model and blocks an unoffered write from a background job", async () => {
+    responses.push(reply("", [{ id: "write", name: "create_task", arguments: { title: "虚构后台越权" } }]),
+      reply("仅提供虚构分析。"), reply("这是深度整理后的虚构分析。"));
+    const execute = vi.spyOn(host, "executeTools");
+    const result = await new AgentLoop(host).run(input({ source: "voice", message: "复盘虚构交易", voiceBackground: true }));
+    expect(roles).toEqual(["deep", "deep", "deep"]);
+    expect(catalogs[0]).toContain("get_stats");
+    expect(catalogs[0]).not.toContain("create_task");
+    expect(catalogs[0]).not.toContain("start_background_job");
+    expect(execute).not.toHaveBeenCalled();
+    expect(result.receipts).toEqual([]);
+    expect(result.text).toBe("这是深度整理后的虚构分析。");
+    expect(requests[2].map(message => message.role)).toEqual(["system", "user"]);
+    expect(requests[2][1].content).toContain("后台任务只允许查询资料");
+  });
+
+  it.each([false, true])("keeps the full report while preparing separate speech when the summary fails: %s", async fails => {
+    const detail = "# 上月任务\n\n| 周起始日 | 完成数 |\n| --- | --- |\n| 10月12日 | 4 |\n\n后半月完成数增加。建议先补逾期事项。";
+    const spoken = "后半月完成得更多。接下来可以先补逾期事项。";
+    responses.push(reply("初步答复。"), reply(detail), fails ? new Error("虚构播报模型不可用") : reply(spoken));
+
+    const result = await new AgentLoop(host).run(input({ source: "voice", message: "总结上个月的虚构任务", voiceBackground: true }));
+
+    expect(result.text).toBe(detail);
+    expect(result.voiceSpeech).toBe(fails ? "详细内容已经放到面板里了。" : spoken);
+    expect(roles).toEqual(["deep", "deep", "fast"]);
+    expect(catalogs[2]).toEqual([]);
+    expect(requests[2].slice(1)).toEqual([{ role: "user", content: detail }]);
+  });
+
+  it.each([
+    { name: "same number and unit", spoken: "上周完成三项。", accepted: true },
+    { name: "same signed amount", spoken: "上周净收益是负三美元。", accepted: true },
+    { name: "same percentage expressed approximately", spoken: "上周完成率是六成左右。", accepted: true },
+    { name: "unreported number", spoken: "上周完成四项。", accepted: false },
+    { name: "same digits but wrong sign", spoken: "上周净收益是三美元。", accepted: false },
+    { name: "same digits but wrong currency", spoken: "上周净收益是负三元人民币。", accepted: false },
+    { name: "same digits but wrong period", spoken: "本周完成三项。", accepted: false },
+    { name: "amount from a different statement", spoken: "上周完成十项。", accepted: false },
+    { name: "transaction count mistaken for amount", spoken: "本周净收益是三美元。", accepted: false },
+    { name: "rounded percentage with matching scope", spoken: "本周完成率是约67%。", accepted: true },
+    { name: "exact half rounds up", spoken: "本周计划达成率是约68%。", accepted: true },
+    { name: "incorrect integer rounding", spoken: "本周完成率是约68%。", accepted: false },
+    { name: "invented percentage", spoken: "本周完成率是90%。", accepted: false },
+    { name: "rounded percentage still contains a decimal", spoken: "本周完成率是约67.4%。", accepted: false }
+  ])("checks numbers in the actual background report speech ($name)", async ({ spoken, accepted }) => {
+    const detail = "# 上周回顾\n\n| 项目 | 数量 |\n| --- | --- |\n| 待办计划 | 10 |\n\n上周计划10项。上周完成3项。上周完成率是60%。上周净收益是-3美元。"
+      + "本周完成率是67.42%。本周计划达成率是67.5%。本周记录3笔交易。本周净收益是10美元。";
+    responses.push(reply("初步答复。"), reply(detail), reply(spoken));
+
+    const result = await new AgentLoop(host).run(input({ source: "voice", message: "总结虚构周报", voiceBackground: true }));
+
+    expect(result.text).toBe(detail);
+    expect(result.voiceSpeech).toBe(accepted ? spoken : "详细内容已经放到面板里了。");
+  });
+
+  const taskSpeechReports = [
+    { id: "monthly-overdue", detail: "| 周起始日 | 计划数 | 完成数 | 完成率 |\n| --- | ---: | ---: | ---: |\n"
+      + "| 2026-10-12 | 10 | 8 | 80% |\n| 2026-10-19 | 10 | 6 | 60% |\n| **整月合计** | 20 | 14 | 70% |\n\n整月另有 **1 项逾期**。",
+      facts: ["完成了 14 项任务", "百分之 70", "后段的完成比例有所下降", "1 项任务逾期"],
+      spoken: "先处理已经逾期的事，把难的拆小了再做。", fallback: "接下来可以先把逾期的事拆成小步来做。" },
+    { id: "weekly-rounding", detail: "# 虚构任务周报\n| 日期 | 计划任务数 | 完成任务数 | 计划完成率 | 逾期 |\n| --- | --- | --- | --- | --- |\n"
+      + "| 2026-11-02 | 2 | 1 | 50% | 0 |\n| 2026-11-06 | 1 | 1 | 100% | 0 |\n| 全周汇总 | 3 | 2 | 66.67% | 0 |",
+      facts: ["完成了 2 项任务", "大约是百分之 67", "后段的完成比例有所提高"],
+      spoken: "先捡起没做完的事，再看看后面怎么排。", fallback: "接下来先看看没做完的事，再调整安排。" },
+    { id: "unplanned", detail: "### 虚构任务统计\n| 周期 | 计划 | 已完成 | 完成率 |\n| --- | --- | --- | --- |\n| 本期合计 | 0 | 5 | — |",
+      facts: ["完成了 5 项任务", "没有预先排计划"],
+      spoken: "可以沿用这个节奏，看看什么做法更管用。", fallback: "接下来可以沿用这个节奏，再看看哪些做法最管用。" }
+  ];
+  it.each(taskSpeechReports.flatMap(report => ["natural", "invented", "unavailable"].map(mode => ({ ...report, mode }))))
+    ("keeps the panel report unchanged and speaks checked key points ($id, $mode)", async report => {
+      const suggestion = report.mode === "natural" ? reply(report.spoken)
+        : report.mode === "invented" ? reply("把剩下 999 项排进计划。") : new Error("虚构口语模型不可用");
+      responses.push(reply("初步答复。"), reply(report.detail), suggestion);
+
+      const result = await new AgentLoop(host).run(input({ source: "voice", message: "总结虚构任务完成情况", voiceBackground: true }));
+
+      expect(result.text).toBe(report.detail);
+      for (const fact of report.facts) expect(result.voiceSpeech).toContain(fact);
+      expect(result.voiceSpeech).toContain(report.mode === "natural" ? report.spoken : report.fallback);
+      expect(result.voiceSpeech).not.toMatch(/\||999|看面板|2026-/u);
+      expect(voiceJobSpeech(result.text, result.voiceSpeech)).toBe(result.voiceSpeech);
+      expect(roles).toEqual(["deep", "deep", "fast"]);
+      expect(requests[2][1].content).toBe(report.fallback);
+    });
+
+  it("keeps all concurrent conversation events on a fresh day", async () => {
+    const date = "2025-05-09";
+    const events = ["虚构任务开始", "短问答一", "短问答二", "虚构任务结束"];
+    await Promise.all(events.map(text => store.appendAgentConversation(text, "虚构答复", date)));
+    const file = await store.app.vault.adapter.read(store.path(store.settings.folders.aiReports, "Conversations", `${date}.md`));
+    expect(events.map(text => file.indexOf(text))).toEqual([...events.map(text => file.indexOf(text))].sort((a, b) => a - b));
+    for (const event of events) expect(file).toContain(event);
+  });
+});

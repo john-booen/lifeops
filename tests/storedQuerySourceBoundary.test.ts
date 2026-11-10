@@ -1,0 +1,44 @@
+import {mkdtemp,rm} from "node:fs/promises";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
+import type {App} from "obsidian";
+import {beforeEach,afterEach,it,expect,vi} from "vitest";
+import {DEFAULT_SETTINGS} from "../src/defaults";
+import {AgentRuntime} from "../src/agentRuntime";
+import type {StoreHost} from "../src/store/settingsSlice";
+import type {VaultQueryRead} from "../src/vaultQueryRead";
+import {projectDocumentPath} from "../src/dataFoundation/projectPersistence";
+import {emptyProjectDocument} from "../src/projectContinuity";
+import {tradingDocumentPath,emptyTradingDocument} from "../src/tradingResearch";
+import {readStoredQueryWithSources,isOwnedStoredQueryRead,type StoredQueryName} from "../src/storedQueryRead";
+import {getLifeOpsTool,runConfirmedToolAction} from "../src/toolRegistry";
+import {OperationLedger} from "../src/dataFoundation/operationLedger";
+import {preparedContextSourcePaths,contextSourceHash} from "./helpers/sourceReferences";
+vi.mock("obsidian",()=>({App:class{},Plugin:class{},TFile:class{},TFolder:class{},WorkspaceLeaf:class{},ItemView:class{},Modal:class{},PluginSettingTab:class{},Setting:class{},Platform:{isDesktopApp:true},Notice:class{},normalizePath:(p:string)=>p.replace(/\\/g,"/").replace(/\/{2,}/g,"/"),setIcon:vi.fn(),requestUrl:()=>{throw Error("Offline test");}}));
+const {LifeOpsStore}=await import("../src/store"),{DiskVault}=await import("./helpers/diskVault"),{default:Plugin}=await import("../src/main");
+let root:string,vault:InstanceType<typeof DiskVault>,store:StoreHost,runtime:AgentRuntime,plugin:any;
+const scopes:VaultQueryRead[]=[];
+const original="纯虚构候选：蓝鲸在旧位置。",changed="纯虚构候选：蓝鲸在新位置。";
+beforeEach(async()=>{vi.stubGlobal("window",globalThis);root=await mkdtemp(join(tmpdir(),"lifeops-stored-query-"));vault=new DiskVault(root);const app={vault,workspace:{getLeavesOfType:()=>[]}}as unknown as App;store=new LifeOpsStore(app,structuredClone(DEFAULT_SETTINGS))as unknown as StoreHost;await store.initializeVault();runtime=new AgentRuntime({store,refreshViews:async()=>{}});const first=vi.fn(async()=>({content:"",toolCalls:[{id:"fiction-candidate-list",name:"list_personal_memory_candidates",arguments:{}}]}));plugin=Object.assign(Object.create(Plugin.prototype),{app,store,settings:store.settings,lifecycleGeneration:1,unloaded:false,updateStatusBar:async()=>{},refreshViews:async()=>{},lifeOpsEvents:{publish:()=>{}},buildSemanticContext:async()=>"",tryLocalAgentFallback:vi.fn(async()=>null),ai:{agentReply:first,agentReplyStream:first,delegatedReplyStream:first,agentReplyAfterToolResultsStream:vi.fn(async()=>({content:original,toolCalls:[]}))}});});
+afterEach(async()=>{scopes.splice(0).forEach(read=>read.dispose());vi.useRealTimers();vi.restoreAllMocks();vi.unstubAllGlobals();await rm(root,{recursive:true,force:true});});
+async function candidate(){return store.upsertPersonalMemory({kind:"current_state",content:original,sourceRefs:[]});}
+async function changeCandidate(){const document=await store.readPersonalMemories();document.records[0].content=changed;await vault.seed(store.personalMemoryPath(),JSON.stringify(document));}
+async function held(name:string){let scope:VaultQueryRead|undefined;const result=await runtime.executeToolCall({callId:"fiction-held-query",toolName:name,arguments:{},source:"kimi"},{assertCurrent:()=>{},onQueryRead:(_result,read)=>{scope=read;scopes.push(read);}});expect(result.success,result.output).toBe(true);expect(scope,"successful queries must hold their actual sources until publication").toBeDefined();return scope!;}
+
+async function scoped(name:StoredQueryName,args:Record<string,unknown>={}){const read=await readStoredQueryWithSources(store,name,args);scopes.push(read);return read;}
+async function setup(name:StoredQueryName){
+ if(name==="list_personal_memory_candidates"){await candidate();return store.personalMemoryPath();}
+ const tool=name==="query_projects"?"propose_project_change":"propose_trading_research_change";
+ const command=name==="query_projects"?{kind:"save_goal",input:{title:original,reason:"纯虚构范围核对"}}:{kind:"save_model",input:{title:"纯虚构模型",entry:original}};
+ const result=await runtime.executeToolCall({callId:"fiction-setup",toolName:tool,arguments:{command},source:"kimi"});expect(result.success,result.output).toBe(true);await runConfirmedToolAction(result.actions[0],{store,refreshViews:async()=>{}});
+ return name==="query_projects"?projectDocumentPath(store):tradingDocumentPath(store);
+}
+const names:StoredQueryName[]=["query_projects","query_trading_research","list_personal_memory_candidates"];
+it.each(names)("%s certifies actual JSON origin and rejects copied/foreign scopes",async name=>{const path=await setup(name),read=await scoped(name);expect(read.text).toContain(original);expect(preparedContextSourcePaths([read.sources],read.text)).toContain(path);expect(isOwnedStoredQueryRead(store,read)).toBe(true);expect(isOwnedStoredQueryRead(store,{...read})).toBe(false);const other=new LifeOpsStore(store.app,structuredClone(store.settings))as unknown as StoreHost;expect(isOwnedStoredQueryRead(other,read)).toBe(false);});
+it.each(names)("%s releases every listener when a receiver refuses the scope",async name=>{await setup(name);const on=vi.fn(()=>({})),offref=vi.fn();Object.assign(vault,{on,offref});const result=await runtime.executeToolCall({callId:"fiction-refused",toolName:name,arguments:{},source:"kimi"},{assertCurrent:()=>{},onQueryRead:()=>{throw Error("fiction-receiver-closed");}});expect(result.success).toBe(false);expect(result.output).not.toContain(original);expect(offref).toHaveBeenCalledTimes(on.mock.calls.length);});
+it.each(names)("%s refuses a modified cache while the real sources still match",async name=>{await setup(name);const request={callId:"fiction-cache",toolName:name,arguments:{},source:"kimi"as const};expect((await runtime.executeToolCall(request)).success).toBe(true);const path=new OperationLedger(store).filePath,document=await store.readJson(path,{version:1,records:[]as any[]});const cached=document.records.find(record=>record.toolName===name);expect(cached).toBeDefined();cached.result.output="伪造的缓存正文";await vault.seed(path,JSON.stringify(document));const result=await runtime.executeToolCall(request);expect(result.success).toBe(false);expect(result.output).toContain("缓存与本次实际原文不一致");});
+it("rejects a copied scope delivered from a replaced stored query implementation",async()=>{await candidate();const tool=getLifeOpsTool("list_personal_memory_candidates")!,execute=tool.execute;vi.spyOn(tool,"execute").mockImplementation((args,context,identity)=>execute(args,{...context,onVaultQueryRead:read=>context.onVaultQueryRead?.({...read})},identity));const result=await runtime.executeToolCall({callId:"fiction-copy",toolName:tool.name,arguments:{},source:"kimi"});expect(result.success).toBe(false);expect(result.output).not.toContain(original);});
+it.each(names)("%s rejects a different canonical source path before reading its content",async name=>{const path=await setup(name),other=store.path(store.settings.folders.ideas,"另一个文件.json");await vault.seed(other,await vault.bytes(path));const get=store.getFile.bind(store),read=vi.spyOn(vault,"cachedRead");vi.spyOn(store,"getFile").mockImplementation(requested=>get(requested===path?other:requested));await expect(scoped(name)).rejects.toThrow(/身份|变化|核对/);expect(read.mock.calls.some(([file])=>file.path===other)).toBe(false);});
+it.each(names)("%s never certifies empty/default records as retained source body",async name=>{const read=await scoped(name);expect(preparedContextSourcePaths([read.sources],read.text)).toEqual([]);});
+it("captures stored query arguments before the caller can mutate them",async()=>{await setup("query_trading_research");const args={query:original},snapshot=store.getTradingSnapshot.bind(store);let mutated=false;vi.spyOn(store,"getTradingSnapshot").mockImplementation(async()=>{if(!mutated){mutated=true;args.query="不存在的后来查询";}return snapshot();});const result=await runtime.executeToolCall({callId:"fiction-argument-change",toolName:"query_trading_research",arguments:args,source:"kimi"});expect(result.success,result.output).toBe(true);expect(mutated).toBe(true);expect(result.output).toContain(original);const ledger=await store.readJson(new OperationLedger(store).filePath,{version:1,records:[]as any[]});expect(ledger.records.find(record=>record.toolName==="query_trading_research")?.arguments.query).toBe(original);});
+it("re-reads a changed candidate under the same provider call ID",async()=>{await candidate();const request={callId:"fiction-reread",toolName:"list_personal_memory_candidates",arguments:{},source:"kimi"as const};expect((await runtime.executeToolCall(request)).output).toContain(original);await changeCandidate();const result=await runtime.executeToolCall(request);expect(result.success,result.output).toBe(true);expect(result.output).toContain(changed);expect(result.output).not.toContain(original);});

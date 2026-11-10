@@ -1,0 +1,190 @@
+{
+  "passRate": 0.125,
+  "questionIds": [
+    "today-unfinished-01",
+    "today-journal-04",
+    "create-client-06",
+    "week-habits-09",
+    "undo-last-12",
+    "delete-reading-14",
+    "greeting-15",
+    "today-completed-16"
+  ],
+  "passedIds": [
+    "today-journal-04"
+  ],
+  "results": [
+    {
+      "id": "today-unfinished-01",
+      "passed": false,
+      "issues": [
+        "未调用工具 list_tasks",
+        "首字时间超标"
+      ],
+      "inputTokens": 7451,
+      "outputTokens": 117,
+      "firstTokenMs": 7877,
+      "totalMs": 7878,
+      "models": [
+        "kimi-k2.6"
+      ],
+      "tools": [
+        {
+          "name": "query_vault",
+          "ok": true
+        }
+      ],
+      "requests": 2,
+      "confirmationActions": []
+    },
+    {
+      "id": "today-journal-04",
+      "passed": true,
+      "issues": [],
+      "inputTokens": 7670,
+      "outputTokens": 214,
+      "firstTokenMs": 6967,
+      "totalMs": 6968,
+      "models": [
+        "kimi-k2.6"
+      ],
+      "tools": [
+        {
+          "name": "query_vault",
+          "ok": true
+        }
+      ],
+      "requests": 2,
+      "confirmationActions": []
+    },
+    {
+      "id": "create-client-06",
+      "passed": false,
+      "issues": [
+        "create_task 未执行，未执行“新建任务”：没有收到明确操作意图，或你已撤回／加了条件。原记录保持不变。",
+        "写入数量 tasks.created 期望 1，实际 0",
+        "新建任务的标题、日期或时间不符",
+        "缺少写入回执"
+      ],
+      "inputTokens": 5465,
+      "outputTokens": 29,
+      "firstTokenMs": 1659,
+      "totalMs": 1659,
+      "models": [
+        "kimi-k2.6"
+      ],
+      "tools": [
+        {
+          "name": "create_task",
+          "ok": false,
+          "detail": "未执行“新建任务”：没有收到明确操作意图，或你已撤回／加了条件。原记录保持不变。"
+        }
+      ],
+      "requests": 1,
+      "confirmationActions": []
+    },
+    {
+      "id": "week-habits-09",
+      "passed": false,
+      "issues": [
+        "未调用工具 get_stats"
+      ],
+      "inputTokens": 7453,
+      "outputTokens": 116,
+      "firstTokenMs": 7067,
+      "totalMs": 7068,
+      "models": [
+        "kimi-k2.6"
+      ],
+      "tools": [
+        {
+          "name": "query_vault",
+          "ok": true
+        }
+      ],
+      "requests": 2,
+      "confirmationActions": []
+    },
+    {
+      "id": "undo-last-12",
+      "passed": false,
+      "issues": [
+        "undo_latest_operation 未执行，未执行“撤销操作”：没有收到明确操作意图，或你已撤回／加了条件。原记录保持不变。",
+        "缺少同义内容 已撤销 / 已经撤销 / 撤销成功",
+        "写入数量 tasks.created 期望 0，实际 1",
+        "撤销后任务仍存在"
+      ],
+      "inputTokens": 11017,
+      "outputTokens": 45,
+      "firstTokenMs": 3438,
+      "totalMs": 5927,
+      "models": [
+        "kimi-k2.6"
+      ],
+      "tools": [
+        {
+          "name": "create_task",
+          "ok": true
+        },
+        {
+          "name": "undo_latest_operation",
+          "ok": false,
+          "detail": "未执行“撤销操作”：没有收到明确操作意图，或你已撤回／加了条件。原记录保持不变。"
+        }
+      ],
+      "requests": 2,
+      "confirmationActions": []
+    },
+    {
+      "id": "delete-reading-14",
+      "passed": false,
+      "issues": [
+        "缺少内容 阅读",
+        "缺少确认卡",
+        "确认卡类型或目标不符，实际 无"
+      ],
+      "inputTokens": 5479,
+      "outputTokens": 44,
+      "firstTokenMs": 11742,
+      "totalMs": 11743,
+      "models": [
+        "kimi-k2.6"
+      ],
+      "tools": [],
+      "requests": 1,
+      "confirmationActions": []
+    },
+    {
+      "id": "greeting-15",
+      "passed": false,
+      "issues": [
+        "首字时间超标"
+      ],
+      "inputTokens": 5478,
+      "outputTokens": 8,
+      "firstTokenMs": 9233,
+      "totalMs": 9234,
+      "models": [
+        "kimi-k2.6"
+      ],
+      "tools": [],
+      "requests": 1,
+      "confirmationActions": []
+    },
+    {
+      "id": "today-completed-16",
+      "passed": false,
+      "issues": [
+        "未调用工具 get_stats"
+      ],
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "firstTokenMs": 53,
+      "totalMs": 54,
+      "models": [],
+      "tools": [],
+      "requests": 0,
+      "confirmationActions": []
+    }
+  ]
+}

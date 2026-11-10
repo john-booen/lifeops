@@ -1,0 +1,25 @@
+/** Generated task IDs and UUIDs are identities, never title fragments. */
+export function isTaskIdentifierReference(reference: string): boolean {
+  // Classify distorted identifiers without using this copy to bind a record.
+  const shape = reference.replace(/\s+/g, "");
+  return /^task[-_:：]/i.test(shape)
+    || /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/i.test(shape);
+}
+
+/** Refuse a copied, explicitly assigned reference instead of inventing its value.
+ * This is a conservative guard for reference-only titles, not a language resolver.
+ * Actual resolution stays with the model and the current, authorized context.
+ */
+export function isCopiedTaskTitleReference(title: string, userMessage = ""): boolean {
+  const assignment = [...userMessage.matchAll(/(?:标题|任务名)(原样|按字面)?(?:写成|写为|设成|设为|是|为|用|叫)\s*[：:]?\s*([^，,。！？!?\r\n]+)/gu)].at(-1);
+  if (!assignment || assignment[1]) return false;
+  const described = assignment[2].trim();
+  // A quote elsewhere in the request cannot turn this assignment into a literal.
+  for (const [left, right] of [["“", "”"], ["「", "」"], ["『", "』"], ['"', '"'], ["‘", "’"], ["'", "'"]]) {
+    if (described === left + title + right) return false;
+  }
+  if (described !== title) return false;
+  return /^(?:刚才|之前|前面|上面|前文|上文|上一句|上句话|那个|这个|其中|那里|这里)[^，,。！？!?]{0,60}(?:数字|编号|号码|名称|名字|标题|内容|步骤)$/u.test(title)
+    // Full noun phrases only: an activity such as "标注照片里的数字" must pass.
+    || /^(?:(?:这|那)(?:个|句|段|条|份|张)?|(?:刚才|之前|上述|前述)(?:提到|说过|提供)?的?|(?:纯)?虚构|测试)?(?:口令|暗号|句子|语句|设定|对话|消息|文本|原文|笔记|便签|备注|表格|报表|照片)(?:里|中|内)(?:面)?的?(?:数字|编号|号码|名称|名字)$/u.test(title);
+}

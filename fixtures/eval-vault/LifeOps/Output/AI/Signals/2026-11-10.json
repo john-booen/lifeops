@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "date": "2026-11-10",
+  "晨": [
+    {
+      "date": "2026-11-10",
+      "period": "晨",
+      "energy": 2,
+      "mood": 2,
+      "stress": 4,
+      "sleepHours": 5.5,
+      "sleepQuality": 2,
+      "keyEvents": [],
+      "plans": [],
+      "ideas": [],
+      "worries": [
+        "感到焦虑"
+      ],
+      "quotes": [
+        {
+          "field": "energy",
+          "text": "精力 2 分"
+        },
+        {
+          "field": "mood",
+          "text": "情绪 2 分"
+        },
+        {
+          "field": "stress",
+          "text": "压力 4 分"
+        },
+        {
+          "field": "sleepHours",
+          "text": "昨晚只睡了 5.5 小时"
+        },
+        {
+          "field": "sleepQuality",
+          "text": "睡眠质量 2 分"
+        }
+      ],
+      "sources": [
+        {
+          "path": "LifeOps/Journal/2026/11/2026-11-10早.md",
+          "sha256": "635a5a53040ea241bc76b7e7480394c49851d2194d3275cac09440cb55a3fda1"
+        }
+      ]
+    }
+  ],
+  "晚": [
+    {
+      "date": "2026-11-10",
+      "period": "晚",
+      "energy": 2,
+      "mood": 2,
+      "stress": 4,
+      "sleepHours": 5.5,
+      "sleepQuality": 2,
+      "keyEvents": [],
+      "plans": [],
+      "ideas": [],
+      "worries": [
+        "感到焦虑"
+      ],
+      "quotes": [
+        {
+          "field": "energy",
+          "text": "精力 2 分"
+        },
+        {
+          "field": "mood",
+          "text": "情绪 2 分"
+        },
+        {
+          "field": "stress",
+          "text": "压力 4 分"
+        },
+        {
+          "field": "sleepHours",
+          "text": "昨晚只睡了 5.5 小时"
+        },
+        {
+          "field": "sleepQuality",
+          "text": "睡眠质量 2 分"
+        }
+      ],
+      "sources": [
+        {
+          "path": "LifeOps/Journal/2026/11/2026-11-10晚.md",
+          "sha256": "83359736a86c67a957df3e14b83f9cce316a47c10b6b28153737340706430412"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,275 @@
+{
+  "schemaVersion": 1,
+  "id": "05_unknown_severity",
+  "synthetic": true,
+  "purpose": "Offline gate contract sample; not a new scan or security conclusion",
+  "input": {
+    "expectedLockSourcePath": "/synthetic/lifeops-ci02/package-lock.json",
+    "packageLock": {
+      "name": "lifeops-ci02-fictional-gate-fixture",
+      "version": "0.0.0",
+      "lockfileVersion": 3,
+      "requires": true,
+      "packages": {
+        "": {
+          "name": "lifeops-ci02-fictional-gate-fixture",
+          "version": "0.0.0",
+          "devDependencies": {
+            "esbuild": "0.28.0",
+            "moment": "2.30.1"
+          }
+        },
+        "node_modules/esbuild": {
+          "version": "0.28.0",
+          "resolved": "https://registry.npmjs.org/esbuild/-/esbuild-0.28.0.tgz",
+          "integrity": "sha512-sNR9MHpXSUV/XB4zmsFKN+QgVG82Cc7+/aaxJ8Adi8hyOac+EXptIp45QBPaVyX3N70664wRbTcLTOemCAnyqw==",
+          "dev": true
+        },
+        "node_modules/moment": {
+          "version": "2.30.1",
+          "resolved": "https://registry.npmjs.org/moment/-/moment-2.30.1.tgz",
+          "integrity": "sha512-uEmtNhbDOrWPFS+hdjFCBfy9f2YoyzRpwcl+DqpC6taX21FzsTLQVbMV/W7PzNSX6x/bhC1zA3c2UQ5NzH6how==",
+          "dev": true
+        }
+      }
+    },
+    "scannerExitCode": 1,
+    "scannerStderr": "",
+    "scannerResult": {
+      "results": [
+        {
+          "source": {
+            "path": "/synthetic/lifeops-ci02/package-lock.json",
+            "type": "lockfile"
+          },
+          "packages": [
+            {
+              "package": {
+                "name": "esbuild",
+                "version": "0.28.0",
+                "ecosystem": "npm",
+                "purl": "pkg:npm/esbuild@0.28.0?source=PUBLIC_REGISTRY"
+              },
+              "dependency_groups": [
+                "dev"
+              ],
+              "groups": [
+                {
+                  "ids": [
+                    "GHSA-g7r4-m6w7-qqqr"
+                  ],
+                  "aliases": [
+                    "GHSA-g7r4-m6w7-qqqr"
+                  ],
+                  "max_severity": "UNKNOWN"
+                }
+              ],
+              "vulnerabilities": [
+                {
+                  "affected": [
+                    {
+                      "database_specific": {
+                        "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/06/GHSA-g7r4-m6w7-qqqr/GHSA-g7r4-m6w7-qqqr.json"
+                      },
+                      "package": {
+                        "ecosystem": "npm",
+                        "name": "esbuild",
+                        "purl": "pkg:npm/esbuild"
+                      },
+                      "ranges": [
+                        {
+                          "events": [
+                            {
+                              "introduced": "0.27.3"
+                            },
+                            {
+                              "fixed": "0.28.1"
+                            }
+                          ],
+                          "type": "SEMVER"
+                        }
+                      ]
+                    }
+                  ],
+                  "database_specific": {
+                    "cwe_ids": [
+                      "CWE-22"
+                    ],
+                    "github_reviewed": true,
+                    "github_reviewed_at": "2026-06-12T20:08:53Z",
+                    "nvd_published_at": null,
+                    "severity": "UNKNOWN"
+                  },
+                  "details": "### Summary\n\nThe development server contains a path traversal vulnerability on Windows when serving files from `servedir`.\n\nDue to the use of `path.Clean()` (which only normalizes forward-slash `/` separators) instead of a Windows-aware path normalization function, it is possible to craft requests using backslashes (`\\`) that bypass the intended directory containment logic. An attacker can escape the configured `servedir` root and access arbitrary files on the filesystem.\nThis issue affects Windows environments only.\n\n### Details\n\nThe request path is sanitized using:\n```go\n// https://github.com/evanw/esbuild/blob/v0.27.3/pkg/api/serve_other.go#L165\nqueryPath := path.Clean(req.URL.Path)[1:]\n```\n\n\nHowever:\n- `path.Clean()` is POSIX-style and only understands `/` (docs: `https://pkg.go.dev/path#Clean`)\n- On Windows, `\\` is a valid path separator\n- `path.Clean()` does not treat `\\` as a separator\n\nLater, the server constructs the absolute path:\n```go\n// https://github.com/evanw/esbuild/blob/v0.27.3/pkg/api/serve_other.go#L221\nabsPath := h.fs.Join(h.servedir, queryPath)\n```\n\nIf `queryPath` contains sequences such as:\n```\n..\\..\\..\\..\\..\\..\\..\\Windows\\system.ini\n```\n\n`path.Clean()` will not normalize them, but the Windows filesystem will interpret `\\` as directory separators when resolving `absPath`.\nBecause the implementation does not verify that the final resolved path remains within `servedir`, it allows directory traversal outside the intended root directory.\n### Vulnerable Code\n\n```go\n// https://github.com/evanw/esbuild/blob/v0.27.3/pkg/api/serve_other.go#L165\n\tqueryPath := path.Clean(req.URL.Path)[1:]\n\t....\n\t// Check for a file in the \"servedir\" directory\n\tif h.servedir != \"\" && kind != fs.FileEntry {\n\t\tabsPath := h.fs.Join(h.servedir, queryPath)\n\t\tif absDir := h.fs.Dir(absPath); absDir != absPath {\n\t\t\tif entries, err, _ := h.fs.ReadDirectory(absDir); err == nil {\n\t\t\t\tif entry, _ := entries.Get(h.fs.Base(absPath)); entry != nil && entry.Kind(h.fs) == fs.FileEntry {\n\t....\t\t\t\t\n```\n\n\n### Steps to reproduce\n\n```\nnpm install --save-exact --save-dev esbuild\n\necho \"console.log(1)\" > app.js\n\n.\\node_modules\\.bin\\esbuild --version\n0.27.3\n\n.\\node_modules\\.bin\\esbuild app.js --bundle --outdir=www --servedir=www --watch\n\ncurl -i --path-as-is \"http://localhost:8000/..\\..\\..\\..\\..\\..\\..\\Windows\\system.ini\"\n<content of Windows\\system.ini>\n```\n\n\n### Impact\n\n- Arbitrary file read on Windows\n- Exposure of sensitive files",
+                  "id": "GHSA-g7r4-m6w7-qqqr",
+                  "modified": "2026-09-10T03:50:49.427692265Z",
+                  "published": "2026-06-12T20:08:53Z",
+                  "references": [
+                    {
+                      "type": "WEB",
+                      "url": "https://github.com/evanw/esbuild/security/advisories/GHSA-g7r4-m6w7-qqqr"
+                    },
+                    {
+                      "type": "PACKAGE",
+                      "url": "https://github.com/evanw/esbuild"
+                    },
+                    {
+                      "type": "WEB",
+                      "url": "https://github.com/evanw/esbuild/releases/tag/v0.28.1"
+                    }
+                  ],
+                  "schema_version": "1.9.0",
+                  "severity": [
+                    {
+                      "score": "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:N/I:L/A:N",
+                      "type": "CVSS_V3"
+                    }
+                  ],
+                  "summary": "esbuild allows arbitrary file read when running the development server on Windows"
+                }
+              ]
+            },
+            {
+              "package": {
+                "name": "moment",
+                "version": "2.30.1",
+                "ecosystem": "npm",
+                "purl": "pkg:npm/moment@2.30.1?source=PUBLIC_REGISTRY"
+              },
+              "groups": [
+                {
+                  "ids": [
+                    "GHSA-4p3w-j4w9-5jqw"
+                  ],
+                  "aliases": [
+                    "CVE-2026-17495",
+                    "GHSA-4p3w-j4w9-5jqw"
+                  ],
+                  "max_severity": "5.9"
+                }
+              ],
+              "vulnerabilities": [
+                {
+                  "affected": [
+                    {
+                      "database_specific": {
+                        "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/09/GHSA-4p3w-j4w9-5jqw/GHSA-4p3w-j4w9-5jqw.json"
+                      },
+                      "package": {
+                        "ecosystem": "npm",
+                        "name": "moment",
+                        "purl": "pkg:npm/moment"
+                      },
+                      "ranges": [
+                        {
+                          "events": [
+                            {
+                              "introduced": "2.29.2"
+                            },
+                            {
+                              "fixed": "2.31.0"
+                            }
+                          ],
+                          "type": "SEMVER"
+                        }
+                      ]
+                    }
+                  ],
+                  "aliases": [
+                    "CVE-2026-17495"
+                  ],
+                  "database_specific": {
+                    "cwe_ids": [
+                      "CWE-27"
+                    ],
+                    "github_reviewed": true,
+                    "github_reviewed_at": "2026-09-29T23:46:02Z",
+                    "nvd_published_at": "2026-09-15T06:16:57Z",
+                    "severity": "MODERATE"
+                  },
+                  "details": "### Impact\n\nmoment before 2.31.0 is vulnerable to path traversal in `moment.locale()`. When an application passes a non-string, attacker-influenced value to `moment.locale()`, a specially crafted object can bypass the locale name validation and cause moment to load a file from an attacker-controlled path. This is a further bypass of the validation added in 2.29.2 for [CVE-2022-24785](https://github.com/moment/moment/security/advisories/GHSA-8hfj-j24r-96c4).\n\nThis affects server-side (npm) users only. Plain string input is not affected: the existing validation correctly rejects strings that contain path separators.\n\n### Patches\n\nThis issue is patched in moment 2.31.0.\n\n### Workarounds\n\nValidate that any user-supplied input is a string before passing it to `moment.locale()`.",
+                  "id": "GHSA-4p3w-j4w9-5jqw",
+                  "modified": "2026-09-30T00:00:03.858466235Z",
+                  "published": "2026-09-29T23:46:02Z",
+                  "references": [
+                    {
+                      "type": "WEB",
+                      "url": "https://github.com/moment/moment/security/advisories/GHSA-4p3w-j4w9-5jqw"
+                    },
+                    {
+                      "type": "ADVISORY",
+                      "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-17495"
+                    },
+                    {
+                      "type": "WEB",
+                      "url": "https://github.com/moment/moment/pull/6386"
+                    },
+                    {
+                      "type": "WEB",
+                      "url": "https://github.com/moment/moment/commit/5f7d983c9881e65e07574de9dda3190d99520c07"
+                    },
+                    {
+                      "type": "WEB",
+                      "url": "https://cna.openjsf.org/security-advisories.html"
+                    },
+                    {
+                      "type": "PACKAGE",
+                      "url": "https://github.com/moment/moment"
+                    },
+                    {
+                      "type": "WEB",
+                      "url": "https://github.com/moment/moment/releases/tag/2.31.0"
+                    }
+                  ],
+                  "schema_version": "1.9.0",
+                  "severity": [
+                    {
+                      "score": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:H/A:N",
+                      "type": "CVSS_V3"
+                    }
+                  ],
+                  "summary": "moment vulnerable to Path Traversal via crafted non-string locale name"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "expected": {
+    "gate": "fail",
+    "reason": "unclassified_severity",
+    "expectedPackageVersions": 2,
+    "observedPackageVersions": 2,
+    "affectedId": "GHSA-g7r4-m6w7-qqqr",
+    "noSecurityConclusion": true
+  },
+  "derivation": {
+    "sources": {
+      "beforeResult": {
+        "relativePath": "output/dependency-offline-20261014-01/scan-result-04.json",
+        "sha256": "176cbfd35f0236ad9ee79592f54cb6c180000c41c66612b67d1a96ec5907fa28"
+      },
+      "beforeLock": {
+        "relativePath": "output/dependency-offline-20261014-01/scan-input/package-lock.json",
+        "sha256": "f34916e21c39acc4462cf7bfb390bbf121e8433c3a25d3f71cb575851003e37b"
+      },
+      "afterResult": {
+        "relativePath": "output/dependency-offline-20261014-01/scan-after-private-patch.json",
+        "sha256": "476ed628f1eaa306808dff58e39d347fc8dbca5ef76ca024b0079860fa707de3"
+      },
+      "afterLock": {
+        "relativePath": "output/dependency-offline-20261014-01/patch-workspace/package-lock.json",
+        "sha256": "44ba03e3296e6190aea59fd81cfd338905e18d1572a23a42506e19a629ee24fb"
+      }
+    },
+    "changes": [
+      "Two package records copied from the pinned afterResult, including their original vulnerability and group objects.",
+      "Source path replaced with a synthetic absolute path; root lock identity is fictional.",
+      "Lock entries reduced to exact selected versions and original resolved/integrity fields; not suitable for installation.",
+      "All scanner exit codes and failure mutations are fixture inputs, not newly observed process results.",
+      "Only the esbuild label and group score are changed to UNKNOWN. This does not describe the actual advisory."
+    ]
+  }
+}

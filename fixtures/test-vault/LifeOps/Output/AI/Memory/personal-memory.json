@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "updatedAt": "2026-08-23T00:00:00.000Z",
+  "records": [
+    {
+      "id": "personal_env01_conclusion_first",
+      "kind": "user_rule",
+      "content": "测试用户希望回答先说结论",
+      "status": "active",
+      "truth": "explicit_fact",
+      "sensitive": false,
+      "confidence": 0.95,
+      "sourceRefs": [
+        {
+          "sourceId": "env-01-fixture",
+          "path": "TEST_VAULT_ONLY.md",
+          "capturedAt": "2026-08-23T00:00:00.000Z"
+        }
+      ],
+      "createdAt": "2026-08-23T00:00:00.000Z",
+      "updatedAt": "2026-08-23T00:00:00.000Z",
+      "confirmedAt": "2026-08-23T00:00:00.000Z",
+      "revisions": [],
+      "tags": [
+        "fixture"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "path": "LifeOps/Knowledge/Reading/角色设定表与镜头连续性.md",
+      "title": "角色设定表与镜头连续性",
+      "summary": "固定服装、色彩和标志道具后，用相邻镜头核对角色一致性。",
+      "ideaIds": [
+        "idea-eval-1111111111111111"
+      ],
+      "trackIds": [
+        "ai"
+      ],
+      "keywords": [
+        "角色设定",
+        "镜头连续性",
+        "一致性"
+      ],
+      "sourceRevision": "93c17eb678b1d8ca1df33f492cc5e68682554c6975ad185514fdb0d68c896a74",
+      "updatedAt": "2026-11-11T18:00:00+08:00"
+    }
+  ]
+}

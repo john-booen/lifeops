@@ -1,0 +1,13 @@
+{
+  "model": "kimi-k2.6",
+  "choices": [
+    {
+      "index": 0,
+      "finish_reason": "length",
+      "message": {
+        "role": "assistant",
+        "content": "这是虚构的一段尚未完成的总结。"
+      }
+    }
+  ]
+}

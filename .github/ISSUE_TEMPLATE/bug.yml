@@ -1,0 +1,16 @@
+name: 问题反馈
+description: 用一组虚构数据说明问题
+body:
+  - type: input
+    id: version
+    attributes:
+      label: 插件版本与操作系统
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: 复现步骤、期望与实际行为
+      description: 请使用虚构任务和匿名截图，勿附原日记、绝对路径或 API Key。
+    validations:
+      required: true

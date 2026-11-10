@@ -1,0 +1,83 @@
+{
+  "ai": {
+    "provider": "off",
+    "endpoint": "",
+    "apiKey": "",
+    "model": "",
+    "fallbackProvider": "off",
+    "fallbackEndpoint": "",
+    "fallbackApiKey": "",
+    "fallbackModel": "",
+    "confidenceThreshold": 0.78
+  },
+  "vision": {
+    "provider": "off",
+    "endpoint": "",
+    "apiKey": "",
+    "model": "",
+    "cameraEnabled": false,
+    "cameraMode": "off",
+    "snapshotIntervalMs": 60000,
+    "privacyNoticeAccepted": false,
+    "screenEnabled": false,
+    "screenPrivacyNoticeAccepted": false,
+    "screenAnalysisMinIntervalMs": 30000
+  },
+  "embedding": {
+    "provider": "off",
+    "endpoint": "",
+    "apiKey": "",
+    "model": "",
+    "topK": 5
+  },
+  "voice": {
+    "provider": "off",
+    "endpoint": "",
+    "apiKey": "",
+    "model": "",
+    "language": "zh",
+    "aliyunAccessKeyId": "",
+    "aliyunAccessKeySecret": "",
+    "aliyunAppKey": "",
+    "aliyunRegionId": "cn-beijing",
+    "aliyunEndpoint": "",
+    "ossRegion": "",
+    "ossBucket": "",
+    "ossPrefix": "lifeops/test-only",
+    "ossSignedUrlExpires": 3600,
+    "pollIntervalMs": 3000,
+    "pollTimeoutMs": 120000
+  },
+  "realtimeVoice": {
+    "provider": "off",
+    "mode": "cascade",
+    "endpoint": "",
+    "apiKey": "",
+    "model": "",
+    "ttsModel": "",
+    "ttsVoice": "Cherry",
+    "omniVoice": "Tina",
+    "ttsSampleRate": 24000,
+    "language": "zh-CN",
+    "autoSendOnStop": false,
+    "cloudFallback": false,
+    "speakReplies": false,
+    "triggerEnabled": false,
+    "triggerPhrases": "",
+    "triggerSessionTimeoutSec": 45
+  },
+  "gateway": {
+    "inboxFile": "LifeOps/Inbox/外部输入.md",
+    "sharedSecret": ""
+  },
+  "proactive": {
+    "enabled": false,
+    "level": 0,
+    "quietHoursStart": 23,
+    "quietHoursEnd": 7,
+    "minMinutesBetweenCandidates": 90,
+    "dailyLimit": 0,
+    "systemNotificationsEnabled": false,
+    "highPriorityVoiceEnabled": false
+  }
+}

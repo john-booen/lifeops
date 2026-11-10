@@ -1,0 +1,149 @@
+{
+  "version": 1,
+  "tracks": [
+    {
+      "id": "english",
+      "name": "英语",
+      "goal": "完成一段英语口语自我介绍",
+      "weeklyMinutes": 150,
+      "folders": [
+        "LifeOps/Knowledge/Learning/英语"
+      ],
+      "units": [
+        {
+          "id": "unit-english-1",
+          "title": "音标和重音",
+          "status": "done",
+          "doneAt": "2026-11-10"
+        },
+        {
+          "id": "unit-english-2",
+          "title": "基础听辨",
+          "status": "done",
+          "doneAt": "2026-11-10"
+        },
+        {
+          "id": "unit-english-3",
+          "title": "连读与弱读",
+          "status": "todo"
+        },
+        {
+          "id": "unit-english-4",
+          "title": "短句跟读",
+          "status": "todo"
+        },
+        {
+          "id": "unit-english-5",
+          "title": "常用词块",
+          "status": "todo"
+        },
+        {
+          "id": "unit-english-6",
+          "title": "日常问答",
+          "status": "todo"
+        },
+        {
+          "id": "unit-english-7",
+          "title": "听写练习",
+          "status": "todo"
+        },
+        {
+          "id": "unit-english-8",
+          "title": "录音自评",
+          "status": "todo"
+        }
+      ],
+      "sessions": [
+        {
+          "date": "2026-11-09",
+          "minutes": 30,
+          "notePath": "LifeOps/Knowledge/Learning/英语/虚构跟读.md"
+        },
+        {
+          "date": "2026-11-11",
+          "minutes": 45,
+          "notePath": "LifeOps/Knowledge/Learning/英语/虚构跟读.md"
+        }
+      ],
+      "nextPlan": {
+        "from": "2026-11-16",
+        "goal": "先把连读与弱读练顺",
+        "weeklyMinutes": 100,
+        "folders": [
+          "LifeOps/Knowledge/Learning/英语"
+        ],
+        "units": [
+          {
+            "id": "unit-english-3",
+            "title": "连读与弱读",
+            "status": "todo"
+          },
+          {
+            "id": "unit-english-4",
+            "title": "短句跟读",
+            "status": "todo"
+          }
+        ]
+      }
+    },
+    {
+      "id": "quant",
+      "name": "量化",
+      "goal": "理解回测可信度",
+      "weeklyMinutes": 120,
+      "folders": [
+        "LifeOps/Knowledge/Learning/量化"
+      ],
+      "units": [
+        {
+          "id": "unit-quant-1",
+          "title": "回测前提",
+          "status": "done",
+          "doneAt": "2026-11-10"
+        },
+        {
+          "id": "unit-quant-2",
+          "title": "样本外检验",
+          "status": "todo"
+        },
+        {
+          "id": "unit-quant-3",
+          "title": "手续费",
+          "status": "todo"
+        },
+        {
+          "id": "unit-quant-4",
+          "title": "未来函数",
+          "status": "todo"
+        },
+        {
+          "id": "unit-quant-5",
+          "title": "滑点",
+          "status": "todo"
+        },
+        {
+          "id": "unit-quant-6",
+          "title": "参数稳定性",
+          "status": "todo"
+        },
+        {
+          "id": "unit-quant-7",
+          "title": "回测报告",
+          "status": "todo"
+        },
+        {
+          "id": "unit-quant-8",
+          "title": "复盘样例",
+          "status": "todo"
+        }
+      ],
+      "sessions": [
+        {
+          "date": "2026-11-10",
+          "minutes": 40,
+          "notePath": "LifeOps/Knowledge/Learning/量化/虚构回测基础.md"
+        }
+      ]
+    }
+  ]
+}

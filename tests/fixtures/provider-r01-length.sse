@@ -1,0 +1,5 @@
+data: {"model":"kimi-k2.6","choices":[{"index":0,"delta":{"role":"assistant","content":"这是虚构的一段尚未完成的总结。"},"finish_reason":null}]}
+
+data: {"model":"kimi-k2.6","choices":[{"index":0,"delta":{},"finish_reason":"length"}]}
+
+data: [DONE]

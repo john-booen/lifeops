@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "targets": {
+    "src/agentRuntime.ts": "Runtime",
+    "src/toolRegistry.ts": "Runtime",
+    "src/privacy.ts": "privacy",
+    "src/dataFoundation/factOperation.ts": "undo",
+    "src/dataFoundation/operationLedger.ts": "undo"
+  },
+  "files": {
+    "src/agentRuntime.ts": {
+      "group": "Runtime",
+      "lines": {
+        "total": 112,
+        "covered": 110
+      },
+      "branches": {
+        "total": 109,
+        "covered": 100
+      }
+    },
+    "src/privacy.ts": {
+      "group": "privacy",
+      "lines": {
+        "total": 45,
+        "covered": 43
+      },
+      "branches": {
+        "total": 35,
+        "covered": 31
+      }
+    },
+    "src/toolRegistry.ts": {
+      "group": "Runtime",
+      "lines": {
+        "total": 427,
+        "covered": 367
+      },
+      "branches": {
+        "total": 396,
+        "covered": 300
+      }
+    },
+    "src/dataFoundation/factOperation.ts": {
+      "group": "undo",
+      "lines": {
+        "total": 200,
+        "covered": 196
+      },
+      "branches": {
+        "total": 228,
+        "covered": 199
+      }
+    },
+    "src/dataFoundation/operationLedger.ts": {
+      "group": "undo",
+      "lines": {
+        "total": 73,
+        "covered": 72
+      },
+      "branches": {
+        "total": 46,
+        "covered": 42
+      }
+    }
+  },
+  "provenance": {
+    "schemaVersion": 1,
+    "status": "coverage_completed",
+    "reportSha256": "c0ba4076b71e94f3f584e348b50a9ccb6ef43159a7b8e35006a3f59c1b09a6fc",
+    "sources": {
+      "src/agentRuntime.ts": "67bbaa973e9e2d4dcf9d0a898fcc2cefc6100fa6d957081f5ee7f510e43aa3b9",
+      "src/companionIpc.ts": "62670bcf39af5e6731cdc7340df1596a2bde84d656fcd486f1451e9703e38367",
+      "src/dataFoundation/factOperation.ts": "c022d48f610cf6c33b3e201b512c94160286eb81be959f5ede4f10a8532df57f",
+      "src/dataFoundation/operationLedger.ts": "5648f924cc90f1b4d5f640b3c08b72ccd10ef1d5e381518c251150cb40551fce",
+      "src/privacy.ts": "2e2a56528231b3cfab3f3082d94df169014a38657d0d8d29753074c2bba8442c",
+      "src/toolRegistry.ts": "3b9d4b8d826755e6ebe00ea05b82a0ecdffe3cf496b0c609321c9d4c8e2472f2"
+    },
+    "policySha256": "c8a728dc75cf740682313ea9520ad0195af9b5a3122fb4f33eef825063d8c442",
+    "node": "v25.9.0"
+  }
+}

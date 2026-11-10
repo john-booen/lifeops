@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "cards": [
+    {
+      "id": "quiz-eval-quant-1",
+      "trackId": "quant",
+      "question": "样本外检验使用什么数据？",
+      "answer": "样本外数据不参与参数选择。",
+      "sourcePath": "LifeOps/Knowledge/Learning/量化/虚构回测基础.md",
+      "sourceQuote": "样本外数据不参与参数选择。",
+      "ease": 3,
+      "intervalDays": 0,
+      "due": "2026-11-12",
+      "history": []
+    },
+    {
+      "id": "quiz-eval-quant-2",
+      "trackId": "quant",
+      "question": "回测的净收益怎样计算？",
+      "answer": "净收益等于毛收益减去交易成本。",
+      "sourcePath": "LifeOps/Knowledge/Learning/量化/虚构回测基础.md",
+      "sourceQuote": "净收益等于毛收益减去交易成本。",
+      "ease": 3,
+      "intervalDays": 0,
+      "due": "2026-11-12",
+      "history": []
+    },
+    {
+      "id": "quiz-eval-quant-3",
+      "trackId": "quant",
+      "question": "未来函数会给回测带来什么问题？",
+      "answer": "未来函数会引入交易当时不可得的信息。",
+      "sourcePath": "LifeOps/Knowledge/Learning/量化/虚构回测基础.md",
+      "sourceQuote": "未来函数会引入交易当时不可得的信息。",
+      "ease": 3,
+      "intervalDays": 0,
+      "due": "2026-11-12",
+      "history": []
+    }
+  ],
+  "active": {
+    "date": "2026-11-12",
+    "cardIds": [
+      "quiz-eval-quant-1",
+      "quiz-eval-quant-2",
+      "quiz-eval-quant-3"
+    ]
+  }
+}

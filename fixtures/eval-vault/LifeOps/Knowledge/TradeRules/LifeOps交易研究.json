@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "id": "trade-model-111111111111111111111111",
+      "versions": [
+        {
+          "id": "trade-version-111111111111111111111111",
+          "modelId": "trade-model-111111111111111111111111",
+          "previousVersionId": "",
+          "title": "虚构突破",
+          "market": "虚构多市场",
+          "entry": "核对预设条件",
+          "exit": "触及预设止损价立即退出。",
+          "invalid": "",
+          "riskBudget": "",
+          "environment": "",
+          "costs": "",
+          "rationale": "评测虚构规则",
+          "sourcePath": "LifeOps/Knowledge/TradeRules/虚构突破.md",
+          "sourceHash": "1cb757fec17631b2b889abd599f0349017e4a1eb35ec9246d5fd3b1b64999697",
+          "revision": 1,
+          "updatedAt": "2026-10-25T12:00:00+08:00",
+          "rules": [
+            {
+              "id": "eval-stop-1",
+              "text": "触及预设止损价立即退出。",
+              "kind": "exit",
+              "checkable": true,
+              "sourcePath": "LifeOps/Knowledge/TradeRules/虚构突破.md",
+              "quote": "触及预设止损价立即退出。"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "trade-model-222222222222222222222222",
+      "versions": [
+        {
+          "id": "trade-version-222222222222222222222222",
+          "modelId": "trade-model-222222222222222222222222",
+          "previousVersionId": "",
+          "title": "虚构回踩",
+          "market": "虚构多市场",
+          "entry": "核对预设条件",
+          "exit": "触及预设止损价立即退出。",
+          "invalid": "",
+          "riskBudget": "",
+          "environment": "",
+          "costs": "",
+          "rationale": "评测虚构规则",
+          "sourcePath": "LifeOps/Knowledge/TradeRules/虚构回踩.md",
+          "sourceHash": "61657f0f92caa2875f75d247ec17f540789e618c86b2dafb67d3c3386ee2053f",
+          "revision": 1,
+          "updatedAt": "2026-10-25T12:00:00+08:00",
+          "rules": [
+            {
+              "id": "eval-stop-2",
+              "text": "触及预设止损价立即退出。",
+              "kind": "exit",
+              "checkable": true,
+              "sourcePath": "LifeOps/Knowledge/TradeRules/虚构回踩.md",
+              "quote": "触及预设止损价立即退出。"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "cases": []
+}

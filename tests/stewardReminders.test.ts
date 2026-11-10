@@ -1,0 +1,230 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { App } from "obsidian";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { DEFAULT_SETTINGS } from "../src/defaults";
+import { formatDate } from "../src/date";
+import type { FactOperationOptions } from "../src/dataFoundation/factOperation";
+import { LifeOpsEventBus } from "../src/lifeOpsEventBus";
+import { decideProactiveDelivery, emptyProactivePolicyState, recordProactiveDelivery } from "../src/proactivePolicy";
+import { stewardCandidate, type ProactiveCandidate } from "../src/scheduler";
+import type { StoreHost } from "../src/store/settingsSlice";
+
+vi.mock("obsidian", () => ({
+  App: class {}, Notice: class {}, TFile: class {}, TFolder: class {}, Modal: class {}, ItemView: class {}, WorkspaceLeaf: class {},
+  normalizePath: (path: string) => path.replace(/\\/g, "/"), parseYaml: JSON.parse, stringifyYaml: JSON.stringify,
+  setIcon: vi.fn()
+}));
+
+const { AgentRuntime } = await import("../src/agentRuntime");
+const { LifeOpsStore } = await import("../src/store");
+const { LifeOpsView } = await import("../src/lifeOpsView");
+const { DiskVault } = await import("./helpers/diskVault");
+const { listIdeas } = await import("../src/features/ideas/notes");
+const { collectStewardCandidates, deliverStewardReminder, queueTaskOverload, runStewardReminders, startStewardReminders, withWeeklySummary } = await import("../src/features/review/reminders");
+const { buildTodayCard } = await import("../src/features/today/model");
+const { readSummaryScope, renderSummary, summaryPath } = await import("../src/features/summaries/notes");
+const { summaryPeriod } = await import("../src/features/summaries/periods");
+type ReviewHost = import("../src/features/review/service").ReviewHost;
+
+const now = (day: number, hour: number, minute = 0) => new Date(2026, 10, day, hour, minute);
+let root: string, store: StoreHost, vault: InstanceType<typeof DiskVault>, runtime: InstanceType<typeof AgentRuntime>;
+let host: ReviewHost, delivered: ProactiveCandidate[];
+
+beforeEach(async () => {
+  root = await mkdtemp(join(tmpdir(), "lifeops-steward-reminders-"));
+  vault = new DiskVault(root);
+  const settings = structuredClone(DEFAULT_SETTINGS);
+  const app = { vault } as unknown as App;
+  store = new LifeOpsStore(app, settings) as unknown as StoreHost;
+  await store.initializeVault();
+  runtime = new AgentRuntime({ store, refreshViews: async () => undefined });
+  delivered = [];
+  host = {
+    app, store, settings, unloaded: false, proactiveCycleRunning: false, lifeOpsEvents: new LifeOpsEventBus(),
+    proactiveLifecycle: { generation: 1, isCurrent: () => true, schedule: vi.fn() },
+    dispatchProactiveCandidate: (candidate: ProactiveCandidate) => delivered.push(candidate),
+    refreshViews: async () => undefined,
+    async saveLocalOperation(name: string, args: Record<string, unknown>, execute: (scope: StoreHost) => Promise<unknown>, options?: FactOperationOptions) {
+      const result = await runtime.executeLocalOperation(name, args, execute, undefined, options);
+      if (!result.success) throw Error(result.output);
+    }
+  } as unknown as ReviewHost;
+});
+afterEach(async () => { vi.useRealTimers(); vi.unstubAllGlobals(); await rm(root, { recursive: true, force: true }); });
+
+async function seedIdea(title: string, lastProgress: string, reminders: string[] = []) {
+  const path = store.path(store.settings.folders.ideas, title + ".md");
+  const original = "虚构想法正文。";
+  await vault.seed(path, "---\n" + JSON.stringify({
+    lifeops: "idea", status: "exploring", created: "2026-10-01", lastProgress, nextReview: "2026-11-01",
+    nextAction: "核对虚构例子", sources: [], ideaReminderDays: reminders
+  }) + "\n---\n\n" + original + "\n");
+  return { path, original };
+}
+
+it("shares the current debt between home and the morning brief, without writing a second assessment", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(now(12, 21));
+  await store.createHabit({ name: "虚构储蓄", frequencyUnit: "day", frequencyInterval: 1, targetCount: 1,
+    startDate: "2026-11-12", punishment: { enabled: true, rules: [{ kind: "save_money", amount: 50, currency: "CNY" }] } });
+  await store.checkPunishments(now(12, 21));
+  vi.setSystemTime(now(16, 8));
+  const today = "2026-11-16", point = now(16, 8);
+  const before = await vault.bytes(store.taskDbPath());
+  const card = buildTodayCard(await store.getTaskDashboard(today), [], point);
+  expect(card.compensationSummary).toBe("欠 1 项 · 最长已拖 3 天 · 应存 200 元");
+  startStewardReminders(host, point);
+  await runStewardReminders(host, point);
+  const brief = delivered.find(item => item.kind === "daily_brief")!;
+  expect(brief).toMatchObject({ voiceEligible: true, reason: expect.stringMatching(/^补偿欠 1 项，最长已拖 3 天，应存 200 元。/u) });
+  expect(await vault.bytes(store.taskDbPath())).toBe(before);
+  const announce = vi.fn();
+  const view = Object.assign(Object.create(LifeOpsView.prototype), { speakStewardReminder: announce });
+  Object.assign(host.app, { workspace: { getLeavesOfType: () => [{ view }] } });
+  host.settings.realtimeVoice.speakReplies = false;
+  deliverStewardReminder(host, brief);
+  expect(announce).not.toHaveBeenCalled();
+  host.settings.realtimeVoice.speakReplies = true;
+  deliverStewardReminder(host, brief);
+  expect(announce).toHaveBeenCalledExactlyOnceWith("早间简报。" + brief.reason);
+
+  const [task] = (await store.readTaskDb()).tasks;
+  await store.completeTask(task.id);
+  const next = now(17, 8);
+  const state = { ...emptyProactivePolicyState(), firstOpen: next.toISOString() };
+  const after = await collectStewardCandidates(store, state, next, undefined);
+  expect(after.find(item => item.kind === "daily_brief")?.reason).toMatch(/^目前没有未完成的补偿。/u);
+  store.settings.privacy = { ...store.settings.privacy, excludedVaultPrefixes: [store.settings.folders.tasks] };
+  const excluded = await collectStewardCandidates(store, state, next, undefined);
+  expect(excluded.find(item => item.kind === "daily_brief")?.reason).toMatch(/^补偿欠账暂时无法核对。/u);
+});
+
+it("simulates three calendar days with real saved reminders, strict quiet hours, and same-kind cooldown", async () => {
+  const older = await seedIdea("虚构旧想法", "2026-10-02", ["2026-11-12"]);
+  await seedIdea("虚构较新想法", "2026-10-19");
+  await store.createTask({ title: "虚构优先任务", date: "2026-11-13", quadrant: "important-urgent" });
+  startStewardReminders(host, now(13, 6, 30));
+  await runStewardReminders(host, now(13, 6, 59));
+  expect(delivered).toEqual([]);
+  await runStewardReminders(host, now(13, 7));
+  await runStewardReminders(host, now(13, 14));
+  await runStewardReminders(host, now(13, 21));
+  await runStewardReminders(host, now(13, 23));
+  expect(delivered.map(item => item.kind)).toEqual(["daily_brief", "stalled_idea", "evening_review"]);
+  expect(delivered[0].reason).toContain("虚构优先任务");
+
+  startStewardReminders(host, now(14, 5, 45));
+  await runStewardReminders(host, now(14, 5, 45));
+  startStewardReminders(host, now(14, 9));
+  await runStewardReminders(host, now(14, 9));
+  queueTaskOverload(host, "first", "今天已排 5 个，平时大约完成 3 个。", now(14, 14));
+  await runStewardReminders(host, now(14, 14));
+  queueTaskOverload(host, "second", "今天已排 6 个，平时大约完成 3 个。", now(14, 14, 30));
+  await runStewardReminders(host, now(14, 14, 30));
+  await runStewardReminders(host, now(14, 15, 30));
+  await runStewardReminders(host, now(14, 21));
+  expect(delivered.slice(3).map(item => item.kind)).toEqual(["task_overload", "stalled_idea", "task_overload", "evening_review"]);
+
+  startStewardReminders(host, now(15, 8));
+  await runStewardReminders(host, now(15, 8));
+  await runStewardReminders(host, now(15, 14));
+  await runStewardReminders(host, now(15, 19, 59));
+  await runStewardReminders(host, now(15, 20));
+  await runStewardReminders(host, now(15, 21));
+  expect(delivered.slice(7).map(item => item.kind)).toEqual(["daily_brief", "stalled_idea", "weekly_review", "evening_review"]);
+  expect(delivered[8]).toMatchObject({ priority: "high", voiceEligible: true, reason: expect.stringContaining("继续、暂停还是放弃") });
+  expect(delivered[9].reason).toContain("下周学习");
+  const week = summaryPeriod("week", "2026-11-15"), summary = summaryPath(store, week);
+  const scope = await readSummaryScope(store);
+  await vault.seed(summary, renderSummary(week, week.to, scope.hash,
+    { taskCompletionPercent: 25, tasksCompleted: 1, energy: null, tradePnlCny: null, tradePnlUsd: null },
+    7, true, "model", "虚构周摘要"));
+  expect(await withWeeklySummary(store, [delivered[9]])).toMatchObject([{ summaryPath: summary, reason: expect.stringContaining("本周摘要已可查看") }]);
+  const state = await store.readProactivePolicyState();
+  expect(state.deliveries).toHaveLength(11);
+  for (const day of [13, 14, 15]) {
+    const events = state.deliveries.filter(row => formatDate(new Date(row.deliveredAt)) === formatDate(now(day, 0)));
+    expect(events.length).toBeLessThanOrEqual(6);
+    expect(events.every(row => new Date(row.deliveredAt).getHours() >= 7 && new Date(row.deliveredAt).getHours() < 23)).toBe(true);
+  }
+  const ideas = await listIdeas(store);
+  expect(ideas.find(idea => idea.path === older.path)?.ideaReminderDays).toEqual(["2026-11-12", "2026-11-13", "2026-11-14", "2026-11-15"]);
+  expect(await vault.bytes(older.path)).toContain(older.original);
+  expect(ideas.find(idea => idea.path !== older.path)?.ideaReminderDays).toEqual([]);
+  expect((await store.readProactiveCandidates(20)).filter(item => item.steward)).toHaveLength(11);
+});
+
+it("queues an overload once, after a real chat task is saved and verified", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(now(15, 12));
+  for (const day of [12, 13, 14]) {
+    const task = await store.createTask({ title: "虚构已完成任务 " + day, date: formatDate(now(day, 0)), estimateMin: 30 });
+    await store.updateTask(task.id, previous => ({ ...previous, status: "completed", completedAt: now(day, 10).toISOString() }));
+  }
+  await store.createTask({ title: "虚构今日已有任务", date: "2026-11-15", estimateMin: 20 });
+  const onTaskOverload = vi.fn();
+  const chat = new AgentRuntime({ store, refreshViews: async () => undefined, onTaskOverload });
+  const call = { id: "synthetic-overload", name: "create_task", arguments: { title: "虚构今天新任务", date: "今天", estimateMin: 30 } };
+  expect((await chat.executeAiToolCall(call, "kimi")).success).toBe(true);
+  expect(onTaskOverload).toHaveBeenCalledOnce();
+  const [id, reason] = onTaskOverload.mock.calls[0];
+  expect((await store.getTask(id))?.title).toBe("虚构今天新任务");
+  expect(reason).toContain("今天已排 2 个");
+  expect((await chat.executeAiToolCall(call, "kimi")).success).toBe(true);
+  expect(onTaskOverload).toHaveBeenCalledOnce();
+});
+
+it("does not persist a pending reminder if its lifecycle was disabled during data collection", async () => {
+  const original = store.getTaskDashboard.bind(store);
+  const current = vi.spyOn(host.proactiveLifecycle, "isCurrent");
+  vi.spyOn(store, "getTaskDashboard").mockImplementationOnce(async (...args) => {
+    const board = await original(...args);
+    current.mockReturnValue(false);
+    return board;
+  });
+  startStewardReminders(host, now(15, 8));
+  await runStewardReminders(host, now(15, 8));
+  expect(delivered).toEqual([]);
+  expect((await store.readProactivePolicyState()).deliveries).toEqual([]);
+});
+
+it("caps all steward channels at six reminders and keeps automated writes out of conversational undo", async () => {
+  const point = now(15, 21);
+  let state = emptyProactivePolicyState();
+  for (let index = 0; index < 6; index++) {
+    const reminder = stewardCandidate(now(15, 8), "task_overload", "虚构提醒", "虚构事实", { key: String(index) });
+    state = recordProactiveDelivery(state, reminder, "panel", now(15, 8));
+  }
+  const next = stewardCandidate(point, "evening_review", "虚构晚间检查", "虚构事实");
+  expect(decideProactiveDelivery(next, state, { ...DEFAULT_SETTINGS.proactive, dailyLimit: 20 }, point).reason).toBe("daily_limit");
+  const userPath = "虚构操作.md";
+  await runtime.executeLocalOperation("user_edit", {}, scope => scope.writeFile(userPath, "虚构手动操作"));
+  startStewardReminders(host, now(15, 8));
+  await runStewardReminders(host, now(15, 8));
+  await runtime.undoLatestOperation();
+  expect(store.getFile(userPath)).toBeNull();
+  expect((await store.readProactivePolicyState()).deliveries).toHaveLength(1);
+});
+
+it("speaks high priority reminders only during an idle, active voice session", () => {
+  const speak = vi.fn();
+  vi.stubGlobal("window", { speechSynthesis: { speak, speaking: false, pending: false } });
+  vi.stubGlobal("SpeechSynthesisUtterance", class { lang = ""; constructor(readonly text: string) {} });
+  let sessionPhase = "stopped";
+  let currentTurn: { phase: string } | null = null;
+  const view = {
+    agentVoiceRuntime: { snapshot: () => ({ sessionPhase, currentTurn, inputQueue: [] }) },
+    controller: { settings: { realtimeVoice: { language: "zh-CN" } } }
+  } as unknown as InstanceType<typeof LifeOpsView>;
+  const announce = () => LifeOpsView.prototype.speakStewardReminder.call(view, "虚构高优先级提醒");
+  announce();
+  sessionPhase = "listening"; currentTurn = { phase: "playing" };
+  announce();
+  expect(speak).not.toHaveBeenCalled();
+  currentTurn = null;
+  announce();
+  expect(speak).toHaveBeenCalledOnce();
+  expect(speak.mock.calls[0][0]).toMatchObject({ text: "虚构高优先级提醒", lang: "zh-CN" });
+});

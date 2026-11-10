@@ -1,0 +1,13 @@
+/node_modules/
+/main.js
+/dist/
+/output/
+/test-vault/
+/coverage/
+*.log
+.env
+.env.*
+**/release.config.json
+**/sensitive-terms.txt
+**/breeze-paths.json
+/docs/eval/20??-??-??*.md

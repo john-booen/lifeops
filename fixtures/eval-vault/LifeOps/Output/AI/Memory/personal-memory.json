@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "updatedAt": "2026-11-09T12:00:00+08:00",
+  "records": [
+    {
+      "id": "personal_19vbdvs",
+      "kind": "core_profile",
+      "content": "我每周三晚上整理读书笔记。",
+      "status": "active",
+      "truth": "explicit_fact",
+      "sensitive": false,
+      "confidence": 0.88,
+      "sourceRefs": [
+        {
+          "sourceId": "eval-steward-0",
+          "path": "LifeOps/Knowledge/虚构管家偏好.md",
+          "capturedAt": "2026-11-09T12:00:00+08:00"
+        }
+      ],
+      "createdAt": "2026-11-09T12:00:00+08:00",
+      "updatedAt": "2026-11-09T12:00:00+08:00",
+      "revisions": [],
+      "tags": [],
+      "confirmedAt": "2026-11-09T12:00:00+08:00"
+    },
+    {
+      "id": "personal_1cbv6ks",
+      "kind": "user_rule",
+      "content": "比较方案时我习惯用两列对照表。",
+      "status": "active",
+      "truth": "explicit_fact",
+      "sensitive": false,
+      "confidence": 0.88,
+      "sourceRefs": [
+        {
+          "sourceId": "eval-steward-1",
+          "path": "LifeOps/Knowledge/虚构管家偏好.md",
+          "capturedAt": "2026-11-09T12:00:00+08:00"
+        }
+      ],
+      "createdAt": "2026-11-09T12:00:00+08:00",
+      "updatedAt": "2026-11-09T12:00:00+08:00",
+      "revisions": [],
+      "tags": [],
+      "confirmedAt": "2026-11-09T12:00:00+08:00"
+    }
+  ]
+}

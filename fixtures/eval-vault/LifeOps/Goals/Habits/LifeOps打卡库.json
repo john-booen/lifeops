@@ -1,0 +1,489 @@
+{
+  "habits": [
+    {
+      "id": "habit-eval-run",
+      "name": "跑步",
+      "frequencyUnit": "week",
+      "frequencyInterval": 1,
+      "targetCount": 4,
+      "target": {
+        "kind": "boolean"
+      },
+      "startDate": "2026-10-16",
+      "penaltyThreshold": 3,
+      "color": "#3498db",
+      "createdAt": "2026-10-16T08:00:00+08:00",
+      "source": "eval-fixture",
+      "punishment": {
+        "enabled": true,
+        "rules": [
+          {
+            "kind": "reflection",
+            "minChars": 200
+          }
+        ]
+      }
+    },
+    {
+      "id": "habit-eval-save",
+      "name": "攒钱",
+      "frequencyUnit": "day",
+      "frequencyInterval": 1,
+      "targetCount": 1,
+      "target": {
+        "kind": "number",
+        "unit": "元",
+        "perDay": 100
+      },
+      "startDate": "2026-10-16",
+      "penaltyThreshold": 3,
+      "color": "#3498db",
+      "createdAt": "2026-10-16T08:00:00+08:00",
+      "source": "eval-fixture",
+      "punishment": {
+        "enabled": false,
+        "rules": []
+      }
+    },
+    {
+      "id": "habit-eval-read",
+      "name": "阅读",
+      "frequencyUnit": "day",
+      "frequencyInterval": 1,
+      "targetCount": 1,
+      "target": {
+        "kind": "number",
+        "unit": "分钟",
+        "perDay": 30
+      },
+      "startDate": "2026-10-16",
+      "penaltyThreshold": 3,
+      "color": "#3498db",
+      "createdAt": "2026-10-16T08:00:00+08:00",
+      "source": "eval-fixture",
+      "punishment": {
+        "enabled": false,
+        "rules": []
+      }
+    },
+    {
+      "id": "habit-eval-trade",
+      "name": "每日交易",
+      "frequencyUnit": "day",
+      "frequencyInterval": 1,
+      "targetCount": 10,
+      "target": {
+        "kind": "number",
+        "unit": "笔",
+        "perDay": 10
+      },
+      "startDate": "2026-10-16",
+      "penaltyThreshold": 3,
+      "color": "#3498db",
+      "createdAt": "2026-10-16T08:00:00+08:00",
+      "source": "trades",
+      "punishment": {
+        "enabled": false,
+        "rules": []
+      }
+    }
+  ],
+  "checkins": [
+    {
+      "habitId": "habit-eval-save",
+      "date": "2026-10-16",
+      "status": "done",
+      "count": 1,
+      "value": 100,
+      "updatedAt": "2026-10-16T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-save",
+      "date": "2026-10-17",
+      "status": "done",
+      "count": 1,
+      "value": 100,
+      "updatedAt": "2026-10-17T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-read",
+      "date": "2026-10-17",
+      "status": "done",
+      "count": 1,
+      "value": 30,
+      "updatedAt": "2026-10-17T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-save",
+      "date": "2026-10-18",
+      "status": "done",
+      "count": 1,
+      "value": 100,
+      "updatedAt": "2026-10-18T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-run",
+      "date": "2026-10-19",
+      "status": "done",
+      "count": 1,
+      "value": 5,
+      "updatedAt": "2026-10-19T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-save",
+      "date": "2026-10-19",
+      "status": "done",
+      "count": 1,
+      "value": 100,
+      "updatedAt": "2026-10-19T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-read",
+      "date": "2026-10-19",
+      "status": "done",
+      "count": 1,
+      "value": 30,
+      "updatedAt": "2026-10-19T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-save",
+      "date": "2026-10-20",
+      "status": "done",
+      "count": 1,
+      "value": 100,
+      "updatedAt": "2026-10-20T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-save",
+      "date": "2026-10-21",
+      "status": "done",
+      "count": 1,
+      "value": 100,
+      "updatedAt": "2026-10-21T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-read",
+      "date": "2026-10-21",
+      "status": "done",
+      "count": 1,
+      "value": 30,
+      "updatedAt": "2026-10-21T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-save",
+      "date": "2026-10-22",
+      "status": "done",
+      "count": 1,
+      "value": 100,
+      "updatedAt": "2026-10-22T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-save",
+      "date": "2026-10-23",
+      "status": "done",
+      "count": 1,
+      "value": 100,
+      "updatedAt": "2026-10-23T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-read",
+      "date": "2026-10-23",
+      "status": "done",
+      "count": 1,
+      "value": 30,
+      "updatedAt": "2026-10-23T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-save",
+      "date": "2026-10-24",
+      "status": "done",
+      "count": 1,
+      "value": 100,
+      "updatedAt": "2026-10-24T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-save",
+      "date": "2026-10-25",
+      "status": "done",
+      "count": 1,
+      "value": 100,
+      "updatedAt": "2026-10-25T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-read",
+      "date": "2026-10-25",
+      "status": "done",
+      "count": 1,
+      "value": 30,
+      "updatedAt": "2026-10-25T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-run",
+      "date": "2026-10-26",
+      "status": "done",
+      "count": 1,
+      "value": 5,
+      "updatedAt": "2026-10-26T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-save",
+      "date": "2026-10-26",
+      "status": "done",
+      "count": 1,
+      "value": 100,
+      "updatedAt": "2026-10-26T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-save",
+      "date": "2026-10-27",
+      "status": "done",
+      "count": 1,
+      "value": 100,
+      "updatedAt": "2026-10-27T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-read",
+      "date": "2026-10-27",
+      "status": "done",
+      "count": 1,
+      "value": 30,
+      "updatedAt": "2026-10-27T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-save",
+      "date": "2026-10-28",
+      "status": "done",
+      "count": 1,
+      "value": 100,
+      "updatedAt": "2026-10-28T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-save",
+      "date": "2026-10-29",
+      "status": "done",
+      "count": 1,
+      "value": 100,
+      "updatedAt": "2026-10-29T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-read",
+      "date": "2026-10-29",
+      "status": "done",
+      "count": 1,
+      "value": 30,
+      "updatedAt": "2026-10-29T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-save",
+      "date": "2026-10-30",
+      "status": "done",
+      "count": 1,
+      "value": 100,
+      "updatedAt": "2026-10-30T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-save",
+      "date": "2026-10-31",
+      "status": "done",
+      "count": 1,
+      "value": 100,
+      "updatedAt": "2026-10-31T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-read",
+      "date": "2026-10-31",
+      "status": "done",
+      "count": 1,
+      "value": 30,
+      "updatedAt": "2026-10-31T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-save",
+      "date": "2026-11-01",
+      "status": "done",
+      "count": 1,
+      "value": 100,
+      "updatedAt": "2026-11-01T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-run",
+      "date": "2026-11-02",
+      "status": "done",
+      "count": 1,
+      "value": 5,
+      "updatedAt": "2026-11-02T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-save",
+      "date": "2026-11-02",
+      "status": "done",
+      "count": 1,
+      "value": 100,
+      "updatedAt": "2026-11-02T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-read",
+      "date": "2026-11-02",
+      "status": "done",
+      "count": 1,
+      "value": 30,
+      "updatedAt": "2026-11-02T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-save",
+      "date": "2026-11-03",
+      "status": "done",
+      "count": 1,
+      "value": 100,
+      "updatedAt": "2026-11-03T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-save",
+      "date": "2026-11-04",
+      "status": "done",
+      "count": 1,
+      "value": 100,
+      "updatedAt": "2026-11-04T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-read",
+      "date": "2026-11-04",
+      "status": "done",
+      "count": 1,
+      "value": 30,
+      "updatedAt": "2026-11-04T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-save",
+      "date": "2026-11-05",
+      "status": "done",
+      "count": 1,
+      "value": 100,
+      "updatedAt": "2026-11-05T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-save",
+      "date": "2026-11-06",
+      "status": "done",
+      "count": 1,
+      "value": 100,
+      "updatedAt": "2026-11-06T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-read",
+      "date": "2026-11-06",
+      "status": "done",
+      "count": 1,
+      "value": 30,
+      "updatedAt": "2026-11-06T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-save",
+      "date": "2026-11-07",
+      "status": "done",
+      "count": 1,
+      "value": 100,
+      "updatedAt": "2026-11-07T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-save",
+      "date": "2026-11-08",
+      "status": "done",
+      "count": 1,
+      "value": 100,
+      "updatedAt": "2026-11-08T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-read",
+      "date": "2026-11-08",
+      "status": "done",
+      "count": 1,
+      "value": 30,
+      "updatedAt": "2026-11-08T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-run",
+      "date": "2026-11-09",
+      "status": "done",
+      "count": 1,
+      "value": 5,
+      "updatedAt": "2026-11-09T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-save",
+      "date": "2026-11-09",
+      "status": "done",
+      "count": 1,
+      "value": 100,
+      "updatedAt": "2026-11-09T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-read",
+      "date": "2026-11-10",
+      "status": "done",
+      "count": 1,
+      "value": 30,
+      "updatedAt": "2026-11-10T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-save",
+      "date": "2026-11-12",
+      "status": "done",
+      "count": 1,
+      "value": 100,
+      "updatedAt": "2026-11-12T18:00:00+08:00",
+      "note": "虚构打卡"
+    },
+    {
+      "habitId": "habit-eval-read",
+      "date": "2026-11-12",
+      "status": "done",
+      "count": 1,
+      "value": 30,
+      "updatedAt": "2026-11-12T18:00:00+08:00",
+      "note": "虚构打卡"
+    }
+  ]
+}
