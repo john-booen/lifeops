@@ -351,6 +351,9 @@ export class AgentLoop {
     if (tools.some(tool => tool.name === "list_tasks")) {
       guidance.push("只问未完成总数和最要紧的 N 项时，用一个 list_tasks 调用：order=priority、limit=N、directReply=true，不用 plan_today。");
     }
+    if (tools.some(tool => tool.name === "get_stats")) {
+      guidance.push("问连续几天的睡眠、情绪或精力趋势，先用 get_stats，domain=journal。最近三天用 range=last_3d。要找原因、原话或具体事件时，再查同一范围的日记。");
+    }
     if (input.source === "voice" && !input.voiceBackground) {
       guidance.push("普通短问先说结论，第一句简短并以句号收尾。需要判断和解释时再补一句。");
     }
@@ -388,8 +391,8 @@ export class AgentLoop {
     if (evidenceCalls.some(call => call.name === "get_stats" && call.args?.domain === "trades" && call.args?.groupBy === "market")) {
       guidance.push("用户问各市场时，逐一列出统计 groups 中有记录的市场，名称沿用 key。胜率用各市场对应币种的 winPercent，遇到多种币种就分开列。");
     }
-    if (evidenceCalls.some(call => call.name === "learning_progress")) {
-      guidance.push("用户问本周实际学了多久，直接报 recordedMinutes。weeklyMinutes 是本周计划目标，只在问目标或进度对比时引用。差值是距离目标还差的分钟数，不能说成实际学习或未登记的时长。只回答这次问的时间范围。");
+    if (evidenceCalls.some(call => call.name === "learning_progress" || call.name === "get_stats" && call.args?.domain === "learning")) {
+      guidance.push("用户问实际学了多久，要带上核对到的学习轨道名称和本轮时段，再报 recordedMinutes 或统计里的 minutes。即使是在纠正前一句，也不能只回一个数字。weeklyMinutes 是本周计划目标；差值不是已学习或未登记时长。");
     }
     if (evidenceCalls.some(call => call.name === "get_summaries")) {
       guidance.push("历史总结只用用户所问的日期范围。已有摘要能回答就直接答，缺项才查同一日期范围。不要把本周习惯混进上周，也不要附带额外建议。");

@@ -8,7 +8,7 @@ import type { LearningTrack } from "../learning/model";
 import { tradeStats, type TradeStatGroup, type TradeStatsSettings } from "./trades";
 
 export type StatsDomain = "tasks" | "habits" | "journal" | "trades" | "ideas" | "learning";
-export const statsNamedRanges = ["today", "this_week", "last_week", "last_7d", "this_month", "last_month", "last_30d"] as const;
+export const statsNamedRanges = ["today", "last_3d", "this_week", "last_week", "last_7d", "this_month", "last_month", "last_30d"] as const;
 export type StatsRange = { from: string; to: string } | typeof statsNamedRanges[number];
 export type StatsGroup = "category" | TradeStatGroup;
 export interface StatsRequest {
@@ -64,7 +64,7 @@ export function resolveStatsRange(range: StatsRange, now: Date): DayRange {
     return { from: to.slice(0, 7) + "-01", to };
   }
   const start = {
-    today, this_week: startOfWeek(today), last_7d: addDays(today, -6),
+    today, last_3d: addDays(today, -2), this_week: startOfWeek(today), last_7d: addDays(today, -6),
     this_month: today.slice(0, 7) + "-01", last_30d: addDays(today, -29)
   };
   if (!Object.hasOwn(start, range)) throw Error("不支持这个统计区间。");

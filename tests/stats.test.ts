@@ -133,6 +133,21 @@ describe("habit statistics", () => {
 });
 
 describe("journal statistics", () => {
+  it("computes the last three calendar dates across a month boundary", () => {
+    const result = getStats({ domain: "journal", range: "last_3d" }, {
+      journal: [
+        { date: "2026-01-30", signals: { sleepHours: 9 } },
+        { date: "2026-01-31", signals: { sleepHours: 5.5 } },
+        { date: "2026-02-01", signals: { sleepHours: 5.5 } },
+        { date: "2026-02-02", signals: { sleepHours: 5.5 } }
+      ]
+    }, now);
+    expect(result).toMatchObject({
+      range: { from: "2026-01-31", to: "2026-02-02" },
+      count: 3, signalAverages: { sleepHours: 5.5 }
+    });
+  });
+
   it("reports known zero notes and missing signal values", () => {
     expect(getStats({ domain: "journal", range: "today" }, {}, now)).toMatchObject({
       count: 0, signalAverages: { energy: null, mood: null, stress: null, sleepHours: null, sleepQuality: null }
