@@ -6,6 +6,7 @@ import { habitDateEvidence } from "../features/stats/habitEvidence";
 import { backgroundStatsTool } from "../features/stats/tools";
 import { resolveStatsRange } from "../features/stats/stats";
 import { formatHabitCompensationReply, formatTaskListReply, formatVoiceTaskPriorities, habitCompensationQuestion, voiceTaskPriorityTool } from "../features/tasks/planTools";
+import { planCapacityEvidence } from "../features/tasks/capacityEvidence";
 import { weekendClarification } from "../features/tasks/weekendClarification";
 import { waitForFactOperations } from "../dataFoundation/factOperation";
 import { ensureToolCallId, newLocalOperationId } from "../operationIdentity";
@@ -269,12 +270,14 @@ export class AgentLoop {
       }
       assertPolicy();
       if (input.source === "text" && !state.receipts.size && !state.confirmations.size && !state.errorCode) {
-        const outputs = messages.flatMap(message => message.tool_calls ?? [])
-          .filter(call => call.function.name === "get_stats")
-          .map(call => state.results.get(call.id)).filter(result => result?.success).reverse();
-        const dates = outputs.map(result => habitDateEvidence(result!.output, state.text)).find(Boolean);
-        if (dates) {
-          const addition = "\n\n" + dates;
+        const evidence = messages.flatMap(message => message.tool_calls ?? []).reverse().map(call => {
+          const result = state.results.get(call.id);
+          if (!result?.success) return;
+          if (call.function.name === "get_stats") return habitDateEvidence(result.output, state.text);
+          if (call.function.name === "plan_today") return planCapacityEvidence(result.output, state.text);
+        }).filter(Boolean).slice(0, 2);
+        if (evidence.length) {
+          const addition = "\n\n" + evidence.join("\n");
           state.text += addition;
           input.onText?.(addition);
         }
