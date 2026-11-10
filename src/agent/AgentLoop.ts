@@ -358,7 +358,7 @@ export class AgentLoop {
       guidance.push("普通短问先说结论，第一句简短并以句号收尾。需要判断和解释时再补一句。");
     }
     if (!input.voiceBackground && messages.at(-1)?.role === "user") {
-      guidance.push("用户纠正时以最新说法为准。结合刚才的问题理解短确认，问题和范围清楚就查询后直接回答，不反问或只说你继续说。");
+      guidance.push("只说「不对」或「不对不对」时，回到上一条用户问题的明确主题和时段；助手刚才说错的时段不能覆盖用户原话。本轮若改了日期，以新日期为准。明确已结束的周月先用 get_summaries。只说「对」按刚核对的问题直接查询。范围已清楚就不要反问或只道歉。");
     }
     if (input.voiceBackground) guidance.push("这是只读的后台分析。核对所需资料后直接回答原问题，避免添加无关建议。");
     if (input.voiceBackground && tools.some(tool => tool.name === "get_stats" || tool.name === "get_summaries")) {
