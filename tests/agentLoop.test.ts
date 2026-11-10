@@ -337,6 +337,18 @@ describe("unified agent loop", () => {
     expect(result.usage.inputTokens).toBe(40);
   });
 
+  it("reports the full remaining count and only the requested highest-priority tasks", async () => {
+    const date = formatDate(now);
+    await store.createTask({ title: "虚构归档", date, quadrant: "not-important-not-urgent" });
+    await store.createTask({ title: "虚构核对计划", date, quadrant: "important-not-urgent" });
+    await store.createTask({ title: "虚构验收", date, quadrant: "important-urgent" });
+    responses.push(reply("", [tool("list_tasks", { date, order: "priority", limit: 2 })]));
+    const result = await new AgentLoop(host).run(input({ message: "今天还剩几项，只说最要紧的两件。" }));
+    expect(requests).toHaveLength(1);
+    expect(result.text).toBe("今天还有 3 项未完成任务。先做：虚构验收、虚构核对计划。");
+    expect((await store.readTaskDb({ readOnly: true })).tasks).toHaveLength(3);
+  });
+
   it("expands advanced tools when the short-text model selects that capability", async () => {
     responses.push(reply("", [tool("load_more_tools", {})]), reply("已准备好查询项目。"));
     const result = await new AgentLoop(host).run(input({ message: "查我的项目" }));

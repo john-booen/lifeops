@@ -226,7 +226,8 @@ export class AgentLoop {
           else if (round === 0 && call.name === "undo_latest_operation") reply = single.output;
           else if (round === 0 && fastVoice && call.name === "get_stats") reply = formatVoiceStats(single.output, call.arguments);
           else if (round === 0 && fastVoice && call.name === "plan_today") reply = formatVoiceTaskPriorities(single.output, call.arguments);
-          else if (round === 0 && call.name === "list_tasks" && call.arguments.directReply === true && call.arguments.category === undefined) {
+          else if (round === 0 && call.name === "list_tasks" && call.arguments.category === undefined
+            && (call.arguments.directReply === true || call.arguments.order === "priority" && Number.isInteger(call.arguments.limit))) {
             reply = formatTaskListReply(single.output, formatDate(input.now));
           } else if (input.source === "text" && single.actions.length === 1
             && (requiredTool === "propose_task_plan" || call.name === "delete_habit" || call.name === "delete_task")) {
@@ -334,6 +335,9 @@ export class AgentLoop {
       if (deniedConditionalUndo) {
         guidance.push("上次撤销未执行。重读本轮用户原话：确实要求先查就完成查询，查不到就保留记录；用户只说撤销就更正为 {} 再试。不要把被拒绝的调用说成已经撤销。");
       }
+    }
+    if (tools.some(tool => tool.name === "list_tasks")) {
+      guidance.push("只问未完成总数和最要紧的 N 项时，用一个 list_tasks 调用：order=priority、limit=N、directReply=true，不用 plan_today。");
     }
     if (input.source === "voice" && !input.voiceBackground) {
       guidance.push("普通短问先说结论，第一句简短并以句号收尾。需要判断和解释时再补一句。");

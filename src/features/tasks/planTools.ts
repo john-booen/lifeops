@@ -6,7 +6,7 @@ import type { LifeOpsToolDefinition, ToolExecutionContext } from "../../toolRegi
 import { currentSignalValues } from "../journal/signals";
 import { todayTaskCounts } from "../stats/stats";
 import { taskCategory, taskDraftRoom, taskEstimates } from "./capacity";
-import { todayTaskPlan } from "./priority";
+import { prioritizeTasks, todayTaskPlan } from "./priority";
 import { advanceCompensationDebt, compensationDueLabel } from "../habits/compensationDebt";
 
 async function planningInputs(context: ToolExecutionContext) {
@@ -24,25 +24,28 @@ async function planningInputs(context: ToolExecutionContext) {
 export const TASK_PLANNING_TOOLS: LifeOpsToolDefinition[] = [
   {
     name: "list_tasks",
-    description: "只读查询任务，默认今日未完成。用户只要清单才设 directReply=true。用户要求改期应调用 reschedule_task。问习惯未达标或补偿时设 category=punishment。",
+    description: "查今天未完成任务。问总数和最要紧的 N 项：order=priority、limit=N、directReply=true。补偿设 category=punishment。",
     safety: "safe",
     parameters: { type: "object", additionalProperties: false, properties: {
       date: { type: "string", description: "日期，省略为今天。" },
       status: { type: "string", enum: ["active", "completed", "all"] },
       category: { type: "string", enum: ["punishment"], description: "查补偿待办时可不限定日期。" },
       habitName: { type: "string", description: "只查这一项习惯的补偿时填写习惯名称。" },
-      directReply: { type: "boolean", description: "只列清单时为 true。需要建议或后续动作时省略。" },
-      limit: { type: "integer", minimum: 1, maximum: 30 }
+      directReply: { type: "boolean", description: "只需要清单或简短提醒时为 true；需要详细建议或后续动作时省略。" },
+      order: { type: "string", enum: ["priority"], description: "用户问最要紧的待办时按优先级排序。" },
+      limit: { type: "integer", minimum: 1, maximum: 30, description: "列出几项就填几，不改变返回的总数。" }
     } },
     async execute(args, context) {
       const date = args.date === undefined ? todayString() : typeof args.date === "string" ? normalizeJournalDate(args.date) : "";
       const status = args.status === undefined ? "active" : args.status;
       const limit = args.limit === undefined ? 20 : args.limit;
       const penalties = args.category === "punishment";
+      const ordered = args.order === "priority";
       const habitName = typeof args.habitName === "string" ? args.habitName.trim().normalize("NFKC") : "";
       const anyDate = penalties && args.date === undefined;
       if (!date || typeof status !== "string" || !["active", "completed", "all"].includes(status)
         || (args.category !== undefined && !penalties)
+        || (args.order !== undefined && (!ordered || status !== "active" || penalties))
         || (args.habitName !== undefined && (!penalties || !habitName || habitName.length > 40))
         || (args.directReply !== undefined && typeof args.directReply !== "boolean")
         || typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > 30) {
@@ -69,9 +72,11 @@ export const TASK_PLANNING_TOOLS: LifeOpsToolDefinition[] = [
       const items = visible.filter(task => (anyDate || task.date === date || task.dueDate === date)
         && (status === "all" || task.status === status) && (!penalties || task.category === "punishment")
         && (!selectedHabit || task.habitPunishment?.habitId === selectedHabit));
+      const selected = ordered ? prioritizeTasks(items, new Date(), undefined, estimate).map(item => item.task) : items;
       return { success: true, output: JSON.stringify({ date: anyDate ? null : date, status, count: items.length, scope, truncated: items.length > limit,
+        ...(ordered ? { order: "priority" } : {}),
         ...(selectedHabit ? { compensationEnabled: enabled } : {}),
-        tasks: items.slice(0, limit).map(task => ({ id: task.id, title: protect(task.title), time: taskScheduleLabel(task),
+        tasks: selected.slice(0, limit).map(task => ({ id: task.id, title: protect(task.title), time: taskScheduleLabel(task),
           quadrant: task.quadrant, category: protect(taskCategory(task)), status: task.status, estimateMin: estimate(task),
           ...(task.habitPunishment?.evidence ? { evidence: protect(task.habitPunishment.evidence), dueDate: task.dueDate,
             ...(penalties ? { compensationDue: compensationDueLabel(task.habitPunishment) } : {}) } : {}) })) }), actions: [] };
@@ -132,12 +137,16 @@ export function formatHabitCompensationReply(name: string, output: string): stri
 }
 
 export function formatTaskListReply(output: string, today: string): string | undefined {
-  let list: { date: string; status: string; count: number; tasks: Array<{ title: string; time?: string }>; scope?: string; truncated?: boolean };
+  let list: { date: string; status: string; count: number; tasks: Array<{ title: string; time?: string }>; scope?: string; truncated?: boolean; order?: string };
   try { list = JSON.parse(output); } catch { return undefined; }
   if (!list || typeof list.date !== "string" || !Number.isSafeInteger(list.count) || list.count < 0
     || !Array.isArray(list.tasks) || list.tasks.some(task => typeof task?.title !== "string")) return undefined;
   const day = list.date === today ? "今天" : list.date;
   const status = list.status === "active" ? "未完成任务" : list.status === "completed" ? "已完成任务" : "任务";
+  if (list.order === "priority") {
+    const first = list.tasks.map(task => task.title).join("、");
+    return `${day}还有 ${list.count} 项${status}。${first ? "先做：" + first + "。" : ""}${list.scope ? list.scope + "。" : ""}`;
+  }
   const lines = [`${day}有 ${list.count} 个${status}。`,
     ...list.tasks.map((task, index) => `${index + 1}. ${task.title}${task.time ? `（${task.time}）` : ""}`)];
   if (list.truncated) lines.push(`以上是前 ${list.tasks.length} 个。`);
