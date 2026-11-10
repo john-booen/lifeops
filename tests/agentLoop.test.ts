@@ -349,6 +349,21 @@ describe("unified agent loop", () => {
     expect((await store.readTaskDb({ readOnly: true })).tasks).toHaveLength(3);
   });
 
+  it.each(["get_stats", "query_vault"])("adds verified habit dates only from the stats tool (%s)", async name => {
+    const answer = "虚构存钱在11月11日没达标。";
+    const report = { domain: "habits", range: { from: "2026-11-09", to: "2026-11-12" },
+      habits: [{ name: "虚构存钱", goals: [{ period: "day", missedDates: ["2026-11-10", "2026-11-11"] }] }] };
+    vi.spyOn(host, "executeTools").mockImplementation(async calls => calls.map(call =>
+      ({ callId: call.id!, success: true, output: JSON.stringify(report), actions: [] })));
+    responses.push(reply("", [tool(name, name === "get_stats" ? { domain: "habits", range: "this_week" }
+      : { domain: "note", operation: "search", query: "虚构统计" })]), reply(answer));
+    const streamed: string[] = [];
+    const result = await new AgentLoop(host).run(input({ message: "复核本周虚构习惯", onText: chunk => streamed.push(chunk) }));
+    expect(result.text).toBe(name === "get_stats"
+      ? answer + "\n\n核对到的未达标日期：「虚构存钱」11-10、11-11。" : answer);
+    expect(streamed.join("")).toContain(answer);
+  });
+
   it("expands advanced tools when the short-text model selects that capability", async () => {
     responses.push(reply("", [tool("load_more_tools", {})]), reply("已准备好查询项目。"));
     const result = await new AgentLoop(host).run(input({ message: "查我的项目" }));

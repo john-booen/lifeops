@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { AiChatResult, AiToolCall, AiToolDefinition, ChatMessage, LifeOpsAi } from "../ai";
 import type { ToolCallResult } from "../agentRuntime";
 import { formatDate } from "../date";
+import { habitDateEvidence } from "../features/stats/habitEvidence";
 import { backgroundStatsTool } from "../features/stats/tools";
 import { resolveStatsRange } from "../features/stats/stats";
 import { formatHabitCompensationReply, formatTaskListReply, formatVoiceTaskPriorities, habitCompensationQuestion, voiceTaskPriorityTool } from "../features/tasks/planTools";
@@ -267,6 +268,17 @@ export class AgentLoop {
         if (needsVoiceJobSummary(state.text)) state.voiceSpeech = await this.summarizeVoiceAnalysis(input, state);
       }
       assertPolicy();
+      if (input.source === "text" && !state.receipts.size && !state.confirmations.size && !state.errorCode) {
+        const outputs = messages.flatMap(message => message.tool_calls ?? [])
+          .filter(call => call.function.name === "get_stats")
+          .map(call => state.results.get(call.id)).filter(result => result?.success).reverse();
+        const dates = outputs.map(result => habitDateEvidence(result!.output, state.text)).find(Boolean);
+        if (dates) {
+          const addition = "\n\n" + dates;
+          state.text += addition;
+          input.onText?.(addition);
+        }
+      }
       return this.result(state);
     } catch (error) {
       state.usageKnown = false;
