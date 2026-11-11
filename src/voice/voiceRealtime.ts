@@ -46,6 +46,7 @@ import { formatDate, todayString } from "../date";
 import type { StoreHost } from "../store/settingsSlice";
 import { backgroundVoiceQuestion, VoiceJobManager, voiceJobSpeech, type VoiceJob } from "./jobs";
 import { isExactVoiceApproval, voiceActionPrompt } from "./actionConfirmation";
+import { classifyPlaybackInput } from "./playbackInput";
 
 type VoiceRealtimeView = any;
 const FALLBACK_TTS_FIRST_AUDIO_TIMEOUT_MS = 5_000;
@@ -63,6 +64,8 @@ const ordinaryMainResponses = new WeakMap<VoiceSessionController, {
 const cancelledVoiceInputs = new WeakMap<object, {text: string; client: BailianRealtimeClient}>();
 const activeCascadeCapture = new WeakMap<object, ServerVoiceEndpoint>();
 const freshCascadeTranscripts = new WeakMap<object, string>();
+const cascadePlaybackCaptures = new WeakSet<ServerVoiceEndpoint>();
+const pendingCascadeInterruptions = new WeakMap<object, AbortController>();
 const voiceConfirmations = new WeakMap<object, { turnId: string; action: AgentActionSuggestion; played: boolean }>();
 const jobManagers = new WeakMap<object, { revision: string | undefined; manager: VoiceJobManager }>();
 const jobPlayback = new WeakMap<object, { id: string; turnId: string; manager: VoiceJobManager; failed?: boolean }>();
@@ -109,7 +112,7 @@ function maybeAnnounceVoiceJob(view: VoiceRealtimeView): void {
     || view.viewClosed || view.agentMode !== "voice" || !view.agentRecording || !view.agentVoiceReady
     || !view.controller.settings.realtimeVoice.speakReplies || view.agentBusy || view.agentVoiceSendInFlight
     || view.agentSpeaking || view.agentVoiceSystemSpeechActive || view.agentVoiceLocalSpeechActive
-    || activeCascadeCapture.get(view)?.awaitingTranscript || view.voiceSession.inputQueue.length
+    || activeCascadeCapture.get(view)?.awaitingTranscript || pendingCascadeInterruptions.has(view) || view.voiceSession.inputQueue.length
     || view.currentVoiceMessageText() || hasActiveVoiceRuntimeTurn(view)
     || confirmation?.played && view.pendingAgentActions.includes(confirmation.action)
     || omniTurnSettlements.get(view)?.current()) return;
@@ -434,8 +437,11 @@ export function handleCascadeCapture(view: VoiceRealtimeView, endpoint: ServerVo
   activeCascadeCapture.set(view, endpoint);
   const capture = endpoint.accept(event);
   if (!capture) return;
-  const playing = Boolean(view.agentSpeaking || view.agentVoiceSystemSpeechActive || view.agentVoiceLocalSpeechActive);
+  const playing = Boolean(view.agentSpeaking || view.agentVoiceSystemSpeechActive
+    || view.agentAudioOutput?.snapshot?.()?.status === "playing");
   if (event.type === "started") {
+    if (playing) cascadePlaybackCaptures.add(endpoint);
+    else cascadePlaybackCaptures.delete(endpoint);
     freshCascadeTranscripts.delete(view);
     resetVoiceLatencyCapture(view);
     clearCascadePreview(view);
@@ -457,12 +463,44 @@ export function handleCascadeCapture(view: VoiceRealtimeView, endpoint: ServerVo
   }
   if (capture.ready === undefined) return;
   clearCascadePreview(view);
-  if (!capture.ready.trim() || isSpeakerEcho(view, capture.ready) || playing && isVoiceBackchannelOnly(capture.ready)) {
+  const overlapsPlayback = playing || cascadePlaybackCaptures.has(endpoint);
+  if (!capture.ready.trim() || isSpeakerEcho(view, capture.ready) || overlapsPlayback && isVoiceBackchannelOnly(capture.ready)) {
     maybeAnnounceVoiceJob(view);
     return;
   }
-  freshCascadeTranscripts.set(view, capture.ready.trim());
-  view.updateRealtimeTranscript(capture.ready, true, true);
+  if (overlapsPlayback && !voiceConfirmations.has(view) && view.controller.settings.ai?.dataDisclosureAccepted === true) {
+    void reviewCascadeInterruption(view, endpoint, capture.ready);
+  } else {
+    submitCascadeTranscript(view, capture.ready);
+  }
+}
+
+function cancelCascadeInterruption(view: VoiceRealtimeView): void {
+  pendingCascadeInterruptions.get(view)?.abort();
+  pendingCascadeInterruptions.delete(view);
+}
+
+async function reviewCascadeInterruption(view: VoiceRealtimeView, endpoint: ServerVoiceEndpoint, transcript: string): Promise<void> {
+  cancelCascadeInterruption(view);
+  const check = new AbortController();
+  pendingCascadeInterruptions.set(view, check);
+  const { settings, savedVoiceSettingsRevision } = view.controller;
+  const generation = view.agentVoicePipelineGeneration;
+  const previousQuestion = view.agentVoiceRuntime?.snapshot?.().currentTurn?.transcript ?? "";
+  const decision = await classifyPlaybackInput(settings, transcript, previousQuestion, check.signal);
+  if (pendingCascadeInterruptions.get(view) !== check) return;
+  pendingCascadeInterruptions.delete(view);
+  if (view.viewClosed || !view.agentRecording || !view.agentVoiceReady || view.agentMode !== "voice"
+    || activeCascadeCapture.get(view) !== endpoint || view.controller.savedVoiceSettingsRevision !== savedVoiceSettingsRevision
+    || view.agentVoicePipelineGeneration !== generation) return;
+  if (decision !== "ignore") submitCascadeTranscript(view, transcript);
+  else maybeAnnounceVoiceJob(view);
+}
+
+function submitCascadeTranscript(view: VoiceRealtimeView, transcript: string): void {
+  cancelCascadeInterruption(view);
+  freshCascadeTranscripts.set(view, transcript.trim());
+  view.updateRealtimeTranscript(transcript, true, true);
   void view.sendVoiceTurnIfReady();
 }
 
@@ -968,6 +1006,7 @@ export function scheduleNoTranscriptWatchdog(view: VoiceRealtimeView): void {
 
 export function cleanupRealtimeAudio(view: VoiceRealtimeView): void {
   voiceConfirmations.delete(view);
+  cancelCascadeInterruption(view);
   activeCascadeCapture.delete(view);
   freshCascadeTranscripts.delete(view);
   omniModelTerminals.delete(view);

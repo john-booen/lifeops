@@ -28,6 +28,7 @@ import { BailianRealtimeTtsClient } from "../../src/bailianTtsRealtime";
 import { VoiceBargeInController } from "../../src/voice/voiceBargeIn";
 import { VoiceSessionController } from "../../src/voice/voiceRuntime";
 import * as breezeSpeech from "../../src/voice/breezeSpeech";
+import * as playbackInput from "../../src/voice/playbackInput";
 import type { BreezeResidentWorker } from "../../src/voice/breezeResident";
 import type { AgentSubmissionOptions } from "../../src/types";
 import { createVoiceWorklet } from "../eval/voiceWorklet";
@@ -1931,6 +1932,7 @@ describe("voice integration flow", () => {
 
   it("dispatches a finalized server item directly and never dispatches a rendered reply echoed back", () => {
     const view = {
+      controller: { settings: DEFAULT_SETTINGS },
       agentVoiceReady: true, agentSpeaking: true,
       handleVoiceSpeechStarted: vi.fn(), handleVoiceSpeechStopped: vi.fn(), markVoiceTrace: vi.fn(),
       updateRealtimeTranscript: vi.fn(), sendVoiceTurnIfReady: vi.fn(async () => undefined)
@@ -2086,9 +2088,12 @@ describe("voice integration flow", () => {
     }
   });
 
-  it("keeps cascade playback through sustained noise and cuts it after a real transcript", async () => {
+  it("keeps cascade playback through noise and incidental speech and cuts it for a directed request", async ({ onTestFinished }) => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
     Object.assign(window, { setTimeout, clearTimeout });
+    const review = vi.spyOn(playbackInput, "classifyPlaybackInput").mockImplementation(async (_settings, text) =>
+      text === "停一下，我想问明天的任务。" ? "accept" : "ignore");
+    onTestFinished(() => { review.mockRestore(); });
     const measurements: number[] = [];
     for (let attempt = 0; attempt < 20; attempt++) {
       const runtime = new VoiceSessionController(), save = vi.fn(async () => undefined), stopTts = vi.fn();
@@ -2096,7 +2101,7 @@ describe("voice integration flow", () => {
       runtime.transitionTurn("endpointing"); runtime.transitionTurn("routing"); runtime.transitionTurn("generating");
       runtime.selectOutputOwner("fallback-tts"); runtime.bindPlayback("active-" + attempt);
       const view = Object.assign(new CascadeComposerTestView(), {
-        controller: { settings: { realtimeVoice: { ...TEST_REALTIME_SETTINGS, mode: "cascade", triggerEnabled: false } }, appendAgentConversation: save },
+        controller: { settings: { ai: { dataDisclosureAccepted: true }, realtimeVoice: { ...TEST_REALTIME_SETTINGS, mode: "cascade", triggerEnabled: false } }, appendAgentConversation: save },
         agentMode: "voice", agentVoiceReady: true, agentRecording: true, agentVoiceConversation: true,
         agentVoiceRuntime: runtime, agentTtsClient: { cancel: stopTts }, agentVoiceTrace: {},
         agentSpeaking: false, agentVoiceSystemSpeechActive: false, agentVoiceLocalSpeechActive: false,
@@ -2134,14 +2139,33 @@ describe("voice integration flow", () => {
         observeLocalVoiceEnergy(view, speech);
       }
       handleCascadeCapture(view, endpoint, { type: "rejected", itemId: "noise" });
+      expect(review).not.toHaveBeenCalled();
+
+      const incidentalSpeech = attempt % 2 === 0 ? "我。" : "欢迎收看今天的比赛。";
+      handleCascadeCapture(view, endpoint, { type: "started", itemId: "incidental" });
+      handleCascadeCapture(view, endpoint, { type: "stopped", itemId: "incidental" });
+      handleCascadeCapture(view, endpoint, { type: "final", itemId: "incidental", text: incidentalSpeech });
+      await Promise.resolve();
+      expect(review).toHaveBeenCalledExactlyOnceWith(expect.anything(), incidentalSpeech, "虚构用户问题。", expect.any(AbortSignal));
       expect(worklet.actor.snapshot()?.status).toBe("playing");
       expect(stopTts).not.toHaveBeenCalled();
       expect(view.sendVoiceTurnIfReady).not.toHaveBeenCalled();
 
+      let acceptEarlier!: (decision: "accept") => void;
+      review.mockImplementationOnce(() => new Promise(resolve => { acceptEarlier = resolve; }));
+      handleCascadeCapture(view, endpoint, { type: "started", itemId: "earlier" });
+      handleCascadeCapture(view, endpoint, { type: "stopped", itemId: "earlier" });
+      handleCascadeCapture(view, endpoint, { type: "final", itemId: "earlier", text: "虚构旧问。" });
       handleCascadeCapture(view, endpoint, { type: "started", itemId: "user" });
+      const earlierSignal = review.mock.calls.at(-1)?.[3];
+      expect(earlierSignal?.aborted).toBe(false);
       handleCascadeCapture(view, endpoint, { type: "stopped", itemId: "user" });
       const confirmedAt = performance.now();
       handleCascadeCapture(view, endpoint, { type: "final", itemId: "user", text: "停一下，我想问明天的任务。" });
+      expect(earlierSignal?.aborted).toBe(true);
+      expect(stopTts).not.toHaveBeenCalled();
+      acceptEarlier("accept");
+      await Promise.resolve();
       vi.advanceTimersByTime(3);
       expect(worklet.render().every(value => value === 0)).toBe(true);
       measurements.push(performance.now() - confirmedAt);
@@ -2153,6 +2177,7 @@ describe("voice integration flow", () => {
       expect(view.agentMessages.at(-1)?.content).not.toContain("第三句");
       clearTimeout(view.agentVoiceNoTranscriptTimer);
       await worklet.actor.close();
+      review.mockClear();
     }
     expect(measurements).toHaveLength(20);
     expect(Math.max(...measurements)).toBeLessThanOrEqual(300);
@@ -2185,7 +2210,7 @@ describe("voice integration flow", () => {
     class TestView extends CascadeComposerTestView {}
     applySuggestionsPanel(TestView);
     const view = Object.assign(new TestView(), {
-      controller: { settings: { realtimeVoice: { ...TEST_REALTIME_SETTINGS, mode: "cascade", ttsEngine: "breeze-local", speakReplies: true } },
+      controller: { settings: { ai: { dataDisclosureAccepted: true }, realtimeVoice: { ...TEST_REALTIME_SETTINGS, mode: "cascade", ttsEngine: "breeze-local", speakReplies: true } },
         appendAgentConversation: save, submitAgentMessageStream: submit, executeAgentAction: execute, appendQualityLog: vi.fn(async () => undefined) },
       agentVoiceRuntime: runtime, agentBusy: false, agentRecording: true, agentVoiceConversation: true,
       agentVoiceReady: true, agentSpeaking: false, agentMode: "voice", agentRealtimeClient: { resetTranscript: vi.fn() },
@@ -2214,6 +2239,7 @@ describe("voice integration flow", () => {
       await vi.waitFor(() => expect(runtime.snapshot().currentTurn?.phase).toBe("completed"));
     };
     const local = vi.spyOn(breezeSpeech, "sessionBreeze").mockReturnValue({ speak } as unknown as BreezeResidentWorker);
+    const review = vi.spyOn(playbackInput, "classifyPlaybackInput").mockResolvedValue("ignore");
     try {
       await store.initializeVault();
       const task = await store.createTask({ title: "虚构样品盒贴签" });
@@ -2234,7 +2260,9 @@ describe("voice integration flow", () => {
       const receipt = approved ? "已删除 1 个任务。" : "好，这项已取消。";
       expect(speak.mock.calls.at(-1)?.[0]).toBe(receipt);
       expect(save).toHaveBeenCalledWith(`${answer}。`, receipt, expect.any(Function));
+      expect(review).not.toHaveBeenCalled();
     } finally {
+      review.mockRestore();
       local.mockRestore();
       await output.actor.close();
       await rm(root, { recursive: true, force: true });

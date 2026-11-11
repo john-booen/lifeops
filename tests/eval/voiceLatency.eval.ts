@@ -29,6 +29,7 @@ import { EvalTransport } from "./liveTransport";
 import { correctionHistory } from "./correctionHistory";
 import { scoreEvaluationCase, type EvalObservation, type EvalQuestion } from "./scoring";
 import { createVoiceWorklet } from "./voiceWorklet";
+import { classifyPlaybackInput } from "../../src/voice/playbackInput";
 // @ts-expect-error The fixture marker and clock are shared with the text evaluation.
 import { EVAL_MARKER, EVAL_NOW } from "../../scripts/make-eval-vault.mjs";
 
@@ -179,8 +180,41 @@ async function sample(item: VoiceCase, pcm: Buffer, settings: LifeOpsSettings, w
 
 const reportOnly = process.env.LIFEOPS_VOICE_REPORT === "1";
 const correctionOnly = process.env.LIFEOPS_VOICE_CORRECTIONS === "1";
+const playbackOnly = process.env.LIFEOPS_VOICE_PLAYBACK_INPUT === "1";
 
-it.skipIf(reportOnly || correctionOnly || process.env.LIFEOPS_VOICE_JOBS === "1" || process.env.LIFEOPS_VOICE_SOAK === "1")("measures 30 simple and 15 complex fictional turns through real providers and the PCM worklet", async () => {
+it.runIf(playbackOnly)("distinguishes incidental speech from requests during fictional voice playback", async () => {
+  const { settings, transport } = await voiceSettings();
+  const taskQuestion = "上周完成了多少项任务？", deskQuestion = "说三句怎么整理书桌。";
+  const cases = [
+    [taskQuestion, "我。", "ignore"],
+    [deskQuestion, "这个，嗯，那个。", "ignore"],
+    [taskQuestion, "欢迎收看今天的比赛，广告之后见。", "ignore"],
+    [taskQuestion, "蓝色纸袋在桌上，等会儿你帮我拿过来。", "ignore"],
+    [taskQuestion, "小李，你把这个纸袋拿过来。", "ignore"],
+    [deskQuestion, "停。", "accept"],
+    [deskQuestion, "停一下，我想问明天的任务。", "accept"],
+    [taskQuestion, "不对，上个月。", "accept"],
+    [taskQuestion, "上个月。", "accept"],
+    [taskQuestion, "换个话题，明天要做什么？", "accept"],
+    [deskQuestion, "记一个待办，给样品盒贴标签。", "accept"],
+    ["新建一个给样品盒贴标签的待办。", "撤销。", "accept"]
+  ] as const;
+  vi.stubGlobal("window", globalThis);
+  vi.stubGlobal("fetch", transport.fetch);
+  vi.mocked(requestUrl).mockImplementation(transport.requestUrl);
+  const results = [];
+  try {
+    for (const [previousQuestion, transcript, expected] of cases) {
+      const started = performance.now();
+      const decision = await classifyPlaybackInput(settings, transcript, previousQuestion, new AbortController().signal);
+      results.push({ transcript, expected, decision, ms: Math.round(performance.now() - started) });
+    }
+  } finally { vi.unstubAllGlobals(); vi.restoreAllMocks(); }
+  process.stdout.write(JSON.stringify(results) + "\n");
+  expect(results.filter(row => row.expected !== row.decision)).toEqual([]);
+});
+
+it.skipIf(reportOnly || correctionOnly || playbackOnly || process.env.LIFEOPS_VOICE_JOBS === "1" || process.env.LIFEOPS_VOICE_SOAK === "1")("measures 30 simple and 15 complex fictional turns through real providers and the PCM worklet", async () => {
   const rows = (await readFile("tests/eval/voice-cases.tsv", "utf8")).trim().split("\n").map(row => {
     const [id, text] = row.split("\t");
     if (!/^[sc]\d{2}$/.test(id) || !text) throw Error("语音评测夹具格式异常");
