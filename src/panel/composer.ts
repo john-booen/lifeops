@@ -1093,10 +1093,8 @@ const composerPanel = {
       })) {
         return;
       }
-      const interruptedOmniWhileProcessing = this.agentBusy
-        && !wasSpeaking
-        && interruptManagedVoiceTurn(this, `${_source}: user interrupted voice processing`);
-      if (this.agentBusy && !wasSpeaking && !interruptedOmniWhileProcessing) {
+      if (this.agentBusy && !wasSpeaking) {
+        // A speech onset alone can be noise. Wait for the transcript before replacing the pending reply.
         this.appendVoiceMetric("voice_speech_started", {
           reason: `${_source}:pending_transcript`
         });

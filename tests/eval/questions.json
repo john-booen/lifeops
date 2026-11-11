@@ -344,6 +344,34 @@
     }
   },
   {
+    "id": "voice-bare-undo-49", "milestone": "M6", "domain": "undo", "mode": "voice",
+    "prelude": ["请创建任务 评测给青色档案盒贴标签，安排在明天下午三点十五。"],
+    "input": "撤销。", "history": [],
+    "checks": {
+      "preludeCreatedTasks": 1,
+      "expectWrites": {"tasks.created": 0, "tasks.deleted": 0, "tasks.rescheduled": 0},
+      "absentTaskTitle": "评测给青色档案盒贴标签",
+      "mustSucceedTools": ["undo_latest_operation"],
+      "mustInclude": ["已撤销", "评测给青色档案盒贴标签"]
+    }
+  },
+  {
+    "id": "voice-delete-after-undo-50", "milestone": "M6", "domain": "undo", "mode": "voice",
+    "fixture": "task_already_undone",
+    "input": "删除。", "history": [
+      {"role": "user", "content": "请创建任务，给紫色档案盒贴标签。"},
+      {"role": "assistant", "content": "已创建任务「评测给紫色档案盒贴标签」。"},
+      {"role": "user", "content": "撤销。"},
+      {"role": "assistant", "content": "已撤销创建任务「评测给紫色档案盒贴标签」。"}
+    ],
+    "checks": {
+      "expectWrites": {"tasks.created": 0, "tasks.deleted": 0, "tasks.rescheduled": 0},
+      "mustNotCallTools": ["undo_latest_operation"],
+      "maxConfirmations": 0,
+      "absentTaskTitle": "评测给紫色档案盒贴标签"
+    }
+  },
+  {
     "id": "reschedule-report-13",
     "milestone": "M1",
     "domain": "tasks",

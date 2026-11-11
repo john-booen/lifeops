@@ -7,7 +7,7 @@ import type { EvalQuestion } from "./scoring";
 
 export async function correctionHistory(question: EvalQuestion, store: StoreHost): Promise<AgentConversationMessage[]> {
   const history = structuredClone(question.history);
-  if (question.domain !== "voice-correction" || !history.length) return history;
+  if (!history.length || question.domain !== "voice-correction" && question.fixture !== "task_already_undone") return history;
 
   // These pairs stand in for completed turns in the same fictional vault and policy.
   const memories = (await readPersonalMemoryWithSources(store)).records;

@@ -12,6 +12,7 @@ import type { AgentModelRole } from "../src/agent/models";
 vi.mock("obsidian", () => ({
   App: class {}, Plugin: class {}, TFile: class {}, TFolder: class {}, WorkspaceLeaf: class {}, ItemView: class {},
   Modal: class {}, PluginSettingTab: class {}, Setting: class {}, Platform: { isDesktopApp: true }, Notice: class {},
+  parseYaml: (yaml: string) => JSON.parse(yaml), stringifyYaml: (fields: unknown) => JSON.stringify(fields),
   normalizePath: (path: string) => path.replace(/\\/g, "/").replace(/\/{2,}/g, "/"), setIcon: vi.fn(), requestUrl: vi.fn()
 }));
 const { createFsApp } = await import("./helpers/fsApp");
@@ -20,6 +21,7 @@ const { LifeOpsAi } = await import("../src/ai");
 const { default: Plugin } = await import("../src/main");
 const { runAgentTurn } = await import("../src/agent/run");
 const { AgentRuntime } = await import("../src/agentRuntime");
+const { OperationLedger } = await import("../src/dataFoundation/operationLedger");
 const { AgentLoop } = await import("../src/agent/AgentLoop");
 const { voiceJobSpeech } = await import("../src/voice/jobs");
 const { buildResidentContext, RESIDENT_CONTEXT_BYTE_LIMIT } = await import("../src/agent/context");
@@ -43,6 +45,10 @@ function input(overrides: Partial<AgentTurnInput> = {}): AgentTurnInput {
 }
 function tool(name: string, args: Record<string, unknown>, id = "synthetic-call"): AiToolCall {
   return { name, arguments: args, id };
+}
+
+function voiceUndoApproval(): AiChatResult {
+  return reply("", [tool("choose_voice_job_control", { intent: "undo_latest_operation", target: "latest" })]);
 }
 
 const tradeExamples = [
@@ -411,7 +417,8 @@ describe("unified agent loop", () => {
     const habit = await store.createHabit({ name: "虚构阅读习惯", frequencyUnit: "day", frequencyInterval: 1, targetCount: 1 });
     const loop = new AgentLoop(host);
     const voice = async (message: string, name: string, args: Record<string, unknown>) => {
-      responses.push(reply("", [tool(name, args)]), reply("模型输出的示例文字。"));
+      responses.push(reply("", [tool(name, args)]));
+      responses.push(name === "undo_latest_operation" ? voiceUndoApproval() : reply("模型输出的示例文字。"));
       return loop.run(input({ source: "voice", message }));
     };
     const checkin = await voice("给虚构阅读习惯打卡", "complete_habit", { name: habit.name });
@@ -437,7 +444,7 @@ describe("unified agent loop", () => {
     expect((await store.readTaskDb()).tasks).toHaveLength(1);
     expect((await store.readPersonalMemories()).records.map(record => record.content)).toContain(preference);
 
-    responses.push(reply("", [tool("undo_latest_operation", {})]));
+    responses.push(reply("", [tool("undo_latest_operation", {})]), voiceUndoApproval());
     const undo = await loop.run(input({ source: "voice", message: "撤销刚才那个。" }));
     expect(undo.text).toContain(title);
     expect(undo.voiceSpeech).toBe(undo.text);
@@ -448,6 +455,29 @@ describe("unified agent loop", () => {
     const memoryUndo = await loop.run(input({ message: "撤销刚才保存的记忆。" }));
     expect(memoryUndo.text).toContain("个人记忆");
     expect((await store.readPersonalMemories()).records.map(record => record.content)).not.toContain(preference);
+  });
+
+  it("does not undo an older idea when the voice model chooses undo for a deletion request", async () => {
+    const idea = await runtime.executeAiToolCall(tool("upsert_idea", {
+      title: "虚构旧想法", description: "用彩纸制作地图。"
+    }, "older-voice-idea"), "kimi");
+    const task = await runtime.executeAiToolCall(tool("create_task", {
+      title: "虚构待办"
+    }, "new-voice-task"), "kimi");
+    expect(idea).toMatchObject({ success: true });
+    expect(task).toMatchObject({ success: true });
+    expect(await runtime.undoOperation("new-voice-task")).toBe(true);
+    responses.push(
+      reply("", [tool("undo_latest_operation", {})]),
+      reply("", [tool("choose_voice_job_control", { intent: "ordinary", target: "unknown" })]),
+      reply("刚才的待办已经撤销。你想删除哪一条？")
+    );
+
+    const result = await new AgentLoop(host).run(input({ source: "voice", message: "删除。" }));
+
+    expect(result.text).toContain("你想删除哪一条");
+    expect(result.toolCalls).toContainEqual({ name: "undo_latest_operation", ok: false });
+    expect((await new OperationLedger(store).latestReversible())?.operationId).toBe("older-voice-idea");
   });
 
   it("offers a completed read-only response to the voice output", async () => {
@@ -797,7 +827,8 @@ describe("voice background AgentLoop", () => {
     manager.settleAnnouncement(manager.takeAnnouncement()!.id, false);
     await runtime.executeAiToolCall(tool("create_task", { title: "纯虚构待撤销标签" }, "voice-undo-after-replay"), "kimi");
     responses.push(reply("", [tool("choose_voice_job_control", { intent, target: intent === "cancel_job" ? "ambiguous" : "latest" })]));
-    if (intent === "cancel_job") responses.push(reply("", [tool("undo_latest_operation", {})]), reply("已撤销。"));
+    if (intent === "cancel_job") responses.push(reply("", [tool("undo_latest_operation", {})]));
+    responses.push(voiceUndoApproval());
 
     const result = await new AgentLoop(host).run(input({ source: "voice", message: "撤销。", voiceJobs: manager }));
 

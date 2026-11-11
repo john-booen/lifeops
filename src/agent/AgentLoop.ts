@@ -77,6 +77,7 @@ interface TurnState {
   receipts: Map<string, WriteReceipt>;
   spokenWrites: Map<string, string>;
   confirmations: Map<string, AgentActionSuggestion>;
+  voiceUndoAllowed?: boolean;
   errorCode?: string;
 }
 
@@ -343,7 +344,7 @@ export class AgentLoop {
       .map(call => ({ name: call.function.name, args: JSON.parse(call.function.arguments) }));
     const guidance: string[] = [];
     if (tools.some(tool => tool.name === "undo_latest_operation")) {
-      guidance.push("「撤销刚才那个」用 undo_latest_operation({})。「刚才」是最近操作的指代，不是要求先查询。只有本轮明确要求「先查……再撤销」才设 requirePriorQuery=true，并先完成该查询。明确撤销刚保存的记忆才填 memoryOnly=true；要求停止后台任务才取消它。");
+      guidance.push("单说「撤销」或「撤销刚才那个」直接调用 undo_latest_operation({})。操作账本定位最近已完成的用户写入，跳过自动补偿等系统记录，无需先查。只有本轮明确要求先查再撤销时才设 requirePriorQuery=true，并先完成查询。明确撤销刚保存的记忆才填 memoryOnly=true。停止后台任务用取消工具。删除记录须走对应的确认，未指明对象先问清。");
       const deniedConditionalUndo = messages.some(message => message.tool_calls?.some(call =>
         call.function.name === "undo_latest_operation" && state.results.get(call.id)?.success === false
         && JSON.parse(call.function.arguments)?.requirePriorQuery === true));
@@ -499,6 +500,8 @@ export class AgentLoop {
     let result: ToolCallResult | undefined;
     if (intent === "undo_latest_operation") {
       if (target !== "latest" && target !== "latest_task") return false;
+      if (!await this.verifyVoiceUndo(input, state)) return false;
+      assertPolicy();
       [result] = await this.executeRegular(input, state, [{ id, name: intent, arguments: target === "latest_task" ? { creationOnly: true } : {} }]);
       assertPolicy();
     } else {
@@ -513,6 +516,24 @@ export class AgentLoop {
     input.onText?.(state.text);
     if (!state.spokenWrites.size) input.onVoiceText?.(state.text);
     return true;
+  }
+
+  private async verifyVoiceUndo(input: AgentTurnInput, state: TurnState): Promise<boolean> {
+    if (state.voiceUndoAllowed !== undefined) return state.voiceUndoAllowed;
+    const tool = voiceJobControlTool([], ["ordinary", "undo_latest_operation"]);
+    try {
+      const response = await this.callModel(input, state, "fast", [
+        { role: "system", content: "只判断本轮话语是否明确要求撤回已经完成的写入。要求撤销已保存的操作时，填 undo_latest_operation 和 latest。删除记录、停止后台任务、取消未执行的操作或意图不明确时，填 ordinary 和 unknown。" },
+        { role: "user", content: input.message }
+      ], [tool], false, false, tool.name);
+      const [call] = response.toolCalls;
+      state.voiceUndoAllowed = response.toolCalls.length === 1 && call.name === tool.name
+        && call.arguments.intent === "undo_latest_operation" && call.arguments.target === "latest";
+    } catch {
+      assertProviderActive(input.signal);
+      state.voiceUndoAllowed = false;
+    }
+    return state.voiceUndoAllowed;
   }
 
   private recordUsage(state: TurnState, response: AiChatResult): void {
@@ -580,10 +601,23 @@ export class AgentLoop {
 
   private async executeRegular(input: AgentTurnInput, state: TurnState, calls: AiToolCall[]): Promise<ToolCallResult[]> {
     assertProviderActive(input.signal);
-    const results = await this.host.executeTools(calls, input.message, input.signal,
+    const denied: ToolCallResult[] = [];
+    let allowed = calls;
+    if (input.source === "voice" && calls.some(call => call.name === "undo_latest_operation")
+      && !await this.verifyVoiceUndo(input, state)) {
+      allowed = calls.filter(call => call.name !== "undo_latest_operation");
+      for (const call of calls.filter(call => call.name === "undo_latest_operation")) {
+        const result = { callId: call.id!, success: false, output: "未确认这句是撤销操作，原记录已保留。删除请先核对对象并走确认。", actions: [] };
+        this.recordResult(input, state, call.name, result);
+        denied.push(result);
+      }
+    }
+    if (!allowed.length) return denied;
+    assertProviderActive(input.signal);
+    const results = await this.host.executeTools(allowed, input.message, input.signal,
       (call, result) => this.recordResult(input, state, call.name, result));
-    for (const result of results) this.recordResult(input, state, calls.find(call => call.id === result.callId)?.name ?? "tool_batch", result);
-    return results;
+    for (const result of results) this.recordResult(input, state, allowed.find(call => call.id === result.callId)?.name ?? "tool_batch", result);
+    return [...denied, ...results];
   }
 
   private async deepAnalysis(input: AgentTurnInput, state: TurnState, call: AiToolCall, context: string): Promise<ToolCallResult> {

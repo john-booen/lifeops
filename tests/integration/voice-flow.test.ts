@@ -1956,16 +1956,28 @@ describe("voice integration flow", () => {
     expect(view.sendVoiceTurnIfReady).toHaveBeenCalledOnce();
   });
 
-  it("shows a cascade preview without cancelling a reply or holding its finished correction", () => {
+  it("keeps a pending cascade receipt through a speech onset and preview, then accepts a final correction", () => {
+    const runtime = new VoiceSessionController();
+    runtime.connect();
+    runtime.connected();
+    runtime.beginTurn({ route: "action", transcript: "撤销。" });
+    runtime.transitionTurn("routing", "test undo");
+    runtime.transitionTurn("generating", "test undo receipt pending");
     const view = Object.assign(new CascadeComposerTestView(), {
-      controller: { settings: { realtimeVoice: { ...TEST_REALTIME_SETTINGS, triggerEnabled: false } } },
+      controller: { settings: { realtimeVoice: { ...TEST_REALTIME_SETTINGS, mode: "cascade", triggerEnabled: false } } },
       agentMode: "voice", agentBusy: true, agentSpeaking: false, agentSpeechSources: new Set(),
+      agentVoiceReady: true, agentVoiceRuntime: runtime, agentVoiceIgnoreSpeechStartUntil: 0,
+      agentOmniE2eReply: "", agentOmniE2eAssistantIndex: -1,
       agentVoiceTurnRevision: 0, agentVoiceTurnText: "", agentVoiceActivePartial: "", agentVoiceBaseInput: "",
       agentVoiceControlHoldSignature: "", agentVoiceControlHoldUntil: 0,
       voiceSession: createVoiceSession(), setAgentInput: vi.fn(), clearVoiceNoTranscriptTimer: vi.fn(),
-      invalidateVoicePipeline: vi.fn(), interruptAgentSpeech: vi.fn(), refreshAgentSurfaceState: vi.fn()
+      clearVoiceAutoSendTimer: vi.fn(), clearVoiceLocalEndpointTimer: vi.fn(), appendVoiceMetric: vi.fn(),
+      invalidateVoicePipeline: vi.fn(), interruptAgentSpeech: vi.fn(), refreshAgentSurfaceState: vi.fn(),
+      setAgentBusy: vi.fn(), transitionVoiceSession: vi.fn()
     }) as any;
 
+    view.handleVoiceSpeechStarted("local-vad");
+    expect(runtime.snapshot().currentTurn?.phase).toBe("generating");
     view.updateRealtimeTranscript("等一下，我刚才", false, false, true);
 
     expect(view.agentVoiceActivePartial).toBe("等一下，我刚才");
@@ -1973,6 +1985,10 @@ describe("voice integration flow", () => {
     expect(view.interruptAgentSpeech).not.toHaveBeenCalled();
     expect(view.agentVoiceControlHoldUntil).toBe(0);
     expect(view.prepareVoiceMessageForSend("等一下，我刚才问的是上周。", true)).toBe("等一下，我刚才问的是上周。");
+
+    view.updateRealtimeTranscript("等一下，我刚才问的是上周。", true, true);
+    expect(runtime.snapshot().currentTurn?.phase).toBe("interrupted");
+    expect(view.agentVoiceTurnText).toBe("等一下，我刚才问的是上周。");
   });
 
   it("keeps a long result in the panel, waits for idle and replays after playback is interrupted", async () => {
@@ -2070,7 +2086,7 @@ describe("voice integration flow", () => {
     }
   });
 
-  it("stops actual worklet output on 20 injected near-end starts and records only completed speech", async () => {
+  it("keeps cascade playback through sustained noise and cuts it after a real transcript", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
     Object.assign(window, { setTimeout, clearTimeout });
     const measurements: number[] = [];
@@ -2079,17 +2095,22 @@ describe("voice integration flow", () => {
       runtime.connect(); runtime.connected(); runtime.beginTurn({ route: "brain", transcript: "虚构用户问题。" });
       runtime.transitionTurn("endpointing"); runtime.transitionTurn("routing"); runtime.transitionTurn("generating");
       runtime.selectOutputOwner("fallback-tts"); runtime.bindPlayback("active-" + attempt);
-      const view = {
-        controller: { settings: { realtimeVoice: TEST_REALTIME_SETTINGS }, appendAgentConversation: save },
+      const view = Object.assign(new CascadeComposerTestView(), {
+        controller: { settings: { realtimeVoice: { ...TEST_REALTIME_SETTINGS, mode: "cascade", triggerEnabled: false } }, appendAgentConversation: save },
         agentMode: "voice", agentVoiceReady: true, agentRecording: true, agentVoiceConversation: true,
         agentVoiceRuntime: runtime, agentTtsClient: { cancel: stopTts }, agentVoiceTrace: {},
         agentSpeaking: false, agentVoiceSystemSpeechActive: false, agentVoiceLocalSpeechActive: false,
+        agentSpeechSources: new Set(), agentVoiceTurnRevision: 0, voiceSession: createVoiceSession(),
+        agentVoiceTurnText: "", agentVoiceActivePartial: "", agentVoiceBaseInput: "", agentVoiceRawInput: "", agentInput: "",
         agentOmniE2eUserMessage: "虚构用户问题。", agentOmniE2eReply: "第一句已经完整。第二句还未说完。第三句未播放。",
         agentMessages: [{ role: "user", content: "虚构用户问题。" }, { role: "assistant", content: "未播全文" }],
         agentOmniE2eAssistantIndex: 1, invalidateVoicePipeline: vi.fn(), setAgentBusy: vi.fn(), transitionVoiceSession: vi.fn(),
         refreshAgentSurfaceState: vi.fn(), clearVoiceNoTranscriptTimer: vi.fn(), clearVoiceLocalEndpointTimer: vi.fn(),
-        handleVoiceSpeechStarted: vi.fn(), markVoiceTrace: vi.fn(), appendVoiceMetric: vi.fn()
-      } as any;
+        clearVoiceAutoSendTimer: vi.fn(), interruptAgentSpeech: vi.fn(), setAgentInput: vi.fn(),
+        sendVoiceTurnIfReady: vi.fn(), markVoiceTrace: vi.fn(), appendVoiceMetric: vi.fn()
+      }) as any;
+      view.agentVoiceBargeIn = new VoiceBargeInController({ onEvent: event => handleOmniE2eBargeInEvent(view, event) });
+      const endpoint = new ServerVoiceEndpoint();
       const worklet = createVoiceWorklet(event => handleOmniE2eAudioOutputEvent(view, event));
       view.agentAudioOutput = worklet.actor;
       await worklet.actor.start("active-" + attempt, "fallback-tts");
@@ -2105,24 +2126,29 @@ describe("voice integration flow", () => {
         observeLocalVoiceEnergy(view, new Float32Array(640).fill(noise));
         expect(worklet.actor.snapshot()?.status).toBe("playing");
       }
-      const userBegan = performance.now();
       const quietSpeech = attempt % 2 === 0;
       const speech = new Float32Array(640).fill(quietSpeech ? 0.023 : 0.08);
-      vi.advanceTimersByTime(32 + attempt % 3 * 4);
-      observeLocalVoiceEnergy(view, speech);
-      expect(worklet.actor.snapshot()?.status).toBe("playing");
-      vi.advanceTimersByTime(40);
-      observeLocalVoiceEnergy(view, speech);
-      if (quietSpeech) {
-        expect(worklet.actor.snapshot()?.status).toBe("playing");
+      handleCascadeCapture(view, endpoint, { type: "started", itemId: "noise" });
+      for (let frame = 0; frame < 15; frame++) {
         vi.advanceTimersByTime(40);
         observeLocalVoiceEnergy(view, speech);
       }
+      handleCascadeCapture(view, endpoint, { type: "rejected", itemId: "noise" });
+      expect(worklet.actor.snapshot()?.status).toBe("playing");
+      expect(stopTts).not.toHaveBeenCalled();
+      expect(view.sendVoiceTurnIfReady).not.toHaveBeenCalled();
+
+      handleCascadeCapture(view, endpoint, { type: "started", itemId: "user" });
+      handleCascadeCapture(view, endpoint, { type: "stopped", itemId: "user" });
+      const confirmedAt = performance.now();
+      handleCascadeCapture(view, endpoint, { type: "final", itemId: "user", text: "停一下，我想问明天的任务。" });
       vi.advanceTimersByTime(3);
       expect(worklet.render().every(value => value === 0)).toBe(true);
-      measurements.push(performance.now() - userBegan);
+      measurements.push(performance.now() - confirmedAt);
       expect(runtime.snapshot().currentTurn?.phase).toBe("interrupted");
       expect(stopTts).toHaveBeenCalledOnce();
+      expect(view.agentVoiceTurnText).toBe("停一下，我想问明天的任务。");
+      expect(view.sendVoiceTurnIfReady).toHaveBeenCalledOnce();
       expect(save).toHaveBeenCalledExactlyOnceWith("虚构用户问题。", "第一句已经完整。\n（被打断，末句未播完）", expect.any(Function));
       expect(view.agentMessages.at(-1)?.content).not.toContain("第三句");
       clearTimeout(view.agentVoiceNoTranscriptTimer);
@@ -2130,7 +2156,6 @@ describe("voice integration flow", () => {
     }
     expect(measurements).toHaveLength(20);
     expect(Math.max(...measurements)).toBeLessThanOrEqual(300);
-    process.stdout.write(`AudioWorklet 隔离打断 ${JSON.stringify(measurements)} ms\n`);
   });
 
   it.each([["对", false], ["是", true], ["确认", true]] as const)("checks persisted task deletion after the spoken answer %s", async (answer, approved) => {

@@ -1,22 +1,3 @@
-interface NearSpeech { firstAt: number; lastAt: number; strongSince?: number }
-const nearby = new WeakMap<object, NearSpeech>();
-
-/** Confirm sustained near-end energy across capture batches, without a transcript round-trip. */
-export function confirmNearbySpeech(owner: object, speakingDuringPlayback: boolean, strong = false, now = performance.now()): number | undefined {
-  if (!speakingDuringPlayback) { nearby.delete(owner); return; }
-  const previous = nearby.get(owner);
-  if (!previous || now - previous.lastAt > 140 || now < previous.lastAt) {
-    nearby.set(owner, { firstAt: now, lastAt: now, strongSince: strong ? now : undefined });
-    return;
-  }
-  previous.lastAt = now;
-  previous.strongSince = strong ? (previous.strongSince ?? now) : undefined;
-  const sustainedStrong = previous.strongSince !== undefined && now - previous.strongSince >= 35;
-  if (!sustainedStrong && now - previous.firstAt < 75) return;
-  nearby.delete(owner);
-  return previous.firstAt;
-}
-
 interface HeardSpeech { completed: string[]; current: string }
 const heardByView = new WeakMap<object, HeardSpeech>();
 

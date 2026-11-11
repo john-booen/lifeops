@@ -38,9 +38,9 @@ import { agentConversationAlreadyAppended, bindAgentHistoryResponse, retainAgent
 import {disposeRealtimeToolOutput,type RealtimeToolOutput} from "./realtimeToolOutput";
 import { markVoiceLatency, markVoiceLatencyCapture, resetVoiceLatencyCapture } from "./latency";
 import { BreezeResidentTtsClient, closeSessionBreeze, sessionBreeze, VoiceSpeechParts, warmSessionBreeze } from "./breezeSpeech";
-import { allowSpeakerBargeIn, isSpeakerEcho, recordSpeakerPhrase, resetSpeakerEcho, ServerVoiceEndpoint, speakerMicVoice, SPEAKER_ECHO_LEVEL,
+import { allowSpeakerBargeIn, isSpeakerEcho, recordSpeakerPhrase, resetSpeakerEcho, ServerVoiceEndpoint, speakerMicVoice,
   type CascadeCaptureEvent } from "./continuousInput";
-import { beginHeardSpeech, confirmNearbySpeech, finishHeardSpeech, rememberHeardPhrase, takeInterruptedSpeech } from "./interruption";
+import { beginHeardSpeech, finishHeardSpeech, rememberHeardPhrase, takeInterruptedSpeech } from "./interruption";
 import { isVaultPathExcluded } from "../privacy";
 import { formatDate, todayString } from "../date";
 import type { StoreHost } from "../store/settingsSlice";
@@ -440,23 +440,18 @@ export function handleCascadeCapture(view: VoiceRealtimeView, endpoint: ServerVo
     resetVoiceLatencyCapture(view);
     clearCascadePreview(view);
     if (view.agentVoiceSystemSpeechActive || !allowSpeakerBargeIn(view, playing)) return;
-    if (hasActiveVoiceRuntimeTurn(view)) {
-      if (playing) handleOmniE2eSpeechStarted(view);
-    }
-    else view.handleVoiceSpeechStarted("server-vad");
+    if (!hasActiveVoiceRuntimeTurn(view)) view.handleVoiceSpeechStarted("server-vad");
   } else if (event.type === "preview") {
     if (isSpeakerEcho(view, event.text) || !allowSpeakerBargeIn(view, playing)) return;
     view.markVoiceTrace("firstTranscript");
     view.updateRealtimeTranscript(event.text, false, false, true);
   } else if (event.type === "stopped") {
     markVoiceLatencyCapture(view, "t0");
-    handleOmniE2eSpeechStopped(view);
     view.handleVoiceSpeechStopped("server-vad", false);
   } else if (event.type === "final") {
     markVoiceLatencyCapture(view, "t1");
     view.markVoiceTrace("transcriptDone");
   } else {
-    handleOmniE2eSpeechStopped(view);
     clearCascadePreview(view);
     maybeAnnounceVoiceJob(view);
   }
@@ -942,10 +937,6 @@ export function observeLocalVoiceEnergy(view: VoiceRealtimeView, input: Float32A
   const rms = audioRms(input);
   const playing = Boolean(view.agentSpeaking || view.agentVoiceSystemSpeechActive);
   const speaking = speakerMicVoice(view, rms, playing, now);
-  const onset = confirmNearbySpeech(view, playing && speaking, rms > SPEAKER_ECHO_LEVEL, now);
-  if (onset !== undefined && interruptManagedVoiceTurn(view, "near_end_speech")) {
-    view.appendVoiceMetric?.("voice_speech_interrupted", { bargeInCommandMs: performance.now() - onset });
-  }
   if (speaking) {
     if (!view.agentVoiceLocalSpeechActive) {
       view.agentVoiceLocalSpeechActive = true;
@@ -982,7 +973,6 @@ export function cleanupRealtimeAudio(view: VoiceRealtimeView): void {
   omniModelTerminals.delete(view);
   pendingSpeakerCues.delete(view);
   finishHeardSpeech(view);
-  confirmNearbySpeech(view, false);
   view.clearVoiceWarmupTimer();
   view.clearVoiceLocalEndpointTimer();
   view.clearVoiceNoTranscriptTimer();

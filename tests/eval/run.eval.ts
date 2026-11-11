@@ -130,6 +130,23 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
     lifeOpsEvents: { publish: () => {} }, buildSemanticContext: async () => ""
   });
   const before = await snapshot(activeRoot);
+  if (question.fixture === "task_already_undone") {
+    const host = store as unknown as StoreHost;
+    const runtime = new AgentRuntime({ store: host, refreshViews: async () => {} });
+    for (const [toolName, args] of [
+      ["upsert_idea", { title: "评测旧想法：制作纸质地图", description: "虚构独立想法。"}],
+      ["create_task", { title: "评测给紫色档案盒贴标签" }],
+      ["undo_latest_operation", {}]
+    ] as const) {
+      const result = await runtime.executeToolCall({
+        callId: `fictional-history-${toolName}`, toolName, arguments: args, source: "system", confirmedByUser: true
+      });
+      if (!result.success) throw Error("评测的虚构操作历史未建立。");
+    }
+    if ((await new OperationLedger(host).latestReversible())?.operationId !== "fictional-history-upsert_idea") {
+      throw Error("评测应保留另一笔较早的想法操作。");
+    }
+  }
   const tools: EvalObservation["tools"] = [];
   const writeTrace: Array<{ name: string; callId: string; args: Record<string, unknown>; ok: boolean }> = [];
   const selectedUndoOperations = new Set<string>();
@@ -240,6 +257,10 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
     inputTokens: usage.inputTokens, firstTokenMs, errorCode
   };
   const issues = scoreEvaluationCase(question, observed);
+  if (question.fixture === "task_already_undone") {
+    const latest = await new OperationLedger(store as unknown as StoreHost).latestReversible();
+    if (latest?.operationId !== "fictional-history-upsert_idea") issues.push("较早的虚构想法操作未保留");
+  }
   const failedTool = tools.find((tool) => !tool.ok && tool.detail);
   if (issues.length && failedTool) issues.unshift(`${failedTool.name} 未执行，${failedTool.detail}`);
   if (errorDetail) issues.push(errorDetail);
