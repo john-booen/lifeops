@@ -1,6 +1,6 @@
 {
-  "version": "0.5.0",
-  "date": "2026-11-10",
+  "version": "0.5.4",
+  "date": "2026-11-12",
   "passRate": 1,
   "questionIds": [
     "today-unfinished-01",
@@ -17,6 +17,8 @@
     "undo-last-12",
     "undo-after-compensation-41",
     "undo-after-automatic-memory-47",
+    "voice-bare-undo-49",
+    "voice-delete-after-undo-50",
     "reschedule-report-13",
     "delete-reading-14",
     "greeting-15",
@@ -49,7 +51,8 @@
     "recent-state-correction-43",
     "short-acknowledgement-44",
     "short-correction-45",
-    "finished-correction-46"
+    "finished-correction-46",
+    "voice-count-period-correction-48"
   ],
   "passedIds": [
     "today-unfinished-01",
@@ -66,6 +69,8 @@
     "undo-last-12",
     "undo-after-compensation-41",
     "undo-after-automatic-memory-47",
+    "voice-bare-undo-49",
+    "voice-delete-after-undo-50",
     "reschedule-report-13",
     "delete-reading-14",
     "greeting-15",
@@ -98,6 +103,7 @@
     "recent-state-correction-43",
     "short-acknowledgement-44",
     "short-correction-45",
-    "finished-correction-46"
+    "finished-correction-46",
+    "voice-count-period-correction-48"
   ]
 }
