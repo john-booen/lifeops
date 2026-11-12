@@ -389,6 +389,7 @@ export class AgentLoop {
       guidance.push("只问未完成总数和最要紧的 N 项时，用一个 list_tasks 调用：order=priority、limit=N、directReply=true，不用 plan_today。");
     }
     if (tools.some(tool => tool.name === "get_stats")) {
+      guidance.push("评价或批评这周表现，先用 get_stats(domain=habits,range=this_week) 查达标次数和漏做日期。");
       guidance.push("问连续几天的睡眠、情绪或精力趋势，先用 get_stats，domain=journal。最近三天用 range=last_3d。要找原因、原话或具体事件时，再查同一范围的日记。");
     }
     if (input.source === "voice" && !input.voiceBackground) {
