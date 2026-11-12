@@ -1,6 +1,7 @@
 import { standardAgentSystemPrompt } from "./agentInstructions";
 import { ACCOUNTABILITY_BOUNDARY } from "./accountability";
 import { requestUrl } from "obsidian";
+import { createToolResultTextFilter } from "./toolResultText";
 import { notifyRequestAudit } from "./requestAudit";
 import { ensureToolCallId } from "./operationIdentity";
 import { READONLY_SOURCE_TOOL_NAMES, type SourceReadTurn } from "./readonlySourceAnalysis";
@@ -673,10 +674,14 @@ export class LifeOpsAi {
     }
     const reportedModel = safeReportedModel(json.model, config.apiKey, options.auditCredentials);
     assertResponseCompletion(json, reportedModel, response.status);
-    const rawContent = cleanFiniteContent(json.choices?.[0]?.message?.content ?? "");
-    assertRawToolArgumentsComplete(collectRawToolCalls(json), reportedModel, response.status);
-    assertContentToolArgumentsComplete(extractResponseContent(json), reportedModel, response.status);
-    const toolCalls = parseToolCalls(json);
+    const filterText = options.suppressToolText && messages.some(message => message.role === "tool");
+    const cleanResult = (text: string) => filterText ? createToolResultTextFilter()(text, true) : text;
+    const rawContent = cleanResult(cleanFiniteContent(json.choices?.[0]?.message?.content ?? ""));
+    const toolText = cleanResult(extractResponseContent(json));
+    const rawToolCalls = collectRawToolCalls(json);
+    assertRawToolArgumentsComplete(rawToolCalls, reportedModel, response.status);
+    assertContentToolArgumentsComplete(toolText, reportedModel, response.status);
+    const toolCalls = parseToolCalls({ tool_calls: rawToolCalls, content: toolText });
     const content = options.preserveJsonContent ? rawContent : cleanToolCallEnvelope(rawContent);
     if (!content && toolCalls.length === 0) {
       throw new ProviderTransportError("invalid_response", "AI response missing content");
@@ -747,6 +752,8 @@ export class LifeOpsAi {
       stopReading = () => { void reader.cancel().catch(() => undefined); };
       const decoder = new TextDecoder();
       const thinkFilter = createThinkFilter();
+      const resultFilter = options.suppressToolText && messages.some(message => message.role === "tool")
+        ? createToolResultTextFilter() : undefined;
       let buffer = "";
       let output = "";
       let done = false;
@@ -781,7 +788,8 @@ export class LifeOpsAi {
         assertRawToolArgumentsComplete(delta.toolCalls, reportedModel, response.status, true);
         accumulateStreamToolCalls(streamedToolCalls, delta.toolCalls);
         if (!delta.content) return;
-        const visible = thinkFilter(delta.content);
+        const text = thinkFilter(delta.content);
+        const visible = resultFilter ? resultFilter(text) : text;
         if (!visible) return;
         output += visible;
         assertProviderActive(controller.signal);
@@ -801,7 +809,7 @@ export class LifeOpsAi {
       if (!ended && (!observedChoices.size || [...observedChoices].some(index => !finishedChoices.has(index))))
         throw new ProviderResponseIncompleteError("missing", reportedModel, response.status);
 
-      const finalOutput = cleanModelContent(output);
+      const finalOutput = cleanModelContent(output + (resultFilter?.("", true) ?? ""));
       assertRawToolArgumentsComplete([...streamedToolCalls.values()], reportedModel, response.status);
       assertContentToolArgumentsComplete(finalOutput, reportedModel, response.status);
       const contentToolCalls = parseToolCallsFromContent(finalOutput);

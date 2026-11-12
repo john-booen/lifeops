@@ -392,6 +392,9 @@ export class AgentLoop {
       guidance.push("评价或批评这周表现，先用 get_stats(domain=habits,range=this_week) 查达标次数和漏做日期。");
       guidance.push("问连续几天的睡眠、情绪或精力趋势，先用 get_stats，domain=journal。最近三天用 range=last_3d。要找原因、原话或具体事件时，再查同一范围的日记。");
     }
+    if (evidenceCalls.length) {
+      guidance.push("把工具读回的信息写成面向用户的正文，别输出结果标签或原始 JSON。");
+    }
     if (input.source === "voice" && !input.voiceBackground) {
       guidance.push("普通短问先说结论，第一句简短并以句号收尾。需要判断和解释时再补一句。");
     }
