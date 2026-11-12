@@ -83,6 +83,11 @@ interface TurnState {
 
 const MAX_TOOL_ROUNDS = 4;
 const PLAIN_GREETING = /^(你好|您好|早安|早上好|中午好|下午好|晚上好|嗨)[。！？!?，,.]*$/u;
+const TODAY_UNFINISHED_TASK_QUESTIONS = [
+  /^我?今天还?有(?:哪些|什么)(?:任务|待办)还?(?:没做完?|没(?:有)?完成|未完成)$/u,
+  /^我?今天(?:还?有)?(?:哪些|什么)(?:没做完?|没(?:有)?完成|未完成)的(?:任务|待办)$/u,
+  /^我?今天还?剩下?(?:哪些|什么)(?:任务|待办)$/u
+];
 const QUICK_TOOLS = new Set([
   "list_tasks", "plan_today", "get_stats", "get_summaries", "create_task", "reschedule_task", "complete_task", "delete_task",
   "create_habit", "complete_habit", "miss_habit", "delete_habit", "append_journal_entry",
@@ -137,6 +142,17 @@ export class AgentLoop {
       const greeting = input.source === "text" && !input.voiceBackground && PLAIN_GREETING.exec(input.message.trim())?.[1];
       if (greeting) return this.localAnswer(input, state, `${greeting}！`);
       await waitForFactOperations(this.host.store, { signal: input.signal });
+      const question = input.message.trim().replace(/^请问[，, ]*/u, "").replace(/[。！？!?]+$/u, "");
+      if (input.source === "text" && !input.voiceBackground && TODAY_UNFINISHED_TASK_QUESTIONS.some(pattern => pattern.test(question))) {
+        assertPolicy();
+        const date = formatDate(input.now);
+        const calls = this.scopedCalls([{ name: "list_tasks", arguments: { date, status: "active" } }], state.id, 0);
+        const [result] = await this.executeRegular(input, state, calls);
+        assertProviderActive(input.signal);
+        assertPolicy();
+        const reply = result?.success && formatTaskListReply(result.output, date);
+        return this.localAnswer(input, state, reply || "今天的任务记录暂不可用，请稍后再试。");
+      }
       const context = await buildResidentContext(this.host.store, input.message, input.now, input.voiceBackground ? "system" : input.source);
       assertProviderActive(input.signal);
       assertPolicy();

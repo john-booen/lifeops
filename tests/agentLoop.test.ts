@@ -333,7 +333,7 @@ describe("unified agent loop", () => {
     await store.createTask({ title: "纯虚构待办", date, startTime: "15:00" });
     responses.push(reply("", [tool("list_tasks", { date, directReply: true })]));
     const chunks: string[] = [];
-    const result = await new AgentLoop(host).run(input({ message: "我今天还有什么任务没完成？", onText: delta => chunks.push(delta) }));
+    const result = await new AgentLoop(host).run(input({ message: "把今天没完成的任务列出来。", onText: delta => chunks.push(delta) }));
     expect(requests).toHaveLength(1);
     expect(roles).toEqual(["fast"]);
     expect(result.toolCalls).toEqual([{ name: "list_tasks", ok: true }]);
@@ -342,6 +342,22 @@ describe("unified agent loop", () => {
     expect(chunks.join("")).toBe(result.text);
     expect(result.usage.inputTokens).toBe(40);
   });
+
+  it.each(["我今天还有什么任务没完成？", "今天有哪些未完成的待办？", "今天还剩哪些任务？"])(
+    "lists unfinished tasks for an explicit text query without contacting the model (%s)", async message => {
+      const date = formatDate(now);
+      await store.createTask({ title: "虚构今日待办", date });
+      const completed = await store.createTask({ title: "虚构今日已做", date });
+      await store.completeTask(completed.id);
+      await store.createTask({ title: "虚构明日待办", date: addDays(date, 1) });
+      const readDashboard = vi.spyOn(store, "getTaskDashboard");
+      const result = await new AgentLoop(host).run(input({ message }));
+      expect(result.text).toBe("今天有 1 个未完成任务。\n1. 虚构今日待办");
+      expect(result.toolCalls).toEqual([{ name: "list_tasks", ok: true }]);
+      expect(result.receipts).toEqual([]);
+      expect(requests).toEqual([]);
+      expect(readDashboard).not.toHaveBeenCalled();
+    });
 
   it("reports the full remaining count and only the requested highest-priority tasks", async () => {
     const date = formatDate(now);
