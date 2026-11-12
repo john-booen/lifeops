@@ -299,11 +299,11 @@ it("reports only the selected habit's actual compensation as an existing task", 
 
 describe("unified agent loop", () => {
   it("streams text, retains only twelve history entries, and logs actual response counters", async () => {
-    responses.push(reply("你好，我在。"));
+    responses.push(reply("我可以帮你处理任务。"));
     const chunks: string[] = [];
-    const result = await new AgentLoop(host).run(input({ message: "你好。", onText: delta => chunks.push(delta),
+    const result = await new AgentLoop(host).run(input({ message: "你可以做什么？", onText: delta => chunks.push(delta),
       history: Array.from({ length: 20 }, (_, index) => ({ role: index % 2 ? "assistant" : "user", content: `虚构历史${index}` })) }));
-    expect(result.text).toBe("你好，我在。");
+    expect(result.text).toBe("我可以帮你处理任务。");
     expect(chunks.join("")).toBe(result.text);
     expect(requests[0]).toHaveLength(14);
     expect(requests[0][1].content).toBe("虚构历史8");
@@ -963,4 +963,21 @@ describe("voice background AgentLoop", () => {
     expect(events.map(text => file.indexOf(text))).toEqual([...events.map(text => file.indexOf(text))].sort((a, b) => a - b));
     for (const event of events) expect(file).toContain(event);
   });
+});
+
+it("answers a standalone text greeting without reading records or calling the model", async () => {
+  const readDashboard = vi.spyOn(store, "getTaskDashboard");
+  const result = await new AgentLoop(host).run(input({ message: "下午好！" }));
+  expect(result.text).toBe("下午好！");
+  expect(result.toolCalls).toEqual([]);
+  expect(result.usage.model).toBe("local");
+  expect(readDashboard).not.toHaveBeenCalled();
+  expect(requests).toEqual([]);
+});
+
+it("still handles a task question that begins with a greeting", async () => {
+  responses.push(reply("我会先核对今天的任务。"));
+  const result = await new AgentLoop(host).run(input({ message: "你好，今天先做什么？" }));
+  expect(result.text).toBe("我会先核对今天的任务。");
+  expect(requests).toHaveLength(1);
 });

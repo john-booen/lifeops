@@ -82,6 +82,7 @@ interface TurnState {
 }
 
 const MAX_TOOL_ROUNDS = 4;
+const PLAIN_GREETING = /^(你好|您好|早安|早上好|中午好|下午好|晚上好|嗨)[。！？!?，,.]*$/u;
 const QUICK_TOOLS = new Set([
   "list_tasks", "plan_today", "get_stats", "get_summaries", "create_task", "reschedule_task", "complete_task", "delete_task",
   "create_habit", "complete_habit", "miss_habit", "delete_habit", "append_journal_entry",
@@ -133,6 +134,8 @@ export class AgentLoop {
         return await this.offline(input, state);
       }
       if (input.voiceJobs?.needsControlCheck() && await this.tryVoiceJobControl(input, state, assertPolicy)) return this.result(state);
+      const greeting = input.source === "text" && !input.voiceBackground && PLAIN_GREETING.exec(input.message.trim())?.[1];
+      if (greeting) return this.localAnswer(input, state, `${greeting}！`);
       await waitForFactOperations(this.host.store, { signal: input.signal });
       const context = await buildResidentContext(this.host.store, input.message, input.now, input.voiceBackground ? "system" : input.source);
       assertProviderActive(input.signal);
