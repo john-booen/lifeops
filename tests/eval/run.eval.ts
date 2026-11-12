@@ -229,7 +229,7 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
   const judge = question.checks.judge && !errorCode ? await judgeAnswer(question.checks.judge, question.input, reply.reply,
     new LifeOpsAi(settingsForAgentModel(settings, "fast")), credentials) : undefined;
   const observed: EvalObservation = {
-    reply: reply.reply, tools, createdTasks, tasks: after.tasks, preludeCreatedTasks, checkins: after.checkins,
+    reply: reply.reply, voiceSpeech: reply.voiceSpeech, tools, createdTasks, tasks: after.tasks, preludeCreatedTasks, checkins: after.checkins,
     createdTrades, judge,
     activeMemories: memory?.records.filter(record => record.status === "active").map(record => record.content),
     proposedTaskDates: reply.actions.filter(action => action.type === "task_plan").flatMap(action =>
@@ -275,6 +275,7 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
   }
   if (issues.length && process.env.LIFEOPS_EVAL_DIAGNOSTICS === "1") {
     process.stdout.write(`${question.id} 诊断回复 · ${redactSensitiveText(reply.reply, credentials).slice(0, 900)}\n`);
+    if (question.checks.mustSpeak) process.stdout.write(`${question.id} 实际口语稿 · ${redactSensitiveText(reply.voiceSpeech ?? "", credentials).slice(0, 900)}\n`);
     if (question.checks.createdTrades) process.stdout.write(`${question.id} 落盘字段 · ${redactSensitiveText(JSON.stringify(createdTrades), credentials).slice(0, 1800)}\n`);
   }
   if (process.env.LIFEOPS_EVAL_DIAGNOSTICS === "1") {

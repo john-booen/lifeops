@@ -10,6 +10,7 @@ export interface EvalCheckin { habitId: string; date: string; value?: number; co
 type EvalToolFact = { name: string; output: Record<string, unknown> | Record<string, unknown>[] };
 interface EvalChecks {
   mustInclude?: string[];
+  mustSpeak?: string[];
   mustIncludeAny?: string[][];
   mustNotInclude?: string[];
   mustCallTools?: string[];
@@ -52,6 +53,7 @@ export interface EvalQuestion {
 }
 export interface EvalObservation {
   reply: string;
+  voiceSpeech?: string;
   tools: { name: string; ok: boolean; detail?: string; facts?: unknown }[];
   writes: Record<string, number>;
   createdTasks: EvalTask[];
@@ -89,6 +91,9 @@ export function scoreEvaluationCase(question: EvalQuestion, observed: EvalObserv
   if (observed.errorCode) issues.push("运行错误 " + observed.errorCode);
   for (const phrase of checks.mustInclude ?? []) {
     if (!observed.reply.includes(phrase)) issues.push("缺少内容 " + phrase);
+  }
+  for (const phrase of checks.mustSpeak ?? []) {
+    if (!observed.voiceSpeech?.includes(phrase)) issues.push("播报缺少内容 " + phrase);
   }
   for (const alternatives of checks.mustIncludeAny ?? []) {
     if (!alternatives.some((phrase) => observed.reply.includes(phrase))) issues.push("缺少同义内容 " + alternatives.join(" / "));
