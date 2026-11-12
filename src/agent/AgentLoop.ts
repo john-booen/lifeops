@@ -154,7 +154,7 @@ export class AgentLoop {
         const reply = result?.success && formatTaskListReply(result.output, date);
         return this.localAnswer(input, state, reply || "今天的任务记录暂不可用，请稍后再试。");
       }
-      if (input.source === "text" && !input.voiceBackground && asksForRecentStatus(input.message)) {
+      if ((input.source === "text" || input.source === "voice") && !input.voiceBackground && asksForRecentStatus(input.message)) {
         assertPolicy();
         const range = resolveStatsRange("last_7d", input.now);
         const calls = this.scopedCalls(recentStatusDomains.map(domain => ({ name: "get_stats", arguments: { domain, range } })), state.id, 0);
