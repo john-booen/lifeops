@@ -999,6 +999,11 @@ describe("voice background AgentLoop", () => {
       + "| 2026-11-02 | 2 | 1 | 50% | 0 |\n| 2026-11-06 | 1 | 1 | 100% | 0 |\n| 全周汇总 | 3 | 2 | 66.67% | 0 |",
       facts: ["完成了 2 项任务", "大约是百分之 67", "后段的完成比例有所提高"],
       spoken: "先捡起没做完的事，再看看后面怎么排。", fallback: "接下来先看看没做完的事，再调整安排。" },
+    { id: "scoped-month", detail: "## 虚构月度任务完成情况\n| 周起始日（周一） | 计划数 | 完成数 | 完成率 |\n|---|---:|---:|---:|\n"
+      + "| 2026-10-05 | — | — | — |\n| 2026-10-12 | 7 | 5 | 71.43% |\n| 2026-10-19 | 39 | 26 | 66.67% |\n| 2026-10-26 | 43 | 29 | 67.44% |\n"
+      + "| **合计（有数据范围 10/12–10/31）** | **89** | **60** | **67.42%** |\n\n全月另有 1 项逾期。",
+      facts: ["按已有记录，完成了 60 项任务", "大约是百分之 67"],
+      spoken: "接下来先把没覆盖到的记录核对一下。", fallback: "接下来先核对这份报告没有覆盖到的记录。", omitted: "1 项任务逾期" },
     { id: "unplanned", detail: "### 虚构任务统计\n| 周期 | 计划 | 已完成 | 完成率 |\n| --- | --- | --- | --- |\n| 本期合计 | 0 | 5 | — |",
       facts: ["完成了 5 项任务", "没有预先排计划"],
       spoken: "可以沿用这个节奏，看看什么做法更管用。", fallback: "接下来可以沿用这个节奏，再看看哪些做法最管用。" }
@@ -1015,6 +1020,7 @@ describe("voice background AgentLoop", () => {
       for (const fact of report.facts) expect(result.voiceSpeech).toContain(fact);
       expect(result.voiceSpeech).toContain(report.mode === "natural" ? report.spoken : report.fallback);
       expect(result.voiceSpeech).not.toMatch(/\||999|看面板|2026-/u);
+      if (report.omitted) expect(result.voiceSpeech).not.toContain(report.omitted);
       expect(voiceJobSpeech(result.text, result.voiceSpeech)).toBe(result.voiceSpeech);
       expect(roles).toEqual(["deep", "deep", "fast"]);
       expect(requests[2][1].content).toBe(report.fallback);
