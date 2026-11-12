@@ -1,4 +1,5 @@
 import { dashboardContextData } from "../contextData";
+import { clockFromMatch, clockMatches } from "../clockText";
 import { formatDate, normalizeJournalDate } from "../date";
 import { newLocalOperationId } from "../operationIdentity";
 import { assertProviderActive } from "../providerRun";
@@ -54,7 +55,7 @@ function parseTaskClock(text: string): { time: string; titleText: string } | nul
   // Local fallback has only one absolute clock field. Keep unsupported relative,
   // approximate or range requests out of Runtime instead of saving a partial task.
   if (/(分钟|小时|刻钟)\s*(之?[前后]|以[前后])/.test(text)) return null;
-  const matches = [...text.matchAll(/(?:(凌晨|早上|上午|中午|下午|傍晚|晚上|今晚)\s*)?([\d零〇一二两三四五六七八九十百]+)\s*(?:[:：]([\d零〇一二两三四五六七八九十百]+)|[点时]\s*(?:(半|一刻|三刻)|([\d零〇一二两三四五六七八九十百]+)\s*(分)?)?)(?:钟)?(?:整(?=$|[\s，,。；;]|开始))?/gu)];
+  const matches = clockMatches(text);
   if (matches.length === 0) return { time: "", titleText: text };
   if (matches.length !== 1) return null;
   const match = matches[0], start = match.index!, end = start + match[0].length;
@@ -67,40 +68,6 @@ function parseTaskClock(text: string): { time: string; titleText: string } | nul
   // “三点” from the task title “整理三点建议”. Ambiguity stays with the model.
   if (!match[1] && !/(今天|明天|后天|任务|待办|提醒我|记一下|记下|安排|[，,。；;]|^\/todo)\s*$/.test(before)
     && !/^(?:$|开始)/.test(after.trimStart())) return null;
-  let hour = clockNumber(match[2]);
-  const minute = match[4] === "半" ? 30 : match[4] === "一刻" ? 15 : match[4] === "三刻" ? 45 : clockNumber(match[3] ?? match[5] ?? "0");
-  if (hour === null || minute === null || hour > 23 || minute > 59) return null;
-  const period = match[1];
-  if (period === "上午" || period === "早上") {
-    if (hour >= 12) return null;
-  } else if (period === "凌晨") {
-    if (hour === 12) hour = 0;
-    if (hour > 6) return null;
-  } else if (period === "中午") {
-    if (hour === 1) hour = 13;
-    if (hour < 11 || hour > 13) return null;
-  } else if (period) {
-    if (hour === 0) return null;
-    // Night-time 1–5 or 12 can refer to the next calendar day. Do not turn
-    // these into an afternoon clock or silently move midnight to this morning.
-    if ((period === "晚上" || period === "今晚") && (hour < 6 || hour === 12)) return null;
-    if (period === "傍晚" && !(hour >= 5 && hour <= 7 || hour >= 17 && hour <= 19)) return null;
-    if (hour < 12) hour += 12;
-  }
-  return {
-    time: `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
-    titleText: before + after.replace(/^\s*开始/u, "")
-  };
-}
-
-function clockNumber(value: string): number | null {
-  if (/^\d{1,2}$/.test(value)) return Number(value);
-  const digits: Record<string, number> = { 零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
-  if (value in digits) return digits[value];
-  if (/^[零〇][一二三四五六七八九]$/.test(value)) return digits[value[1]];
-  if (/^[二两三四五六七八九]?十[一二三四五六七八九]?$/.test(value)) {
-    const [tens, units] = value.split("十");
-    return (tens ? digits[tens] : 1) * 10 + (units ? digits[units] : 0);
-  }
-  return null;
+  const time = clockFromMatch(match);
+  return time === null ? null : { time, titleText: before + after.replace(/^\s*开始/u, "") };
 }

@@ -157,6 +157,26 @@ it("records a chat trade when the model supplies only a date for closing", async
   expect((await readTradeDatabase(store)).trades[0].closedAt).toBeUndefined();
 });
 
+it.each([
+  ["2026-11-12 做多 10 股，开仓 20，平仓 22，手续费 1 元。", "date", undefined],
+  ["2026-11-12 上午九点半开仓 20，下午三点平仓 22，做多 10 股，手续费 1 元。", undefined, "2026-11-12T15:00:00+08:00"],
+  ["2026-11-12 开仓价 20，15:00 平仓，平仓价 22，做多 10 股，手续费 1 元。", "date", "2026-11-12T15:00:00+08:00"],
+  ["2026-11-12T09:30:00-05:00 开仓 20，平仓 22，做多 10 股，手续费 1 元。", "date", undefined]
+] as const)("keeps only the chat trade clocks supported by %s", async (message, precision, closedAt) => {
+  const result = await runtime.executeAiToolCall({ name: "record_trade", arguments: { trades: [{
+    market: "A股", symbol: "ZTEST1", direction: "long", qty: 10, entry: 20, exit: 22, fees: 1,
+    openedAt: "2026-11-12T09:30:00+08:00", closedAt: "2026-11-12T15:00:00+08:00"
+  }] } }, "kimi", message);
+  expect(result.success, result.output).toBe(true);
+  const { trades } = await readTradeDatabase(store);
+  expect(trades).toMatchObject([{
+    symbol: "ZTEST1", openedAt: precision ? expect.stringMatching(/^2026-11-12T00:00:00/) : "2026-11-12T09:30:00+08:00",
+    pnl: 19, pnlSource: "computed"
+  }]);
+  expect(trades[0].openedAtPrecision).toBe(precision);
+  expect(trades[0].closedAt).toBe(closedAt);
+});
+
 it("uses the real trade count for daily goals, undo and the 21:00 compensation check", async () => {
   await store.initializeVault();
   const habit = await store.createHabit({ name: "虚构每日交易", source: "trades", startDate: "2026-11-07", frequencyUnit: "day",

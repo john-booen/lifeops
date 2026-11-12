@@ -1,4 +1,5 @@
 import { formatDate, normalizeJournalDate } from "../../date";
+import { supportsTradeClock, tradeClockEvidence } from "./clockEvidence";
 import { tradeNumber } from "./pnl";
 import { isTradeTimestamp, type Trade, type TradeDraft, type TradePatch } from "./types";
 
@@ -38,14 +39,22 @@ function tradeInput(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-export function chatTradeDraft(value: unknown, now = new Date()): TradeDraft {
+export function chatTradeDraft(value: unknown, now = new Date(), userMessage = ""): TradeDraft {
   const input = tradeInput(value);
   if (typeof input.symbol !== "string" || !input.symbol.trim() || (input.direction !== "long" && input.direction !== "short")) {
     throw new Error("请先问清每笔交易的品种和做多或做空方向，未保存。");
   }
+  let opened = tradeTime(input.openedAt, now);
   const closed = input.closedAt === undefined ? undefined : tradeTime(input.closedAt, now);
-  return { ...input, ...tradeTime(input.openedAt, now), closedAt: closed?.openedAtPrecision ? undefined : closed?.openedAt,
-    source: { kind: "chat" } } as TradeDraft;
+  let closedAt = closed?.openedAtPrecision ? undefined : closed?.openedAt;
+  if (userMessage.trim() && (!opened.openedAtPrecision || closedAt)) {
+    const evidence = tradeClockEvidence(userMessage);
+    if (closedAt && !supportsTradeClock(evidence, "closedAt", closedAt, opened.openedAtPrecision ? undefined : opened.openedAt)) closedAt = undefined;
+    if (!opened.openedAtPrecision && !supportsTradeClock(evidence, "openedAt", opened.openedAt)) {
+      opened = tradeTime(opened.openedAt.slice(0, 10), now);
+    }
+  }
+  return { ...input, ...opened, closedAt, source: { kind: "chat" } } as TradeDraft;
 }
 
 const pnlAmount = /(?:盈亏|损益|盈利|获利|收益|利润|赚|亏损|亏|赔|pnl|p&l|profit|loss)(?:\s|为|是|了|约|:|=)*([+\-负−]?\s*(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)(?![\d.%])/gi;
