@@ -846,5 +846,15 @@
       "toolFacts": [{"name": "get_stats", "output": {"domain": "tasks", "range": {"from": "2026-10-01", "to": "2026-10-31"}}}],
       "expectWrites": {"tasks.created": 0, "tasks.deleted": 0}, "maxConfirmations": 0
     }
+  },
+  {
+    "id": "voice-named-reminder-51", "milestone": "M6", "domain": "tasks", "mode": "voice",
+    "input": "明天下午3:15提醒岑知禾给蓝色样品盒贴标签。", "history": [],
+    "checks": {
+      "mustSucceedTools": ["create_task"], "minReceipts": 1,
+      "expectWrites": {"tasks.created": 1, "tasks.deleted": 0, "tasks.rescheduled": 0},
+      "createdTask": {"titleIncludes": "岑知禾给蓝色样品盒贴标签", "date": "2026-11-13", "time": "15:15"},
+      "mustInclude": ["岑知禾", "样品盒"], "mustIncludeAny": [["15:15", "下午三点十五", "下午3点15"]]
+    }
   }
 ]
