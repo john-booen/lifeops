@@ -493,7 +493,7 @@ async function reviewCascadeInterruption(view: VoiceRealtimeView, endpoint: Serv
   if (view.viewClosed || !view.agentRecording || !view.agentVoiceReady || view.agentMode !== "voice"
     || activeCascadeCapture.get(view) !== endpoint || view.controller.savedVoiceSettingsRevision !== savedVoiceSettingsRevision
     || view.agentVoicePipelineGeneration !== generation) return;
-  if (decision !== "ignore") submitCascadeTranscript(view, transcript);
+  if (decision === "accept") submitCascadeTranscript(view, transcript);
   else maybeAnnounceVoiceJob(view);
 }
 

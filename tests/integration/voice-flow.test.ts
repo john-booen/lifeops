@@ -2091,8 +2091,10 @@ describe("voice integration flow", () => {
   it("keeps cascade playback through noise and incidental speech and cuts it for a directed request", async ({ onTestFinished }) => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
     Object.assign(window, { setTimeout, clearTimeout });
-    const review = vi.spyOn(playbackInput, "classifyPlaybackInput").mockImplementation(async (_settings, text) =>
-      text === "停一下，我想问明天的任务。" ? "accept" : "ignore");
+    const review = vi.spyOn(playbackInput, "classifyPlaybackInput").mockImplementation(async (_settings, text) => {
+      if (text === "停一下，我想问明天的任务。") return "accept";
+      return text === "我。" ? undefined : "ignore";
+    });
     onTestFinished(() => { review.mockRestore(); });
     const measurements: number[] = [];
     for (let attempt = 0; attempt < 20; attempt++) {

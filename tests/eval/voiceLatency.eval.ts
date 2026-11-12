@@ -191,11 +191,13 @@ it.runIf(playbackOnly)("distinguishes incidental speech from requests during fic
     [taskQuestion, "欢迎收看今天的比赛，广告之后见。", "ignore"],
     [taskQuestion, "蓝色纸袋在桌上，等会儿你帮我拿过来。", "ignore"],
     [taskQuestion, "小李，你把这个纸袋拿过来。", "ignore"],
+    [taskQuestion, "小李，你说今晚一起吃什么？", "ignore"],
     [deskQuestion, "停。", "accept"],
     [deskQuestion, "停一下，我想问明天的任务。", "accept"],
     [taskQuestion, "不对，上个月。", "accept"],
     [taskQuestion, "上个月。", "accept"],
     [taskQuestion, "换个话题，明天要做什么？", "accept"],
+    [deskQuestion, "明天还有哪些待办？", "accept"],
     [deskQuestion, "记一个待办，给样品盒贴标签。", "accept"],
     ["新建一个给样品盒贴标签的待办。", "撤销。", "accept"]
   ] as const;
