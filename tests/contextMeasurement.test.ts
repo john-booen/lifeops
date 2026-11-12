@@ -17,7 +17,14 @@ const { DiskVault } = await import("./helpers/diskVault");
 const liveFetch = globalThis.fetch.bind(globalThis);
 const liveMeasurement = process.env.LIFEOPS_MEASURE_CONTEXT === "1" && process.env.LIFEOPS_MEASURE_LIVE === "1";
 const benchmarkClock = new Date("2026-11-06T00:27:14+08:00");
-const questions = ["你好", "我今天还有什么任务没完成", "帮我建一个明天下午三点见客户的任务", "今天日记的状态怎么样", "这周习惯完成得怎么样"];
+const questions = [
+  { question: "你好", localReply: /^你好！$/u },
+  { question: "我今天还有什么任务没完成", localReply: /^今天有 \d+ 个未完成任务。/u },
+  { question: "帮我建一个明天下午三点见客户的任务" },
+  { question: "今天日记的状态怎么样" },
+  { question: "这周习惯完成得怎么样" }
+];
+const noRequestChars = { system: 0, tools: 0, context: 0, memory: 0, history: 0, user: 0, request: 0 };
 const chars = (value: string) => Array.from(value).length;
 let root = "";
 afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); if (root) await rm(root, { recursive: true, force: true }); });
@@ -51,7 +58,7 @@ async function measureUsage(body: any): Promise<{ inputTokens: number; provider:
 }
 
 describe("production context measurement with synthetic Test Vault data", () => {
-  it("captures the five requested production request bodies without dispatching tools", async () => {
+  it("measures provider context and local replies without changing the task records", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(benchmarkClock);
     vi.stubGlobal("window", globalThis);
@@ -76,12 +83,18 @@ describe("production context measurement with synthetic Test Vault data", () => 
       return new Response('data: {"choices":[{"delta":{"content":"虚构测量回复。"}}]}\n\ndata: [DONE]\n\n', { headers: { "Content-Type": "text/event-stream" } });
     }));
     const reports = [];
-    for (const question of questions) {
+    for (const { question, localReply } of questions) {
       captured.length = 0;
       const tasksBefore = await vault.bytes(store.taskDbPath());
-      await plugin.submitAgentMessageStream(question, [], () => {}, { selfTest: true });
-      expect(captured, question).toHaveLength(1);
+      const response = await plugin.submitAgentMessageStream(question, [], () => {}, { selfTest: true });
       expect(await vault.bytes(store.taskDbPath())).toBe(tasksBefore);
+      if (localReply) {
+        expect(captured, question).toHaveLength(0);
+        expect(response.reply).toMatch(localReply);
+        reports.push({ question, chars: noRequestChars, inputTokens: 0 });
+        continue;
+      }
+      expect(captured, question).toHaveLength(1);
       reports.push({ question, chars: segments(captured[0]), ...(liveMeasurement ? await measureUsage(captured[0]) : { inputTokens: null }) });
     }
     const toolDescriptions = agentToolsForChat().map(tool => ({ name: tool.name, chars: chars(tool.description),
