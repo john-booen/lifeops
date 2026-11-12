@@ -13,3 +13,9 @@ it("adds nothing to a priority-only answer or one that already has both numbers"
   expect(planCapacityEvidence(JSON.stringify({ today: { scheduled: 12 }, capacity: { overloaded: true } }), "超载。"))
     .toBeUndefined();
 });
+
+it("uses the user's workload question when the model gives advice without naming the overload", () => {
+  expect(planCapacityEvidence(facts, "建议把整理书架挪到明天。", "我今天的安排会不会超负荷？"))
+    .toBe("核对到的工作量：今天原排 12 项，常态完成 6 项。");
+  expect(planCapacityEvidence(facts, "建议把整理书架挪到明天。", "今天先做哪一件？")).toBeUndefined();
+});

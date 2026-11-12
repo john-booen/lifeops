@@ -1,6 +1,8 @@
-/** If the answer discusses overload, retain the numbers the planning tool measured. */
-export function planCapacityEvidence(output: string, answer: string): string | undefined {
-  if (!["超载", "超出", "排得太多", "排多", "超负荷"].some(word => answer.includes(word))) return;
+const capacityPhrases = /超载|超负荷|超出|排(?:得)?(?:太|有点)?[多满]|忙不过来|做不完/u;
+
+/** Retain the measured comparison for workload questions, even if the model only gives advice. */
+export function planCapacityEvidence(output: string, answer: string, question = ""): string | undefined {
+  if (!capacityPhrases.test(question) && !capacityPhrases.test(answer)) return;
   let result: { today?: { scheduled?: number }; capacity?: { overloaded?: boolean; typicalCount?: number }; scope?: string };
   try { result = JSON.parse(output); } catch { return; }
   const scheduled = result?.today?.scheduled, typical = result?.capacity?.typicalCount;

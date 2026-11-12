@@ -275,7 +275,7 @@ export class AgentLoop {
           const result = state.results.get(call.id);
           if (!result?.success) return;
           if (call.function.name === "get_stats") return habitDateEvidence(result.output, state.text);
-          if (call.function.name === "plan_today") return planCapacityEvidence(result.output, state.text);
+          if (call.function.name === "plan_today") return planCapacityEvidence(result.output, state.text, input.message);
         }).filter(Boolean).slice(0, 2);
         if (evidence.length) {
           const addition = "\n\n" + evidence.join("\n");
