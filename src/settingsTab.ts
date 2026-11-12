@@ -1,5 +1,6 @@
 import { Notice, PluginSettingTab, Setting, type TextComponent } from "obsidian";
 import type LifeOpsPlugin from "./main";
+import type { LifeOpsSettings } from "./types";
 import { openSetupWizard } from "./features/setup/wizard";
 import { credentialStorageRiskMessage } from "./credentialSecurity";
 import { parseExcludedVaultPrefixes } from "./privacy";
@@ -150,6 +151,18 @@ export class LifeOpsSettingTab extends PluginSettingTab {
       }));
 
     containerEl.createEl("h3", { text: "文字 AI 设置", attr: { "data-lifeops-settings": "text", tabindex: "-1" } });
+    let refreshTextDisclosure = (): void => {};
+    const updateTextConnection = async <K extends "provider" | "endpoint" | "fallbackProvider" | "fallbackEndpoint">(
+      field: K, value: LifeOpsSettings["ai"][K]
+    ): Promise<void> => {
+      const ai = this.plugin.settings.ai;
+      if (ai[field] === value) return;
+      ai[field] = value;
+      ai.dataDisclosureAccepted = false;
+      refreshTextDisclosure();
+      refreshReadiness();
+      await this.plugin.saveSettings();
+    };
     new Setting(containerEl)
       .setName("AI Provider")
       .setDesc("选择已有的文字服务。Kimi使用兼容接口选项；服务地址、模型和密钥分别填写，更换服务后需重新确认发送范围。")
@@ -162,30 +175,31 @@ export class LifeOpsSettingTab extends PluginSettingTab {
           .addOption("qwen", "Qwen / 百炼")
           .addOption("custom", "自定义")
           .setValue(this.plugin.settings.ai.provider)
-          .onChange(async (value) => {
-            this.plugin.settings.ai.provider = value as "off" | "openai-compatible" | "deepseek" | "minimax" | "qwen" | "custom";
-            this.plugin.settings.ai.dataDisclosureAccepted = false;
-            await this.plugin.saveSettings();
-          });
+          .onChange(value => updateTextConnection("provider", value as LifeOpsSettings["ai"]["provider"]));
       });
 
-    new Setting(containerEl)
-      .setName("允许文本发送给当前 AI Provider")
-      .setDesc(`当前 Provider：${this.plugin.settings.ai.provider}。会发送用户消息、必要对话历史和筛选后的库文本。日记信号会自动处理允许读取的日记，每篇最多 6000 字。被排除目录不会发送。更换 Provider 后自动撤销授权。`)
-      .addToggle((toggle) => {
-        toggle.setValue(this.plugin.settings.ai.dataDisclosureAccepted === true).onChange(async (value) => {
-          this.plugin.settings.ai.dataDisclosureAccepted = value;
-          await this.plugin.saveSettings();
-        });
+    const textDisclosure = new Setting(containerEl).setName("允许文本发送给当前 AI Provider");
+    textDisclosure.addToggle(toggle => {
+      refreshTextDisclosure = () => {
+        const ai = this.plugin.settings.ai;
+        const allowed = ai.dataDisclosureAccepted === true;
+        textDisclosure.setDesc(`当前 Provider：${ai.provider}。会发送用户消息、必要对话历史和筛选后的库文本。日记信号会自动处理允许读取的日记，每篇最多 6000 字。被排除目录不会发送。更换主用或备用服务类型、地址后自动撤销授权。`);
+        toggle.setValue(allowed);
+        toggle.toggleEl.setAttribute("aria-checked", String(allowed));
+      };
+      refreshTextDisclosure();
+      toggle.onChange(async value => {
+        this.plugin.settings.ai.dataDisclosureAccepted = value;
+        refreshTextDisclosure();
+        refreshReadiness();
+        await this.plugin.saveSettings();
       });
+    });
 
     new Setting(containerEl)
       .setName("AI Endpoint")
       .addText((text) => {
-        text.setValue(this.plugin.settings.ai.endpoint).onChange(async (value) => {
-          this.plugin.settings.ai.endpoint = value.trim();
-          await this.plugin.saveSettings();
-        });
+        text.setValue(this.plugin.settings.ai.endpoint).onChange(value => updateTextConnection("endpoint", value.trim()));
       });
 
     new Setting(containerEl)
@@ -219,20 +233,13 @@ export class LifeOpsSettingTab extends PluginSettingTab {
           .addOption("qwen", "Qwen / 百炼")
           .addOption("custom", "自定义")
           .setValue(this.plugin.settings.ai.fallbackProvider)
-          .onChange(async (value) => {
-            this.plugin.settings.ai.fallbackProvider = value as "off" | "openai-compatible" | "deepseek" | "minimax" | "qwen" | "custom";
-            this.plugin.settings.ai.dataDisclosureAccepted = false;
-            await this.plugin.saveSettings();
-          });
+          .onChange(value => updateTextConnection("fallbackProvider", value as LifeOpsSettings["ai"]["fallbackProvider"]));
       });
 
     new Setting(containerEl)
       .setName("AI Fallback Endpoint")
       .addText((text) => {
-        text.setValue(this.plugin.settings.ai.fallbackEndpoint).onChange(async (value) => {
-          this.plugin.settings.ai.fallbackEndpoint = value.trim();
-          await this.plugin.saveSettings();
-        });
+        text.setValue(this.plugin.settings.ai.fallbackEndpoint).onChange(value => updateTextConnection("fallbackEndpoint", value.trim()));
       });
 
     new Setting(containerEl)

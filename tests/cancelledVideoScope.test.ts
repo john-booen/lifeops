@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "../src/defaults";
 import { providerDisclosureRequired } from "../src/privacy";
 
-const rendered = vi.hoisted(() => ({ rows: [] as Array<{ name?: string; description?: string; buttons: string[] }>, text: [] as string[] }));
+const rendered = vi.hoisted(() => ({ rows: [] as Array<{ name?: string; description?: string; buttons: string[]; value?: unknown; checked?: string; change?: (value: string) => Promise<void> }>, text: [] as string[] }));
 vi.mock("obsidian", () => {
   class Element {
     empty() {}
@@ -10,14 +10,22 @@ vi.mock("obsidian", () => {
     createDiv() { return new Element(); }
   }
   class Setting {
-    row = { name: "", description: "", buttons: [] as string[] };
+    row: typeof rendered.rows[number] = { name: "", description: "", buttons: [] };
     constructor(_el: unknown) { rendered.rows.push(this.row); }
     setName(value: string) { this.row.name = value; return this; }
     setDesc(value: string) { this.row.description = value; return this; }
     control(callback: (value: any) => unknown) {
-      const control: any = new Proxy({ inputEl: { addEventListener() {} } }, { get: (target, key) => {
-        if (key === "inputEl") return target.inputEl;
-        return (...args: unknown[]) => { if (key === "setButtonText") this.row.buttons.push(String(args[0])); return control; };
+      const control: any = new Proxy({
+        inputEl: { addEventListener() {} },
+        toggleEl: { setAttribute: (name: string, value: string) => { if (name === "aria-checked") this.row.checked = value; } }
+      }, { get: (target, key) => {
+        if (key === "inputEl" || key === "toggleEl") return target[key];
+        return (...args: unknown[]) => {
+          if (key === "setButtonText") this.row.buttons.push(String(args[0]));
+          if (key === "setValue") this.row.value = args[0];
+          if (key === "onChange") this.row.change = args[0] as typeof this.row.change;
+          return control;
+        };
       } });
       callback(control); return this;
     }
@@ -73,5 +81,41 @@ describe("cancelled file-video capability", () => {
     expect(text).toContain("摄像头画面");
     expect(text).toContain("完整屏幕截图");
     expect(text).not.toMatch(/短视频|原视频|音轨|采样图与问题/);
+  });
+});
+
+describe("text AI service authorization", () => {
+  it.each([
+    ["AI Provider", "provider", "deepseek"],
+    ["AI Endpoint", "endpoint", "https://other.example.invalid/chat"],
+    ["AI Fallback Provider", "fallbackProvider", "custom"],
+    ["AI Fallback Endpoint", "fallbackEndpoint", "https://fallback.example.invalid/chat"]
+  ] as const)("revokes authorization when changing %s", async (name, field, value) => {
+    const settings = structuredClone(DEFAULT_SETTINGS);
+    settings.ai.provider = "openai-compatible";
+    settings.ai.dataDisclosureAccepted = true;
+    const saveSettings = vi.fn(async () => {
+      expect(settings.ai[field]).toBe(value);
+      expect(settings.ai.dataDisclosureAccepted).toBe(false);
+    });
+    new LifeOpsSettingTab({ app: {}, settings, saveSettings } as any).display();
+    const consent = rendered.rows.find(row => row.name === "允许文本发送给当前 AI Provider");
+    expect(consent?.value).toBe(true);
+    expect(consent?.checked).toBe("true");
+    await rendered.rows.find(row => row.name === name)?.change?.(value);
+    expect(saveSettings).toHaveBeenCalledOnce();
+    expect(consent?.value).toBe(false);
+    expect(consent?.checked).toBe("false");
+  });
+
+  it("retains authorization when the trimmed service address is unchanged", async () => {
+    const settings = structuredClone(DEFAULT_SETTINGS);
+    settings.ai.provider = "openai-compatible";
+    settings.ai.dataDisclosureAccepted = true;
+    const saveSettings = vi.fn();
+    new LifeOpsSettingTab({ app: {}, settings, saveSettings } as any).display();
+    await rendered.rows.find(row => row.name === "AI Endpoint")?.change?.(" " + settings.ai.endpoint + " ");
+    expect(settings.ai.dataDisclosureAccepted).toBe(true);
+    expect(saveSettings).not.toHaveBeenCalled();
   });
 });
