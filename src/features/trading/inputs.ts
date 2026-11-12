@@ -33,14 +33,21 @@ export function tradeTime(value: unknown, now = new Date()): Pick<TradeDraft, "o
   return { openedAt: `${date}T${clock}${offset < 0 ? "-" : "+"}${hh}:${mm}`, openedAtPrecision: localTime ? undefined : "date" };
 }
 
-function tradeInput(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)
-    || Object.keys(value).some(key => !Object.hasOwn(TRADE_FIELDS, key))) throw new Error("交易字段不正确，请核对品种、方向和数据。");
-  return value as Record<string, unknown>;
+function tradeInput(value: unknown, allowRepeatedOpeningDate = false): Record<string, unknown> {
+  const invalid = () => new Error("交易字段不正确，请核对品种、方向和数据。");
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw invalid();
+  const input = value as Record<string, unknown>;
+  const { date, ...withoutDate } = input;
+  // A model can repeat an already supplied calendar date in an extra field.
+  const repeated = allowRepeatedOpeningDate && typeof date === "string" && date.length > 0
+    && date === input.openedAt && normalizeJournalDate(date) === date;
+  const fields = repeated ? withoutDate : input;
+  if (Object.keys(fields).some(key => !Object.hasOwn(TRADE_FIELDS, key))) throw invalid();
+  return fields;
 }
 
 export function chatTradeDraft(value: unknown, now = new Date(), userMessage = ""): TradeDraft {
-  const input = tradeInput(value);
+  const input = tradeInput(value, true);
   if (typeof input.symbol !== "string" || !input.symbol.trim() || (input.direction !== "long" && input.direction !== "short")) {
     throw new Error("请先问清每笔交易的品种和做多或做空方向，未保存。");
   }

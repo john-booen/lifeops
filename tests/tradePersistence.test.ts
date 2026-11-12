@@ -158,6 +158,25 @@ it("records a chat trade when the model supplies only a date for closing", async
 });
 
 it.each([
+  [{ date: "2026-11-12", openedAt: "2026-11-12" }, true],
+  [{ date: "2026-11-13", openedAt: "2026-11-12" }, false],
+  [{ date: "2026-11-12" }, false],
+  [{ date: "2026-11-12", openedAt: "2026-11-12", unexpected: true }, false]
+] as const)("keeps a single verified opening date for chat trade fields %j", async (dates, accepted) => {
+  const result = await runtime.executeAiToolCall({ name: "record_trade", arguments: { trades: [{
+    ...dates, market: "A股", symbol: "ZTEST1", direction: "long", qty: 10, entry: 20, exit: 22, fees: 1
+  }] } }, "kimi", "2026-11-12 记录虚构 ZTEST1 做多 10 股，开仓 20，平仓 22，手续费 1 元。");
+  expect(result.success, result.output).toBe(accepted);
+  const { trades } = await readTradeDatabase(store);
+  if (accepted) {
+    expect(trades).toMatchObject([{ openedAt: expect.stringMatching(/^2026-11-12T00:00:00/), openedAtPrecision: "date", pnl: 19 }]);
+    expect(trades[0]).not.toHaveProperty("date");
+  } else {
+    expect(trades).toEqual([]);
+  }
+});
+
+it.each([
   ["2026-11-12 做多 10 股，开仓 20，平仓 22，手续费 1 元。", "date", undefined],
   ["2026-11-12 上午九点半开仓 20，下午三点平仓 22，做多 10 股，手续费 1 元。", undefined, "2026-11-12T15:00:00+08:00"],
   ["2026-11-12 开仓价 20，15:00 平仓，平仓价 22，做多 10 股，手续费 1 元。", "date", "2026-11-12T15:00:00+08:00"],
