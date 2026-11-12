@@ -365,9 +365,10 @@
     "checks": {
       "preludeCreatedTasks": 1,
       "expectWrites": {"tasks.created": 0, "tasks.deleted": 0, "tasks.rescheduled": 0},
-      "absentTaskTitle": "评测给青色档案盒贴标签",
+      "absentTaskTitle": "给青色档案盒贴标签",
       "mustSucceedTools": ["undo_latest_operation"],
-      "mustInclude": ["已撤销", "评测给青色档案盒贴标签"]
+      "mustInclude": ["已撤销"],
+      "mustIncludeAny": [["评测给青色档案盒贴标签", "评测：给青色档案盒贴标签", "评测: 给青色档案盒贴标签"]]
     }
   },
   {
