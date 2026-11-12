@@ -396,9 +396,12 @@ export class AgentLoop {
       guidance.push("普通短问先说结论，第一句简短并以句号收尾。需要判断和解释时再补一句。");
     }
     if (!input.voiceBackground && messages.at(-1)?.role === "user") {
-      guidance.push("只说「不对」或「不对不对」时，回到上一条用户问题的明确主题和时段；助手刚才说错的时段不能覆盖用户原话。本轮若改了日期，以新日期为准。明确已结束的周月先用 get_summaries。只说「对」按刚核对的问题直接查询。范围已清楚就不要反问或只道歉。");
+      guidance.push("只说「不对」或「不对不对」时，回到上一条用户问题的明确主题和时段；助手刚才说错的时段不能覆盖用户原话。本轮若改了日期，以新日期为准。只说「对」按刚核对的问题直接查询。范围已清楚就不要反问或只道歉。");
     }
     if (input.voiceBackground) guidance.push("这是只读的后台分析。核对所需资料后直接回答原问题，避免添加无关建议。");
+    if (tools.some(tool => tool.name === "get_summaries")) {
+      guidance.push("问上周、上月的整体表现或复盘，先用 get_summaries，分别传 level=week 和 range=last_week，或 level=month 和 range=last_month。包括问做得怎么样或要一条改进。缺项再用 get_stats 补查。");
+    }
     if (input.voiceBackground && tools.some(tool => tool.name === "get_stats" || tool.name === "get_summaries")) {
       guidance.push("日期和范围以用户原话为准。上周用 last_week，上月或上个月用 last_month，按当前日期由工具计算。用户明确指定绝对日期或其他区间时按原意查询。");
     }
@@ -436,7 +439,7 @@ export class AgentLoop {
       guidance.push("用户问实际学了多久，要带上核对到的学习轨道名称和本轮时段，再报 recordedMinutes 或统计里的 minutes。即使是在纠正前一句，也不能只回一个数字。weeklyMinutes 是本周计划目标；差值不是已学习或未登记时长。");
     }
     if (evidenceCalls.some(call => call.name === "get_summaries")) {
-      guidance.push("历史总结只用用户所问的日期范围。已有摘要能回答就直接答，缺项才查同一日期范围。不要把本周习惯混进上周，也不要附带额外建议。");
+      guidance.push("历史总结只用用户所问的日期范围。已有摘要能回答就直接答，缺项才查同一日期范围。不要把本周习惯混进上周。明确要求改进时，用同一摘要给一条具体的后续动作。");
     }
     if (evidenceCalls.some(call => call.name === "list_ideas")) {
       guidance.push("如果用户明确要把已找到的想法拆成任务或要确认卡，立即用该想法的准确 id 调用 advance_idea。调用只生成卡，点击才保存，生成卡前无需问是否立项或先等用户同意。只问状态时按列表回答。");
