@@ -65,16 +65,22 @@
           "12个",
           "12 项",
           "12项",
+          "12 件",
+          "12件",
           "十二个",
-          "十二项"
+          "十二项",
+          "十二件"
         ],
         [
           "6 个",
           "6个",
           "6 项",
           "6项",
+          "6 件",
+          "6件",
           "六个",
-          "六项"
+          "六项",
+          "六件"
         ],
         [
           "排多",
@@ -97,6 +103,15 @@
       ],
       "mustSucceedTools": [
         "plan_today"
+      ],
+      "toolFacts": [
+        {
+          "name": "plan_today",
+          "output": {
+            "today": { "scheduled": 12 },
+            "capacity": { "overloaded": true, "typicalCount": 6 }
+          }
+        }
       ],
       "expectWrites": {
         "tasks.created": 0,
