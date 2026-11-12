@@ -371,6 +371,27 @@ describe("unified agent loop", () => {
     expect((await store.readTaskDb({ readOnly: true })).tasks).toHaveLength(3);
   });
 
+  it("reads the three status domains without model arithmetic for an overall status request", async () => {
+    await store.createTask({ title: "虚构近期计划", date: formatDate(now) });
+    await store.createTask({ title: "虚构较早计划", date: addDays(formatDate(now), -8) });
+    const chunks: string[] = [];
+    const result = await new AgentLoop(host).run(input({ message: "讲讲我最近的整体状态。", onText: chunk => chunks.push(chunk) }));
+    expect(result.text).toContain("安排了 1 项任务，完成其中 0 项。");
+    expect(result.text).toContain("0 项习惯有达标记录");
+    expect(result.text).toContain("有 0 篇日记。没有可核对的状态数值。");
+    expect(chunks.join("")).toBe(result.text);
+    expect(result.toolCalls).toEqual(Array.from({ length: 3 }, () => ({ name: "get_stats", ok: true })));
+    expect(result.receipts).toEqual([]);
+    expect(requests).toEqual([]);
+  });
+
+  it("keeps a narrowly scoped mood question focused on the requested topic", async () => {
+    responses.push(reply("日记记载，最近精力偏低。"));
+    const result = await new AgentLoop(host).run(input({ message: "我最近三天的情绪怎么样？" }));
+    expect(result.text).toBe("日记记载，最近精力偏低。");
+    expect(result.toolCalls).toEqual([]);
+  });
+
   it.each(["get_stats", "query_vault"])("adds verified habit dates only from the stats tool (%s)", async name => {
     const answer = "虚构存钱在11月11日没达标。";
     const report = { domain: "habits", range: { from: "2026-11-09", to: "2026-11-12" },

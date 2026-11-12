@@ -3,6 +3,7 @@ import type { AiChatResult, AiToolCall, AiToolDefinition, ChatMessage, LifeOpsAi
 import type { ToolCallResult } from "../agentRuntime";
 import { formatDate } from "../date";
 import { habitDateEvidence } from "../features/stats/habitEvidence";
+import { asksForRecentStatus, formatRecentStatus, recentStatusDomains } from "../features/stats/statusEvidence";
 import { backgroundStatsTool } from "../features/stats/tools";
 import { resolveStatsRange } from "../features/stats/stats";
 import { formatHabitCompensationReply, formatTaskListReply, formatVoiceTaskPriorities, habitCompensationQuestion, voiceTaskPriorityTool } from "../features/tasks/planTools";
@@ -152,6 +153,15 @@ export class AgentLoop {
         assertPolicy();
         const reply = result?.success && formatTaskListReply(result.output, date);
         return this.localAnswer(input, state, reply || "今天的任务记录暂不可用，请稍后再试。");
+      }
+      if (input.source === "text" && !input.voiceBackground && asksForRecentStatus(input.message)) {
+        assertPolicy();
+        const range = resolveStatsRange("last_7d", input.now);
+        const calls = this.scopedCalls(recentStatusDomains.map(domain => ({ name: "get_stats", arguments: { domain, range } })), state.id, 0);
+        const results = await this.executeRegular(input, state, calls);
+        assertProviderActive(input.signal);
+        assertPolicy();
+        return this.localAnswer(input, state, formatRecentStatus(results.filter(result => result.success).map(result => result.output), range));
       }
       const context = await buildResidentContext(this.host.store, input.message, input.now, input.voiceBackground ? "system" : input.source);
       assertProviderActive(input.signal);
