@@ -53,7 +53,7 @@ function validatePunishmentRule(input: unknown): PunishmentRule {
     && (rule.activity === "跑步" || rule.activity === "快走" || rule.activity === "跳绳")
     && (rule.unit === "公里" || rule.unit === "分钟") && positive(rule.amount)
     && rule.amount <= EXERCISE_SINGLE_CAP[rule.unit]
-    && (rule.dailyLimit === undefined || positive(rule.dailyLimit) && rule.dailyLimit <= EXERCISE_SINGLE_CAP[rule.unit])
+    && (rule.dailyLimit === undefined || positive(rule.dailyLimit) && rule.dailyLimit <= EXERCISE_DAY_CAP[rule.unit])
     && (rule.overflowCnyPerUnit === undefined || positive(rule.overflowCnyPerUnit))) {
     return { kind: rule.kind, activity: rule.activity, amount: rule.amount, unit: rule.unit,
       ...(positive(rule.dailyLimit) ? { dailyLimit: rule.dailyLimit } : {}),

@@ -59,7 +59,7 @@ export function planHabitPunishments(habits: HabitDefinition[], checkins: HabitC
         category: "punishment", date: dueDate, dueDate, source,
         note: evidence,
         habitPunishment: { habitId: habit.id, period: goal.period, judgedDate: date, level, missedDates, openEarlier: 0, evidence, rule,
-          debt: initialCompensationDebt(rule, dueDate, habit) }
+          debt: initialCompensationDebt(rule, dueDate) }
       };
       generated.push(task);
     }

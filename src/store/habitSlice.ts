@@ -217,7 +217,7 @@ async checkPunishments(this: StoreHost, now: Date = new Date(), acknowledgeLegac
     const generated = planHabitPunishments(eligible, progress.checkins, tasks.tasks, now);
     const existing = tasks.tasks;
     const added = generated.map(task => buildTaskFromInput(task, now, () => `task-${now.getTime()}-${randomUUID()}`));
-    const next = advanceCompensationDebt([...existing, ...added], db.habits, date);
+    const next = advanceCompensationDebt([...existing, ...added], db.habits, date, this.settings.habitCompensation);
     if (!added.length && next.every((task, index) => task === existing[index])) return;
     await this.writeTaskDb({ ...tasks, tasks: next });
     if (!progress.unavailable) await this.writeHabitDb({ ...db, lastPunishmentDate: date });

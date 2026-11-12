@@ -66,7 +66,7 @@ export const TASK_PLANNING_TOOLS: LifeOpsToolDefinition[] = [
           selectedHabit = matches[0].id;
           enabled = matches[0].punishment?.enabled === true;
         }
-        visible = advanceCompensationDebt(tasks, habits.database.habits, todayString());
+        visible = advanceCompensationDebt(tasks, habits.database.habits, todayString(), context.store.settings.habitCompensation);
       }
       const estimate = taskEstimates(tasks);
       const items = visible.filter(task => (anyDate || task.date === date || task.dueDate === date)

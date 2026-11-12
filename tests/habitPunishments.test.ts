@@ -78,19 +78,31 @@ describe("bounded habit judgments", () => {
     expect(planHabitPunishments([target], [...entries, checkin(target.id, date, 2)], [], sunday)).toEqual([]);
   });
 
-  it("caps the shared daily exercise budget across units and keeps any unpriced overflow", () => {
+  it("caps exercise independently by unit and allocates today's allowance to older debts first", () => {
     const habits = [
-      habit("跑步", { punishment: config(run) }), habit("快走", { punishment: config(walk) }),
-      habit("跳绳", { punishment: config({ ...walk, activity: "跳绳" }) })
+      habit("一", { punishment: config(run) }), habit("二", { punishment: config(run) }),
+      habit("快走", { punishment: config(walk) }), habit("跳绳", { punishment: config({ ...walk, activity: "跳绳" }) })
     ];
-    const tasks = advanceCompensationDebt(newDebts(habits), habits, date);
-    expect(tasks[0].habitPunishment?.rule).toEqual(run);
-    expect(tasks[1].habitPunishment?.rule).toEqual({ ...walk, amount: 24 });
-    expect(tasks[2].habitPunishment?.rule).toMatchObject({ amount: 0 });
-    expect(compensationDueLabel(tasks[2].habitPunishment!)).toContain("超量 30 分钟，待设置存钱折算");
-    const runners = [habit("一", { punishment: config(run) }), habit("二", { punishment: config(run) })];
-    const inKilometers = advanceCompensationDebt(newDebts(runners), runners, date);
-    expect(inKilometers.map(task => task.habitPunishment?.rule)).toEqual([run, { ...run, amount: 2 }]);
+    const [oldest, runner, walker, skipping] = newDebts(habits);
+    oldest.habitPunishment!.judgedDate = addDays(date, -1);
+    const tasks = advanceCompensationDebt([runner, skipping, walker, oldest], habits, date);
+    expect(tasks.map(task => task.habitPunishment?.rule)).toEqual([{ ...run, amount: 2 }, { ...walk, activity: "跳绳" }, walk, run]);
+    expect(compensationDueLabel(tasks[0].habitPunishment!)).toBe("跑步 2 公里、超量转存 20 元");
+    expect(summarizeCompensationDebt(tasks, date)).toMatchObject({ due: { CNY: 20 }, exercise: { 公里: 5, 分钟: 60 } });
+  });
+
+  it("shares twice the original goal between debts from one habit and deducts exercise completed today", () => {
+    const target = habit("虚构两期跑步", { startDate: addDays(date, -2),
+      target: { kind: "number", unit: "公里", perDay: 1, perWeek: 4 }, punishment: config(run) });
+    const [older, newer] = newDebts([target]);
+    older.habitPunishment!.judgedDate = addDays(date, -1);
+    const tasks = advanceCompensationDebt([newer, older], [target], date);
+    expect(tasks.map(task => task.habitPunishment?.rule)).toEqual([{ ...run, amount: 0 }, { ...run, amount: 2 }]);
+    expect(tasks.map(task => task.habitPunishment?.debt?.overflowCny)).toEqual([60, 20]);
+    const completed = { ...tasks[1], status: "completed" as const, completedAt: sunday.toISOString() };
+    const [pending] = advanceCompensationDebt([newer, completed], [target], date);
+    expect(pending.habitPunishment?.rule).toMatchObject({ amount: 0 });
+    expect(pending.habitPunishment?.debt?.overflowCny).toBe(60);
   });
 
   it("increases the same debt past the third day instead of replacing it with a review reminder", () => {
@@ -115,17 +127,29 @@ describe("bounded habit judgments", () => {
     expect(planHabitPunishments([target], [{ ...checkin(target.id, date), status: "leave" }], [], sunday)).toEqual([]);
   });
 
-  it("keeps excess exercise as cumulative savings after the user sets a rate, without raising the cap", () => {
+  it("charges defaults immediately and uses rate changes only for future overflow", () => {
     const noRate = habit("虚构跑步", { punishment: config({ ...run, amount: 1 }) });
-    const accrued = advanceCompensationDebt(newDebts([noRate]), [noRate], addDays(date, 4));
+    const day = addDays(date, 4);
+    const accrued = advanceCompensationDebt(newDebts([noRate]), [noRate], day);
     expect(accrued[0].habitPunishment?.rule).toMatchObject({ amount: 2 });
-    expect(accrued[0].habitPunishment?.debt?.overflowUnits).toBe(2);
-    const approved = { ...noRate, punishment: config({ ...run, amount: 1, overflowCnyPerUnit: 20 }) };
-    const converted = advanceCompensationDebt(accrued, [approved], addDays(date, 4));
-    expect(summarizeCompensationDebt(converted, addDays(date, 4))).toMatchObject({
-      count: 1, maxDays: 3, due: { CNY: 40 }, exercise: { 公里: 2 }, pendingConversion: 0
-    });
-    expect(advanceCompensationDebt(converted, [approved], addDays(date, 4))[0]).toBe(converted[0]);
+    expect(accrued[0].habitPunishment?.debt).toMatchObject({ overflowUnits: 2, overflowCny: 40 });
+    const settings = { exerciseOverflowCny: { 公里: 35 } };
+    expect(advanceCompensationDebt(accrued, [noRate], day, settings)[0]).toBe(accrued[0]);
+    const next = advanceCompensationDebt(accrued, [noRate], addDays(day, 1), settings);
+    expect(summarizeCompensationDebt(next, addDays(day, 1))).toMatchObject({ due: { CNY: 75 }, exercise: { 公里: 2 } });
+    const time = habit("虚构快走", { punishment: config({ ...walk, amount: 10 }),
+      target: { kind: "number", unit: "分钟", perDay: 2 } });
+    const [timeDebt] = advanceCompensationDebt(newDebts([time]), [time], date);
+    expect(compensationDueLabel(timeDebt.habitPunishment!)).toBe("快走 4 分钟、超量转存 18 元");
+  });
+
+  it("continues reflection past the configured tiers with a default of 100 words and respects later edits", () => {
+    const target = habit("虚构反思", { punishment: config({ ...reflection, minChars: 180 }) });
+    const day = addDays(date, 6);
+    const accrued = advanceCompensationDebt(newDebts([target]), [target], day);
+    expect(accrued[0].habitPunishment?.rule).toMatchObject({ minChars: 680 });
+    const edited = { ...target, punishment: config({ ...reflection, minChars: 180, dailyIncrease: 30 }) };
+    expect(advanceCompensationDebt(accrued, [edited], addDays(day, 1))[0].habitPunishment?.rule).toMatchObject({ minChars: 710 });
   });
 });
 
@@ -282,6 +306,38 @@ describe("habit changes through the real store and operation ledger", () => {
     expect(migrated[1]).toBe(review);
     expect(advanceCompensationDebt(migrated, [], date)[0]).toBe(migrated[0]);
     expect(advanceCompensationDebt(migrated, [], addDays(date, 1))[0].habitPunishment?.rule).toMatchObject({ amount: 175 });
+  });
+
+  it("migrates already assessed debts from their stored amounts and keeps paid overflow prices", () => {
+    const habitRule = { ...run, amount: 1, overflowCnyPerUnit: 25 };
+    const target = habit("虚构旧跑步", { punishment: config(habitRule) });
+    const [task] = newDebts([target]);
+    const judged = task.habitPunishment!;
+    const debt = { base: habitRule, appliedOn: addDays(date, 2), overflowUnits: 2 };
+    const legacy = { ...task, habitPunishment: { ...judged, rule: { ...habitRule, amount: 2 }, debt } };
+    const paid = { ...legacy, id: "fictional-old-paid", status: "completed" as const, completedAt: sunday.toISOString() };
+    const day = addDays(date, 6);
+    const edited = { ...target, punishment: config({ ...habitRule, overflowCnyPerUnit: 35 }) };
+    const assessed = advanceCompensationDebt([legacy, paid], [edited], day);
+    expect(assessed[0].habitPunishment?.debt).toMatchObject({ appliedOn: day, overflowCny: 50 });
+    expect(assessed[1]).toBe(paid);
+    expect(summarizeCompensationDebt(assessed, day)).toMatchObject({ due: { CNY: 50 }, saved: { CNY: 50 } });
+    expect(advanceCompensationDebt(assessed, [edited], day)[0]).toBe(assessed[0]);
+    const nextDay = addDays(day, 1);
+    expect(summarizeCompensationDebt(advanceCompensationDebt(assessed, [edited], nextDay), nextDay))
+      .toMatchObject({ due: { CNY: 85 }, saved: { CNY: 50 } });
+  });
+
+  it("converts a legacy outstanding unpriced balance once without adding missed daily increases", () => {
+    const exercise = { ...run, amount: 1 };
+    const target = habit("虚构待折算", { punishment: config(exercise) });
+    const [task] = newDebts([target]);
+    const day = addDays(date, 7);
+    const legacy = { ...task, habitPunishment: { ...task.habitPunishment!, rule: { ...exercise, amount: 2 },
+      debt: { base: exercise, appliedOn: addDays(date, 2), overflowUnits: 2 } } };
+    const [assessed] = advanceCompensationDebt([legacy], [target], day);
+    expect(compensationDueLabel(assessed.habitPunishment!)).toBe("跑步 2 公里、超量转存 40 元");
+    expect(advanceCompensationDebt([assessed], [target], day)[0]).toBe(assessed);
   });
 
   it("keeps the count-based target and stores an explicitly measured amount and unit", async () => {

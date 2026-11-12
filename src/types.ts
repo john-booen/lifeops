@@ -13,10 +13,15 @@ export type CaptureKind =
   | "memo";
 
 export type HabitTarget = { kind: "boolean" } | { kind: "number"; unit: string; perDay?: number; perWeek?: number };
+export type ExerciseCompensationUnit = "公里" | "分钟";
+export interface HabitCompensationSettings {
+  exerciseLimitMultiplier?: number;
+  exerciseOverflowCny?: Partial<Record<ExerciseCompensationUnit, number>>;
+}
 export type PunishmentRule =
   | { kind: "save_money"; amount: number; currency: "CNY" | "USD" | "SGD"; dailyIncrease?: number }
   | { kind: "reflection"; minChars: number; dailyIncrease?: number }
-  | { kind: "extra_exercise"; activity: "跑步" | "快走" | "跳绳"; amount: number; unit: "公里" | "分钟";
+  | { kind: "extra_exercise"; activity: "跑步" | "快走" | "跳绳"; amount: number; unit: ExerciseCompensationUnit;
       dailyLimit?: number; overflowCnyPerUnit?: number };
 export interface HabitPunishment { enabled: boolean; rules: PunishmentRule[] }
 export interface HabitPunishmentTask {
@@ -31,7 +36,9 @@ export interface HabitPunishmentTask {
   debt?: {
     base: PunishmentRule;
     appliedOn: string;
+    policyVersion?: 2;
     overflowUnits?: number;
+    overflowCny?: number;
   };
 }
 
@@ -296,6 +303,7 @@ export interface GatewaySettings {
 }
 
 export interface LifeOpsSettings {
+  habitCompensation?: HabitCompensationSettings;
   setupComplete?: boolean;
   folders: FolderSettings;
   externalVaults?: import("./features/externalVault/readOnly").ExternalVaultSettings[];

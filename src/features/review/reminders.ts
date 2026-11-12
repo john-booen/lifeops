@@ -55,7 +55,7 @@ async function morningReason(store: StoreHost, board: TaskDashboardData, now: Da
   const priorities = card.priorities.map(item => item.title).join("、");
   const context = dashboardContextData(board);
   const day = formatDate(now);
-  const tasks = advanceCompensationDebt(board.tasks, board.habits.map(item => item.habit), day);
+  const tasks = advanceCompensationDebt(board.tasks, board.habits.map(item => item.habit), day, store.settings.habitCompensation);
   const debt = compensationSummaryLine(summarizeCompensationDebt(tasks, day));
   const compensation = context?.tasks.available === false ? "补偿欠账暂时无法核对。"
     : debt ? "补偿" + debt.replaceAll(" · ", "，") + "。" : "目前没有未完成的补偿。";

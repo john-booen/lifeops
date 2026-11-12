@@ -1,5 +1,6 @@
 import { Setting } from "obsidian";
-import type { HabitInput, PunishmentRule } from "../../types";
+import type { HabitCompensationSettings, HabitInput, PunishmentRule } from "../../types";
+import { DEFAULT_REFLECTION_INCREASE, exerciseLimitMultiplier, exerciseOverflowRate } from "./compensationDebt";
 
 function numberField(parent: HTMLElement, label: string, value: number | undefined, update: (value: number | undefined) => void): void {
   new Setting(parent).setName(label).addText(text => {
@@ -8,6 +9,20 @@ function numberField(parent: HTMLElement, label: string, value: number | undefin
     text.inputEl.step = "any";
     text.setValue(value === undefined ? "" : String(value)).onChange(raw => update(raw.trim() ? Number(raw) : undefined));
   });
+}
+
+export function renderHabitCompensationSettings(parent: HTMLElement, settings: HabitCompensationSettings | undefined,
+  save: (patch: HabitCompensationSettings) => Promise<void>): void {
+  const valid = (value: number | undefined) => value === undefined || Number.isFinite(value) && value > 0;
+  numberField(parent, "运动补偿日上限倍数（默认 2 倍）", exerciseLimitMultiplier(settings), value => {
+    if (valid(value)) return save({ exerciseLimitMultiplier: value });
+  });
+  for (const unit of ["公里", "分钟"] as const) {
+    const defaultRate = exerciseOverflowRate(unit);
+    numberField(parent, `运动超量折算（默认 ${defaultRate} 元/${unit}）`, exerciseOverflowRate(unit, settings), value => {
+      if (valid(value)) return save({ exerciseOverflowCny: { [unit]: value } });
+    });
+  }
 }
 
 export function renderHabitTargetFields(parent: HTMLElement, input: HabitInput): void {
@@ -71,7 +86,8 @@ function renderRule(parent: HTMLElement, rule: PunishmentRule): void {
       value => { rule.dailyIncrease = value; });
   } else if (rule.kind === "reflection") {
     numberField(parent, "最少字数", rule.minChars || undefined, value => { rule.minChars = value ?? 0; });
-    numberField(parent, "每天增加的字数（留空时按最少字数）", rule.dailyIncrease, value => { rule.dailyIncrease = value; });
+    numberField(parent, `每天增加的字数（留空：${DEFAULT_REFLECTION_INCREASE} 字）`, rule.dailyIncrease,
+      value => { rule.dailyIncrease = value; });
   } else {
     new Setting(parent).setName("运动").addDropdown(dropdown => dropdown
       .addOption("跑步", "跑步").addOption("快走", "快走").addOption("跳绳", "跳绳")
@@ -79,8 +95,8 @@ function renderRule(parent: HTMLElement, rule: PunishmentRule): void {
     new Setting(parent).setName("运动单位").addDropdown(dropdown => dropdown.addOption("公里", "公里").addOption("分钟", "分钟")
       .setValue(rule.unit).onChange(value => { rule.unit = value as typeof rule.unit; }));
     numberField(parent, "运动量", rule.amount || undefined, value => { rule.amount = value ?? 0; });
-    numberField(parent, "每日上限（留空时为原定量的两倍）", rule.dailyLimit, value => { rule.dailyLimit = value; });
-    numberField(parent, "超量每单位折合存多少钱（人民币；未设置时只记待折算量）", rule.overflowCnyPerUnit,
+    numberField(parent, "每日上限（留空时按原日目标和设置的倍数）", rule.dailyLimit, value => { rule.dailyLimit = value; });
+    numberField(parent, "超量每单位折合存多少钱（人民币，留空时用 LifeOps 设置）", rule.overflowCnyPerUnit,
       value => { rule.overflowCnyPerUnit = value; });
   }
 }

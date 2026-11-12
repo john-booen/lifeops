@@ -69,7 +69,7 @@ async completeTask(this: StoreHost, taskId: string, note: string = ""): Promise<
     if (db.tasks[index].habitPunishment?.rule) {
       const excluded = this.settings.privacy?.excludedVaultPrefixes;
       const habits = isVaultPathExcluded(this.habitDbPath(), excluded) ? [] : (await this.readHabitDb()).habits;
-      db.tasks = advanceCompensationDebt(db.tasks, habits, formatDate(now));
+      db.tasks = advanceCompensationDebt(db.tasks, habits, formatDate(now), this.settings.habitCompensation);
     }
     const task = db.tasks[index];
     if (task.ideaId) {
@@ -275,7 +275,8 @@ async getTaskDashboard(this: StoreHost, date: string = todayString(), options: {
     const habitDb = habitContext ? habitContext.database : await this.readHabitDb();
     const progress = habitContext ? { checkins: habitDb.checkins, unavailable: habitContext.tradeUnavailable }
       : await tradeHabitProgress(this, habitDb);
-    const tasks = (options.forContext ? db.tasks.slice() : advanceCompensationDebt(db.tasks, habitDb.habits, todayString())).sort(sortTasks);
+    const tasks = (options.forContext ? db.tasks.slice()
+      : advanceCompensationDebt(db.tasks, habitDb.habits, todayString(), this.settings.habitCompensation)).sort(sortTasks);
     const allActive = tasks.filter((task) => task.status === "active");
     const tomorrow = addDays(date, 1);
     const nextSeven = addDays(date, 7);

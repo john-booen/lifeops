@@ -10,6 +10,7 @@ import { getTradingSourceFolders, parseTradingSourceFolders } from "./features/t
 import { parseTradeMultipliers } from "./features/trading/pnl";
 import { tradeBreakEven } from "./features/stats/trades";
 import { parseReadingFolders } from "./features/reading/model";
+import { renderHabitCompensationSettings } from "./features/habits/formFields";
 import type { ProactiveTone } from "./proactivePolicy";
 import { renderExternalVaultSettings, type ExternalVaultHost } from "./features/externalVault/ui";
 import { voiceVadSilenceMs } from "./voice/continuousInput";
@@ -650,6 +651,12 @@ export class LifeOpsSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("习惯管理")
       .setDesc("习惯现在从 LifeOps 面板里的“新建习惯”按钮添加，支持每天、每几天、每周和目标次数统计。这里不再手写配置。");
+    renderHabitCompensationSettings(containerEl, this.plugin.settings.habitCompensation, async patch => {
+      const prior = this.plugin.settings.habitCompensation;
+      this.plugin.settings.habitCompensation = { ...prior, ...patch,
+        exerciseOverflowCny: { ...prior?.exerciseOverflowCny, ...patch.exerciseOverflowCny } };
+      await this.plugin.saveSettings();
+    });
 
     containerEl.createEl("h3", { text: "外部输入网关" });
     new Setting(containerEl)
