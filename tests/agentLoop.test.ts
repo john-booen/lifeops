@@ -93,6 +93,31 @@ it.each(tradeExamples)("records the trades selected by the model for $message", 
   expect((await readTradeDatabase(store)).trades).toEqual([]);
 });
 
+it("uses the actual model-group net profit for each currency without asking the model to rank", async () => {
+  const rows = [
+    { market: "A股", modelId: "虚构突破", pnl: 250 },
+    { market: "A股", modelId: "虚构回踩", pnl: -70 },
+    { market: "美股", modelId: "虚构突破", pnl: 90 },
+    { market: "美股", modelId: "虚构回踩", pnl: 120 },
+    { market: "美股", pnl: 1000 }
+  ].map((row, index) => ({ ...row, symbol: `FICT-${index}`, direction: "long", openedAt: "2026-11-12" }));
+  for (const batch of [rows.slice(0, 3), rows.slice(3)]) {
+    const saved = await runtime.executeAiToolCall(tool("record_trade", { trades: batch }, `fixture-${batch.length}`), "kimi");
+    expect(saved.success).toBe(true);
+  }
+  const before = (await readTradeDatabase(store)).trades;
+  responses.push(reply("", [tool("get_stats", { domain: "trades", groupBy: "model", rankByNetPnl: true,
+    range: { from: "2026-11-01", to: "2026-11-12" } })]));
+  const result = await new AgentLoop(host).run(input({ message: "这个月哪个交易模型最赚钱？人民币和美元分开。" }));
+  expect(result.text).toContain("人民币「虚构突破」排名第一，净盈亏 250 CNY。");
+  expect(result.text).toContain("美元「虚构回踩」排名第一，净盈亏 120 USD。");
+  expect(result.text).not.toContain("180");
+  expect(result.toolCalls).toEqual([{ name: "get_stats", ok: true }]);
+  expect(requests).toHaveLength(1);
+  expect(result.receipts).toEqual([]);
+  expect((await readTradeDatabase(store)).trades).toEqual(before);
+});
+
 it("requires missing data or a batch confirmation before recording any rows", async () => {
   const row = tradeExamples[0].rows[0];
   const missing = await runtime.executeAiToolCall(tool("record_trade", { trades: [row, { ...row, direction: undefined }] }), "kimi");

@@ -256,7 +256,11 @@ export class AgentLoop {
           let reply: string | undefined;
           if (isVoiceJobTool(call.name)) reply = single.output;
           else if (round === 0 && call.name === "undo_latest_operation") reply = single.output;
-          else if (round === 0 && fastVoice && call.name === "get_stats") reply = formatVoiceStats(single.output, call.arguments);
+          else if (!input.voiceBackground && call.name === "get_stats" && call.arguments.rankByNetPnl === true
+            && call.arguments.domain === "trades" && call.arguments.groupBy === "model" && call.arguments.combineUsd !== true) {
+            const ranking = (JSON.parse(single.output) as { modelRanking?: string }).modelRanking;
+            if (typeof ranking === "string" && ranking) reply = ranking;
+          } else if (round === 0 && fastVoice && call.name === "get_stats") reply = formatVoiceStats(single.output, call.arguments);
           else if (round === 0 && fastVoice && call.name === "plan_today") reply = formatVoiceTaskPriorities(single.output, call.arguments);
           else if (round === 0 && call.name === "list_tasks" && call.arguments.category === undefined
             && (call.arguments.directReply === true || call.arguments.order === "priority" && Number.isInteger(call.arguments.limit))) {
@@ -423,6 +427,9 @@ export class AgentLoop {
     }
     if (evidenceCalls.some(call => call.name === "get_stats" && call.args?.domain === "trades" && call.args?.groupBy === "market")) {
       guidance.push("用户问各市场时，逐一列出统计 groups 中有记录的市场，名称沿用 key。胜率用各市场对应币种的 winPercent，遇到多种币种就分开列。");
+    }
+    if (evidenceCalls.some(call => call.name === "get_stats" && call.args?.domain === "trades" && call.args?.groupBy === "model")) {
+      guidance.push("比较模型时按币种分别引用每个模型在 groups 中的净盈亏；顶层 byCurrency 是全部模型的合计。只问各币种排名第一时直接使用 modelRanking。");
     }
     if (evidenceCalls.some(call => call.name === "learning_progress" || call.name === "get_stats" && call.args?.domain === "learning")) {
       guidance.push("用户问实际学了多久，要带上核对到的学习轨道名称和本轮时段，再报 recordedMinutes 或统计里的 minutes。即使是在纠正前一句，也不能只回一个数字。weeklyMinutes 是本周计划目标；差值不是已学习或未登记时长。");

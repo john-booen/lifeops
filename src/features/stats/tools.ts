@@ -5,7 +5,7 @@ import { isVaultPathExcluded } from "../../privacy";
 import type { LifeOpsToolDefinition, ToolExecutionResult } from "../../toolRegistry";
 import type { StoreHost } from "../../store/settingsSlice";
 import { getStats, resolveStatsRange, statsNamedRanges, type StatsData, type StatsDomain, type StatsGroup, type StatsRange } from "./stats";
-import { TRADE_STAT_GROUPS } from "./trades";
+import { formatTradeModelLeaders, TRADE_STAT_GROUPS } from "./trades";
 
 export const statsDomains: StatsDomain[] = ["tasks", "habits", "journal", "trades", "ideas", "learning"];
 const groups: StatsGroup[] = [...TRADE_STAT_GROUPS, "category"];
@@ -24,7 +24,8 @@ export const STATS_TOOL: LifeOpsToolDefinition = {
     properties: {
       domain: { type: "string", enum: statsDomains },
       range: rangeParameter(standardRanges),
-      groupBy: { type: "string", enum: groups }, combineUsd: { type: "boolean", description: "用户明确要求把交易盈亏折成美元总额时才传 true。只问笔数或胜率时省略。" }
+      groupBy: { type: "string", enum: groups }, combineUsd: { type: "boolean", description: "用户明确要求把交易盈亏折成美元总额时才传 true。只问笔数或胜率时省略。" },
+      rankByNetPnl: { type: "boolean", description: "只问哪个交易模型的净盈亏最高、按原币排名时传 true，同时使用 domain=trades 和 groupBy=model。" }
     }, required: ["domain", "range"]
   },
   execute: (args, context) => readStats(context.store, args, new Date())
@@ -105,9 +106,10 @@ export async function readStats(store: StoreHost, args: Record<string, unknown>,
       data.journal = entries.map(({ date, path }) => ({ date, signals: signals.get(path) }));
     }
     const stats = getStats({ domain, range: args.range as StatsRange, groupBy, combineUsd: args.combineUsd === true }, data, now);
-    if (stats.domain === "trades" && stats.groupBy === "model" && stats.groups?.length) {
+    let modelRanking: string | undefined;
+    if (stats.domain === "trades" && stats.groupBy === "model" && stats.groups) {
       const { readTradingDocument, tradingDocumentPath } = await import("../../dataFoundation/tradingPersistence");
-      if (!isVaultPathExcluded(tradingDocumentPath(store), store.settings.privacy?.excludedVaultPrefixes)) {
+      if (stats.groups.length && !isVaultPathExcluded(tradingDocumentPath(store), store.settings.privacy?.excludedVaultPrefixes)) {
         const document = await readTradingDocument(store).catch(() => undefined);
         if (document) {
           const { visibleTradingVersion } = await import("../../tradingTools");
@@ -118,8 +120,10 @@ export async function readStats(store: StoreHost, args: Record<string, unknown>,
           stats.groups = stats.groups.map(group => ({ ...group, label: names.get(group.key) ?? group.key }));
         }
       }
+      if (args.combineUsd !== true) modelRanking = formatTradeModelLeaders(stats.groups, stats.range, partial);
     }
-    return { success: true, output: JSON.stringify({ ...stats, ...(partial ? { scope: "只统计允许读取的记录" } : {}),
+    return { success: true, output: JSON.stringify({ ...(modelRanking ? { modelRanking } : {}), ...stats,
+      ...(partial ? { scope: "只统计允许读取的记录" } : {}),
       ...(tradeGoalsUnavailable ? { tradeGoals: "交易记录暂不可用，交易目标进度未知" } : {}) }), actions: [] };
   } catch (error) {
     return { success: false, output: error instanceof Error ? error.message : "统计暂时无法完成。", actions: [] };
