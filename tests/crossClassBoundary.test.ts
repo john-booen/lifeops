@@ -7,6 +7,7 @@ import { DEFAULT_SETTINGS } from "../src/defaults";
 import { AgentRuntime } from "../src/agentRuntime";
 import { runDerivedOperation } from "../src/dataFoundation/derivedOperation";
 import { factRecoveryPath, fileRevision, recoverFactOperation } from "../src/dataFoundation/factOperation";
+import { RecoveryCapacityError } from "../src/dataFoundation/recoveryEncoding";
 import { executeProactiveFeedback } from "../src/proactiveFeedbackRuntime";
 import { emptyProactivePolicyState } from "../src/proactivePolicy";
 import type { ProactiveCandidate } from "../src/scheduler";
@@ -47,6 +48,20 @@ describe("cross-class persistence boundaries", () => {
     expect(await vault.bytes(source)).toBe(raw + "New source material.\n");
     await store.syncVaultSources();
     expect(await vault.bytes(store.chunkIndexPath())).toContain("New source material");
+  });
+  it("uses recoverable per-source writes when a full refresh exceeds capacity", async () => {
+    const other = store.path(store.settings.folders.ideas, "fictional-other.md");
+    const otherText = "# Fictional note\n\nAnother independent source.";
+    await vault.seed(other, otherText);
+    const run = vi.spyOn(store, "runFactOperation").mockRejectedValueOnce(new RecoveryCapacityError());
+
+    await expect(store.syncVaultSources()).resolves.toEqual({ addedOrChanged: 2, deleted: 0, unchanged: 0 });
+    expect(run).toHaveBeenCalledTimes(3);
+    expect((await store.readSourceManifest()).entries.map(row => row.path).sort()).toEqual([source, other].sort());
+    expect(await vault.bytes(source)).toBe(raw);
+    expect(await vault.bytes(other)).toBe(otherText);
+    expect(store.getFile(auditPath())).toBeNull();
+    await expect(store.syncVaultSources()).resolves.toEqual({ addedOrChanged: 0, deleted: 0, unchanged: 2 });
   });
   it("prevents a derived operation from writing personal facts", async () => {
     await expect(runDerivedOperation(store, scope => scope.writeFile(source, "replacement"))).rejects.toThrow("不能修改用户记录");

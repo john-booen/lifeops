@@ -1,6 +1,8 @@
 import { TFile, normalizePath } from "obsidian";
-import { guardDerivedMethods, guardReadonlyDerivedMethods } from "../dataFoundation/derivedOperation";
+import { guardDerivedMethods, guardReadonlyDerivedMethods, runDerivedOperation } from "../dataFoundation/derivedOperation";
+import { isGuardedOperationScope } from "../dataFoundation/factOperation";
 import { removeKnowledgeGraphSource, upsertKnowledgeGraphSource } from "../dataFoundation/knowledgeGraph";
+import { RecoveryCapacityError } from "../dataFoundation/recoveryEncoding";
 import {
   emptySourceManifest,
   markSourceDeleted,
@@ -102,40 +104,46 @@ async renameVaultSource(this: StoreHost, oldPath: string, newPath: string): Prom
   },
 
 async syncVaultSources(this: StoreHost): Promise<{ addedOrChanged: number; deleted: number; unchanged: number }> {
-    return enqueueSourceOperation(this, async () => {
-      const files = this.app.vault.getMarkdownFiles().filter((file) => this.isManagedSourcePath(file.path));
-      const currentPaths = new Set(files.map((file) => normalizePath(file.path)));
-      let manifest = await this.readSourceManifest();
-      let addedOrChanged = 0;
-      let deleted = 0;
-      let unchanged = 0;
-
-      for (const file of files) {
-        const existing = manifest.entries.find((entry) => entry.path === file.path);
-        if (!sourceNeedsProcessing(existing, file.stat)) {
-          unchanged += 1;
-          continue;
-        }
-        const result = await upsertVaultSourceInternal(this, file.path);
-        if (result.changed) addedOrChanged += 1;
-        else unchanged += 1;
-        manifest = await this.readSourceManifest();
-      }
-
-      for (const entry of manifest.entries.filter((item) => item.status === "active")) {
-        if (currentPaths.has(normalizePath(entry.path))) continue;
-        if (await removeVaultSourceInternal(this, entry.path)) deleted += 1;
-      }
-
-      return { addedOrChanged, deleted, unchanged };
-    });
+    try {
+      return await runDerivedOperation(this, scope => enqueueSourceOperation(scope, () =>
+        syncSourceFiles(scope, path => upsertVaultSourceInternal(scope, path), path => removeVaultSourceInternal(scope, path))));
+    } catch (error) {
+      if (!(error instanceof RecoveryCapacityError) || isGuardedOperationScope(this)) throw error;
+      // The full sync has rolled back. Keep each source and its derivatives in a
+      // single recovery record so completed sources can be reused on retry.
+      return syncSourceFiles(this, path => this.upsertVaultSource(path), path => this.removeVaultSource(path));
+    }
   }
 };
 
 export function applySourceSlice(Store: StoreConstructor): void {
   Object.assign(Store.prototype, sourceSlice);
-  guardDerivedMethods(Store.prototype, ["upsertVaultSource", "removeVaultSource", "renameVaultSource", "syncVaultSources"]);
+  guardDerivedMethods(Store.prototype, ["upsertVaultSource", "removeVaultSource", "renameVaultSource"]);
   guardReadonlyDerivedMethods(Store.prototype, ["readSourceManifest"]);
+}
+
+async function syncSourceFiles(store: StoreHost, upsert: (path: string) => Promise<{ changed: boolean }>,
+  remove: (path: string) => Promise<boolean>) {
+  const managedFiles = () => store.app.vault.getMarkdownFiles().filter(file => store.isManagedSourcePath(file.path));
+  let manifest = await store.readSourceManifest();
+  let addedOrChanged = 0;
+  let deleted = 0;
+  let unchanged = 0;
+  for (const file of managedFiles()) {
+    const existing = manifest.entries.find(entry => entry.path === file.path);
+    if (!sourceNeedsProcessing(existing, file.stat)) {
+      unchanged++;
+      continue;
+    }
+    if ((await upsert(file.path)).changed) addedOrChanged++;
+    else unchanged++;
+    manifest = await store.readSourceManifest();
+  }
+  const currentPaths = new Set(managedFiles().map(file => normalizePath(file.path)));
+  for (const entry of manifest.entries) {
+    if (entry.status === "active" && !currentPaths.has(normalizePath(entry.path)) && await remove(entry.path)) deleted++;
+  }
+  return { addedOrChanged, deleted, unchanged };
 }
 
 async function enqueueSourceOperation<T>(store: StoreHost, operation: () => Promise<T>): Promise<T> {
