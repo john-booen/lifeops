@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
@@ -26,7 +27,12 @@ function scan(path, blob) {
   if (forbidden.test(path)) { failures.set(path,"禁止文件"); return; }
   if (blob.includes(0)) {
     const signature = Buffer.from([137,80,78,71,13,10,26,10]);
-    if (!/^tests\/fixtures\/trade-screenshots\/[-a-z]+\.png$/.test(path) || !blob.subarray(0,8).equals(signature)) failures.set(path,"未经批准的二进制文件");
+    const validPng = blob.subarray(0,8).equals(signature);
+    const tradeFixture = /^tests\/fixtures\/trade-screenshots\/[-a-z]+\.png$/.test(path);
+    // Reviewed screenshot of fictional data. A replacement needs a fresh review.
+    const reviewedOverview = path === "docs/images/lifeops-overview.png"
+      && createHash("sha256").update(blob).digest("hex") === "9e6d8c5f4596b3c199b44fcb22564550bc1b981c6c139b25acc37a8886baaa99";
+    if (!validPng || !(tradeFixture || reviewedOverview)) failures.set(path,"未经批准的二进制文件");
     return;
   }
   const source = blob.toString("utf8");

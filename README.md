@@ -2,10 +2,12 @@
 
 LifeOps 是一个 Obsidian 插件。用同一个面板管理任务、打卡、日记和复盘。日常记录保存在你选择的库里；需要文字 AI 或语音时，可以自行配置服务。
 
+![LifeOps 今日管家，展示虚构的任务与打卡记录](docs/images/lifeops-overview.png)
+
 ## 安装
 
 1. 从你信任的发布渠道拿到同一版本的 `main.js`、`manifest.json` 和 `styles.css`。开发者可按下方命令自己构建。
-2. 在一个 Obsidian 库的 `.obsidian/plugins/lifeops-assistant/` 放入这三个文件。打开该库，在「设置 → 第三方插件」启用 LifeOps Assistant。
+2. 在一个 Obsidian 库的 `.obsidian/plugins/lifeops-assistant/` 放入这三个文件。打开该库（如果库已经打开，复制完先重载该库），在「设置 → 第三方插件」启用 LifeOps Assistant。
 3. 在首次向导里选「开始本地使用」。在命令面板输入「打开 LifeOps」进入面板，试建一项任务，再到「最近操作」撤销。
 4. 可选：到「设置 → LifeOps Assistant」配置文字 AI 或语音。打开对应的数据发送开关前，先核对服务和发送范围。
 
