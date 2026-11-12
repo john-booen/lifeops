@@ -757,7 +757,7 @@
     "input": "这个月和上个月比怎么样？对比任务完成数和人民币、美元净盈亏，说明本月统计到哪天。",
     "checks": {
       "mustInclude": ["46","60","180","120"],
-      "mustIncludeAny": [["11月12日","11 月 12 日","11-12","11/12"],["人民币","CNY"],["美元","USD"]],
+      "mustIncludeAny": [["11月12日","11 月 12 日","11-12","11/12","11 月 1 日至 12 日","11月1日至12日"],["人民币","CNY"],["美元","USD"]],
       "toolFacts": [
         {"name":"get_summaries","output":{"level":"month","summaries":[{"period":"2026-10","metrics":{"tasksCompleted":60,"tradePnlCny":5,"tradePnlUsd":15}}]}},
         {"name":"get_summaries","output":{"level":"month","summaries":[{"period":"2026-11","through":"2026-11-12","metrics":{"tasksCompleted":46,"tradePnlCny":180,"tradePnlUsd":120}}]}}
