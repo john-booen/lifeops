@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { App } from "obsidian";
@@ -55,6 +55,10 @@ describe("journal signals with actual vault files", () => {
 
   const noChanges = () => {};
   const signal = () => new AbortController().signal;
+  const settleFile = (path: string) => {
+    const beforeQuietPeriod = new Date(Date.now() - 3 * 60_000);
+    return utimes(vault.diskPath(path), beforeQuietPeriod, beforeQuietPeriod);
+  };
 
   it("keeps morning and evening separately, grounds fields and plans, and skips unchanged originals", async () => {
     await vault.seed(morning, morningText);
@@ -144,6 +148,7 @@ describe("journal signals with actual vault files", () => {
 
   it("skips unapproved egress and records only a failure code after invalid JSON retries", async () => {
     await vault.seed(morning, morningText);
+    await settleFile(morning);
     store.settings.ai.dataDisclosureAccepted = false;
     const request = vi.fn().mockResolvedValue("不能解析的模型文本");
     lifecycle = new JournalSignalLifecycle(() => store, new LifeOpsEventBus(), request);
@@ -168,6 +173,7 @@ describe("journal signals with actual vault files", () => {
     const previous = addDays(date, -29), tooOld = addDays(date, -30);
     await vault.seed(`${store.settings.folders.dailyRoot}/${previous}早.md`, "最近30天");
     await vault.seed(`${store.settings.folders.dailyRoot}/${tooOld}早.md`, "超过30天");
+    await settleFile(`${store.settings.folders.dailyRoot}/${previous}早.md`);
     const events = new LifeOpsEventBus();
     const request = vi.fn(async (messages: ChatMessage[]) => {
       const content = messages[1].content;
@@ -194,6 +200,7 @@ describe("journal signals with actual vault files", () => {
     expect(request.mock.calls[1][0][1].content).toContain("又写一行");
 
     await vault.seed(evening, "晚间补跑");
+    await settleFile(evening);
     await vi.advanceTimersByTimeAsync(new Date(2026, 10, 12, 23, 30).getTime() - Date.now());
     await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(3));
     expect(request.mock.calls[2][0][1].content).toContain("晚间补跑");
