@@ -24,16 +24,14 @@ const steps = [
   ["TypeScript", "npm", ["run", "typecheck"]],
   ["Vitest", "npm", ["test"]],
   ["Gateway syntax", process.execPath, ["--check", "gateway/server.mjs"]],
-  ["Swift Companion", "npm", ["run", "build:companion"]],
-  ["Plugin bundle", "npm", ["run", "bundle"]],
+  ["Plugin bundle", "npm", ["run", "bundle:production"]],
   ["Test Vault rebuild", "npm", ["run", "test-vault:rebuild"]],
   ["Test Vault boundary", "npm", ["run", "verify:build-boundary"]],
   ["Test Vault fixture", "npm", ["run", "test-vault:verify"]],
   ["Package prepare", process.execPath, ["scripts/prepare-plugin-package.mjs"]],
   ["Package verify", "npm", ["run", "verify:package"]],
   ["Credential boundary", "npm", ["run", "verify:secrets"]],
-  ["Current docs", "npm", ["run", "verify:docs"]],
-  ["Historical docs", "npm", ["run", "verify:history-docs"]]
+  ["Public source boundary", "npm", ["run", "verify:privacy"]]
 ];
 
 console.log("LifeOps offline verification");
