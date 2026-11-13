@@ -22,6 +22,7 @@ if (termsFile) {
 const homePath = new RegExp(["/", "Users", "/", "[a-zA-Z0-9._-]+/"].join(""));
 const secret = /(?:-----BEGIN (?:OPENSSH |RSA |EC )?PRIVATE KEY-----|\bsk-(?:proj-)?[a-zA-Z0-9_-]{20,}\b|\b(?:AKIA|ASIA)[A-Z0-9]{16}\b|\bLTAI[A-Za-z0-9]{16,}\b|\bgh[pousr]_[a-zA-Z0-9]{30,}\b|\bgithub_pat_[a-zA-Z0-9_]{30,}\b)/;
 const forbidden = /^(?:docs\/(?:archive\/|plan\/|vault-map\/|PROGRESS\.md|QUESTIONS_FOR_|CLAUDE)|fixtures\/real-provider\/|output\/|dist\/|test-vault\/|node_modules\/|prototypes\/)|(?:^|\/)(?:release\.config\.json|sensitive-terms\.txt|breeze-paths\.json|\.env(?:\.|$)|[^/]+\.(?:pem|key|log))$/i;
+const privateEvalReport = /^docs\/eval\/20[^/]{2}-[^/]{2}-[^/]{2}[^/]*\.md$/i;
 // Only the reviewed fictional images may bypass text scanning.
 const reviewedImages = new Map([
   ["docs/images/lifeops-overview.png", "9e6d8c5f4596b3c199b44fcb22564550bc1b981c6c139b25acc37a8886baaa99"],
@@ -38,7 +39,7 @@ function scanText(label, source) {
 }
 
 function scan(path, blob) {
-  if (forbidden.test(path)) { failures.set(path,"禁止文件"); return; }
+  if (forbidden.test(path) || privateEvalReport.test(path)) { failures.set(path,"禁止文件"); return; }
   if (blob.includes(0) || /\.png$/i.test(path)) {
     if (reviewedImages.get(path) !== createHash("sha256").update(blob).digest("hex")) {
       failures.set(path, "未经批准的二进制文件");

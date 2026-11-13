@@ -98,3 +98,48 @@ it("checks commit metadata and annotated tags only from a complete history", asy
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it("allows release baselines but rejects private dated eval reports even if force-added", async () => {
+  const root = await mkdtemp(join(tmpdir(), "lifeops-public-eval-"));
+  const repo = join(root, "repo");
+  const terms = join(root, "synthetic-terms.txt");
+  const script = "scripts/verify-public-boundary.mjs";
+  const evalDir = join(repo, "docs/eval");
+  const report = "docs/eval/2099-01-02-fictional.md";
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: repo, stdio: "pipe" });
+  const scan = (mode: string) => spawnSync(process.execPath, [join(repo, script), mode], {
+    encoding: "utf8",
+    env: { ...process.env, LIFEOPS_SENSITIVE_TERMS_FILE: terms }
+  });
+
+  try {
+    await mkdir(join(repo, dirname(script)), { recursive: true });
+    await mkdir(evalDir, { recursive: true });
+    await copyFile(resolve(script), join(repo, script));
+    await copyFile(resolve(".gitignore"), join(repo, ".gitignore"));
+    await writeFile(join(evalDir, "baseline.json"), '{"passRate":1}\n');
+    await writeFile(join(evalDir, "latest.json"), '{"version":"0.0.0","passRate":1}\n');
+    await writeFile(terms, "unrelated fictional phrase\n");
+    git("init", "--quiet");
+    git("config", "core.hooksPath", "/dev/null");
+    git("config", "user.name", "Fictional Fixture");
+    git("config", "user.email", "fixture@example.invalid");
+    git("config", "commit.gpgsign", "false");
+    git("add", "--", ".gitignore", script, "docs/eval");
+    expect(scan("--staged").status).toBe(0);
+    git("commit", "--quiet", "-m", "Add the public rate baseline");
+    expect(scan("--history").status).toBe(0);
+
+    await writeFile(join(repo, report), "# Fictional evaluation details\n");
+    git("check-ignore", "--", report);
+    git("add", "--force", "--", report);
+    expect(scan("--staged")).toMatchObject({ status: 1, stderr: expect.stringContaining("禁止文件: " + report) });
+    expect(scan("--all")).toMatchObject({ status: 1, stderr: expect.stringContaining("禁止文件: " + report) });
+    git("commit", "--quiet", "-m", "Add a fictional report for the negative test");
+    git("revert", "--no-edit", "HEAD");
+    expect(scan("--all").status).toBe(0);
+    expect(scan("--history")).toMatchObject({ status: 1, stderr: expect.stringContaining("禁止文件: " + report) });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
