@@ -29,7 +29,7 @@ npm test
 npm run release:prepare
 ```
 
-开发和反馈只使用虚构资料。参见 [使用指南](docs/USER_GUIDE.md)、[数据格式](docs/DATA_MODEL.md)、[贡献指南](CONTRIBUTING.md)和[版本记录](CHANGELOG.md)。
+开发和反馈只使用虚构资料。参见 [使用指南](docs/USER_GUIDE.md)、[架构说明](docs/ARCHITECTURE.md)、[数据格式](docs/DATA_MODEL.md)、[贡献指南](CONTRIBUTING.md)和[版本记录](CHANGELOG.md)。
 
 ## English
 
