@@ -22,17 +22,21 @@ if (termsFile) {
 const homePath = new RegExp(["/", "Users", "/", "[a-zA-Z0-9._-]+/"].join(""));
 const secret = /(?:-----BEGIN (?:OPENSSH |RSA |EC )?PRIVATE KEY-----|\bsk-(?:proj-)?[a-zA-Z0-9_-]{24,}\b|\b(?:AKIA|ASIA)[A-Z0-9]{16}\b|\bgh[pousr]_[a-zA-Z0-9]{30,}\b|\bgithub_pat_[a-zA-Z0-9_]{30,}\b)/;
 const forbidden = /^(?:docs\/(?:archive\/|plan\/|PROGRESS\.md|QUESTIONS_FOR_|CLAUDE)|fixtures\/real-provider\/|output\/|dist\/|test-vault\/|node_modules\/|prototypes\/)|(?:^|\/)(?:release\.config\.json|sensitive-terms\.txt|breeze-paths\.json|\.env(?:\.|$)|[^/]+\.(?:pem|key|log))$/i;
+// Only the reviewed fictional images may bypass text scanning.
+const reviewedImages = new Map([
+  ["docs/images/lifeops-overview.png", "9e6d8c5f4596b3c199b44fcb22564550bc1b981c6c139b25acc37a8886baaa99"],
+  ["tests/fixtures/trade-screenshots/crypto-open.png", "2b84f4a23a4f2db71483fa2ad17e0e5b174b997ef37279614ba5699205ab3d67"],
+  ["tests/fixtures/trade-screenshots/equity-match.png", "6b78eba15f381e9ba33fa7cdb257ae31f8a25f8576d77ac04a3310ac2db3f783"],
+  ["tests/fixtures/trade-screenshots/forex-missing-zone.png", "1db5531c73553f1784338394632603e2ea1f4a9cf3ef85dee79ab917619c76ce"],
+  ["tests/fixtures/trade-screenshots/futures-mismatch.png", "edf0858380d1cbd99b285624a6f48cb4abbae0e5a16990ec4a1a10112decb6b9"]
+]);
 const failures = new Map();
 function scan(path, blob) {
   if (forbidden.test(path)) { failures.set(path,"禁止文件"); return; }
-  if (blob.includes(0)) {
-    const signature = Buffer.from([137,80,78,71,13,10,26,10]);
-    const validPng = blob.subarray(0,8).equals(signature);
-    const tradeFixture = /^tests\/fixtures\/trade-screenshots\/[-a-z]+\.png$/.test(path);
-    // Reviewed screenshot of fictional data. A replacement needs a fresh review.
-    const reviewedOverview = path === "docs/images/lifeops-overview.png"
-      && createHash("sha256").update(blob).digest("hex") === "9e6d8c5f4596b3c199b44fcb22564550bc1b981c6c139b25acc37a8886baaa99";
-    if (!validPng || !(tradeFixture || reviewedOverview)) failures.set(path,"未经批准的二进制文件");
+  if (blob.includes(0) || /\.png$/i.test(path)) {
+    if (reviewedImages.get(path) !== createHash("sha256").update(blob).digest("hex")) {
+      failures.set(path, "未经批准的二进制文件");
+    }
     return;
   }
   const source = blob.toString("utf8");
