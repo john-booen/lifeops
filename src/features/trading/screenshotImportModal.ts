@@ -144,8 +144,10 @@ class TradeScreenshotImportModal extends Modal {
         choices.set(row.line, select);
       }
       const label = (amount?: number) => amount === undefined ? "未知" : `${tradeNumber(amount)} ${draft.currency}`;
-      item.createEl("p", { text: `截图净盈亏：${label(row.screenshotPnl)}；本地重算：${label(row.computedPnl)}${row.mismatch ? "。两者不一致，请先核对。" : ""}`,
-        cls: row.mismatch ? "lifeops-warning" : "" });
+      const unverified = row.screenshotPnl !== undefined && row.computedPnl === undefined;
+      const detail = unverified ? "。缺少重算所需字段，盈亏暂不入账。" : row.mismatch ? "。两者不一致，请先核对。" : "";
+      item.createEl("p", { text: `截图净盈亏：${label(row.screenshotPnl)}；本地重算：${label(row.computedPnl)}${detail}`,
+        cls: unverified || row.mismatch ? "lifeops-warning" : "" });
     }
     const feedback = contentEl.createEl("p", { attr: { role: "status" } });
     new Setting(contentEl)

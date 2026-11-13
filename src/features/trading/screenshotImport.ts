@@ -108,8 +108,11 @@ function screenshotDraft(row: ModelRow, digest: string, multipliers?: Record<str
   const screenshotPnl = finiteField(row, "displayedPnl"), multiplier = tradeMultiplier(draft.symbol, multipliers);
   const computedPnl = tradePnl(draft, multiplier).pnl;
   const mismatch = screenshotPnl !== undefined && computedPnl !== undefined && Math.abs(screenshotPnl - computedPnl) > 0.005;
-  if (computedPnl === undefined) draft.pnl = screenshotPnl;
-  else if (mismatch) draft.notes = `截图显示盈亏 ${tradeNumber(screenshotPnl!)} ${draft.currency}；确认时按本地重算值记录。`;
+  if (screenshotPnl !== undefined) {
+    const reported = `截图显示盈亏 ${tradeNumber(screenshotPnl)} ${draft.currency}`;
+    if (computedPnl === undefined) draft.notes = reported + "。交易字段不足，盈亏暂未入账。";
+    else if (mismatch) draft.notes = reported + "。按本地重算值入账。";
+  }
   return { draft, computedPnl, screenshotPnl, mismatch, multiplier };
 }
 
