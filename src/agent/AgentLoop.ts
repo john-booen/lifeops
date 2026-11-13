@@ -84,6 +84,7 @@ interface TurnState {
 
 const MAX_TOOL_ROUNDS = 4;
 const PLAIN_GREETING = /^(你好|您好|早安|早上好|中午好|下午好|晚上好|嗨)[。！？!?，,.]*$/u;
+const PLAIN_TEXT_UNDO = /^(?:请\s*)?撤销(?:刚才那个)?[。！!]?$/u;
 const TODAY_UNFINISHED_TASK_QUESTIONS = [
   /^我?今天还?有(?:哪些|什么)(?:任务|待办)还?(?:没做完?|没(?:有)?完成|未完成)$/u,
   /^我?今天(?:还?有)?(?:哪些|什么)(?:没做完?|没(?:有)?完成|未完成)的(?:任务|待办)$/u,
@@ -143,6 +144,14 @@ export class AgentLoop {
       const greeting = input.source === "text" && !input.voiceBackground && PLAIN_GREETING.exec(input.message.trim())?.[1];
       if (greeting) return this.localAnswer(input, state, `${greeting}！`);
       await waitForFactOperations(this.host.store, { signal: input.signal });
+      if (input.source === "text" && !input.voiceBackground && PLAIN_TEXT_UNDO.test(input.message.trim())) {
+        assertPolicy();
+        const calls = this.scopedCalls([{ name: "undo_latest_operation", arguments: {} }], state.id, 0);
+        const [result] = await this.executeRegular(input, state, calls);
+        assertProviderActive(input.signal);
+        assertPolicy();
+        return this.localAnswer(input, state, result?.output || "撤销没有完成，请稍后再试。");
+      }
       const question = input.message.trim().replace(/^请问[，, ]*/u, "").replace(/[。！？!?]+$/u, "");
       if (input.source === "text" && !input.voiceBackground && TODAY_UNFINISHED_TASK_QUESTIONS.some(pattern => pattern.test(question))) {
         assertPolicy();

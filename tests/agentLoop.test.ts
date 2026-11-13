@@ -794,7 +794,7 @@ it("keeps a successful query for a requested undo across model rounds", async ()
   expect(requests).toHaveLength(3);
 });
 
-it("leaves the task alone after an unowned query requirement, then accepts an explicit corrected undo call", async () => {
+it("requires the requested query but runs a plain text undo through the ledger without a model", async () => {
   const original = await runtime.executeAiToolCall(tool("create_task", { title: "虚构整理盒子" }, "undo-retry-original"), "kimi");
   expect(original.success).toBe(true);
   const plugin = Object.assign(Object.create(Plugin.prototype), { app: store.app, store, settings: store.settings,
@@ -806,13 +806,11 @@ it("leaves the task alone after an unowned query requirement, then accepts an ex
   const refused = await plugin.submitAgentMessage("请先查记录再撤销刚才那个。", [], { selfTest: true });
   expect(refused.reply).toContain("没有执行");
   expect((await store.readTaskDb({ readOnly: true })).tasks).toHaveLength(1);
-  responses.push(
-    reply("", [tool("undo_latest_operation", { requirePriorQuery: true }, "mistaken-query-requirement")]),
-    reply("", [tool("undo_latest_operation", {}, "corrected-plain-undo")]),
-    reply("已撤销虚构整理盒子。")
-  );
+  const modelCalls = requests.length;
   const corrected = await plugin.submitAgentMessage("撤销刚才那个。", [], { selfTest: true });
   expect(corrected.reply).toContain("已撤销");
+  expect(corrected.reply).toContain("虚构整理盒子");
+  expect(requests).toHaveLength(modelCalls);
   expect((await store.readTaskDb({ readOnly: true })).tasks).toEqual([]);
 });
 
