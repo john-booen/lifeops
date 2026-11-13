@@ -8,7 +8,7 @@ import type { TradeDraft } from "./types";
 export async function assessChatTrade(store: StoreHost, row: unknown, userMessage = ""): Promise<TradeDraft> {
   if (!row || typeof row !== "object" || Array.isArray(row)) return chatTradeDraft(row);
   const { ruleChecks, ...fields } = row as Record<string, unknown>;
-  const draft = chatTradeDraft(discardUnstatedTradePnl(fields, userMessage));
+  const draft = chatTradeDraft(discardUnstatedTradePnl(fields, userMessage), undefined, userMessage);
   if (!draft.modelId && !draft.modelVersionId) return draft;
   const insufficient = { ...draft, ruleCheckStatus: "insufficient" as const };
   if (isVaultPathExcluded(tradingDocumentPath(store), store.settings.privacy?.excludedVaultPrefixes)) return insufficient;

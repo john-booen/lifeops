@@ -65,6 +65,24 @@ describe("AI tool calling", () => {
     vi.unstubAllGlobals();
   });
 
+  it.each(["stream", "finite"] as const)("hides echoed tool results from the %s answer", async transport => {
+    const parts = ["İ核对。<res", "ult><name>get_stats</name><output>虚构内部资料</output></res", "ult>本周跑步完成25%。<result>未闭合的虚构内部资料"];
+    const fetchMock = vi.fn().mockResolvedValueOnce(streamResponse([
+      ...parts.map(content => streamData({ choices: [{ delta: { content } }] })), "data: [DONE]"
+    ]));
+    vi.stubGlobal("fetch", fetchMock);
+    requestUrlMock.mockResolvedValueOnce({ status: 200, json: { choices: [{ message: { content: parts.join("") } }] } });
+    const onText = vi.fn();
+    const response = await new LifeOpsAi(testSettings()).agentTurnStream([
+      { role: "user", content: "评价虚构一周" },
+      { role: "tool", tool_call_id: "fictional-read", content: "纯虚构统计" }
+    ], onText, { preferFinite: transport === "finite" });
+    expect(response.content).toBe("İ核对。本周跑步完成25%。");
+    expect(response.toolCalls).toEqual([]);
+    expect(onText.mock.calls.map(([content]) => content)).toEqual(transport === "finite"
+      ? [response.content] : ["İ核对。", response.content, response.content]);
+  });
+
   it("serializes actual source receipts with only read tools on the delegated fallback configuration", async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(streamResponse([streamData({ choices: [{ delta: { content: "纯虚构依据及反例。" } }] }), "data: [DONE]"])); vi.stubGlobal("fetch", fetchMock);
     const ai = new LifeOpsAi(testSettings()), receipt = "纯虚构末页正文，不是摘要。", reads = [{ calls: [{ id: "read-page", name: "query_vault", arguments: { domain: "journal", operation: "get", path: "虚构.md", offset: 18000 } }], results: [{ callId: "read-page", success: true, output: receipt }] }];

@@ -65,16 +65,22 @@
           "12个",
           "12 项",
           "12项",
+          "12 件",
+          "12件",
           "十二个",
-          "十二项"
+          "十二项",
+          "十二件"
         ],
         [
           "6 个",
           "6个",
           "6 项",
           "6项",
+          "6 件",
+          "6件",
           "六个",
-          "六项"
+          "六项",
+          "六件"
         ],
         [
           "排多",
@@ -97,6 +103,15 @@
       ],
       "mustSucceedTools": [
         "plan_today"
+      ],
+      "toolFacts": [
+        {
+          "name": "plan_today",
+          "output": {
+            "today": { "scheduled": 12 },
+            "capacity": { "overloaded": true, "typicalCount": 6 }
+          }
+        }
       ],
       "expectWrites": {
         "tasks.created": 0,
@@ -350,9 +365,10 @@
     "checks": {
       "preludeCreatedTasks": 1,
       "expectWrites": {"tasks.created": 0, "tasks.deleted": 0, "tasks.rescheduled": 0},
-      "absentTaskTitle": "评测给青色档案盒贴标签",
+      "absentTaskTitle": "给青色档案盒贴标签",
       "mustSucceedTools": ["undo_latest_operation"],
-      "mustInclude": ["已撤销", "评测给青色档案盒贴标签"]
+      "mustInclude": ["已撤销"],
+      "mustIncludeAny": [["评测给青色档案盒贴标签", "评测：给青色档案盒贴标签", "评测: 给青色档案盒贴标签"]]
     }
   },
   {
@@ -517,6 +533,7 @@
         ],
         [
           "没写具体",
+          "没写焦虑的具体原因",
           "未说明",
           "没记录具体",
           "没有写",

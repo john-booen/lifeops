@@ -259,7 +259,14 @@ it.runIf(correctionOnly)("answers finalized fictional spoken corrections through
   const directory = await mkdtemp(join(tmpdir(), "lifeops-voice-correction-"));
   const { settings, transport } = await voiceSettings();
   const questions = (JSON.parse(await readFile("tests/eval/questions.json", "utf8")) as EvalQuestion[])
-    .filter(question => question.domain === "voice-correction");
+    .filter(question => question.domain === "voice-correction")
+    .map((question): EvalQuestion => question.id === "short-acknowledgement-44" ? {
+      ...question,
+      // A spoken acknowledgement resolves the week locally from the previous turn.
+      checks: { ...question.checks, toolFacts: [{ name: "get_stats", output: {
+        domain: "tasks", range: { from: "2026-11-02", to: "2026-11-08" }, completedCount: 26
+      } }] }
+    } : question);
   const failures: string[] = [];
   vi.stubGlobal("window", globalThis);
   vi.stubGlobal("fetch", transport.fetch);
@@ -267,7 +274,10 @@ it.runIf(correctionOnly)("answers finalized fictional spoken corrections through
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date(EVAL_NOW));
   try {
-    expect(questions).toHaveLength(5);
+    expect(questions.map(question => question.id)).toEqual(expect.arrayContaining([
+      "recent-state-direct-42", "recent-state-correction-43", "short-acknowledgement-44",
+      "short-correction-45", "finished-correction-46", "voice-count-period-correction-48"
+    ]));
     for (const question of questions) {
       const root = join(directory, question.id);
       const tools: EvalObservation["tools"] = [];

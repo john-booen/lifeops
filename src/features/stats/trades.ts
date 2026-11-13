@@ -1,7 +1,9 @@
 import { startOfWeek } from "../../date";
+import { tradeNumber } from "../trading/pnl";
 import type { Trade, TradeCurrency } from "../trading/types";
 
 const currencies: TradeCurrency[] = ["CNY", "USD"];
+const currencyNames = { CNY: "人民币", USD: "美元" };
 export const TRADE_STAT_GROUPS = ["day", "week", "month", "market", "symbol", "model", "direction"] as const;
 export type TradeStatGroup = typeof TRADE_STAT_GROUPS[number];
 export interface TradeStatsSettings {
@@ -107,4 +109,24 @@ export function tradeStats(trades: readonly Trade[], range: { from: string; to: 
     ...(combineUsd ? { convertedUsd: { totalPnl: known || !filtered.length
       ? stable((byCurrency.CNY.totalPnl ?? 0) / cnyPerUsd! + (byCurrency.USD.totalPnl ?? 0)) : null,
       cnyPerUsd, rateLabel: `1 USD = ${cnyPerUsd} CNY`, unknownPnlCount: filtered.length - known } } : {}) };
+}
+
+interface ModelPnlGroup {
+  key: string;
+  label?: string;
+  byCurrency: Record<TradeCurrency, { knownPnlCount: number; totalPnl: number | null }>;
+}
+
+export function formatTradeModelLeaders(groups: readonly ModelPnlGroup[], range: { from: string; to: string }, partial: boolean): string {
+  const lines = currencies.map(currency => {
+    const eligible = groups.flatMap(group => {
+      const { knownPnlCount, totalPnl } = group.byCurrency[currency];
+      return group.key === "未指定" || knownPnlCount === 0 || totalPnl === null ? [] : [{ name: group.label ?? group.key, totalPnl }];
+    });
+    if (!eligible.length) return `${currencyNames[currency]}没有带净盈亏的模型记录。`;
+    const best = eligible.reduce((maximum, group) => Math.max(maximum, group.totalPnl), -Infinity);
+    const leaders = eligible.filter(group => group.totalPnl === best).map(group => `「${group.name}」`);
+    return `${currencyNames[currency]}${leaders.join("、")}${leaders.length === 1 ? "排名第一" : "并列第一"}，净盈亏 ${tradeNumber(best)} ${currency}。`;
+  });
+  return `${range.from} 至 ${range.to} 的模型净盈亏排名\n\n${lines.join("\n")}${partial ? "\n仅统计允许读取的交易记录。" : ""}`;
 }

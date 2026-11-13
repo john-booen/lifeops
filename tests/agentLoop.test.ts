@@ -93,6 +93,31 @@ it.each(tradeExamples)("records the trades selected by the model for $message", 
   expect((await readTradeDatabase(store)).trades).toEqual([]);
 });
 
+it("uses the actual model-group net profit for each currency without asking the model to rank", async () => {
+  const rows = [
+    { market: "A股", modelId: "虚构突破", pnl: 250 },
+    { market: "A股", modelId: "虚构回踩", pnl: -70 },
+    { market: "美股", modelId: "虚构突破", pnl: 90 },
+    { market: "美股", modelId: "虚构回踩", pnl: 120 },
+    { market: "美股", pnl: 1000 }
+  ].map((row, index) => ({ ...row, symbol: `FICT-${index}`, direction: "long", openedAt: "2026-11-12" }));
+  for (const batch of [rows.slice(0, 3), rows.slice(3)]) {
+    const saved = await runtime.executeAiToolCall(tool("record_trade", { trades: batch }, `fixture-${batch.length}`), "kimi");
+    expect(saved.success).toBe(true);
+  }
+  const before = (await readTradeDatabase(store)).trades;
+  responses.push(reply("", [tool("get_stats", { domain: "trades", groupBy: "model", rankByNetPnl: true,
+    range: { from: "2026-11-01", to: "2026-11-12" } })]));
+  const result = await new AgentLoop(host).run(input({ message: "这个月哪个交易模型最赚钱？人民币和美元分开。" }));
+  expect(result.text).toContain("人民币「虚构突破」排名第一，净盈亏 250 CNY。");
+  expect(result.text).toContain("美元「虚构回踩」排名第一，净盈亏 120 USD。");
+  expect(result.text).not.toContain("180");
+  expect(result.toolCalls).toEqual([{ name: "get_stats", ok: true }]);
+  expect(requests).toHaveLength(1);
+  expect(result.receipts).toEqual([]);
+  expect((await readTradeDatabase(store)).trades).toEqual(before);
+});
+
 it("requires missing data or a batch confirmation before recording any rows", async () => {
   const row = tradeExamples[0].rows[0];
   const missing = await runtime.executeAiToolCall(tool("record_trade", { trades: [row, { ...row, direction: undefined }] }), "kimi");
@@ -371,23 +396,26 @@ describe("unified agent loop", () => {
     expect((await store.readTaskDb({ readOnly: true })).tasks).toHaveLength(3);
   });
 
-  it("reads the three status domains without model arithmetic for an overall status request", async () => {
+  it.each(["text", "voice"] as const)("reads the three status domains without a model for an overall status request (%s)", async source => {
     await store.createTask({ title: "虚构近期计划", date: formatDate(now) });
     await store.createTask({ title: "虚构较早计划", date: addDays(formatDate(now), -8) });
     const chunks: string[] = [];
-    const result = await new AgentLoop(host).run(input({ message: "讲讲我最近的整体状态。", onText: chunk => chunks.push(chunk) }));
+    const spoken: string[] = [];
+    const result = await new AgentLoop(host).run(input({ source, message: "讲讲我最近的整体状态。",
+      onText: chunk => chunks.push(chunk), onVoiceText: chunk => spoken.push(chunk) }));
     expect(result.text).toContain("安排了 1 项任务，完成其中 0 项。");
     expect(result.text).toContain("0 项习惯有达标记录");
     expect(result.text).toContain("有 0 篇日记。没有可核对的状态数值。");
     expect(chunks.join("")).toBe(result.text);
+    expect(spoken.join("")).toBe(source === "voice" ? result.text : "");
     expect(result.toolCalls).toEqual(Array.from({ length: 3 }, () => ({ name: "get_stats", ok: true })));
     expect(result.receipts).toEqual([]);
     expect(requests).toEqual([]);
   });
 
-  it("keeps a narrowly scoped mood question focused on the requested topic", async () => {
+  it.each(["text", "voice"] as const)("keeps a narrowly scoped mood question on the requested topic (%s)", async source => {
     responses.push(reply("日记记载，最近精力偏低。"));
-    const result = await new AgentLoop(host).run(input({ message: "我最近三天的情绪怎么样？" }));
+    const result = await new AgentLoop(host).run(input({ source, message: "我最近三天的情绪怎么样？" }));
     expect(result.text).toBe("日记记载，最近精力偏低。");
     expect(result.toolCalls).toEqual([]);
   });

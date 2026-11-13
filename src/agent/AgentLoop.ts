@@ -154,7 +154,7 @@ export class AgentLoop {
         const reply = result?.success && formatTaskListReply(result.output, date);
         return this.localAnswer(input, state, reply || "今天的任务记录暂不可用，请稍后再试。");
       }
-      if (input.source === "text" && !input.voiceBackground && asksForRecentStatus(input.message)) {
+      if ((input.source === "text" || input.source === "voice") && !input.voiceBackground && asksForRecentStatus(input.message)) {
         assertPolicy();
         const range = resolveStatsRange("last_7d", input.now);
         const calls = this.scopedCalls(recentStatusDomains.map(domain => ({ name: "get_stats", arguments: { domain, range } })), state.id, 0);
@@ -256,7 +256,11 @@ export class AgentLoop {
           let reply: string | undefined;
           if (isVoiceJobTool(call.name)) reply = single.output;
           else if (round === 0 && call.name === "undo_latest_operation") reply = single.output;
-          else if (round === 0 && fastVoice && call.name === "get_stats") reply = formatVoiceStats(single.output, call.arguments);
+          else if (!input.voiceBackground && call.name === "get_stats" && call.arguments.rankByNetPnl === true
+            && call.arguments.domain === "trades" && call.arguments.groupBy === "model" && call.arguments.combineUsd !== true) {
+            const ranking = (JSON.parse(single.output) as { modelRanking?: string }).modelRanking;
+            if (typeof ranking === "string" && ranking) reply = ranking;
+          } else if (round === 0 && fastVoice && call.name === "get_stats") reply = formatVoiceStats(single.output, call.arguments);
           else if (round === 0 && fastVoice && call.name === "plan_today") reply = formatVoiceTaskPriorities(single.output, call.arguments);
           else if (round === 0 && call.name === "list_tasks" && call.arguments.category === undefined
             && (call.arguments.directReply === true || call.arguments.order === "priority" && Number.isInteger(call.arguments.limit))) {
@@ -385,15 +389,22 @@ export class AgentLoop {
       guidance.push("只问未完成总数和最要紧的 N 项时，用一个 list_tasks 调用：order=priority、limit=N、directReply=true，不用 plan_today。");
     }
     if (tools.some(tool => tool.name === "get_stats")) {
+      guidance.push("评价或批评这周表现，先用 get_stats(domain=habits,range=this_week) 查达标次数和漏做日期。");
       guidance.push("问连续几天的睡眠、情绪或精力趋势，先用 get_stats，domain=journal。最近三天用 range=last_3d。要找原因、原话或具体事件时，再查同一范围的日记。");
+    }
+    if (evidenceCalls.length) {
+      guidance.push("把工具读回的信息写成面向用户的正文，别输出结果标签或原始 JSON。");
     }
     if (input.source === "voice" && !input.voiceBackground) {
       guidance.push("普通短问先说结论，第一句简短并以句号收尾。需要判断和解释时再补一句。");
     }
     if (!input.voiceBackground && messages.at(-1)?.role === "user") {
-      guidance.push("只说「不对」或「不对不对」时，回到上一条用户问题的明确主题和时段；助手刚才说错的时段不能覆盖用户原话。本轮若改了日期，以新日期为准。明确已结束的周月先用 get_summaries。只说「对」按刚核对的问题直接查询。范围已清楚就不要反问或只道歉。");
+      guidance.push("只说「不对」或「不对不对」时，回到上一条用户问题的明确主题和时段；助手刚才说错的时段不能覆盖用户原话。本轮若改了日期，以新日期为准。只说「对」按刚核对的问题直接查询。范围已清楚就不要反问或只道歉。");
     }
     if (input.voiceBackground) guidance.push("这是只读的后台分析。核对所需资料后直接回答原问题，避免添加无关建议。");
+    if (tools.some(tool => tool.name === "get_summaries")) {
+      guidance.push("问上周、上月的整体表现或复盘，先用 get_summaries，分别传 level=week 和 range=last_week，或 level=month 和 range=last_month。包括问做得怎么样或要一条改进。缺项再用 get_stats 补查。");
+    }
     if (input.voiceBackground && tools.some(tool => tool.name === "get_stats" || tool.name === "get_summaries")) {
       guidance.push("日期和范围以用户原话为准。上周用 last_week，上月或上个月用 last_month，按当前日期由工具计算。用户明确指定绝对日期或其他区间时按原意查询。");
     }
@@ -424,11 +435,14 @@ export class AgentLoop {
     if (evidenceCalls.some(call => call.name === "get_stats" && call.args?.domain === "trades" && call.args?.groupBy === "market")) {
       guidance.push("用户问各市场时，逐一列出统计 groups 中有记录的市场，名称沿用 key。胜率用各市场对应币种的 winPercent，遇到多种币种就分开列。");
     }
+    if (evidenceCalls.some(call => call.name === "get_stats" && call.args?.domain === "trades" && call.args?.groupBy === "model")) {
+      guidance.push("比较模型时按币种分别引用每个模型在 groups 中的净盈亏；顶层 byCurrency 是全部模型的合计。只问各币种排名第一时直接使用 modelRanking。");
+    }
     if (evidenceCalls.some(call => call.name === "learning_progress" || call.name === "get_stats" && call.args?.domain === "learning")) {
       guidance.push("用户问实际学了多久，要带上核对到的学习轨道名称和本轮时段，再报 recordedMinutes 或统计里的 minutes。即使是在纠正前一句，也不能只回一个数字。weeklyMinutes 是本周计划目标；差值不是已学习或未登记时长。");
     }
     if (evidenceCalls.some(call => call.name === "get_summaries")) {
-      guidance.push("历史总结只用用户所问的日期范围。已有摘要能回答就直接答，缺项才查同一日期范围。不要把本周习惯混进上周，也不要附带额外建议。");
+      guidance.push("历史总结只用用户所问的日期范围。已有摘要能回答就直接答，缺项才查同一日期范围。不要把本周习惯混进上周。明确要求改进时，用同一摘要给一条具体的后续动作。");
     }
     if (evidenceCalls.some(call => call.name === "list_ideas")) {
       guidance.push("如果用户明确要把已找到的想法拆成任务或要确认卡，立即用该想法的准确 id 调用 advance_idea。调用只生成卡，点击才保存，生成卡前无需问是否立项或先等用户同意。只问状态时按列表回答。");
