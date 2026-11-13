@@ -386,7 +386,7 @@ export class AgentLoop {
       }
     }
     if (tools.some(tool => tool.name === "list_tasks")) {
-      guidance.push("只问未完成总数和最要紧的 N 项时，用一个 list_tasks 调用：order=priority、limit=N、directReply=true，不用 plan_today。");
+      guidance.push("要求把已逾期和今天到期的未完成任务分开时，用一个 list_tasks 调用，填 dueStatus=overdue_and_today。只需分组清单时再填 directReply=true。只问未完成总数和最要紧的 N 项时，用一个 list_tasks 调用：order=priority、limit=N、directReply=true，不用 plan_today。");
     }
     if (tools.some(tool => tool.name === "get_stats")) {
       guidance.push("评价或批评这周表现，先用 get_stats(domain=habits,range=this_week) 查达标次数和漏做日期。");

@@ -384,6 +384,27 @@ describe("unified agent loop", () => {
       expect(readDashboard).not.toHaveBeenCalled();
     });
 
+  it("keeps overdue and due-today task groups separate using verified dates", async () => {
+    const date = formatDate(now), yesterday = addDays(date, -1), tomorrow = addDays(date, 1);
+    await store.createTask({ title: "虚构昨日到期", date, dueDate: yesterday });
+    await store.createTask({ title: "虚构今日到期", date: tomorrow, dueDate: date });
+    await store.createTask({ title: "虚构今日计划", date });
+    await store.createTask({ title: "虚构明日到期", date, dueDate: tomorrow });
+    const finished = await store.createTask({ title: "虚构逾期已完成", date: yesterday, dueDate: yesterday });
+    await store.completeTask(finished.id);
+    responses.push(reply("", [tool("list_tasks", { date, dueStatus: "overdue_and_today", directReply: true })]));
+    const result = await new AgentLoop(host).run(input({
+      message: "我今天还有什么任务没完成？请把已逾期的和今天到期的分开列出来。"
+    }));
+    expect(result.text.split("\n")).toEqual([
+      "已逾期 1 项。", expect.stringContaining("虚构昨日到期"),
+      "今天到期 1 项。", expect.stringContaining("虚构今日到期")
+    ]);
+    expect(result.toolCalls).toEqual([{ name: "list_tasks", ok: true }]);
+    expect(result.receipts).toEqual([]);
+    expect(requests).toHaveLength(1);
+  });
+
   it("reports the full remaining count and only the requested highest-priority tasks", async () => {
     const date = formatDate(now);
     await store.createTask({ title: "虚构归档", date, quadrant: "not-important-not-urgent" });
