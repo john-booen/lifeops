@@ -1950,6 +1950,7 @@ describe("voice integration flow", () => {
     handleCascadeCapture(view, endpoint, { type: "final", itemId: "backchannel", text: "对。" });
     expect(view.updateRealtimeTranscript).not.toHaveBeenCalled();
     expect(view.sendVoiceTurnIfReady).not.toHaveBeenCalled();
+    view.agentSpeaking = false;
     handleCascadeCapture(view, endpoint, { type: "started", itemId: "user" });
     handleCascadeCapture(view, endpoint, { type: "final", itemId: "user", text: "明天下午见客户。" });
     expect(view.sendVoiceTurnIfReady).not.toHaveBeenCalled();
@@ -2183,6 +2184,33 @@ describe("voice integration flow", () => {
     }
     expect(measurements).toHaveLength(20);
     expect(Math.max(...measurements)).toBeLessThanOrEqual(300);
+  });
+
+  it("filters incidental speech during playback without text model disclosure", () => {
+    const onlineReview = vi.spyOn(playbackInput, "classifyPlaybackInput");
+    const view = {
+      controller: { settings: { ...DEFAULT_SETTINGS, ai: { ...DEFAULT_SETTINGS.ai, dataDisclosureAccepted: false } } },
+      agentMode: "voice", agentRecording: true, agentVoiceReady: true, agentSpeaking: true,
+      handleVoiceSpeechStarted: vi.fn(), handleVoiceSpeechStopped: vi.fn(), markVoiceTrace: vi.fn(),
+      updateRealtimeTranscript: vi.fn(), sendVoiceTurnIfReady: vi.fn()
+    };
+    const endpoint = new ServerVoiceEndpoint();
+    const hear = (itemId: string, text: string) => {
+      handleCascadeCapture(view, endpoint, { type: "started", itemId });
+      handleCascadeCapture(view, endpoint, { type: "stopped", itemId });
+      handleCascadeCapture(view, endpoint, { type: "final", itemId, text });
+    };
+    try {
+      hear("background", "欢迎收看今天的比赛。");
+      hear("background-question", "今晚一起吃什么？");
+      expect(view.sendVoiceTurnIfReady).not.toHaveBeenCalled();
+      hear("directed", "停一下，我想问明天的任务。");
+      expect(view.updateRealtimeTranscript).toHaveBeenCalledExactlyOnceWith("停一下，我想问明天的任务。", true, true);
+      expect(view.sendVoiceTurnIfReady).toHaveBeenCalledOnce();
+      expect(onlineReview).not.toHaveBeenCalled();
+    } finally {
+      onlineReview.mockRestore();
+    }
   });
 
   it.each([["对", false], ["是", true], ["确认", true]] as const)("checks persisted task deletion after the spoken answer %s", async (answer, approved) => {

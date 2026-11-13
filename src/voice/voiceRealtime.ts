@@ -46,7 +46,7 @@ import { formatDate, todayString } from "../date";
 import type { StoreHost } from "../store/settingsSlice";
 import { backgroundVoiceQuestion, VoiceJobManager, voiceJobSpeech, type VoiceJob } from "./jobs";
 import { isExactVoiceApproval, voiceActionPrompt } from "./actionConfirmation";
-import { classifyPlaybackInput } from "./playbackInput";
+import { classifyPlaybackInput, offlinePlaybackDecision } from "./playbackInput";
 
 type VoiceRealtimeView = any;
 const FALLBACK_TTS_FIRST_AUDIO_TIMEOUT_MS = 5_000;
@@ -468,10 +468,17 @@ export function handleCascadeCapture(view: VoiceRealtimeView, endpoint: ServerVo
     maybeAnnounceVoiceJob(view);
     return;
   }
-  if (overlapsPlayback && !voiceConfirmations.has(view) && view.controller.settings.ai?.dataDisclosureAccepted === true) {
-    void reviewCascadeInterruption(view, endpoint, capture.ready);
-  } else {
+  if (!overlapsPlayback || voiceConfirmations.has(view)) {
     submitCascadeTranscript(view, capture.ready);
+    return;
+  }
+  const previousQuestion = view.agentVoiceRuntime?.snapshot?.().currentTurn?.transcript ?? "";
+  if (view.controller.settings.ai?.dataDisclosureAccepted === true) {
+    void reviewCascadeInterruption(view, endpoint, capture.ready, previousQuestion);
+  } else if (offlinePlaybackDecision(capture.ready, previousQuestion) === "accept") {
+    submitCascadeTranscript(view, capture.ready);
+  } else {
+    maybeAnnounceVoiceJob(view);
   }
 }
 
@@ -480,13 +487,12 @@ function cancelCascadeInterruption(view: VoiceRealtimeView): void {
   pendingCascadeInterruptions.delete(view);
 }
 
-async function reviewCascadeInterruption(view: VoiceRealtimeView, endpoint: ServerVoiceEndpoint, transcript: string): Promise<void> {
+async function reviewCascadeInterruption(view: VoiceRealtimeView, endpoint: ServerVoiceEndpoint, transcript: string, previousQuestion: string): Promise<void> {
   cancelCascadeInterruption(view);
   const check = new AbortController();
   pendingCascadeInterruptions.set(view, check);
   const { settings, savedVoiceSettingsRevision } = view.controller;
   const generation = view.agentVoicePipelineGeneration;
-  const previousQuestion = view.agentVoiceRuntime?.snapshot?.().currentTurn?.transcript ?? "";
   const decision = await classifyPlaybackInput(settings, transcript, previousQuestion, check.signal);
   if (pendingCascadeInterruptions.get(view) !== check) return;
   pendingCascadeInterruptions.delete(view);

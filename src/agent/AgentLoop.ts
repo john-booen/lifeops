@@ -242,6 +242,20 @@ export class AgentLoop {
           id: call.id!, type: "function", function: { name: call.name, arguments: JSON.stringify(call.arguments) }
         })) });
         const results = await this.executeTools(input, state, calls, context.text, availableTools);
+        if (round === 0 && input.source === "text" && calls.length === 1
+          && calls[0].name === "undo_latest_operation" && results[0]?.priorQueryUnverified
+          && Object.keys(calls[0].arguments).length === 1
+          && await this.isUnconditionalLatestUndo(input, state)) {
+          assertPolicy();
+          const retry = this.scopedCalls([{ name: "undo_latest_operation", arguments: {} }], state.id, round + 1);
+          const [result] = await this.executeRegular(input, state, retry);
+          assertProviderActive(input.signal);
+          assertPolicy();
+          state.text = result?.output || "撤销没有完成，请稍后再试。";
+          state.firstTokenMs ??= performance.now() - state.started;
+          input.onText?.(state.text);
+          break;
+        }
         if (!input.voiceBackground && calls.some(call => call.name === "plan_today" && call.arguments.draftTomorrow === true
           && results.some(result => result.callId === call.id && result.success))) nextTool = { name: "propose_task_plan" };
         const advance = calls.find(call => call.name === "list_ideas" && call.arguments.draftAdvance === true);
@@ -569,21 +583,29 @@ export class AgentLoop {
     return true;
   }
 
-  private async verifyVoiceUndo(input: AgentTurnInput, state: TurnState): Promise<boolean> {
-    if (state.voiceUndoAllowed !== undefined) return state.voiceUndoAllowed;
+  private async isUnconditionalLatestUndo(input: AgentTurnInput, state: TurnState): Promise<boolean> {
+    return this.classifyUndo(input, state, "只判断这句话是不是无条件撤销最近一次写入。单说「撤销」或「撤销刚才那个」时填 undo_latest_operation 和 latest。若提到先查询、限定对象、只撤某类记录、删除、取消，或意思不明确，填 ordinary 和 unknown。");
+  }
+
+  private async classifyUndo(input: AgentTurnInput, state: TurnState, instruction: string): Promise<boolean> {
     const tool = voiceJobControlTool([], ["ordinary", "undo_latest_operation"]);
     try {
       const response = await this.callModel(input, state, "fast", [
-        { role: "system", content: "只判断本轮话语是否明确要求撤回已经完成的写入。要求撤销已保存的操作时，填 undo_latest_operation 和 latest。删除记录、停止后台任务、取消未执行的操作或意图不明确时，填 ordinary 和 unknown。" },
+        { role: "system", content: instruction },
         { role: "user", content: input.message }
       ], [tool], false, false, tool.name);
       const [call] = response.toolCalls;
-      state.voiceUndoAllowed = response.toolCalls.length === 1 && call.name === tool.name
+      return response.toolCalls.length === 1 && call.name === tool.name
         && call.arguments.intent === "undo_latest_operation" && call.arguments.target === "latest";
     } catch {
       assertProviderActive(input.signal);
-      state.voiceUndoAllowed = false;
+      return false;
     }
+  }
+
+  private async verifyVoiceUndo(input: AgentTurnInput, state: TurnState): Promise<boolean> {
+    if (state.voiceUndoAllowed !== undefined) return state.voiceUndoAllowed;
+    state.voiceUndoAllowed = await this.classifyUndo(input, state, "只判断本轮话语是否明确要求撤回已经完成的写入。要求撤销已保存的操作时，填 undo_latest_operation 和 latest。删除记录、停止后台任务、取消未执行的操作或意图不明确时，填 ordinary 和 unknown。");
     return state.voiceUndoAllowed;
   }
 

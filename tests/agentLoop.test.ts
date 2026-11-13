@@ -794,13 +794,14 @@ it("keeps a successful query for a requested undo across model rounds", async ()
   expect(requests).toHaveLength(3);
 });
 
-it("leaves the task alone after an unowned query requirement, then accepts an explicit corrected undo call", async () => {
+it("rechecks an unexpected query requirement with the model before retrying a plain undo", async () => {
   const original = await runtime.executeAiToolCall(tool("create_task", { title: "虚构整理盒子" }, "undo-retry-original"), "kimi");
   expect(original.success).toBe(true);
   const plugin = Object.assign(Object.create(Plugin.prototype), { app: store.app, store, settings: store.settings,
     ai: host.aiForRole("main"), lifecycleGeneration: 1, unloaded: false, refreshViews: async () => {} });
   responses.push(
     reply("", [tool("undo_latest_operation", { requirePriorQuery: true }, "unsupported-query-requirement")]),
+    reply("", [tool("choose_voice_job_control", { intent: "ordinary", target: "unknown" })]),
     reply("这次没有执行撤销。")
   );
   const refused = await plugin.submitAgentMessage("请先查记录再撤销刚才那个。", [], { selfTest: true });
@@ -808,12 +809,27 @@ it("leaves the task alone after an unowned query requirement, then accepts an ex
   expect((await store.readTaskDb({ readOnly: true })).tasks).toHaveLength(1);
   responses.push(
     reply("", [tool("undo_latest_operation", { requirePriorQuery: true }, "mistaken-query-requirement")]),
-    reply("", [tool("undo_latest_operation", {}, "corrected-plain-undo")]),
-    reply("已撤销虚构整理盒子。")
+    reply("", [tool("choose_voice_job_control", { intent: "undo_latest_operation", target: "latest" })])
   );
   const corrected = await plugin.submitAgentMessage("撤销刚才那个。", [], { selfTest: true });
   expect(corrected.reply).toContain("已撤销");
+  expect(corrected.reply).toContain("虚构整理盒子");
   expect((await store.readTaskDb({ readOnly: true })).tasks).toEqual([]);
+});
+
+it("keeps the target of an undo when the requested prior query has not run", async () => {
+  const task = await runtime.executeAiToolCall(tool("create_task", { title: "虚构目标任务" }, "targeted-undo-original"), "kimi");
+  expect(task.success).toBe(true);
+  const plugin = Object.assign(Object.create(Plugin.prototype), { app: store.app, store, settings: store.settings,
+    ai: host.aiForRole("main"), lifecycleGeneration: 1, unloaded: false, refreshViews: async () => {} });
+  responses.push(
+    reply("", [tool("undo_latest_operation", { taskTitle: "虚构目标任务", requirePriorQuery: true }, "targeted-undo")]),
+    reply("这次没有执行撤销。")
+  );
+  const result = await plugin.submitAgentMessage("先查记录再撤销虚构目标任务。", [], { selfTest: true });
+  expect(result.reply).toContain("没有执行");
+  expect(requests).toHaveLength(2);
+  expect((await store.readTaskDb({ readOnly: true })).tasks).toHaveLength(1);
 });
 
 describe("voice background AgentLoop", () => {

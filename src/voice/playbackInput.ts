@@ -38,7 +38,7 @@ export async function classifyPlaybackInput(
   return signal.aborted ? undefined : offlinePlaybackDecision(value, previousQuestion);
 }
 
-function offlinePlaybackDecision(text: string, previousQuestion: string): PlaybackDecision {
+export function offlinePlaybackDecision(text: string, previousQuestion: string): PlaybackDecision {
   const value = text.normalize("NFKC").replace(/\s+/gu, "");
   if (/^(?:停一下|先停一下|暂停一下|先别说|别说了|继续说|接着说|撤销|停|暂停)(?=$|[\p{P}]|我(?:想问|要问)|帮我)/u.test(value)) return "accept";
   if (voiceTaskCountFollowup(value, [{ role: "user", content: previousQuestion }, { role: "assistant", content: "" }])) return "accept";
