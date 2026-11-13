@@ -31,6 +31,7 @@ export interface ToolCallResult {
   output: string;
   actions: AgentActionSuggestion[];
   receipt?: AgentWriteReceipt;
+  priorQueryUnverified?: true;
 }
 
 /** Host-only execution controls. A model cannot obtain these from tool arguments. */
@@ -147,7 +148,8 @@ export class AgentRuntime {
         await control.assertPriorQuery();
         control.assertCurrent();
       } catch {
-        return { callId: request.callId, success: false, output: "本轮查询尚未成功核对，未继续撤销；原记录保持不变。", actions: [] };
+        return { callId: request.callId, success: false, output: "本轮查询尚未成功核对，未继续撤销；原记录保持不变。",
+          actions: [], priorQueryUnverified: true };
       }
     }
     if (!tool.execute) {
