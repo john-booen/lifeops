@@ -20,7 +20,7 @@ if (termsFile) {
   terms = readFileSync(external,"utf8").split(/\r?\n/).map(x=>x.trim()).filter(x=>x && !x.startsWith("#"));
 }
 const homePath = new RegExp(["/", "Users", "/", "[a-zA-Z0-9._-]+/"].join(""));
-const secret = /(?:-----BEGIN (?:OPENSSH |RSA |EC )?PRIVATE KEY-----|\bsk-(?:proj-)?[a-zA-Z0-9_-]{24,}\b|\b(?:AKIA|ASIA)[A-Z0-9]{16}\b|\bgh[pousr]_[a-zA-Z0-9]{30,}\b|\bgithub_pat_[a-zA-Z0-9_]{30,}\b)/;
+const secret = /(?:-----BEGIN (?:OPENSSH |RSA |EC )?PRIVATE KEY-----|\bsk-(?:proj-)?[a-zA-Z0-9_-]{20,}\b|\b(?:AKIA|ASIA)[A-Z0-9]{16}\b|\bLTAI[A-Za-z0-9]{16,}\b|\bgh[pousr]_[a-zA-Z0-9]{30,}\b|\bgithub_pat_[a-zA-Z0-9_]{30,}\b)/;
 const forbidden = /^(?:docs\/(?:archive\/|plan\/|PROGRESS\.md|QUESTIONS_FOR_|CLAUDE)|fixtures\/real-provider\/|output\/|dist\/|test-vault\/|node_modules\/|prototypes\/)|(?:^|\/)(?:release\.config\.json|sensitive-terms\.txt|breeze-paths\.json|\.env(?:\.|$)|[^/]+\.(?:pem|key|log))$/i;
 // Only the reviewed fictional images may bypass text scanning.
 const reviewedImages = new Map([
@@ -31,6 +31,12 @@ const reviewedImages = new Map([
   ["tests/fixtures/trade-screenshots/futures-mismatch.png", "edf0858380d1cbd99b285624a6f48cb4abbae0e5a16990ec4a1a10112decb6b9"]
 ]);
 const failures = new Map();
+function scanText(label, source) {
+  if (homePath.test(source)) failures.set(label, "个人绝对路径");
+  else if (secret.test(source)) failures.set(label, "密钥格式");
+  else if (terms.some(term => label.includes(term) || source.includes(term))) failures.set(label, "命中敏感词");
+}
+
 function scan(path, blob) {
   if (forbidden.test(path)) { failures.set(path,"禁止文件"); return; }
   if (blob.includes(0) || /\.png$/i.test(path)) {
@@ -39,14 +45,32 @@ function scan(path, blob) {
     }
     return;
   }
-  const source = blob.toString("utf8");
-  if (homePath.test(source)) failures.set(path, "个人绝对路径");
-  else if (secret.test(source)) failures.set(path, "密钥格式");
-  else if (terms.some(term => path.includes(term) || source.includes(term))) failures.set(path, "命中敏感词");
+  scanText(path, blob.toString("utf8"));
 }
 if (mode === "--history") {
+  if (git("rev-parse", "--is-shallow-repository").toString("utf8").trim() === "true") {
+    throw Error("历史检查需要完整 Git 历史");
+  }
+  const scanned = new Map();
   for (const revision of git("rev-list", "--all").toString("utf8").trim().split("\n").filter(Boolean)) {
-    for (const path of paths("ls-tree", "-r", "--name-only", "-z", revision)) scan(path, git("show", revision + ":" + path));
+    const metadata = git("show", "-s", "--no-notes", "--format=format:%an%n%ae%n%cn%n%ce%n%B", revision);
+    scanText("commit " + revision, metadata.toString("utf8"));
+    for (const entry of paths("ls-tree", "-r", "-z", revision)) {
+      const separator = entry.indexOf("\t");
+      const [, , hash] = entry.slice(0, separator).split(" ");
+      const path = entry.slice(separator + 1);
+      if (scanned.get(path)?.has(hash)) continue;
+      const hashes = scanned.get(path) ?? new Set();
+      hashes.add(hash);
+      scanned.set(path, hashes);
+      scan(path, git("cat-file", "blob", hash));
+    }
+  }
+  const tags = git("for-each-ref", "--format=%(objecttype) %(objectname) %(refname)", "refs/tags").toString("utf8").trim();
+  for (const ref of tags.split("\n").filter(Boolean)) {
+    const [kind, hash, name] = ref.split(" ");
+    const details = kind === "tag" ? git("cat-file", "tag", hash).toString("utf8") : "";
+    scanText("tag " + hash, name + "\n" + details);
   }
 } else {
   const selected = mode === "--staged" ? paths("diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z") : paths("ls-files", "-z");

@@ -51,3 +51,50 @@ it("checks reviewed image bytes in the working tree, index and history", async (
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it("checks commit metadata and annotated tags only from a complete history", async () => {
+  const root = await mkdtemp(join(tmpdir(), "lifeops-public-history-"));
+  const script = "scripts/verify-public-boundary.mjs";
+  const repo = join(root, "repo");
+  const shallow = join(root, "shallow");
+  const terms = join(root, "synthetic-terms.txt");
+  const privatePhrase = "fictional phrase only in commit metadata";
+  const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, stdio: "pipe" });
+  const scan = (cwd: string) => spawnSync(process.execPath, [join(cwd, script), "--history"], {
+    encoding: "utf8",
+    env: { ...process.env, LIFEOPS_SENSITIVE_TERMS_FILE: terms }
+  });
+
+  try {
+    await mkdir(join(repo, dirname(script)), { recursive: true });
+    await copyFile(resolve(script), join(repo, script));
+    await writeFile(terms, privatePhrase + "\n");
+    git(repo, "init", "--quiet");
+    git(repo, "config", "core.hooksPath", "/dev/null");
+    git(repo, "config", "user.name", "Fictional Fixture");
+    git(repo, "config", "user.email", "fixture@example.invalid");
+    git(repo, "config", "commit.gpgsign", "false");
+    git(repo, "add", "--", script);
+    git(repo, "commit", "--quiet", "-m", "Clean commit");
+    git(repo, "tag", "-a", "clean-tag", "-m", "Clean release note");
+    expect(scan(repo).status).toBe(0);
+
+    const fakeKey = ["ghp", "Q".repeat(36)].join("_");
+    git(repo, "tag", "-a", "sample-tag", "-m", fakeKey);
+    const tagged = scan(repo);
+    expect(tagged).toMatchObject({ status: 1, stderr: expect.stringMatching(/密钥格式: tag [a-f0-9]+/u) });
+    expect(tagged.stderr).not.toContain(fakeKey);
+    git(repo, "tag", "-d", "sample-tag");
+
+    git(repo, "commit", "--quiet", "--allow-empty", "-m", privatePhrase);
+    git(repo, "commit", "--quiet", "--allow-empty", "-m", "Clean tip");
+    const history = scan(repo);
+    expect(history).toMatchObject({ status: 1, stderr: expect.stringMatching(/命中敏感词: commit [a-f0-9]+/u) });
+    expect(history.stderr).not.toContain(privatePhrase);
+
+    git(root, "clone", "--quiet", "--depth=1", "--no-tags", "file://" + repo, shallow);
+    expect(scan(shallow)).toMatchObject({ status: 1, stderr: expect.stringContaining("历史检查需要完整 Git 历史") });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
