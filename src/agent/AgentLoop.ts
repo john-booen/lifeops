@@ -263,7 +263,9 @@ export class AgentLoop {
           } else if (round === 0 && fastVoice && call.name === "get_stats") reply = formatVoiceStats(single.output, call.arguments);
           else if (round === 0 && fastVoice && call.name === "plan_today") reply = formatVoiceTaskPriorities(single.output, call.arguments);
           else if (round === 0 && call.name === "list_tasks" && call.arguments.category === undefined
-            && (call.arguments.directReply === true || call.arguments.order === "priority" && Number.isInteger(call.arguments.limit))) {
+            && call.arguments.directReply !== false
+            && (call.arguments.directReply === true || call.arguments.dueStatus === "overdue_and_today"
+              || call.arguments.order === "priority" && Number.isInteger(call.arguments.limit))) {
             reply = formatTaskListReply(single.output, formatDate(input.now));
           } else if (input.source === "text" && single.actions.length === 1
             && (requiredTool === "propose_task_plan" || call.name === "delete_habit" || call.name === "delete_task")) {
@@ -386,7 +388,7 @@ export class AgentLoop {
       }
     }
     if (tools.some(tool => tool.name === "list_tasks")) {
-      guidance.push("要求把已逾期和今天到期的未完成任务分开时，用一个 list_tasks 调用，填 dueStatus=overdue_and_today。只需分组清单时再填 directReply=true。只问未完成总数和最要紧的 N 项时，用一个 list_tasks 调用：order=priority、limit=N、directReply=true，不用 plan_today。");
+      guidance.push("要求把逾期和今天到期的未完成任务分开时，用 list_tasks 的 dueStatus=overdue_and_today。如另要建议，设 directReply=false。问今天还剩几项和最要紧的 N 项（含今晚未完成提醒）时，用 list_tasks 的 order=priority、limit=N、directReply=true，省略 dueStatus，不用 plan_today。只问今天该先做什么、想知道排序理由或精力影响，用 plan_today，不用 list_tasks。");
     }
     if (tools.some(tool => tool.name === "get_stats")) {
       guidance.push("评价或批评这周表现，先用 get_stats(domain=habits,range=this_week) 查达标次数和漏做日期。");

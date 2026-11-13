@@ -24,15 +24,15 @@ async function planningInputs(context: ToolExecutionContext) {
 export const TASK_PLANNING_TOOLS: LifeOpsToolDefinition[] = [
   {
     name: "list_tasks",
-    description: "查未完成任务。到期分组填 dueStatus。查重点填 order、limit 和 directReply。查补偿填 category。",
+    description: "查未完成任务。只有明确要求按截止状态分组才填 dueStatus。问今天还剩几项或最要紧事项时省略 dueStatus。",
     safety: "safe",
     parameters: { type: "object", additionalProperties: false, properties: {
       date: { type: "string", description: "日期，省略为今天。" },
       status: { type: "string", enum: ["active", "completed", "all"] },
       category: { type: "string", enum: ["punishment"], description: "查补偿待办时可不限定日期。" },
       habitName: { type: "string", description: "只查这一项习惯的补偿时填写习惯名称。" },
-      dueStatus: { type: "string", enum: ["overdue_and_today"], description: "把未完成的已逾期任务和今天明确到期的任务分开列出。" },
-      directReply: { type: "boolean", description: "只需要清单或简短提醒时为 true；需要详细建议或后续动作时省略。" },
+      dueStatus: { type: "string", enum: ["overdue_and_today"], description: "仅用于明确要求分别列出逾期和今日到期。" },
+      directReply: { type: "boolean", description: "只需要清单或简短提醒时为 true；需要详细建议或后续动作时设为 false。" },
       order: { type: "string", enum: ["priority"], description: "用户问最要紧的待办时按优先级排序。" },
       limit: { type: "integer", minimum: 1, maximum: 30, description: "列出几项就填几，不改变返回的总数。" }
     } },

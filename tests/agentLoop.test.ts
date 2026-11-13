@@ -392,7 +392,7 @@ describe("unified agent loop", () => {
     await store.createTask({ title: "虚构明日到期", date, dueDate: tomorrow });
     const finished = await store.createTask({ title: "虚构逾期已完成", date: yesterday, dueDate: yesterday });
     await store.completeTask(finished.id);
-    responses.push(reply("", [tool("list_tasks", { date, dueStatus: "overdue_and_today", directReply: true })]));
+    responses.push(reply("", [tool("list_tasks", { date, dueStatus: "overdue_and_today" })]));
     const result = await new AgentLoop(host).run(input({
       message: "我今天还有什么任务没完成？请把已逾期的和今天到期的分开列出来。"
     }));
