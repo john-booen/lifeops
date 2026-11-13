@@ -59,5 +59,5 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const result = await preparePluginPackage(prepareOptions(process.argv.slice(2)));
   console.log(`Prepared verified local plugin package: ${result.packageDir}`);
   console.log(`Packaged runtime/checksum files: ${result.files}; bytes: ${result.bytes}`);
-  console.log("This is a local preparation artifact, not a signed or released 0.2 package.");
+  console.log("Local package prepared. Nothing was published.");
 }
