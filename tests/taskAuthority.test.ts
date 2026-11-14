@@ -30,6 +30,19 @@ describe('task JSON authority using actual files',()=>{
  it('never repairs an absent mirror as a side effect of ordinary or readOnly reads',async()=>{await vault.seed(store.taskDbPath(),JSON.stringify({tasks:[task()]}));await store.readTaskDb();await store.readTaskDb({readOnly:true});expect(vault.writes).toEqual([]);});
  it('creates a task without losing existing fields, root extensions or multiline notes',async()=>{await seed();const created=await store.createTask({title:'新任务',date:'2026-09-09',parentTaskId:'parent',sourceNotePath:'日记/new.md',note:'第一行\n第二行'});const db=await saved();expect(db.tasks.find((t:LifeOpsTask)=>t.id==='child')).toEqual(task());expect(db.tasks.find((t:LifeOpsTask)=>t.id===created.id)).toEqual(created);expect(db.extraRoot).toEqual({keep:true});expect(created.id).not.toBe('child');expect(await vault.bytes(store.taskMirrorPath())).toContain('请保留这里的内容');});
  it('completes a task without dropping its metadata or full completion history',async()=>{await seed();await store.completeTask('child','新完成说明');const got=(await saved()).tasks[0];expect(got.parentTaskId).toBe('parent');expect(got.createdAt).toBe(task().createdAt);expect(got.sourceNotePath).toBe('日记/source.md');expect(got.completionLog).toHaveLength(2);expect(got.completionLog[0]).toEqual(task().completionLog[0]);expect(got.completionLog[1].note).toBe('新完成说明');expect(got.status).toBe('completed');});
+ it("saves compact task snapshots while reading the prior indented format", async () => {
+  const original = { ...task(), futureData: { checks: ["虚构标记"] } };
+  await seed([original]);
+  const originalBoard = await vault.bytes(store.taskMirrorPath());
+  await store.updateTaskDetails("child", { title: "核对原有资料" });
+  const raw = await vault.bytes(store.taskDbPath());
+  const updated = await store.readTaskDb({ readOnly: true });
+  expect(raw.trimEnd().split("\n")).toHaveLength(1);
+  expect(updated.tasks[0]).toEqual({ ...original, title: "核对原有资料", updatedAt: expect.any(String) });
+  expect((await saved()).extraRoot).toEqual({ keep: true });
+  expect(await vault.bytes(store.taskMirrorPath())).toContain("请保留这里的内容");
+  expect(originalBoard).toContain("请保留这里的内容");
+ });
  it('preserves unknown task members across an ordinary edit',async()=>{const item={...task(),futureData:{keep:[1,2]}};await seed([item]);await store.updateTaskDetails('child',{title:'新标题'});expect((await saved()).tasks[0].futureData).toEqual({keep:[1,2]});expect((await saved()).extraRoot).toEqual({keep:true});});
  it('rejects a changed mirror without overwriting either copy',async()=>{await seed();await vault.seed(store.taskMirrorPath(),board([task({title:'后来在文章里修改'})]));const before=await saved();const oldBoard=await vault.bytes(store.taskMirrorPath());await expect(store.postponeTask('child',1)).rejects.toThrow();expect(await saved()).toEqual(before);expect(await vault.bytes(store.taskMirrorPath())).toBe(oldBoard);expect(vault.writes).toEqual([]);});
  it('rejects duplicate task IDs before a mutation',async()=>{await seed([task(),task({title:'同 ID 第二个任务'})]);await expect(store.createTask({title:'新任务'})).rejects.toThrow();expect(vault.writes).toEqual([]);});

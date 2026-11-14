@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { defaultTaskBoard, formatVaultTaskBlock, parseVaultTasks } from "../vaultApi";
 import type { LifeOpsTask } from "../types";
 import type { StoreHost, TaskDatabase } from "../store/settingsSlice";
-import { jsonDataContract, parseJsonData } from "./jsonDataGuard";
+import { jsonDataContract, parseJsonData, serializeJsonData } from "./jsonDataGuard";
 import { validateTaskSchedule } from "../taskSchedule";
 import { isLearningTrackId } from "../features/learning/model";
 
@@ -173,7 +173,7 @@ export function planTaskDatabaseWrite(store: StoreHost, database: TaskDatabase, 
   if (!before.taskMirror) assertTaskMirrorMatches(snapshot.mirror,before.tasks);
   const mirror = renderTaskMirror(database.tasks,snapshot.mirror,restoreMirrorExtrasFrom);
   const revision: TaskMirrorRevision = {version:1,sha256:digest(mirror)};
-  const json = `${JSON.stringify({...database,taskMirror:revision},null,2)}\n`;
+  const json = serializeJsonData({ ...database, taskMirror: revision }, { compact: true });
   parseJsonData(json,store.taskDbPath(),contract);
   return { snapshot, json, mirror, revision };
 }
