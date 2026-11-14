@@ -288,10 +288,16 @@ export class AgentLoop {
         const usesEvidence = state.toolCalls.some(tool => tool.ok && ANALYSIS_INPUT_TOOLS.has(tool.name));
         const responseRole = role === "fast" && input.source === "text" && (requiredTool || usesEvidence) ? "main" : role;
         const availableTools = final ? [] : requiredTool === "propose_task_plan" ? tools.filter(tool => tool.name === requiredTool) : palette;
-        const response = await this.callModel(input, state, responseRole, messages, availableTools, final, requiredTool !== "propose_task_plan", requiredTool);
+        let response = await this.callModel(input, state, responseRole, messages, availableTools, final, requiredTool !== "propose_task_plan", requiredTool);
         assertPolicy();
+        const missingRequiredCall = () => response.toolCalls.length !== 1 || response.toolCalls[0].name !== requiredTool;
+        if (required?.name === "propose_task_plan" && !required.retry && missingRequiredCall()) {
+          response = await this.callModel(input, state, responseRole, messages, availableTools, false, false, requiredTool);
+          assertPolicy();
+          required.retry = true;
+        }
         state.text = response.content;
-        if (requiredTool && (response.toolCalls.length !== 1 || response.toolCalls[0].name !== requiredTool)) {
+        if (requiredTool && missingRequiredCall()) {
           state.text = requiredTool === "advance_idea" ? "想法推进还没生成确认卡，请再试一次。" : "明日安排还没生成确认卡，请再试一次。";
           break;
         }

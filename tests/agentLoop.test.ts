@@ -736,6 +736,24 @@ describe("unified agent loop", () => {
     expect(await store.readTaskDb()).toEqual(before);
   });
 
+  it("retries the required plan call when the model returns an unrelated read", async () => {
+    const date = addDays(todayString(), 1);
+    const prepare = vi.fn(async () => ({ id: "retry-tomorrow", type: "task_plan" as const, title: "确认安排",
+      description: "点确认后保存", content: "虚构草案", date, taskPlanToken: "preview-token" }));
+    runtime = new AgentRuntime({ store, refreshViews: async () => {}, prepareTaskPlan: prepare });
+    responses.push(reply("", [tool("plan_today", { draftTomorrow: true }), tool("list_tasks", { status: "active" }, "other-reading")]),
+      reply("已准备好", [tool("list_tasks", { status: "active" })]),
+      reply("", [tool("propose_task_plan", { tasks: [{ title: "准备虚构材料", date }] })]));
+    const onText = vi.fn();
+    const result = await new AgentLoop(host).run(input({ message: "给我安排一下明天", onText }));
+    expect(catalogs.slice(1)).toEqual([["propose_task_plan"], ["propose_task_plan"]]);
+    expect(result.toolCalls.filter(call => call.name === "list_tasks")).toHaveLength(1);
+    expect(result.confirmations).toMatchObject([{ type: "task_plan", date }]);
+    expect(onText).not.toHaveBeenCalledWith("已准备好");
+    expect(prepare).toHaveBeenCalledOnce();
+    expect((await store.readTaskDb()).tasks).toEqual([]);
+  });
+
   it("repairs a rejected tomorrow draft before showing the real confirmation", async () => {
     const date = addDays(todayString(), 1);
     const prepare = vi.fn(async (tasks) => {
