@@ -63,22 +63,24 @@ describe("context injection", () => {
     expect(block).toContain("这些分类均包含在未完成总数内，可能重叠，不能相加或当成额外任务");
   });
 
-  it("includes recent completion only from task state with a valid completion time", async () => {
+  it("includes recent completion only from task state with a valid date or timestamp", async () => {
     const now = new Date(2026, 8, 16, 10);
     const store = contextStore([
       { id: "ok", title: "确已完成", status: "completed", completedAt: new Date(2026, 8, 16, 1).toISOString() },
+      { id: "dated", title: "虚构补记完成", status: "completed", completedAt: "2026-09-15" },
       { id: "words", title: "已经完成了", status: "active", completedAt: now.toISOString() },
       { id: "missing", title: "缺时间", status: "completed", updatedAt: now.toISOString() },
       { id: "future", title: "未来时间", status: "completed", completedAt: new Date(2026, 8, 17, 1).toISOString() },
       { id: "old", title: "旧完成记录", status: "completed", completedAt: new Date(2026, 7, 1, 1).toISOString() }
     ]);
     const context = await buildInjectedContext(store, now);
-    expect(context.recentContext.recentCompletedTasks).toEqual(["确已完成"]);
+    expect(context.recentContext.recentCompletedTasks).toEqual(["确已完成", "虚构补记完成"]);
     const block = formatContextForInstructions(context);
-    expect(block).toContain("近7个本地日有完成时间的任务");
+    expect(block).toContain("近7个本地日有完成日期的任务");
     expect(block).toContain("task:ok");
     expect(block).toContain("2026-09-16");
-    expect(block).toContain("完成时间缺失或无效");
+    expect(block).toContain("虚构补记完成 [task:dated]；完成日期=2026-09-15");
+    expect(block).toContain("完成日期缺失或无效");
     expect(block).not.toContain("缺时间；");
   });
 
