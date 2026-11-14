@@ -21,6 +21,7 @@ const { projectHealthHabitProgress } = await import("../src/features/health/habi
 const { readScreenshotImage } = await import("../src/features/screenshots/image");
 const { recognizeHealthScreenshot } = await import("../src/features/health/screenshot");
 const { getTodayCard } = await import("../src/features/today/service");
+const { automaticHabitDayDisplay } = await import("../src/features/habits/targets");
 const { readHabitContextWithEvidence } = await import("../src/store/agentSlice");
 const { addDays, startOfWeek } = await import("../src/date");
 
@@ -111,7 +112,18 @@ it("does not turn gaps in a device habit into failures or count a below-goal rea
   expect(earlier.weeklyFailures[habit.name]).toBe(2);
   expect(earlier.weeklyFailures[manuallyTracked.name]).toBe(3);
   const today = await store.getTaskDashboard(date);
-  expect(today.habits.find(row => row.habit.id === habit.id)).toMatchObject({ streak: 1, status: "done" });
+  const history = today.habits.find(row => row.habit.id === habit.id);
+  expect(history).toMatchObject({ streak: 1, status: "done" });
+  expect(automaticHabitDayDisplay(habit, history?.history.find(row => row.date === previous)))
+    .toEqual({ status: "pending", label: "1.2/3 公里" });
+  expect(automaticHabitDayDisplay(habit)).toEqual({ status: "pending", label: "未记录" });
+  const stats = await readStats(store, { domain: "habits", range: { from: start, to: addDays(start, 2) } }, new Date());
+  const results = JSON.parse(stats.output).habits;
+  expect(results.find((item: { id: string }) => item.id === habit.id)).toMatchObject({ completionPercent: 0,
+    coverage: { recordedDays: 2, unrecordedDays: 1 },
+    goals: [{ period: "day", periods: 2, unknownPeriods: 1, missedDates: [start, addDays(start, 1)] }] });
+  expect(results.find((item: { id: string }) => item.id === manuallyTracked.id)).toMatchObject({ completionPercent: 0,
+    goals: [{ period: "day", periods: 3, missedDates: [start, addDays(start, 1), addDays(start, 2)] }] });
 });
 
 it("keeps field-looking lines entered as free text out of numerical records", async () => {

@@ -5,6 +5,7 @@ import { habitMeasurementUnit, habitRecordedAmount, isHabitRequiredOn, numericHa
 import type { Trade } from "../trading/types";
 import type { IdeaNote } from "../ideas/notes";
 import { healthStats, type HealthDay } from "../health/model";
+import { isHealthHabitSource } from "../health/habitSources";
 import type { LearningTrack } from "../learning/model";
 import { tradeStats, type TradeStatGroup, type TradeStatsSettings } from "./trades";
 
@@ -183,7 +184,13 @@ function taskStats(tasks: readonly LifeOpsTask[], range: DayRange, now: Date, gr
 
 function habitTotals(habit: HabitDefinition, checkins: NonNullable<StatsData["checkins"]>, days: string[], dailyGroup = false) {
   const required = days.filter(date => isHabitRequiredOn(habit, date));
-  const targetPeriods = habit.frequencyUnit === "week" ? new Set(required.map(startOfWeek)).size : required.length;
+  const deviceBased = isHealthHabitSource(habit.source);
+  const recordsByDate = new Map(checkins.map(entry => [entry.date, entry]));
+  const recordedRequired = deviceBased ? required.filter(date => {
+    const record = recordsByDate.get(date);
+    return record && record.status !== "leave";
+  }) : required;
+  const targetPeriods = habit.frequencyUnit === "week" ? new Set(recordedRequired.map(startOfWeek)).size : recordedRequired.length;
   const targetCount = dailyGroup && habit.frequencyUnit === "week" ? null : targetPeriods * habit.targetCount;
   const selected = new Set(days);
   const done = checkins.filter(item => item.status === "done" && selected.has(item.date));
@@ -199,7 +206,9 @@ function habitTotals(habit: HabitDefinition, checkins: NonNullable<StatsData["ch
   }
   const measures = [...byUnit].map(([unit, values]) => ({ unit: unit ?? null,
     total: round(values.reduce((sum, value) => sum + value, 0)), average: mean(values) }));
+  const coverage = deviceBased ? { recordedDays: recordedRequired.length, unrecordedDays: required.filter(date => !recordsByDate.has(date)).length } : undefined;
   const totals = { doneCount, targetCount, completionPercent: percent(doneCount, targetCount ?? 0),
+    ...(coverage ? { coverage } : {}),
     valueTotal: measures.length === 1 ? measures[0].total : null, valueAverage: measures.length === 1 ? measures[0].average : null,
     ...(measures.length > 1 ? { valuesByUnit: measures } : measures[0]?.unit ? { valueUnit: measures[0].unit } : {}) };
   if (habit.target?.kind !== "number") return totals;

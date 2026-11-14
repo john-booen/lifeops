@@ -4,8 +4,7 @@ import { BailianRealtimeClient } from "../bailianRealtime";
 import { BailianRealtimeTtsClient } from "../bailianTtsRealtime";
 import type { AiToolCall } from "../ai";
 import { addDays, formatLocalTime, todayString, weekDates } from "../date";
-import { isHabitRequiredOn as isHabitRequiredOnDate, numericHabitWindow } from "../features/habits/targets";
-import { tradeHabitDayDisplay } from "../features/habits/tradeProgress";
+import { automaticHabitDayDisplay, isHabitRequiredOn as isHabitRequiredOnDate, numericHabitWindow } from "../features/habits/targets";
 import { compensationDueLabel, formatCompensationMoney, summarizeCompensationDebt } from "../features/habits/compensationDebt";
 import { taskDayInterval, taskScheduleLabel, taskTimeGroup, taskTimelineStart, type TaskTimeGroup } from "../taskSchedule";
 import {
@@ -1205,10 +1204,10 @@ const statusBarPanel = {
       for (let index = 0; index < 84; index += 1) {
         const date = addDays(start, index);
         const checkin = history.get(date);
-        const trade = tradeHabitDayDisplay(item.habit, checkin);
+        const display = automaticHabitDayDisplay(item.habit, checkin);
         const cell = heatmap.createDiv({
-          cls: `lifeops-heat-cell ${checkin ? `status-${trade?.status ?? checkin.status}` : ""}`,
-          attr: { title: `${date} ${trade?.label ?? (checkin ? habitStatusLabel(checkin.status) : "未打卡")}` }
+          cls: `lifeops-heat-cell ${checkin ? `status-${display?.status ?? checkin.status}` : ""}`,
+          attr: { title: `${date} ${display?.label ?? (checkin ? habitStatusLabel(checkin.status) : "未打卡")}` }
         });
         cell.style.setProperty("--habit-color", item.habit.color);
       }
@@ -1232,7 +1231,7 @@ const statusBarPanel = {
       stats.createDiv({ text: `${item.periodLabel} ${item.periodDone}/${item.periodTarget} ${item.periodUnit ?? "次"}` });
       stats.createDiv({ text: `7天 ${sevenDays.done}/${sevenDays.required}` });
       stats.createDiv({ text: `30天 ${thirtyDays.done}/${thirtyDays.required}` });
-      stats.createDiv({ text: `完成率 ${thirtyDays.rate}%` });
+      stats.createDiv({ text: thirtyDays.rate === null ? "完成率 暂无数据" : `完成率 ${thirtyDays.rate}%` });
       if (item.habit.target?.kind === "number") {
         detail.createDiv({ text: "数值习惯按已达标的日或周统计。", cls: "lifeops-muted" });
       } else if (item.habit.frequencyUnit === "week") {
@@ -1247,15 +1246,15 @@ const statusBarPanel = {
       for (const date of lastDates(14)) {
         const checkin = item.history.find((entry) => entry.date === date);
         const required = isHabitRequiredOnDate(item.habit, date);
-        const trade = tradeHabitDayDisplay(item.habit, checkin);
+        const display = automaticHabitDayDisplay(item.habit, checkin);
         trend.createDiv({
           text: dayNumber(date),
           cls: [
             "lifeops-habit-trend-cell",
-            checkin ? `status-${trade?.status ?? checkin.status}` : "",
+            checkin ? `status-${display?.status ?? checkin.status}` : "",
             required ? "is-required" : "is-optional"
           ].filter(Boolean).join(" "),
-          attr: { title: `${date} ${trade?.label ?? (checkin ? habitStatusLabel(checkin.status) : required ? "未打卡" : "非必需")}` }
+          attr: { title: `${date} ${display?.label ?? (checkin ? habitStatusLabel(checkin.status) : required ? "未打卡" : "非必需")}` }
         });
       }
 
@@ -1277,9 +1276,10 @@ const statusBarPanel = {
       }
       dates.createDiv({ text: "最近记录", cls: "lifeops-habit-date-title" });
       for (const checkin of recent) {
+        const display = automaticHabitDayDisplay(item.habit, checkin);
         dates.createSpan({
-          text: `${checkin.date} ${habitStatusLabel(checkin.status)}${checkin.count > 1 ? ` x${checkin.count}` : ""}`,
-          cls: `lifeops-habit-date-pill status-${checkin.status}`
+          text: `${checkin.date} ${display?.label ?? (habitStatusLabel(checkin.status) + (checkin.count > 1 ? ` x${checkin.count}` : ""))}`,
+          cls: `lifeops-habit-date-pill status-${display?.status ?? checkin.status}`
         });
       }
     },
@@ -1821,7 +1821,7 @@ function habitRequirementLabel(item: TaskDashboardData["habits"][number]): strin
   return item.requiredToday ? "今日应打卡" : "今日非必需";
 }
 
-function habitWindowStats(item: TaskDashboardData["habits"][number], days: number): { required: number; done: number; rate: number } {
+function habitWindowStats(item: TaskDashboardData["habits"][number], days: number): { required: number; done: number; rate: number | null } {
   const dates = lastDates(days);
   if (item.habit.target?.kind === "number") {
     return numericHabitWindow(item.habit, item.history, dates.filter(date => isHabitRequiredOnDate(item.habit, date)), dates);

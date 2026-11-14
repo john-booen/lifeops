@@ -1,7 +1,7 @@
 import { Notice } from "obsidian";
 import type LifeOpsPlugin from "../../main";
 import { HabitCheckinModal, HabitDetailModal, HabitModal } from "../../modals";
-import { isHealthHabitSource } from "../health/habits";
+import { isHealthHabitSource } from "../health/habitSources";
 import { addDays, formatDate } from "../../date";
 import { assertRecordRevision, recordRevision } from "../../operationIdentity";
 import { isVaultPathExcluded } from "../../privacy";

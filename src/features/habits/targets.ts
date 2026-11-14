@@ -1,4 +1,5 @@
 import { startOfWeek } from "../../date";
+import { isHealthHabitSource } from "../health/habitSources";
 import type { HabitCheckin, HabitDefinition, HabitPunishment, HabitTarget, PunishmentRule } from "../../types";
 
 export const EXERCISE_SINGLE_CAP = { 公里: 3, 分钟: 30 };
@@ -88,19 +89,39 @@ export function habitRecordedAmount(habit: HabitDefinition, checkin: HabitChecki
   return Math.max(1, checkin.count || 1);
 }
 
+export function automaticHabitDayDisplay(habit: HabitDefinition, checkin?: HabitCheckin): { status: "done" | "pending"; label: string } | undefined {
+  const fromDevice = isHealthHabitSource(habit.source);
+  if (!fromDevice && habit.source !== "trades") return undefined;
+  if (!checkin && fromDevice) return { status: "pending", label: "未记录" };
+  if (checkin?.status !== "done" || habit.target?.kind !== "number") return undefined;
+  const { perDay, unit } = habit.target;
+  if (!fromDevice && !perDay) return undefined;
+  const amount = habitRecordedAmount(habit, checkin);
+  return {
+    status: perDay && amount < perDay ? "pending" : "done",
+    label: `${amount}${perDay ? "/" + perDay : ""} ${unit}`
+  };
+}
+
 export function numericHabitGoalProgress(
   habit: HabitDefinition, checkins: readonly HabitCheckin[], required: string[], days: string[], includeWeek = true
 ) {
   const entries = new Map(checkins.filter(item => item.habitId === habit.id && item.date >= habit.startDate).map(item => [item.date, item]));
+  const deviceBased = isHealthHabitSource(habit.source);
   return numericHabitPeriods(habit).filter(goal => includeWeek || goal.period === "day").map(({ period, goal }) => {
     const keyFor = period === "week" ? startOfWeek : (date: string) => date;
-    const progress = new Map(required.filter(date => entries.get(date)?.status !== "leave").map(date => [keyFor(date), 0]));
+    const scheduled = required.filter(date => entries.get(date)?.status !== "leave");
+    const progress = new Map(scheduled.map(date => [keyFor(date), 0]));
+    const unrecorded = new Set(deviceBased ? scheduled.filter(date => !entries.has(date)).map(keyFor) : []);
     for (const date of period === "week" ? days : required) {
       const key = keyFor(date), existing = progress.get(key);
       if (existing !== undefined) progress.set(key, existing + habitRecordedAmount(habit, entries.get(date)));
     }
     const met = [...progress.values()].filter(amount => amount >= goal).length;
-    return { period, goal, met, periods: progress.size, missedDates: [...progress].filter(([, amount]) => amount < goal).map(([date]) => date) };
+    const missedDates = [...progress].filter(([date, amount]) => amount < goal && !unrecorded.has(date)).map(([date]) => date);
+    const unknownPeriods = progress.size - met - missedDates.length;
+    return { period, goal, met, periods: progress.size - unknownPeriods, missedDates,
+      ...(unknownPeriods ? { unknownPeriods } : {}) };
   });
 }
 
@@ -108,5 +129,6 @@ export function numericHabitWindow(habit: HabitDefinition, checkins: readonly Ha
   const goals = numericHabitGoalProgress(habit, checkins, requiredDays, days);
   const required = goals.reduce((sum, goal) => sum + goal.periods, 0);
   const done = goals.reduce((sum, goal) => sum + goal.met, 0);
-  return { required, done, rate: required ? Math.round(done / required * 100) : 100 };
+  const unknown = goals.reduce((sum, goal) => sum + (goal.unknownPeriods ?? 0), 0);
+  return { required, done, rate: required ? Math.round(done / required * 100) : unknown ? null : 100 };
 }

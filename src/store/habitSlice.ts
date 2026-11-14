@@ -7,7 +7,8 @@ import { advanceCompensationDebt } from "../features/habits/compensationDebt";
 import { assertTradeHabitSource, automaticHabitProgress } from "../features/habits/tradeProgress";
 import { habitMeasurementUnit, habitRecordedAmount, numericHabitPeriods, validateHabitPunishment, validateHabitTarget } from "../features/habits/targets";
 import { isVaultPathExcluded } from "../privacy";
-import { assertHealthHabitTarget, isHealthHabitSource } from "../features/health/habits";
+import { assertHealthHabitTarget } from "../features/health/habits";
+import { isHealthHabitSource } from "../features/health/habitSources";
 import { buildTaskFromInput } from "../vaultApi";
 import type {
   HabitCheckin,

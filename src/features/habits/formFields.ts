@@ -1,6 +1,6 @@
 import { Setting } from "obsidian";
 import type { HabitCompensationSettings, HabitInput, PunishmentRule } from "../../types";
-import { HEALTH_HABIT_SOURCES, isHealthHabitSource } from "../health/habits";
+import { HEALTH_HABIT_SOURCES, isHealthHabitSource } from "../health/habitSources";
 import { DEFAULT_REFLECTION_INCREASE, exerciseLimitMultiplier, exerciseOverflowRate } from "./compensationDebt";
 
 function numberField(parent: HTMLElement, label: string, value: number | undefined, update: (value: number | undefined) => void): void {

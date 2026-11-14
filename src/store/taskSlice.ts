@@ -13,7 +13,7 @@ import {
 } from "./settingsSlice";
 import { bindDashboardContextData, contextDataPolicy, readContextHabits, readContextTasks } from "../contextData";
 import { automaticHabitProgress } from "../features/habits/tradeProgress";
-import { isHealthHabitSource } from "../features/health/habits";
+import { isHealthHabitSource } from "../features/health/habitSources";
 import { advanceCompensationDebt } from "../features/habits/compensationDebt";
 import { isVaultPathExcluded } from "../privacy";
 

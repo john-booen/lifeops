@@ -1,8 +1,7 @@
 import { TASK_CATEGORIES } from "./features/tasks/capacity";
 import { isLearningTrackId, LEARNING_TRACKS } from "./features/learning/model";
 import { renderHabitPunishmentFields, renderHabitTargetFields } from "./features/habits/formFields";
-import { isHabitRequiredOn as isHabitRequiredOnDate, numericHabitPeriods, numericHabitWindow } from "./features/habits/targets";
-import { tradeHabitDayDisplay } from "./features/habits/tradeProgress";
+import { automaticHabitDayDisplay, isHabitRequiredOn as isHabitRequiredOnDate, numericHabitPeriods, numericHabitWindow } from "./features/habits/targets";
 import { Modal, Notice, Setting } from "obsidian";
 import { addDays, endOfWeek, todayString, weekDates } from "./date";
 import { taskScheduleLabel, validateTaskSchedule } from "./taskSchedule";
@@ -997,6 +996,7 @@ export class HabitDetailModal extends Modal {
       contentEl.createEl("p", { text: "交易记录暂不可用，进度未知。" });
       return;
     }
+    if (this.item.healthCoveragePartial) contentEl.createEl("p", { text: "只统计可读的健康记录", cls: "lifeops-muted" });
 
     const hero = contentEl.createDiv({ cls: `lifeops-habit-modal-hero status-${this.item.status}` });
     const heroCopy = hero.createDiv();
@@ -1014,7 +1014,7 @@ export class HabitDetailModal extends Modal {
     this.statItem(stats, "本周未完成", `${this.item.weeklyFailures} 次`);
     this.statItem(stats, "7天完成", `${sevenDays.done}/${sevenDays.required}`);
     this.statItem(stats, "30天完成", `${thirtyDays.done}/${thirtyDays.required}`);
-    this.statItem(stats, "30天完成率", `${thirtyDays.rate}%`);
+    this.statItem(stats, "30天完成率", thirtyDays.rate === null ? "暂无数据" : `${thirtyDays.rate}%`);
 
     contentEl.createEl("h3", { text: "规则" });
     const rules = contentEl.createDiv({ cls: "lifeops-modal-detail-grid" });
@@ -1034,15 +1034,15 @@ export class HabitDetailModal extends Modal {
     for (const date of lastDates(30)) {
       const checkin = this.item.history.find((entry) => entry.date === date);
       const required = isHabitRequiredOnDate(habit, date);
-      const trade = tradeHabitDayDisplay(habit, checkin);
+      const display = automaticHabitDayDisplay(habit, checkin);
       trend.createDiv({
         text: dayNumber(date),
         cls: [
           "lifeops-habit-trend-cell",
-          checkin ? `status-${trade?.status ?? checkin.status}` : "",
+          checkin ? `status-${display?.status ?? checkin.status}` : "",
           required ? "is-required" : "is-optional"
         ].filter(Boolean).join(" "),
-        attr: { title: `${date} ${trade?.label ?? (checkin ? habitStatusLabel(checkin.status) : required ? "未打卡" : "非必需")}` }
+        attr: { title: `${date} ${display?.label ?? (checkin ? habitStatusLabel(checkin.status) : required ? "未打卡" : "非必需")}` }
       });
     }
 
@@ -1166,7 +1166,7 @@ function habitRequirementLabel(item: HabitDashboardItem): string {
   return item.requiredToday ? "今日应打卡" : "今日非必需";
 }
 
-function habitWindowStats(item: HabitDashboardItem, days: number): { required: number; done: number; rate: number } {
+function habitWindowStats(item: HabitDashboardItem, days: number): { required: number; done: number; rate: number | null } {
   const dates = lastDates(days);
   if (item.habit.target?.kind === "number") {
     return numericHabitWindow(item.habit, item.history, dates.filter(date => isHabitRequiredOnDate(item.habit, date)), dates);

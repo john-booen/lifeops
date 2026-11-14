@@ -73,7 +73,7 @@ import type { ProviderEgressAuditRecord } from "../privacy";
 import * as settingsHelpers from './settingsSlice';
 import type { StoreHost, TaskDatabase, HabitDatabase, VaultIndexEntry, VaultIndex, VaultStats, RetrievalHit, KnowledgeLink, KnowledgeLinksDb, VectorIndexEntry, VectorIndex, KnowledgeChunk, KnowledgeChunkIndex, KnowledgeGraph, KnowledgeTopic } from './settingsSlice';
 import { contextDataPolicy, readContextTasks, readContextHabits } from "../contextData";
-import { isHealthHabitSource } from "../features/health/habits";
+import { isHealthHabitSource } from "../features/health/habitSources";
 
 const {
   insertUnderHeading,

@@ -1,4 +1,5 @@
-import { isHealthHabitSource, projectHealthHabitProgress } from "../health/habits";
+import { projectHealthHabitProgress } from "../health/habits";
+import { isHealthHabitSource } from "../health/habitSources";
 import { isVaultPathExcluded } from "../../privacy";
 import type { HabitDatabase, StoreHost } from "../../store/settingsSlice";
 import type { HabitCheckin, HabitDefinition, HabitTarget } from "../../types";
@@ -9,12 +10,6 @@ export function assertTradeHabitSource(source: string | undefined, target: Habit
     || target.perWeek !== undefined || !Number.isSafeInteger(target.perDay) || (target.perDay ?? 0) <= 0)) {
     throw new Error("交易笔数习惯按天统计，请设置每天的整数笔数。");
   }
-}
-
-export function tradeHabitDayDisplay(habit: HabitDefinition, checkin?: HabitCheckin): { status: "done" | "pending"; label: string } | undefined {
-  if (habit.source !== "trades" || habit.target?.kind !== "number" || !habit.target.perDay || checkin?.status !== "done") return undefined;
-  const count = checkin.value ?? 0;
-  return { status: count >= habit.target.perDay ? "done" : "pending", label: `${count}/${habit.target.perDay} 笔` };
 }
 
 function projectTradeCheckins(database: HabitDatabase, trades: readonly Trade[]): HabitCheckin[] {
