@@ -1,3 +1,5 @@
+import { clockFromMatch, clockMatches } from "./clockText";
+
 /** Generated task IDs and UUIDs are identities, never title fragments. */
 export function isTaskIdentifierReference(reference: string): boolean {
   // Classify distorted identifiers without using this copy to bind a record.
@@ -13,6 +15,21 @@ export function explicitScheduledTaskTitle(title: string, userMessage = ""): str
   const original = match?.[1].trim();
   if (!original || /^(?:标题|任务名|[「『“"'‘])/u.test(original)) return title;
   return original.replace(/\s+/gu, "").endsWith(title.replace(/\s+/gu, "")) ? original : title;
+}
+
+/** A reminder at one named time can correct an identical model-proposed
+ * end time. Explicit starts, deadlines, ranges and other requests stay intact. */
+export function explicitReminderClock(userMessage = ""): string | undefined {
+  const message = userMessage.trim().replace(/[。！!]$/u, "");
+  if (/[，,。；;！？!?\r\n]/u.test(message)) return;
+  const clocks = clockMatches(message);
+  if (clocks.length !== 1) return;
+  const [clock] = clocks;
+  const before = message.slice(0, clock.index).trim();
+  const after = message.slice(clock.index! + clock[0].length).trim();
+  if (!/^(?:请(?:帮我)?|帮我)?\s*(?:今天|今日|明天|后天|大后天|(?:这|本|下)周[一二三四五六日天1-7]|\d{4}-\d{2}-\d{2})\s*$/u.test(before)
+    || !/^提醒\S/u.test(after)) return;
+  return clockFromMatch(clock) ?? undefined;
 }
 
 /** Refuse a copied, explicitly assigned reference instead of inventing its value.

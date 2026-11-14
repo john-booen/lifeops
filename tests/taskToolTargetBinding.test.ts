@@ -44,6 +44,20 @@ afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllGlobals(); await rm(ro
 
 describe("task references through real Runtime and temporary disk", () => {
   it.each([
+    ["明天下午3:15提醒叶宁给纸盒贴标签。", "15:15", { time: "15:15" }],
+    ["明天下午三点前提醒叶宁给纸盒贴标签。", "15:00", { time: "", endTime: "15:00" }],
+    ["明天下午三点提醒叶宁下午四点检查纸盒。", "15:00", { time: "", endTime: "15:00" }],
+    ["后天上午九点提醒叶宁给纸盒贴标签。", "10:00", { time: "", endTime: "10:00" }]
+  ])("checks a single explicit reminder clock: %s", async (userMessage, endTime, expected) => {
+    await seed([task("task-1800-new", "纯虚构已有任务")]);
+    const title = "叶宁给纸盒贴标签";
+    const result = await runtime.executeToolCall({ toolName: "create_task", arguments: { title, date: "明天", endTime },
+      source: "qwen-omni", callId: "fiction-reminder-clock", userMessage });
+    expect(result.success).toBe(true);
+    expect((await store.readTaskDb({ readOnly: true })).tasks).toContainEqual(expect.objectContaining({ title, ...expected }));
+  });
+
+  it.each([
     ["请创建任务 展馆：给蓝色样品贴标签，安排在明天下午三点。", "给蓝色样品贴标签", "展馆：给蓝色样品贴标签"],
     ["新建待办：给绿色文件夹贴标签，定在明天。", "绿色文件夹贴标签", "给绿色文件夹贴标签"],
     ["请创建任务：原样抄下，安排在明天，再找原图。", "原样抄下", "原样抄下"],

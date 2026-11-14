@@ -3,7 +3,7 @@ import { saveMemoryNote } from "./memoryNoteWrite";
 import { activityNotePath } from "./activityRecords";
 import { linkedNoteName } from "./linkedNoteSettings";
 import { journalOriginalBlock } from "./features/journal/entry";
-import { explicitScheduledTaskTitle, isCopiedTaskTitleReference, isTaskIdentifierReference } from "./taskReference";
+import { explicitReminderClock, explicitScheduledTaskTitle, isCopiedTaskTitleReference, isTaskIdentifierReference } from "./taskReference";
 import type { AiToolDefinition } from "./ai";
 import { assertSafeOperationId, fileRevision, MAX_CONFIRMATION_ACTION_ID_LENGTH, recordRevision } from "./operationIdentity";
 import { OperationLedger, type OperationUndoDescriptor, type OperationResultSnapshot, type OperationLedgerRecord } from "./dataFoundation/operationLedger";
@@ -250,6 +250,12 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
         } else plan[key] = value;
       }
       const estimateMin = args.estimateMin;
+      let time = normalizeToolTime(toolArgString(args, "time"));
+      if (!time && plan.endTime && !plan.startTime && !plan.endDate && estimateMin === undefined
+        && (args.time === undefined || args.time === "") && explicitReminderClock(request.userMessage) === plan.endTime) {
+        time = plan.endTime;
+        delete plan.endTime;
+      }
       const learningTrackId = args.learningTrackId;
       if (learningTrackId !== undefined && !isLearningTrackId(learningTrackId)) return toolError("学习轨道无效，请核对。");
       const specifiedCategory = toolArgString(args, "category");
@@ -257,7 +263,7 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
       const category = specifiedCategory || (learningTrackId ? "learning" : "work");
       if (category === "punishment") return toolError("补偿待办由习惯规则生成，请在习惯面板配置。");
       if (estimateMin !== undefined && typeof estimateMin !== "number") return toolError("估计时长须为分钟数。");
-      try { validateTaskSchedule({ date, endDate: plan.endDate ?? "", time: "", ...plan, estimateMin }); }
+      try { validateTaskSchedule({ date, endDate: plan.endDate ?? "", time, ...plan, estimateMin }); }
       catch (error) { return toolError(error instanceof Error ? error.message : "计划区间无效，没有创建任务。"); }
       const operationSource = `lifeops-agent-tool:${request.operationId}`;
       const before = (await context.store.readTaskDb()).tasks;
@@ -268,7 +274,7 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
       const task = await context.store.createTask({
         title,
         date,
-        time: normalizeToolTime(toolArgString(args, "time")),
+        time,
         ...plan,
         category,
         estimateMin,
@@ -279,7 +285,7 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
       const verified = after.find((item) => item.id === task.id || item.source === operationSource);
       if (!verified || verified.title !== task.title || verified.status !== "active"
         || verified.estimateMin !== task.estimateMin || verified.learningTrackId !== task.learningTrackId
-        || verified.startTime !== task.startTime || verified.endTime !== task.endTime || verified.endDate !== task.endDate) {
+        || verified.time !== task.time || verified.startTime !== task.startTime || verified.endTime !== task.endTime || verified.endDate !== task.endDate) {
         return toolError(`任务写入后校验失败，没有确认任务库中存在：${task.title}。`);
       }
       await context.refreshViews();
