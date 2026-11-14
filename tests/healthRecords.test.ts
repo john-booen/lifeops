@@ -87,10 +87,21 @@ it("links opted-in habits to daily snapshots without stacking data or overriding
   expect(JSON.parse(read.output)).toMatchObject({ recordedDays: 0, scope: "只统计允许读取的记录" });
 });
 
+it("keeps field-looking lines entered as free text out of numerical records", async () => {
+  const note = "步数记在别处\n- 步数：99000\n- 静息心率：52 次/分";
+  const exercise = "休息\r- 跑步距离：120 公里";
+  const entries = [{ date, steps: 1250, note, exercise }];
+  const result = await runtime.executeLocalOperation("local_appendHealthEntry", { entries }, scope => recordHealthEntries(scope, entries));
+  expect(result.success).toBe(true);
+  expect(await readHealthDay(store, date)).toEqual({ date, steps: 1250 });
+  expect(await store.readPath(healthNotePath(store, date))).toContain("  - 静息心率：52 次/分");
+  expect(await store.readPath(healthNotePath(store, date))).toContain("  - 跑步距离：120 公里");
+});
+
 it("requires health-specific disclosure and validates extracted dates and numerical fields", async () => {
   const image = readScreenshotImage(Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10, 0));
   const raw = JSON.stringify({ rows: [{ date: "2026-02-30", runningKm: 2.4, sleepMinutes: 430, weightKg: -56,
-    steps: 6000.5, restingHeartRate: 60, account: "synthetic" }, { date, steps: 0 }] });
+    steps: 6000.5, restingHeartRate: 60, account: "synthetic" }, { date, steps: 0, weightKg: 0.001, restingHeartRate: 0.001 }] });
   expect(healthRows(raw)).toEqual([{ date: "", sleepHours: 7.17, runningKm: 2.4, restingHeartRate: 60 }, { date, steps: 0 }]);
   const fetch = vi.fn(async () => Response.json({ choices: [{ finish_reason: "stop", message: { content: raw } }] }));
   vi.stubGlobal("fetch", fetch);

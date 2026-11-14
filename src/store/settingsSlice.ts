@@ -503,6 +503,7 @@ async recordHabit(this: StoreHost, habitName: string, date: string = todayString
   },
 
 async appendHealthEntry(this: StoreHost, entry: HealthEntry): Promise<void> {
+    const continuation = (value: string) => value.replace(/\r\n|\r|\n/gu, "\n  ");
     const lines = [
       `## ${entry.date}`,
       entry.sleepHours !== undefined ? `- 睡眠小时：${entry.sleepHours}` : "",
@@ -510,10 +511,10 @@ async appendHealthEntry(this: StoreHost, entry: HealthEntry): Promise<void> {
       entry.steps !== undefined ? `- 步数：${entry.steps}` : "",
       entry.runningKm !== undefined ? `- 跑步距离：${entry.runningKm} 公里` : "",
       entry.restingHeartRate !== undefined ? `- 静息心率：${entry.restingHeartRate} 次/分` : "",
-      entry.exercise ? `- 运动：${entry.exercise}` : "",
+      entry.exercise ? `- 运动：${continuation(entry.exercise)}` : "",
       entry.fatigue !== undefined ? `- 疲劳：${entry.fatigue}` : "",
       entry.energy !== undefined ? `- 精力：${entry.energy}` : "",
-      entry.note ? `- 备注：${entry.note}` : ""
+      entry.note ? `- 备注：${continuation(entry.note)}` : ""
     ].filter(Boolean);
     await this.appendFile(this.path(this.settings.folders.health, `${entry.date}.md`), `${lines.join("\n")}\n`);
   },

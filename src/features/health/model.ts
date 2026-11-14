@@ -15,9 +15,10 @@ export type HealthDay = Pick<HealthEntry, "date"> & Partial<Record<HealthMetric,
 
 export function healthMetricValue(key: HealthMetric, value: unknown): number | undefined {
   const { max } = HEALTH_METRICS[key];
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > max
-    || (key === "weightKg" || key === "restingHeartRate") && value === 0 || key === "steps" && !Number.isInteger(value)) return;
-  return Math.round(value * 100) / 100;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > max || key === "steps" && !Number.isInteger(value)) return;
+  const rounded = Math.round(value * 100) / 100;
+  if ((key === "weightKg" || key === "restingHeartRate") && rounded === 0) return;
+  return rounded;
 }
 
 export function healthDay(date: string, values: Partial<Record<HealthMetric, unknown>>): HealthDay {
