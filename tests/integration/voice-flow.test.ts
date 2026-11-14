@@ -2404,11 +2404,14 @@ describe("voice integration flow", () => {
     runtime.bindResponse("response-a");
     const cancelResponse = vi.fn();
     const reply = "今天的日记重点是休息和恢复。";
+    let releaseFallback!: () => void;
+    const fallbackReady = new Promise<void>(resolve => { releaseFallback = resolve; });
     const submitAgentMessageStream = vi.fn(async (
       _message: string,
       _history: unknown[],
       onText: (content: string) => void
     ) => {
+      await fallbackReady;
       onText(reply);
       return { reply, actions: [] };
     });
@@ -2470,11 +2473,21 @@ describe("voice integration flow", () => {
       transitionVoiceSession: vi.fn()
     } as any;
 
-    await fallbackOmniResponseToBrain(view, "provider failed", {
+    const fallback = fallbackOmniResponseToBrain(view, "provider failed", {
       eventType: "response.failed",
       responseId: "response-a",
       status: "failed"
     });
+
+    await vi.waitFor(() => expect(submitAgentMessageStream).toHaveBeenCalledOnce());
+    handleOmniE2eResponseCreated(view, { eventType: "response.created", responseId: "late-response", status: "in_progress" });
+    await finishOmniE2eVoiceTurn(view, "迟到的虚构原生回复", {
+      eventType: "response.done", responseId: "response-a", status: "completed"
+    });
+    expect(runtime.snapshot().currentTurn).toMatchObject({ route: "brain", phase: "generating", modelDone: false });
+    expect(view.agentOmniE2eReply).toBe("");
+    releaseFallback();
+    await fallback;
 
     expect(cancelResponse).toHaveBeenCalledTimes(1);
     expect(submitAgentMessageStream).toHaveBeenCalledTimes(1);

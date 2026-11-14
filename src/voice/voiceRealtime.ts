@@ -1155,7 +1155,7 @@ function acceptsOmniRuntimeEvent(
   const runtime = view.agentVoiceRuntime;
   if (!runtime) return true;
   const current = runtime.snapshot().currentTurn;
-  if (!current) return false;
+  if (current?.route !== "e2e") return false;
   return runtime.accepts({
     generation: current.generation,
     turnId: current.turnId,
@@ -1413,7 +1413,7 @@ function updateManagedAssistantText(
   response?: BailianRealtimeResponseEvent
 ): void {
   if (!hasActiveVoiceRuntimeTurn(view) || view.agentOmniE2eAssistantIndex < 0) return;
-  if (!acceptsOmniRuntimeEvent(view, response)) return;
+  if (response && !acceptsOmniRuntimeEvent(view, response)) return;
   text = projectProposalFailure(view) || text;
   if (!text.trim()) return;
   armOmniResponseTimer(view);

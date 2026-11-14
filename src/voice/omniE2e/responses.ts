@@ -48,7 +48,7 @@ export function createOmniResponseHandlers(host: OmniResponseHost) {
     const runtime = view.agentVoiceRuntime;
     if (!runtime) return;
     const current = runtime.snapshot().currentTurn;
-    if (!current || current.phase === "completed" || current.phase === "interrupted" || current.phase === "failed") return;
+    if (current?.route !== "e2e" || current.phase === "completed" || current.phase === "interrupted" || current.phase === "failed") return;
     try {
       if (response.retryOfResponseId) {
         runtime.retryResponse(response.retryOfResponseId, response.responseId);
