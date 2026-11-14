@@ -1326,7 +1326,7 @@ function failOmniE2eVoiceTurn(
 }
 
 function failOmniToolContext(view: VoiceRealtimeView, message: string): void {
-  withdrawOmniContext(view, message, () => handleOmniE2eResponseText(view, message),
+  withdrawOmniContext(view, message, () => updateManagedAssistantText(view, message),
     () => failOmniE2eVoiceTurn(view, message), stopBailianRealtimeRecording);
 }
 

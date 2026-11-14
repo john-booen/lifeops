@@ -205,6 +205,25 @@ it('keeps failed project proposal truth when a real-model-shaped call is followe
   expect(view.agentMessages[0].content).toBe(view.agentReply);expect(plugin.appendAgentConversation).toHaveBeenCalledWith(expect.any(String),view.agentReply,expect.any(Function));
   expect(await store.getProjectSnapshot()).toEqual(before);expect((await new ProjectJobRepository(store).load()).document.job).toBeNull();
 });
+
+it("withdraws a previous project error when its voice source is invalidated", async () => {
+  const view = finishable(viewFor());
+  const bad = call("old-proposal-before-source-change");
+  bad.arguments.nextStep = { text: "核对纯虚构蓝色清单", source: null };
+  await executeOmniE2eToolCall(view, bad);
+  expect(view.agentMessages[0].content).toContain("项目安排卡未生成");
+  const client = {
+    hasProtectedContextSources: () => true,
+    assertContextSourcesCurrentNow: () => { throw Error("Fictional old source changed"); },
+    close: vi.fn()
+  };
+  view.agentRealtimeClient = client;
+  expect(await executeOmniE2eToolCall(view, call("source-changed"))).toBe("");
+  expect(view.agentMessages[0].content).toContain("语音资料刚刚变化");
+  expect(view.agentMessages[0].content).not.toContain("项目安排卡未生成");
+  expect(view.agentVoiceRuntime.snapshot().currentTurn?.phase).toBe("failed");
+  expect(client.close).toHaveBeenCalledOnce();
+});
 it('blocks unverified native audio after failed proposal and releases the guard for a replacement runtime',async()=>{
   const view=finishable(viewFor()),bad=call('failed-audio-plan');bad.arguments.nextStep={text:'核对纯虚构蓝色清单',source:null};
   await executeOmniE2eToolCall(view,bad);plugin.settings.realtimeVoice.speakReplies=true;view.enqueueAgentSpeechAudio=vi.fn(()=>true);
