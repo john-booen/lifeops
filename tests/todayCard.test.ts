@@ -98,6 +98,9 @@ describe("today card reads and journal plan creation", () => {
   it("stops a stale plan before any task write and retains a source edit that lands during save", async () => {
     const [choice] = (await getTodayCard(store, await store.getTaskDashboard(date))).plans;
     await vault.seed(morning, raw + "补一行。");
+    const refreshed = await getTodayCard(store, await store.getTaskDashboard(date));
+    expect(refreshed.plans).toEqual([]);
+    expect(refreshed.status.find(item => item.label === "精力")?.value).toBe("未记录");
     await expect(addJournalPlanTask(host, store, choice.plan)).rejects.toThrow("已变更");
     expect((await store.readTaskDb()).tasks).toEqual([]);
     await vault.seed(morning, raw);
