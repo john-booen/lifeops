@@ -3,8 +3,8 @@ import { noteUnderstandingSourceRevision } from "./noteUnderstandingSource";
 import type { AiToolCall } from "./ai";
 import { createHash, randomUUID } from "node:crypto";
 import { ensureToolCallId, isSafeOperationId, isSafeRuntimeOperationId, INVALID_OPERATION_ID_MESSAGE, MAX_CONFIRMATION_ACTION_ID_LENGTH, MAX_TOOL_CALL_ID_LENGTH } from "./operationIdentity";
-import { OperationLedger, operationFingerprint, operationTrigger, type OperationLedgerDocument, type OperationResultSnapshot } from "./dataFoundation/operationLedger";
-import type { GuardedFileChange } from "./dataFoundation/factOperation";
+import { OperationLedger, operationFingerprint, operationTrigger, type OperationClaim, type OperationLedgerDocument, type OperationResultSnapshot } from "./dataFoundation/operationLedger";
+import { UndoRecoveryRequiredError, type GuardedFileChange } from "./dataFoundation/factOperation";
 import { getLifeOpsTool, getRecordedUndoEvidence, getTaskOverloadSignal, performRecordedToolOperation, undoRecordedOperation, type ToolExecutionContext } from "./toolRegistry";
 import { tradingContextRevision } from "./tradingTools";
 import { personalMemorySourceAssessment, personalMemoryReadSnapshot } from "./personalMemory";
@@ -223,6 +223,7 @@ export class AgentRuntime {
         arguments: request.arguments
       });
     } catch(error) {
+      if (error instanceof UndoRecoveryRequiredError) return { callId: request.callId, success: false, output: error.message, actions: [] };
       const queryParameterError=tool.name==="query_vault"&&error instanceof Error&&/路径无效|日期无效|关键词为空|date 和 period|该路径|指定路径/.test(error.message)?error.message:undefined;
       return { callId: request.callId, success: false, output: queryParameterError??(tool.name==="query_vault"?"查询原文、选择、个人记忆或权限刚刚变化或暂无法安全核对，已停止本次查询，请重新读取。":tool.name === "query_projects"
         ? "目标与项目或个人记忆暂时无法安全核对，已停止本次查询，请稍后重新查询。"
@@ -414,8 +415,14 @@ export class AgentRuntime {
     if (!isSafeRuntimeOperationId(operationId)) return invalidOperationIdResult();
     options?.assertCurrent?.();
     if (options?.checkpoint && !this.context.store.runFactOperation) throw new Error("持久安排须使用受保护的保存宿主。");
-    const claim = await this.operationLedger.claim({ operationId, toolName: name, source: "system",
-      trigger: operationTrigger(name, args) ?? "user", arguments: args });
+    let claim: OperationClaim;
+    try {
+      claim = await this.operationLedger.claim({ operationId, toolName: name, source: "system",
+        trigger: operationTrigger(name, args) ?? "user", arguments: args });
+    } catch (error) {
+      if (!(error instanceof UndoRecoveryRequiredError)) throw error;
+      return { callId: operationId, success: false, output: error.message, actions: [] };
+    }
     if (claim.kind === "cached" && claim.record.result) return { callId: operationId, ...claim.record.result };
     if (claim.kind !== "execute") return { callId: operationId, success: false, output: claim.kind === "collision" ? "操作 ID 冲突，已停止保存。" : "这次操作仍在执行，没有重复保存。", actions: [] };
     try {

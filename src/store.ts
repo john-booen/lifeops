@@ -9,7 +9,7 @@ import { applyVoiceSlice, type VoiceSliceApi } from "./store/voiceSlice";
 import { applyProjectSlice, type ProjectSliceApi } from "./store/projectSlice";
 import { applyTradingSlice, type TradingSliceApi } from "./store/tradingSlice";
 import type { LifeOpsSettings } from "./types";
-import { runFactOperation, type FactOperationIdentity, type FactOperationOptions } from "./dataFoundation/factOperation";
+import { assertOperationClaimAllowed, guardedOperationOwner, runFactOperation, type FactOperationIdentity, type FactOperationOptions } from "./dataFoundation/factOperation";
 import type { OperationUndoDescriptor } from "./dataFoundation/operationLedger";
 import type { StoreHost } from "./store/settingsSlice";
 import { guardPersonalMemorySourceContexts } from "./personalMemoryContext";
@@ -21,6 +21,14 @@ export class LifeOpsStore {
 
   runFactOperation<T>(identity: FactOperationIdentity, execute: (store: StoreHost) => Promise<T>, finalize: (result: T, undo?: OperationUndoDescriptor) => Promise<void>, options?: FactOperationOptions): Promise<T> {
     return runFactOperation(this as unknown as StoreHost, identity, execute, finalize, options);
+  }
+
+  assertOperationClaimAllowed(): Promise<void> {
+    return assertOperationClaimAllowed(this as unknown as StoreHost);
+  }
+
+  operationLedgerLockKey(): object {
+    return (guardedOperationOwner(this as unknown as StoreHost)?.app ?? this.app).vault;
   }
 }
 

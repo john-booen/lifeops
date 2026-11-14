@@ -68,6 +68,8 @@ export interface OperationLedgerHost {
   path(...parts: string[]): string;
   readJson<T>(filePath: string, fallback: T): Promise<T>;
   writeJson(filePath: string, value: unknown, options?: JsonWriteOptions): Promise<void>;
+  assertOperationClaimAllowed?(): Promise<void>;
+  operationLedgerLockKey?(): object;
 }
 
 export interface OperationClaimInput {
@@ -185,6 +187,7 @@ export class OperationLedger {
         return { kind: "busy", record: existing };
       }
 
+      await this.host.assertOperationClaimAllowed?.();
       const timestamp = this.now().toISOString();
       const trigger = existing?.trigger ?? input.trigger ?? operationTrigger(input.toolName, input.arguments);
       const record: OperationLedgerRecord = {
@@ -357,7 +360,7 @@ export class OperationLedger {
   }
 
   private async withLock<T>(operation: () => Promise<T>): Promise<T> {
-    const key = this.host as object;
+    const key = this.host.operationLedgerLockKey?.() ?? this.host;
     const previous = storeLocks.get(key) ?? Promise.resolve();
     let release = (): void => undefined;
     const current = new Promise<void>((resolve) => {

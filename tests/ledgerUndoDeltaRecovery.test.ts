@@ -88,7 +88,23 @@ describe("extended ledger undo", () => {
       const work = vi.fn(async () => undefined);
       await expect(runFactOperation(reopened, { operationId: "fictional-before-recovery" }, work, async () => {})).rejects.toThrow("检查并恢复未完成操作");
       expect(work).not.toHaveBeenCalled();
+      const protectedLedger = await vault.bytes(ledgerPath), protectedJournal = await vault.bytes(walPath);
+      const nextRuntime = new AgentRuntime({ store: reopened, refreshViews: async () => undefined });
+      const nextTask = { toolName: "create_task", source: "system" as const, callId: "fictional-before-recovery", arguments: { title: "虚构暂缓任务" } };
+      const started = await nextRuntime.executeToolCall(nextTask);
+      expect(started.success).toBe(false);
+      expect(started.output).toContain("检查并恢复未完成操作");
+      const localWork = vi.fn(async () => undefined);
+      const local = await nextRuntime.executeLocalOperation("local_createTask", {}, localWork);
+      expect(local.output).toContain("检查并恢复未完成操作");
+      expect(localWork).not.toHaveBeenCalled();
+      expect(await vault.bytes(ledgerPath)).toBe(protectedLedger);
+      expect(await vault.bytes(walPath)).toBe(protectedJournal);
       expect(await recoverFactOperation(reopened)).toBe(stage === "ledger-finished" ? "kept" : "restored");
+      const verified = await new OperationLedger(reopened).claim({ operationId: nextTask.callId, toolName: nextTask.toolName,
+        source: nextTask.source, arguments: nextTask.arguments });
+      expect(verified.record.attempts).toBe(1);
+      await new OperationLedger(reopened).failClaim(verified.record, "纯虚构测试结束");
     }
     const rolledBack = stage === "intent-only" || stage === "cancel-after-ledger";
     const settledRaw = await vault.bytes(walPath), terminal = JSON.parse(settledRaw);

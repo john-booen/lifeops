@@ -250,6 +250,26 @@ export function inspectFactRecovery(store: StoreHost, raw: string): RecoveryDocu
   return validateRecovery(store, decodeFactRecovery(parseJsonData(raw, path, jsonDataContract(path, store.settings.folders))));
 }
 
+/** New audit records cannot change the exact ledger used to recover an undo. */
+export async function assertOperationClaimAllowed(store: StoreHost): Promise<void> {
+  if (activeFactOperation(store)?.auditStatus === "reverted") throw new UndoRecoveryRequiredError();
+  const raw = await readRaw(store, factRecoveryPath(store));
+  if (activeFactOperation(store)?.auditStatus === "reverted") throw new UndoRecoveryRequiredError();
+  if (raw === null) return;
+  // Only examine the envelope here. The recovery owner validates every byte.
+  const journal = JSON.parse(raw);
+  if (journal.status === "pending" && journal.auditStatus === "reverted") {
+    throw new UndoRecoveryRequiredError();
+  }
+}
+
+export class UndoRecoveryRequiredError extends Error {
+  constructor() {
+    super("撤销尚未结算。请稍候，或使用“检查并恢复未完成操作”后重试。");
+    this.name = "UndoRecoveryRequiredError";
+  }
+}
+
 /** Check the complete known undo before its first write, using the same exact
  * snapshot encoding and limits as the real WAL. This never persists a journal. */
 export async function preflightFactOperationChanges(store: StoreHost, changes: GuardedFileChange[]): Promise<void> {
@@ -485,6 +505,7 @@ async function runFactOperationOnce<T>(
   return locked(store, async () => {
     try {
     options.assertCurrent?.();
+    if (identity.auditStatus === "reverted") activeWrites.set(store.app.vault, { ...identity });
     const journalPath = factRecoveryPath(store);
     let journalRaw = await readRaw(store, journalPath);
     let canCompactLedger = identity.auditStatus === "reverted";
