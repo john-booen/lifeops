@@ -21,6 +21,7 @@ const { projectHealthHabitProgress } = await import("../src/features/health/habi
 const { readScreenshotImage } = await import("../src/features/screenshots/image");
 const { recognizeHealthScreenshot } = await import("../src/features/health/screenshot");
 const { getTodayCard } = await import("../src/features/today/service");
+const { readHabitContextWithEvidence } = await import("../src/store/agentSlice");
 const { addDays } = await import("../src/date");
 
 let root: string, store: StoreHost, runtime: InstanceType<typeof AgentRuntime>;
@@ -77,6 +78,7 @@ it("links opted-in habits to daily snapshots without stacking data or overriding
   const { checkins: actual } = await store.readHabitDb();
   const dashboard = await store.getTaskDashboard();
   expect(dashboard.habits.find(row => row.habit.id === habit.id)?.periodDone).toBe(3.4);
+  expect((await readHabitContextWithEvidence(store, date)).text).toContain("3.4/3 公里");
   const { checkins: projection, partial } = await projectHealthHabitProgress(store, await store.readHabitDb());
   expect(partial).toBe(false);
   expect(projection).toEqual([actual[0], expect.objectContaining({ date, habitId: habit.id, status: "done", value: 3.4 })]);
@@ -89,6 +91,7 @@ it("links opted-in habits to daily snapshots without stacking data or overriding
   const habitStats = await readStats(store, { domain: "habits", range: "today" }, new Date());
   expect(habitStats.success).toBe(true);
   expect(JSON.parse(habitStats.output)).toMatchObject({ scope: "只统计允许读取的记录" });
+  expect((await readHabitContextWithEvidence(store, date)).text).toContain("只统计可读的健康记录");
 });
 
 it("keeps field-looking lines entered as free text out of numerical records", async () => {

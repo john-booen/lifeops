@@ -73,6 +73,7 @@ import type { ProviderEgressAuditRecord } from "../privacy";
 import * as settingsHelpers from './settingsSlice';
 import type { StoreHost, TaskDatabase, HabitDatabase, VaultIndexEntry, VaultIndex, VaultStats, RetrievalHit, KnowledgeLink, KnowledgeLinksDb, VectorIndexEntry, VectorIndex, KnowledgeChunk, KnowledgeChunkIndex, KnowledgeGraph, KnowledgeTopic } from './settingsSlice';
 import { contextDataPolicy, readContextTasks, readContextHabits } from "../contextData";
+import { isHealthHabitSource } from "../features/health/habits";
 
 const {
   insertUnderHeading,
@@ -1299,6 +1300,11 @@ export async function readHabitContextWithEvidence(store: StoreHost, date: strin
       .map((item) => {
         if (item.periodUnavailable) return `- ${item.habit.name}：交易记录暂不可用，进度未知。`;
         if (item.habit.source === "trades") return `- ${item.habit.name}：${item.periodLabel} ${item.periodDone}/${item.periodTarget} 笔。`;
+        if (isHealthHabitSource(item.habit.source)) {
+          const progress = `${item.periodLabel} ${item.periodDone}/${item.periodTarget}${item.periodUnit ? " " + item.periodUnit : " 次"}`;
+          const scope = data.healthPartial ? "，只统计可读的健康记录" : "";
+          return `- ${item.habit.name}：${progress}${scope}。`;
+        }
         const status = item.status === "pending" ? "pending" : habitStatusLabel(item.status);
         const note = item.checkin?.note ? `；备注：${item.checkin.note}` : "";
         return `- ${item.habit.name}：${status}；今日必需=${item.requiredToday ? "是" : "否"}；今日次数=${item.checkin?.count ?? 0}/${item.habit.targetCount}；连续=${item.streak}；本周失败=${item.weeklyFailures}${note}`;
