@@ -30,9 +30,10 @@ async function checkHealthNote(store: StoreHost, date: string): Promise<{ day: H
 
 export async function readHealthRange(store: StoreHost, from: string, to: string): Promise<{ days: HealthDay[]; partial: boolean }> {
   const folder = normalizePath(store.settings.folders.health);
-  const exclusions = () => JSON.stringify(normalizeExcludedVaultPrefixes(store.settings.privacy?.excludedVaultPrefixes ?? []));
-  const excluded = exclusions();
-  const current = () => normalizePath(store.settings.folders.health) === folder && exclusions() === excluded;
+  const excludedPrefixes = () => normalizeExcludedVaultPrefixes(store.settings.privacy?.excludedVaultPrefixes ?? []);
+  const excluded = excludedPrefixes(), exclusionRevision = JSON.stringify(excluded);
+  if (isVaultPathExcluded(folder, excluded)) return { days: [], partial: true };
+  const current = () => normalizePath(store.settings.folders.health) === folder && JSON.stringify(excludedPrefixes()) === exclusionRevision;
   const directDay = from === to && normalizeJournalDate(from) === from && !!from;
   const dates = directDay
     ? [from] : store.app.vault.getMarkdownFiles().flatMap(file => {

@@ -271,6 +271,17 @@ it("does not combine health readings across a folder change during a range read"
   }
 });
 
+it("marks health coverage partial when the whole folder is excluded before any note is collected", async () => {
+  const habit = await store.createHabit({ name: "虚构步数计划", source: "health:steps", frequencyUnit: "day",
+    frequencyInterval: 1, targetCount: 1, startDate: previous, target: { kind: "number", unit: "步", perDay: 3000 } });
+  store.settings.privacy = { excludedVaultPrefixes: [store.settings.folders.health] };
+  const dashboard = await store.getTaskDashboard(date);
+  expect(dashboard.habits.find(row => row.habit.id === habit.id)?.healthCoveragePartial).toBe(true);
+  const result = await readStats(store, { domain: "habits", range: "last_3d" }, new Date());
+  expect(result.success).toBe(true);
+  expect(JSON.parse(result.output)).toMatchObject({ scope: "只统计允许读取的记录" });
+});
+
 function simulateNormalizedObsidianText(path: string) {
   const disk = store.app.vault as unknown as ReturnType<typeof createFsApp>["vault"];
   const originalRead = disk.read.bind(disk);
