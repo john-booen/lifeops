@@ -64,6 +64,7 @@ function createHarness(options: {
   drainTimeoutMs?: number;
   suspended?: boolean;
   createContext?: () => AudioOutputContextLike;
+  createNode?: () => AudioOutputNodeLike;
 } = {}) {
   let now = 1_000;
   let nextTimer = 1;
@@ -76,7 +77,7 @@ function createHarness(options: {
   const revoke = vi.fn();
   const actor = new AudioOutputActor({
     createContext: options.createContext ?? (() => context),
-    createNode: () => node,
+    createNode: options.createNode ?? (() => node),
     createModuleUrl: () => "blob:audio-worklet",
     revokeModuleUrl: revoke,
     now: () => now,
@@ -650,6 +651,34 @@ describe("PCM output helpers", () => {
     expect(harness.events.filter(event => event.type === "cancelled")).toHaveLength(0);
     if (hostCancel) expect(hostCancelResult).toBe(false);
     expect(harness.timerDelays()).toHaveLength(0);
+  });
+
+  it("reports failure and disconnects audio when the worklet port rejects cleanup", async () => {
+    const first = new FakeNode(), replacement = new FakeNode();
+    const createNode = vi.fn().mockReturnValueOnce(first).mockReturnValueOnce(replacement);
+    const harness = createHarness({ createNode });
+    await harness.actor.start("broken-port", "fallback-tts");
+    harness.actor.appendPcm16("broken-port", new Int16Array(2048).fill(8192), 48_000);
+    const port = first.port;
+    const retiredPlayback = port.workletPlaybackId;
+    port.emit({ type: "started", playbackId: retiredPlayback });
+    const original = port.postMessage.bind(port);
+    vi.spyOn(port, "postMessage").mockImplementation(command => {
+      if (command.type === "cancel") throw new DOMException("Synthetic closed audio port", "InvalidStateError");
+      original(command);
+    });
+
+    expect(harness.actor.fail("broken-port", "audio_chunk_enqueue_failed")).toBe(true);
+    expect(first.disconnected).toBe(true);
+    expect(port.onmessage).toBeNull();
+    expect(harness.actor.snapshot()?.status).toBe("failed");
+    expect(harness.events.at(-1)).toMatchObject({ type: "failed", errorCode: "audio_chunk_enqueue_failed" });
+    expect(harness.timerDelays()).toHaveLength(0);
+
+    await harness.actor.start("next-reply", "fallback-tts");
+    port.emit({ type: "drained", playbackId: retiredPlayback });
+    expect(replacement.connected).toBe(true);
+    expect(harness.actor.snapshot()).toMatchObject({ playbackId: "next-reply", status: "ready" });
   });
 
   it("keeps same-ID replacement audio audible while retired failure commands and replies remain ignored", async () => {

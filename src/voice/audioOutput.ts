@@ -241,7 +241,7 @@ export class AudioOutputActor {
     if (!current || current.playbackId !== playbackId || isTerminalAudioStatus(current.status)) return false;
     this.clearFirstAudioTimer();
     this.clearDrainTimer();
-    this.node?.port.postMessage({ type: "cancel", playbackId: this.workletPlaybackId });
+    this.stopWorkletPlayback();
     const now = this.now();
     this.playback = {
       ...current,
@@ -260,7 +260,7 @@ export class AudioOutputActor {
     this.clearDrainTimer();
     // Retire queued samples before notifying the host. A later cancel cannot
     // do this once the playback has entered its terminal failed state.
-    this.node?.port.postMessage({ type: "cancel", playbackId: this.workletPlaybackId });
+    this.stopWorkletPlayback();
     const now = this.now();
     this.playback = {
       ...current,
@@ -270,6 +270,15 @@ export class AudioOutputActor {
     this.armIdleSuspendTimer();
     this.emit("failed", this.playback, { errorCode });
     return true;
+  }
+
+  private stopWorkletPlayback(): void {
+    try {
+      this.node?.port.postMessage({ type: "cancel", playbackId: this.workletPlaybackId });
+    } catch {
+      // Disconnect immediately if the port cannot tell the processor to discard its queued samples.
+      this.disconnectWorklet();
+    }
   }
 
   async resume(): Promise<boolean> {
@@ -323,11 +332,7 @@ export class AudioOutputActor {
     this.clearIdleSuspendTimer();
     this.clearFirstAudioTimer();
     this.clearDrainTimer();
-    if (this.node) {
-      this.node.port.onmessage = null;
-      this.node.disconnect();
-    }
-    this.node = null;
+    this.disconnectWorklet();
     const context = this.context;
     this.context = null;
     this.initializing = null;
@@ -336,6 +341,14 @@ export class AudioOutputActor {
       this.moduleUrl = "";
     }
     await context?.close().catch(() => undefined);
+  }
+
+  private disconnectWorklet(): void {
+    const node = this.node;
+    this.node = null;
+    if (!node) return;
+    node.port.onmessage = null;
+    node.disconnect();
   }
 
   private async ensureReady(): Promise<void> {

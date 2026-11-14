@@ -1633,8 +1633,10 @@ export function handleOmniE2eAudioOutputEvent(
     }
     retireOmniPlaybackDrain(view);
     view.agentVoiceFallbackReason = event.errorCode || event.type;
+    view.agentOmniPendingAudio = [];
+    view.agentOmniPlaybackReady = null;
+    runtime.selectOutputOwner(event.owner === "native-e2e" ? "none" : "system");
     if (event.owner === "fallback-tts") {
-      runtime.selectOutputOwner("system");
       view.agentTtsClient?.cancel?.();
       view.agentTtsClient = null;
     }
@@ -1686,9 +1688,12 @@ export function handleOmniE2eAudioOutputEvent(
     }
     retireOmniPlaybackDrain(view);
     view.agentSpeaking = false;
+    view.agentOmniPendingAudio = [];
+    view.agentOmniPlaybackReady = null;
+    view.agentVoiceFallbackReason = event.errorCode
+      || (event.owner === "native-e2e" ? "native_playback_cancelled" : "fallback_playback_cancelled");
+    runtime.selectOutputOwner(event.owner === "native-e2e" ? "none" : "system");
     if (event.owner === "fallback-tts") {
-      view.agentVoiceFallbackReason = event.errorCode || "fallback_playback_cancelled";
-      runtime.selectOutputOwner("system");
       view.agentTtsClient?.cancel?.();
       view.agentTtsClient = null;
     }

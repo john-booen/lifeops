@@ -152,7 +152,10 @@ export function createBufferedVoicePlayback(hooks: BufferedPlaybackHooks) {
         output.finish(playbackId);
         return;
       }
-    }).catch(() => { held.finished = true; }).finally(() => {
+    }).catch(() => {
+      held.finished = true;
+      if (held.current()) output.fail(playbackId, "audio_chunk_enqueue_failed");
+    }).finally(() => {
       // A retired flight cannot release or consume a replacement turn's queue.
       if (playbackDrains.get(view) !== held || held.drain !== flight) return;
       held.sliceYield.cancel();

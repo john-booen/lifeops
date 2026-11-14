@@ -1360,7 +1360,7 @@ describe("voice integration flow", () => {
     expect(discardCurrentVoiceTurn).toHaveBeenCalledWith("已忽略没有实际问题的短声音。");
   });
 
-  it("keeps an Omni turn busy until native playback is drained", async () => {
+  it.each([false, true])("keeps an Omni turn busy until playback is drained (native output failure %s)", async nativeFailure => {
     const runtime = new VoiceSessionController({ provider: "qwen-test" });
     runtime.connect();
     runtime.connected();
@@ -1368,6 +1368,7 @@ describe("voice integration flow", () => {
     const output = {
       start: vi.fn(async () => undefined),
       appendPcm16: vi.fn(() => true),
+      appendCue: vi.fn(() => true),
       finish: vi.fn(() => true),
       cancel: vi.fn(() => true),
       fail: vi.fn(() => true)
@@ -1379,6 +1380,7 @@ describe("voice integration flow", () => {
           realtimeVoice: {
             ...TEST_REALTIME_SETTINGS,
             mode: "omni-e2e",
+            ...(nativeFailure ? { ttsEngine: "breeze-local" } : {}),
             triggerEnabled: false,
             speakReplies: true
           }
@@ -1460,16 +1462,40 @@ describe("voice integration flow", () => {
     await Promise.resolve();
     expect(output.appendPcm16).toHaveBeenCalledOnce();
 
+    const playbackId = runtime.snapshot().currentTurn?.playbackId ?? "";
+    if (nativeFailure) {
+      handleOmniE2eAudioOutputEvent(view, {
+        type: "failed", owner: "native-e2e", playbackId, timestamp: Date.now(), errorCode: "synthetic_failure"
+      });
+      handleOmniE2eAudioDelta(view, pcmBase64, 24_000, audioEvent);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(output.appendPcm16).toHaveBeenCalledOnce();
+      expect(runtime.snapshot().currentTurn?.outputOwner).toBe("none");
+    }
     handleOmniE2eAudioDone(view, {
       eventType: "response.audio.done",
       responseId: "response-a",
       status: ""
     });
+    if (nativeFailure) expect(output.finish).not.toHaveBeenCalled();
+    const localSpeak = vi.fn(async (_text: string, emit: (pcm: string) => void) => emit(pcmBase64));
+    const local = nativeFailure ? vi.spyOn(breezeSpeech, "sessionBreeze")
+      .mockReturnValue({ speak: localSpeak } as unknown as BreezeResidentWorker) : undefined;
     await finishOmniE2eVoiceTurn(view, "你好，我在。", {
       eventType: "response.done",
       responseId: "response-a",
       status: "completed"
     });
+    const owner = nativeFailure ? "fallback-tts" : "native-e2e";
+    if (nativeFailure) {
+      expect(localSpeak).toHaveBeenCalledExactlyOnceWith("你好，我在。", expect.any(Function), expect.any(AbortSignal));
+      expect(output.start.mock.calls).toEqual([[playbackId, "native-e2e"], [playbackId, "fallback-tts"]]);
+      handleOmniE2eAudioDelta(view, pcmBase64, 24_000, audioEvent);
+      await vi.waitFor(() => expect(output.finish).toHaveBeenCalledOnce());
+      expect(output.appendPcm16).toHaveBeenCalledTimes(2);
+      local?.mockRestore();
+    }
 
     expect(view.agentVoiceSendInFlight).toBe(true);
     expect(view.agentBusy).toBe(true);
@@ -1478,17 +1504,16 @@ describe("voice integration flow", () => {
       playbackDrained: false
     });
 
-    const playbackId = runtime.snapshot().currentTurn?.playbackId ?? "";
     handleOmniE2eAudioOutputEvent(view, {
       type: "started",
       playbackId,
-      owner: "native-e2e",
+      owner,
       timestamp: 1
     });
     handleOmniE2eAudioOutputEvent(view, {
       type: "drained",
       playbackId,
-      owner: "native-e2e",
+      owner,
       timestamp: 2
     });
     await Promise.resolve();
@@ -1849,6 +1874,7 @@ describe("voice integration flow", () => {
     { resident: true, text: "看看我最后一篇日记是哪一天", serverFinal: false },
     { resident: true, text: "看看我最后一篇日记是哪一天", serverFinal: false, playbackFailure: "playing" },
     { resident: true, text: "看看我最后一篇日记是哪一天", serverFinal: false, playbackFailure: "before first frame" },
+    { resident: true, text: "看看我最后一篇日记是哪一天", serverFinal: false, playbackFailure: "chunk delivery" },
     { resident: false, text: "对。", serverFinal: true },
     { resident: false, text: "不对不对。", serverFinal: true }
   ])("routes cascade input $text through the same agent (resident Breeze $resident, failure $playbackFailure)", async ({ resident, text, serverFinal, playbackFailure }) => {
@@ -1973,15 +1999,26 @@ describe("voice integration flow", () => {
     expect(view.scrollAgentTranscriptToBottom).toHaveBeenCalled();
 
     if (output) {
+      if (playbackFailure === "chunk delivery") {
+        vi.spyOn(output.actor, "appendPcm16").mockImplementationOnce(() => {
+          throw new DOMException("Synthetic worklet transfer failure", "DataCloneError");
+        });
+      }
       responseGate.speak?.();
-      await vi.waitFor(() => expect(output.actor.snapshot()?.chunksQueued).toBe(1));
-      if (playbackFailure !== "before first frame") output.render();
+      if (playbackFailure === "chunk delivery") {
+        await vi.waitFor(() => expect(output.actor.snapshot()?.status).toBe("failed"));
+      } else {
+        await vi.waitFor(() => expect(output.actor.snapshot()?.chunksQueued).toBe(1));
+        if (playbackFailure !== "before first frame") output.render();
+      }
       expect(speak).toHaveBeenCalledExactlyOnceWith(reply, expect.any(Function), expect.any(AbortSignal));
       expect(runtime.snapshot().currentTurn).toMatchObject({ modelDone: false });
       if (playbackFailure) {
-        const playing = output.actor.snapshot()!;
-        handleOmniE2eAudioOutputEvent(view, { type: "failed", owner: "fallback-tts",
-          playbackId: playing.playbackId, errorCode: "synthetic_failure", timestamp: Date.now() });
+        if (playbackFailure !== "chunk delivery") {
+          const playing = output.actor.snapshot()!;
+          handleOmniE2eAudioOutputEvent(view, { type: "failed", owner: "fallback-tts",
+            playbackId: playing.playbackId, errorCode: "synthetic_failure", timestamp: Date.now() });
+        }
         expect(runtime.snapshot().currentTurn).toMatchObject({ modelDone: false,
           playbackDrained: playbackFailure === "playing", outputOwner: playbackFailure === "playing" ? "none" : "system" });
         expect(systemSpeak).not.toHaveBeenCalled();
@@ -1994,7 +2031,7 @@ describe("voice integration flow", () => {
         await vi.waitFor(() => expect(output.actor.snapshot()?.status).toBe("draining"));
         output.render();
       }
-      if (playbackFailure === "before first frame") {
+      if (playbackFailure && playbackFailure !== "playing") {
         await vi.waitFor(() => expect(systemSpeak).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ text: reply })));
         expect(runtime.snapshot().currentTurn?.phase).toBe("playing");
         systemSpeak.mock.calls[0][0].onend?.();

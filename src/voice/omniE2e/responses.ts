@@ -117,6 +117,7 @@ export function createOmniResponseHandlers(host: OmniResponseHost) {
     }
     const current = runtime.snapshot().currentTurn;
     if (!current) return;
+    if (current.nativeAudioStarted && current.outputOwner !== "native-e2e") return;
     if (!current.nativeAudioStarted) {
       runtime.markNativeAudioStarted();
       runtime.selectOutputOwner("native-e2e");
@@ -134,8 +135,7 @@ export function createOmniResponseHandlers(host: OmniResponseHost) {
   ): void {
     if (!acceptsOmniRuntimeEvent(view.agentVoiceRuntime, response)) return;
     const runtime = view.agentVoiceRuntime;
-    if (!runtime) return;
-    if (view.controller.settings.realtimeVoice.ttsEngine === "breeze-blue" && !view.agentRealtimeClient?.hasProtectedContextSources?.() && !runtime.snapshot().currentTurn?.nativeAudioStarted) return;
+    if (runtime?.snapshot().currentTurn?.outputOwner !== "native-e2e") return;
     runtime.markNativeAudioDone();
     host.finishOmniPlaybackWhenReady(view);
   }
