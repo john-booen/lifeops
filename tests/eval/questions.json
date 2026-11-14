@@ -910,5 +910,17 @@
       "createdTask": {"titleIncludes": "给橙色档案盒贴标签", "date": "2026-11-13", "endTime": "15:00"},
       "mustInclude": ["橙色档案盒"]
     }
+  },
+  {
+    "id": "device-sleep-55", "milestone": "M8", "domain": "health", "mode": "voice",
+    "input": "这周手表记录的睡眠时长平均是多少？只报天数和小时。", "history": [], "fixture": "device_sleep",
+    "checks": {
+      "mustSucceedTools": ["get_stats"],
+      "toolFacts": [{"name": "get_stats", "output": {"domain": "health", "range": {"from": "2026-11-09", "to": "2026-11-12"}, "sleepHours": {"average": 7.75, "recordedDays": 2}}}],
+      "mustIncludeAny": [["7.75 小时", "7.75小时"], ["2 天", "2天", "两天"]],
+      "mustNotInclude": ["5.5 小时", "5.5小时"],
+      "expectWrites": {"tasks.created": 0, "habits.deleted": 0},
+      "maxConfirmations": 0
+    }
   }
 ]

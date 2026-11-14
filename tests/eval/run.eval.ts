@@ -117,6 +117,11 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
   const app = createFsApp(activeRoot);
   const store = new LifeOpsStore(app, structuredClone(settings));
   await store.initializeVault();
+  if (question.fixture === "device_sleep") {
+    await store.appendHealthEntry({ date: "2026-11-10", sleepHours: 7.25 });
+    await store.appendHealthEntry({ date: "2026-11-12", sleepHours: 8.25 });
+    await store.appendHealthEntry({ date: "2026-11-13", sleepHours: 4 });
+  }
   if (question.fixture === "scheduled_compensation_after_prelude") {
     const existing = await store.readHabitDb();
     await store.writeHabitDb({ ...existing, habits: existing.habits.map(habit => ({ ...habit,
