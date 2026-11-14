@@ -452,7 +452,7 @@ export class AgentLoop {
       guidance.push("只调用 propose_task_plan。每项 date 照抄 draft.date，数量不超过 draft.maxNewTasks。time 只填单个开始时刻 HH:mm（如 09:00），不填时间段、结束时间或时长。不确定时省略 time。若上次未生成卡，按工具报错修正后再调用。不要先写回复或假装有卡。");
     }
     if (state.toolCalls.some(tool => tool.name === "inspect_trade_review" && tool.ok)) {
-      guidance.push("交易复盘只引用已核对的交易、规则和数字。纪律建议只给一项插件内的记录或检查动作。不要建议下单方法、编造执行时限或推测按止损能少亏多少。");
+      guidance.push("交易复盘只引用本轮工具已核对的交易、规则和数字。纪律建议只说具体记录、对应规则和一项插件内的记录或检查动作。用户没问的统计、日记和待办无需提及。不要推断动机、往期表现或可能避免的亏损，也不要建议下单方法。");
     }
     if (evidenceCalls.some(call => call.name === "query_vault" && call.args?.domain === "journal")) {
       guidance.push("概括日记时，逐字引一句状态，列出所读原文里的关键安排，并区分计划与已完成。问情绪原因时只采用用户明说的因果，睡眠、任务或分数不能作为推测依据。找不到就答「日记未说明具体原因」。");
@@ -473,7 +473,7 @@ export class AgentLoop {
       guidance.push("用户问实际学了多久，要带上核对到的学习轨道名称和本轮时段，再报 recordedMinutes 或统计里的 minutes。即使是在纠正前一句，也不能只回一个数字。weeklyMinutes 是本周计划目标；差值不是已学习或未登记时长。");
     }
     if (evidenceCalls.some(call => call.name === "get_summaries")) {
-      guidance.push("历史总结只用用户所问的日期范围。已有摘要能回答就直接答，缺项才查同一日期范围。不要把本周习惯混进上周。明确要求改进时，用同一摘要给一条具体的后续动作。");
+      guidance.push("历史总结只用用户所问的日期范围。已有摘要能回答就直接答，缺项才查同一日期范围。不要把本周习惯混进上周。明确要求改进时，在核对后的指标之后另起一行，用「下一步」标出同一摘要支持的一条具体做法。不得从完成率倒推遗漏项数，也不能借当前待办举证。");
     }
     if (evidenceCalls.some(call => call.name === "list_ideas")) {
       guidance.push("如果用户明确要把已找到的想法拆成任务或要确认卡，立即用该想法的准确 id 调用 advance_idea。调用只生成卡，点击才保存，生成卡前无需问是否立项或先等用户同意。只问状态时按列表回答。");
