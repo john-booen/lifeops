@@ -20,6 +20,9 @@ export class PhoneInboxModal extends Modal {
       return;
     }
     host.createEl("p", { text: PHONE_INBOX_PATH });
+    if (!this.inbox.autoProcessingReady) {
+      host.createEl("p", { text: "文字模型未配置或未授权，合格原行会等待。现在可在本地检查需要核对的记录。" });
+    }
     this.button(host, "打开收件箱", async () => {
       await this.inbox.createFile();
       await this.app.workspace.openLinkText(PHONE_INBOX_PATH, "", true);
@@ -29,7 +32,7 @@ export class PhoneInboxModal extends Modal {
     try {
       const rows = await this.inbox.list();
       if (generation !== this.generation) return;
-      host.createEl("p", { text: rows.length ? summarizePhoneInbox(rows) : "暂无回执。已配置并授权文字模型时会自动处理新行。" });
+      host.createEl("p", { text: rows.length ? summarizePhoneInbox(rows) : "暂无回执。" });
       const list = host.createEl("ol");
       for (const row of rows) this.renderRow(list, row);
     } catch {

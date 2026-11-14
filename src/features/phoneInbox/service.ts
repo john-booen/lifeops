@@ -48,6 +48,10 @@ export class PhoneInbox {
     return !this.stopped && this.host.enabled() && this.allowed(this.host.store());
   }
 
+  get autoProcessingReady(): boolean {
+    return this.enabled && canSubmitPhoneInbox(this.host.store());
+  }
+
   schedule(delay = 650): void {
     clearTimeout(this.scheduled);
     if (!this.enabled) {
