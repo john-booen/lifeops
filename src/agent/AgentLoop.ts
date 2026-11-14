@@ -136,6 +136,17 @@ function isLocalUndoCommand(message: string): boolean {
   return localUndoCommands.has(last && "。！!".includes(last) ? text.slice(0, -1).trimEnd() : text);
 }
 
+function completedTasksFromSummary(output: string, range: { from: string; to: string }): number | undefined {
+  try {
+    const { summaries } = JSON.parse(output) as {
+      summaries: Array<{ from: string; through: string; complete: boolean; metrics?: { tasksCompleted?: number } }>;
+    };
+    const matching = summaries.find(item => item.complete && item.from === range.from && item.through === range.to);
+    const count = matching?.metrics?.tasksCompleted;
+    if (typeof count === "number" && Number.isSafeInteger(count) && count >= 0) return count;
+  } catch { /* Fall back to the original task records when the summary is unavailable. */ }
+}
+
 export class AgentLoop {
   constructor(private readonly host: AgentLoopHost) {}
 
@@ -206,10 +217,20 @@ export class AgentLoop {
         if (tool.name === "get_stats") return voiceStatsTool(backgroundStatsTool(tool));
         return tool.name === "plan_today" ? voiceTaskPriorityTool(tool) : tool;
       });
-      const countRange = fastVoice ? voiceTaskCountFollowup(input.message, history) : undefined;
+      const countRange = !input.voiceBackground && (fastVoice || input.source === "text")
+        ? voiceTaskCountFollowup(input.message, history) : undefined;
       if (countRange) {
         const range = resolveStatsRange(countRange, input.now);
-        const calls = this.scopedCalls([{ name: "get_stats", arguments: { domain: "tasks", range } }], state.id, 0);
+        if (input.source === "text" && (countRange === "last_week" || countRange === "last_month")) {
+          const level = countRange === "last_week" ? "week" : "month";
+          const summaryCalls = this.scopedCalls([{ name: "get_summaries", arguments: { level, range } }], state.id, 0);
+          const [summary] = await this.executeTools(input, state, summaryCalls, context.text, registered);
+          assertProviderActive(input.signal);
+          assertPolicy();
+          const count = summary?.success ? completedTasksFromSummary(summary.output, range) : undefined;
+          if (count !== undefined) return this.localAnswer(input, state, `${level === "week" ? "上周" : "上个月"}完成了 ${count} 项任务。`);
+        }
+        const calls = this.scopedCalls([{ name: "get_stats", arguments: { domain: "tasks", range } }], state.id, 1);
         const [result] = await this.executeTools(input, state, calls, context.text, registered);
         assertProviderActive(input.signal);
         assertPolicy();
