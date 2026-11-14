@@ -1,6 +1,6 @@
 import { attachVoiceWriteReceipts, renderWriteReceipts } from "../writeReceipts";
 import { randomUUID } from "node:crypto";
-import { realtimeProviderError, type RealtimeProviderRunEvent } from "./realtimeProviderRun";
+import type { RealtimeProviderRunEvent } from "./realtimeProviderRun";
 import { realtimeVoiceReadiness } from "../capabilityReadiness";
 import { canUseStreamingHotwords, safeManualHotwords } from "./sessionHotwords";
 import { Notice } from "obsidian";
@@ -2035,65 +2035,6 @@ function armOmniResponseTimer(view: VoiceRealtimeView): void {
   armOmniTimer(view, message => { void fallbackOmniResponseToBrain(view, message); });
 }
 
-export async function fallbackOmniResponseToBrain(
-  view: VoiceRealtimeView,
-  message: string,
-  response?: BailianRealtimeResponseEvent
-): Promise<void> {
-  const isCurrent = captureVoicePresentationGuard(view);
-  if (!isCurrent()) return;
-  const runtime = view.agentVoiceRuntime;
-  const current = runtime?.snapshot().currentTurn;
-  if (
-    !runtime
-    || !current
-    || current.route !== "e2e"
-    || !hasActiveVoiceRuntimeTurn(view)
-    || (response && !acceptsOmniRuntimeEvent(view, response))
-  ) {
-    return;
-  }
-  const failedProposal=projectProposalFailure(view);
-  if(failedProposal) {
-    view.agentRealtimeClient?.cancelResponse?.("invalid_response");
-    await finishOmniE2eVoiceTurn(view,failedProposal,response);
-    return;
-  }
-  const transcript = current.transcript.trim();
-  if (!transcript) {
-    failOmniE2eVoiceTurn(view, message, response);
-    return;
-  }
-
-  clearVoiceRecoveryTimers(view);
-  const circuit = view.agentVoiceCircuitBreaker?.recordFailure?.(
-    message.includes("timeout") ? "e2e_response_timeout" : "e2e_response_failed"
-  );
-  runtime.setRoute("brain");
-  view.agentRealtimeClient?.cancelResponse?.(realtimeProviderError(message).code);
-  if (current.playbackId) {
-    runtime.selectOutputOwner("none");
-    view.agentAudioOutput?.cancel?.(current.playbackId, "provider_response_fallback");
-  }
-  view.agentTtsClient?.cancel?.();
-  view.agentTtsClient = null;
-  view.agentOmniPendingAudio = [];
-  retireOmniPlaybackDrain(view);
-  view.agentOmniPlaybackReady = null;
-  view.agentVoiceFallbackReason = "";
-  view.agentSpeaking = false;
-  view.agentReply = circuit?.state === "open"
-    ? "实时语音连续失败，已打开备用模式；LifeOps 文字主脑正在接管本轮..."
-    : "实时模型本轮没有正常结束，LifeOps 文字主脑正在接管...";
-  view.refreshAgentSurfaceState();
-  await view.controller.appendQualityLog?.({
-    inputSource: "voice",
-    errorCode: "omni_response_fallback"
-  }).catch(() => undefined);
-  if (!isCurrent()) return;
-  await sendRoutedLifeOpsVoiceTurn(view, transcript, "brain");
-}
-
 function shouldReconnectVoice(view: VoiceRealtimeView): boolean {
   return Boolean(
     view.agentMode === "voice"
@@ -2172,10 +2113,20 @@ function captureVoicePresentationGuard(view: VoiceRealtimeView): () => boolean {
   };
 }
 
-const { handleOmniE2eResponseCreated, handleOmniE2eAudioDelta, handleOmniE2eAudioDone, finishOmniE2eVoiceTurn, settleCommittedOmniTool, currentOmniModelTerminal, retireModelTerminal } = createOmniResponseHandlers({
-  isOmniE2eRealtimeMode, hasActiveVoiceRuntimeTurn, armOmniResponseTimer, failOmniE2eVoiceTurn, acceptsOmniRuntimeEvent, base64ToPcm16, ensureOmniPlayback, finishOmniPlaybackWhenReady, captureVoicePresentationGuard, checkOmniContextSources, clearOmniResponseTimer, startSystemSpeechForActiveTurn, settleCompletedOmniE2eVoiceTurn: settleManagedVoiceTurn, startFallbackTtsForActiveTurn, updateManagedAssistantText, clearVoiceReconnectState, clearVoiceRecoveryTimers, cleanupRealtimeAudio
+const {
+  handleOmniE2eResponseCreated, handleOmniE2eAudioDelta, handleOmniE2eAudioDone, finishOmniE2eVoiceTurn,
+  settleCommittedOmniTool, fallbackOmniResponseToBrain, currentOmniModelTerminal, retireModelTerminal
+} = createOmniResponseHandlers({
+  isOmniE2eRealtimeMode, hasActiveVoiceRuntimeTurn, armOmniResponseTimer, failOmniE2eVoiceTurn, acceptsOmniRuntimeEvent,
+  base64ToPcm16, ensureOmniPlayback, finishOmniPlaybackWhenReady, captureVoicePresentationGuard, checkOmniContextSources,
+  clearOmniResponseTimer, startSystemSpeechForActiveTurn, settleCompletedOmniE2eVoiceTurn: settleManagedVoiceTurn,
+  startFallbackTtsForActiveTurn, updateManagedAssistantText, clearVoiceReconnectState, clearVoiceRecoveryTimers,
+  cleanupRealtimeAudio, retireOmniPlaybackDrain, sendRoutedLifeOpsVoiceTurn
 });
-export { handleOmniE2eResponseCreated, handleOmniE2eAudioDelta, handleOmniE2eAudioDone, finishOmniE2eVoiceTurn, settleCommittedOmniTool };
+export {
+  handleOmniE2eResponseCreated, handleOmniE2eAudioDelta, handleOmniE2eAudioDone, finishOmniE2eVoiceTurn,
+  settleCommittedOmniTool, fallbackOmniResponseToBrain
+};
 
 export function executeOmniE2eToolCall(view: VoiceRealtimeView, toolCall: AiToolCall): Promise<string>;
 export function executeOmniE2eToolCall(view: VoiceRealtimeView, toolCall: AiToolCall, retainOutput: true): Promise<string | RealtimeToolOutput>;

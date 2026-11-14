@@ -2,6 +2,7 @@ import type { BailianRealtimeResponseEvent } from "../../bailianRealtime";
 import type { RealtimeVoiceSettings } from "../../types";
 import type { VoiceSessionController } from "../voiceRuntime";
 import { projectProposalFailure } from "./projectProposals";
+import { realtimeProviderError } from "../realtimeProviderRun";
 
 type VoiceRealtimeView = any;
 
@@ -9,7 +10,7 @@ interface OmniResponseHost {
   isOmniE2eRealtimeMode(settings: RealtimeVoiceSettings): boolean;
   hasActiveVoiceRuntimeTurn(view: VoiceRealtimeView): boolean;
   armOmniResponseTimer(view: VoiceRealtimeView): void;
-  failOmniE2eVoiceTurn(view: VoiceRealtimeView, message: string): void;
+  failOmniE2eVoiceTurn(view: VoiceRealtimeView, message: string, response?: BailianRealtimeResponseEvent): void;
   acceptsOmniRuntimeEvent(view: VoiceRealtimeView, response?: BailianRealtimeResponseEvent): boolean;
   base64ToPcm16(audio: string): Int16Array;
   ensureOmniPlayback(view: VoiceRealtimeView, owner: "native-e2e"): Promise<unknown>;
@@ -24,6 +25,8 @@ interface OmniResponseHost {
   clearVoiceReconnectState(view: VoiceRealtimeView): void;
   clearVoiceRecoveryTimers(view: VoiceRealtimeView): void;
   cleanupRealtimeAudio(view: VoiceRealtimeView): void;
+  retireOmniPlaybackDrain(view: VoiceRealtimeView): void;
+  sendRoutedLifeOpsVoiceTurn(view: VoiceRealtimeView, transcript: string, route: "brain"): Promise<void>;
 }
 
 type OmniModelTerminalReceipt = {
@@ -211,6 +214,65 @@ export function createOmniResponseHandlers(host: OmniResponseHost) {
     await host.settleCompletedOmniE2eVoiceTurn(view, reply);
   }
 
+  async function fallbackOmniResponseToBrain(
+    view: VoiceRealtimeView,
+    message: string,
+    response?: BailianRealtimeResponseEvent
+  ): Promise<void> {
+    const isCurrent = host.captureVoicePresentationGuard(view);
+    if (!isCurrent()) return;
+    const runtime = view.agentVoiceRuntime;
+    const current = runtime?.snapshot().currentTurn;
+    if (
+      !runtime
+      || !current
+      || current.route !== "e2e"
+      || !host.hasActiveVoiceRuntimeTurn(view)
+      || (response && !host.acceptsOmniRuntimeEvent(view, response))
+    ) {
+      return;
+    }
+    const failedProposal = projectProposalFailure(view);
+    if (failedProposal) {
+      view.agentRealtimeClient?.cancelResponse?.("invalid_response");
+      await finishOmniE2eVoiceTurn(view, failedProposal, response);
+      return;
+    }
+    const transcript = current.transcript.trim();
+    if (!transcript) {
+      host.failOmniE2eVoiceTurn(view, message, response);
+      return;
+    }
+
+    host.clearVoiceRecoveryTimers(view);
+    const circuit = view.agentVoiceCircuitBreaker?.recordFailure?.(
+      message.includes("timeout") ? "e2e_response_timeout" : "e2e_response_failed"
+    );
+    runtime.setRoute("brain");
+    view.agentRealtimeClient?.cancelResponse?.(realtimeProviderError(message).code);
+    if (current.playbackId) {
+      runtime.selectOutputOwner("none");
+      view.agentAudioOutput?.cancel?.(current.playbackId, "provider_response_fallback");
+    }
+    view.agentTtsClient?.cancel?.();
+    view.agentTtsClient = null;
+    view.agentOmniPendingAudio = [];
+    host.retireOmniPlaybackDrain(view);
+    view.agentOmniPlaybackReady = null;
+    view.agentVoiceFallbackReason = "";
+    view.agentSpeaking = false;
+    view.agentReply = circuit?.state === "open"
+      ? "实时语音连续失败，已打开备用模式；LifeOps 文字主脑正在接管本轮..."
+      : "实时模型本轮没有正常结束，LifeOps 文字主脑正在接管...";
+    view.refreshAgentSurfaceState();
+    await view.controller.appendQualityLog?.({
+      inputSource: "voice",
+      errorCode: "omni_response_fallback"
+    }).catch(() => undefined);
+    if (!isCurrent()) return;
+    await host.sendRoutedLifeOpsVoiceTurn(view, transcript, "brain");
+  }
+
   /** A private Runtime receipt ends this connection without another model/TTS request. */
   async function settleCommittedOmniTool(view:VoiceRealtimeView,text:string,response:BailianRealtimeResponseEvent):Promise<void>{
     if(view.viewClosed || !host.hasActiveVoiceRuntimeTurn(view) || !host.acceptsOmniRuntimeEvent(view,response))return;
@@ -237,5 +299,9 @@ export function createOmniResponseHandlers(host: OmniResponseHost) {
     }
   }
 
-  return { handleOmniE2eResponseCreated, handleOmniE2eAudioDelta, handleOmniE2eAudioDone, finishOmniE2eVoiceTurn, settleCommittedOmniTool, currentOmniModelTerminal, retireModelTerminal: (view: VoiceRealtimeView) => omniModelTerminals.delete(view) };
+  return {
+    handleOmniE2eResponseCreated, handleOmniE2eAudioDelta, handleOmniE2eAudioDone, finishOmniE2eVoiceTurn,
+    settleCommittedOmniTool, fallbackOmniResponseToBrain, currentOmniModelTerminal,
+    retireModelTerminal: (view: VoiceRealtimeView) => omniModelTerminals.delete(view)
+  };
 }
