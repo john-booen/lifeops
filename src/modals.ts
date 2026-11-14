@@ -312,7 +312,7 @@ export class CsvImportModal extends Modal {
     contentEl.addClass("lifeops-form-modal");
     contentEl.createEl("h2", { text: "导入健康 CSV" });
     contentEl.createEl("p", {
-      text: "支持字段：date/日期、sleepHours/睡眠小时、weightKg/体重、steps/步数、exercise/运动、fatigue/疲劳、energy/精力、note/备注。"
+      text: "支持字段：date/日期、sleepHours/睡眠小时、weightKg/体重、steps/步数、runningKm/跑步距离、restingHeartRate/静息心率、exercise/运动、fatigue/疲劳、energy/精力、note/备注。"
     });
     new Setting(contentEl).addTextArea((text) => {
       text.setPlaceholder("date,sleepHours,steps\n2026-05-25,7.5,8000");
@@ -326,8 +326,14 @@ export class CsvImportModal extends Modal {
       button.setButtonText("导入").setCta().onClick(async () => {
         const value = this.value.trim();
         if (!value) return;
-        await this.onSubmit(value);
-        this.close();
+        button.setDisabled(true);
+        try {
+          await this.onSubmit(value);
+          this.close();
+        } catch (error) {
+          new Notice(error instanceof Error ? error.message : "健康 CSV 未导入，请核对格式。");
+          button.setDisabled(false);
+        }
       });
     });
   }

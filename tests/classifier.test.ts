@@ -56,4 +56,23 @@ describe("parseHealthCsv", () => {
     expect(entries[0].sleepHours).toBe(7.5);
     expect(entries[0].steps).toBe(8000);
   });
+
+  it("reads documented units and keeps missing metrics distinct from explicit zeros", () => {
+    const [entry] = parseHealthCsv('日期,睡眠小时,步数,体重,跑步距离,静息心率\n2026-05-25,—,"8,000 步",68.5 公斤,0 km,62 bpm');
+    expect(entry).toMatchObject({ date: "2026-05-25", steps: 8000, weightKg: 68.5, runningKm: 0, restingHeartRate: 62 });
+    expect(entry.sleepHours).toBeUndefined();
+  });
+
+  it.each([
+    ["2026-05-26,坏值", /第 2 条健康记录.*睡眠小时/],
+    ["2026-05-26,7小时30分", /第 2 条健康记录.*睡眠小时/],
+    ["2026-05-26,25", /第 2 条健康记录.*睡眠小时/],
+    ["2026-02-30,7.5", /第 2 条健康记录.*日期/]
+  ])("rejects an invalid row rather than silently changing a metric: %s", (row, error) => {
+    expect(() => parseHealthCsv(`日期,睡眠小时\n2026-05-25,7\n${row}`)).toThrow(error);
+  });
+
+  it("rejects unquoted comma-separated thousands that would shift values", () => {
+    expect(() => parseHealthCsv("日期,步数\n2026-05-25,8,000")).toThrow(/第 1 条健康记录的列数/);
+  });
 });

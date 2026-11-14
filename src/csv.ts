@@ -1,10 +1,14 @@
 import type { HealthEntry } from "./types";
+import { healthDay } from "./features/health/model";
 
-export function parseCsv(text: string): Record<string, string>[] {
-  const rows = parseCsvGrid(text);
+export function parseCsv(text: string, strict = false): Record<string, string>[] {
+  const rows = parseCsvGrid(text, strict);
   if (rows.length === 0) return [];
   const headers = rows[0].map((value) => value.trim());
-  return rows.slice(1).map((values) => {
+  return rows.slice(1).map((values, index) => {
+    if (strict && values.length > headers.length) {
+      throw Error(`第 ${index + 1} 条健康记录的列数超过表头。含逗号的字段请用双引号括起来。`);
+    }
     return headers.reduce<Record<string, string>>((record, header, index) => {
       record[header] = values[index]?.trim() ?? "";
       return record;
@@ -13,20 +17,28 @@ export function parseCsv(text: string): Record<string, string>[] {
 }
 
 export function parseHealthCsv(text: string): HealthEntry[] {
-  return parseCsv(text)
-    .map((row) => ({
-      date: row.date || row["日期"] || row.day || "",
-      sleepHours: numberFrom(row.sleepHours || row["睡眠小时"] || row.sleep || row["睡眠"]),
-      weightKg: numberFrom(row.weightKg || row["体重"] || row.weight),
-      steps: numberFrom(row.steps || row["步数"]),
-      runningKm: numberFrom(row.runningKm || row["跑步距离"]),
-      restingHeartRate: numberFrom(row.restingHeartRate || row["静息心率"]),
-      exercise: row.exercise || row["运动"] || "",
-      fatigue: numberFrom(row.fatigue || row["疲劳"]),
-      energy: numberFrom(row.energy || row["精力"]),
-      note: row.note || row["备注"] || ""
-    }))
-    .filter((entry) => /^\d{4}-\d{2}-\d{2}$/.test(entry.date));
+  const rows = parseCsv(text, true);
+  return rows.flatMap((row, index) => {
+    if (Object.values(row).every(value => !value)) return [];
+    try {
+      const entry = healthDay(row.date || row["日期"] || row.day || "", {
+        sleepHours: numberFrom(row.sleepHours || row["睡眠小时"] || row.sleep || row["睡眠"], "睡眠小时", /\s*(?:小时|hrs?|h)$/iu),
+        weightKg: numberFrom(row.weightKg || row["体重"] || row.weight, "体重", /\s*(?:公斤|千克|kg)$/iu),
+        steps: numberFrom(row.steps || row["步数"], "步数", /\s*(?:步|steps?)$/iu),
+        runningKm: numberFrom(row.runningKm || row["跑步距离"], "跑步距离", /\s*(?:公里|千米|km)$/iu),
+        restingHeartRate: numberFrom(row.restingHeartRate || row["静息心率"], "静息心率", /\s*(?:次\/分|bpm)$/iu)
+      });
+      return [{
+        ...entry,
+        exercise: row.exercise || row["运动"] || "",
+        fatigue: numberFrom(row.fatigue || row["疲劳"], "疲劳"),
+        energy: numberFrom(row.energy || row["精力"], "精力"),
+        note: row.note || row["备注"] || ""
+      }];
+    } catch (error) {
+      throw Error(`第 ${index + 1} 条健康记录：${error instanceof Error ? error.message : "无法读取。"}`);
+    }
+  });
 }
 
 export function parseCsvGrid(text: string, strict = false): string[][] {
@@ -70,8 +82,13 @@ function splitCsvLine(line: string): string[] {
   return cells;
 }
 
-function numberFrom(value: string | undefined): number | undefined {
-  if (!value) return undefined;
-  const number = Number(String(value).replace(/[^\d.-]/g, ""));
-  return Number.isFinite(number) ? number : undefined;
+function numberFrom(value: string | undefined, field: string, unit?: RegExp): number | undefined {
+  if (!value || /^(?:--?|—|n\/?a)$/iu.test(value)) return undefined;
+  const digits = unit ? value.replace(unit, "") : value;
+  if (!/^[+-]?(?:(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?|\.\d+)$/u.test(digits)) {
+    throw Error(`${field}的数字或单位需要核对。`);
+  }
+  const number = Number(digits.replaceAll(",", ""));
+  if (!Number.isFinite(number)) throw Error(`${field}的数字或单位需要核对。`);
+  return number;
 }
