@@ -255,6 +255,33 @@ beforeEach(async () => {
 });
 afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllGlobals(); await rm(root, { recursive: true, force: true }); });
 
+it.each(["text", "voice"] as const)("presents quiz questions without a model-written answer example in %s", async source => {
+  responses.push(
+    reply("", [tool("load_more_tools", {}, "expand")]),
+    reply("", [tool("start_quiz", { trackId: "quant", count: 2 }, "quiz")]),
+    reply("请按题号作答，例如第一题：不参与。")
+  );
+  const executeTools = host.executeTools;
+  const receipt = { operationId: "fictional-quiz" };
+  host.executeTools = (calls, message, signal, onResult) => calls[0]?.name !== "start_quiz"
+    ? executeTools(calls, message, signal, onResult)
+    : Promise.resolve(calls.map(call => {
+      const result = { callId: call.id!, success: true, actions: [], receipt, output: JSON.stringify({ cards: [
+        { number: 1, question: "样本外数据是否参与参数选择？" },
+        { number: 2, question: "如何从毛收益得到净收益？" }
+      ] }) };
+      onResult(call, result);
+      return result;
+    }));
+  const onVoiceText = vi.fn();
+  const result = await new AgentLoop(host).run(input({ message: "从虚构量化笔记考我两题，先只出题。", source, onVoiceText }));
+  expect(result.text).toBe("第 1 题：样本外数据是否参与参数选择？\n\n第 2 题：如何从毛收益得到净收益？\n\n请按题号作答。");
+  if (source === "voice") expect(result.voiceSpeech).toBe(result.text);
+  expect(onVoiceText).not.toHaveBeenCalled();
+  expect(result.receipts).toEqual([receipt]);
+  expect(requests).toHaveLength(2);
+});
+
 it("asks for an actual day for a vague weekend plan and never saves a guessed date", async () => {
   const loop = new AgentLoop(host);
   const ambiguous = await loop.run(input({ message: "周末我要给虚构盆栽换盆。" }));

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { AiChatResult, AiToolCall, AiToolDefinition, ChatMessage, LifeOpsAi } from "../ai";
 import type { ToolCallResult } from "../agentRuntime";
 import { formatDate } from "../date";
+import { formatQuizQuestions } from "../features/learning/quizTools";
 import { habitDateEvidence } from "../features/stats/habitEvidence";
 import { asksForRecentStatus, formatRecentStatus, recentStatusDomains } from "../features/stats/statusEvidence";
 import { backgroundStatsTool } from "../features/stats/tools";
@@ -270,7 +271,11 @@ export class AgentLoop {
           let reply: string | undefined;
           if (isVoiceJobTool(call.name)) reply = single.output;
           else if (round === 0 && call.name === "undo_latest_operation") reply = single.output;
-          else if (!input.voiceBackground && call.name === "get_stats" && call.arguments.rankByNetPnl === true
+          else if (call.name === "start_quiz" && !state.confirmations.size && state.receipts.size <= 1
+            && (!state.receipts.size || single.receipt)) {
+            reply = formatQuizQuestions(single.output);
+            if (reply && input.source === "voice" && single.receipt) state.voiceSpeech = reply;
+          } else if (!input.voiceBackground && call.name === "get_stats" && call.arguments.rankByNetPnl === true
             && call.arguments.domain === "trades" && call.arguments.groupBy === "model" && call.arguments.combineUsd !== true) {
             const ranking = (JSON.parse(single.output) as { modelRanking?: string }).modelRanking;
             if (typeof ranking === "string" && ranking) reply = ranking;
