@@ -1,5 +1,4 @@
 import { ItemView, Notice, setIcon, WorkspaceLeaf } from "obsidian";
-import * as THREE from "three";
 import { BailianRealtimeClient } from "../bailianRealtime";
 import { BailianRealtimeTtsClient } from "../bailianTtsRealtime";
 import { createTtsClient } from "../breezeLocalTts";

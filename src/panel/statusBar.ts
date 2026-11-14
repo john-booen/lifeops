@@ -1,5 +1,5 @@
 import { ItemView, Notice, setIcon, WorkspaceLeaf } from "obsidian";
-import * as THREE from "three";
+import { AdditiveBlending, BufferAttribute, BufferGeometry, Material, PerspectiveCamera, Points, PointsMaterial, Scene, WebGLRenderer } from "three";
 import { BailianRealtimeClient } from "../bailianRealtime";
 import { BailianRealtimeTtsClient } from "../bailianTtsRealtime";
 import type { AiToolCall } from "../ai";
@@ -1544,11 +1544,11 @@ export function applyStatusBarPanel(View: ViewConstructor): void {
 
 type AgentVisualActivity = "idle" | "listening" | "thinking" | "speaking";
 
-class LifeOpsAgentVisual {
-  private renderer: THREE.WebGLRenderer | null = null;
-  private scene: THREE.Scene | null = null;
-  private camera: THREE.PerspectiveCamera | null = null;
-  private points: THREE.Points | null = null;
+export class LifeOpsAgentVisual {
+  private renderer: WebGLRenderer | null = null;
+  private scene: Scene | null = null;
+  private camera: PerspectiveCamera | null = null;
+  private points: Points | null = null;
   private frame = 0;
   private animation = 0;
   private readonly onResize = () => this.resize();
@@ -1556,13 +1556,13 @@ class LifeOpsAgentVisual {
   constructor(private readonly canvas: HTMLCanvasElement, private readonly activity: AgentVisualActivity) {}
 
   start(): void {
-    this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(48, 1, 0.1, 100);
+    this.scene = new Scene();
+    this.camera = new PerspectiveCamera(48, 1, 0.1, 100);
     this.camera.position.set(0, 0, 7.2);
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, alpha: true, antialias: true });
+    this.renderer = new WebGLRenderer({ canvas: this.canvas, alpha: true, antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-    const geometry = new THREE.BufferGeometry();
+    const geometry = new BufferGeometry();
     const count = 720;
     const positions = new Float32Array(count * 3);
     const colors = new Float32Array(count * 3);
@@ -1578,17 +1578,17 @@ class LifeOpsAgentVisual {
       colors[index * 3 + 1] = this.activity === "listening" ? 0.78 - t * 0.18 : 0.72 - t * 0.2;
       colors[index * 3 + 2] = this.activity === "thinking" ? 0.9 : 0.96;
     }
-    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-    const material = new THREE.PointsMaterial({
+    geometry.setAttribute("position", new BufferAttribute(positions, 3));
+    geometry.setAttribute("color", new BufferAttribute(colors, 3));
+    const material = new PointsMaterial({
       size: this.activity === "idle" ? 0.04 : 0.052,
       vertexColors: true,
       transparent: true,
       opacity: this.activity === "idle" ? 0.72 : 0.92,
       depthWrite: false,
-      blending: THREE.AdditiveBlending
+      blending: AdditiveBlending
     });
-    this.points = new THREE.Points(geometry, material);
+    this.points = new Points(geometry, material);
     this.scene.add(this.points);
     window.addEventListener("resize", this.onResize);
     this.resize();
@@ -1599,7 +1599,7 @@ class LifeOpsAgentVisual {
     window.removeEventListener("resize", this.onResize);
     window.cancelAnimationFrame(this.animation);
     this.points?.geometry.dispose();
-    (this.points?.material as THREE.Material | undefined)?.dispose();
+    (this.points?.material as Material | undefined)?.dispose();
     this.renderer?.dispose();
     this.renderer = null;
     this.scene = null;
@@ -1624,7 +1624,7 @@ class LifeOpsAgentVisual {
     this.points.rotation.x = Math.sin(this.frame * 0.8) * (this.activity === "idle" ? 0.12 : 0.22);
     this.points.rotation.y += this.activity === "idle" ? 0.004 : 0.009;
     this.points.scale.setScalar(breath);
-    const positions = this.points.geometry.getAttribute("position") as THREE.BufferAttribute;
+    const positions = this.points.geometry.getAttribute("position") as BufferAttribute;
     for (let index = 0; index < positions.count; index += 9) {
       const z = positions.getZ(index);
       positions.setZ(index, z + Math.sin(this.frame * 9 + index * 0.025) * (this.activity === "idle" ? 0.002 : 0.006));
