@@ -13,6 +13,7 @@ import {
 } from "./settingsSlice";
 import { bindDashboardContextData, contextDataPolicy, readContextHabits, readContextTasks } from "../contextData";
 import { automaticHabitProgress } from "../features/habits/tradeProgress";
+import { isHealthHabitSource } from "../features/health/habits";
 import { advanceCompensationDebt } from "../features/habits/compensationDebt";
 import { isVaultPathExcluded } from "../privacy";
 
@@ -273,7 +274,7 @@ async getTaskDashboard(this: StoreHost, date: string = todayString(), options: {
     const habitContext = options.forContext ? await readContextHabits(this) : undefined;
     const db = taskContext ? { tasks: taskContext.tasks } : await this.readTaskDb();
     const habitDb = habitContext ? habitContext.database : await this.readHabitDb();
-    const progress = habitContext ? { checkins: habitDb.checkins, unavailable: habitContext.tradeUnavailable }
+    const progress = habitContext ? { checkins: habitDb.checkins, unavailable: habitContext.tradeUnavailable, healthPartial: habitContext.healthPartial }
       : await automaticHabitProgress(this, habitDb);
     const tasks = (options.forContext ? db.tasks.slice()
       : advanceCompensationDebt(db.tasks, habitDb.habits, todayString(), this.settings.habitCompensation)).sort(sortTasks);
@@ -286,7 +287,6 @@ async getTaskDashboard(this: StoreHost, date: string = todayString(), options: {
       "not-important-urgent": [],
       "not-important-not-urgent": []
     };
-
     for (const task of allActive) {
       quadrants[task.quadrant].push(task);
     }
@@ -308,6 +308,11 @@ async getTaskDashboard(this: StoreHost, date: string = todayString(), options: {
       })),
       habits: await this.buildHabitDashboard(progress.checkins, date, { ...habitDb, checkins: progress.checkins }, progress.unavailable)
     };
+    if (progress.healthPartial) {
+      for (const item of dashboard.habits) {
+        if (isHealthHabitSource(item.habit.source)) item.healthCoveragePartial = true;
+      }
+    }
     if (taskContext && habitContext && policy) {
       if (contextDataPolicy(this) !== policy) throw new Error("当前记录权限变化，无法核对上下文。");
       bindDashboardContextData(dashboard, { tasks: taskContext, habits: habitContext, policy });

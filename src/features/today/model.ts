@@ -67,7 +67,8 @@ export function buildTodayCard(board: TaskDashboardData, signals: readonly Journ
     priorities: priorities.slice(0, 3).map(({ task, reasons }) => ({ id: task.id, title: task.title, reasons })),
     habits: board.habits.map(item => ({
       id: item.habit.id, title: item.habit.name, done: item.periodDone, target: item.periodTarget,
-      period: item.periodLabel, unit: item.periodUnit ?? "次", unavailable: item.periodUnavailable
+      period: item.periodLabel, unit: item.periodUnit ?? "次", unavailable: item.periodUnavailable,
+      ...(item.healthCoveragePartial ? { healthCoveragePartial: true } : {})
     })),
     compensationSummary: compensationSummaryLine(summarizeCompensationDebt(board.tasks, today)),
     penalties: board.tasks.filter(task => task.status === "active" && task.category === "punishment" && task.habitPunishment)

@@ -676,6 +676,7 @@ const statusBarPanel = {
             : `${habitRequirementLabel(item)} · ${habitFrequencyLabel(item.habit)} · ${item.periodLabel} ${periodProgress} · 连续 ${item.streak} 天 · 总计 ${item.totalDone} ${auto ? "笔" : "次"}`,
           cls: item.weeklyFailures > 0 ? "lifeops-warning-text" : "lifeops-muted"
         });
+        if (item.healthCoveragePartial) left.createDiv({ text: "只统计可读的健康记录", cls: "lifeops-muted" });
         const status = top.createDiv({ cls: `lifeops-habit-status status-${item.status}` });
         status.createSpan({ text: item.periodUnavailable ? "交易记录暂不可用"
           : auto && item.status !== "leave" ? item.status === "done" ? "已达标" : "未达标" : habitStatusLabel(item.status) });

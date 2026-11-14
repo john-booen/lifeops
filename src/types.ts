@@ -611,6 +611,7 @@ export interface HabitDashboardItem {
   periodLabel: string;
   periodUnit?: string;
   periodUnavailable?: boolean;
+  healthCoveragePartial?: boolean;
   history: HabitCheckin[];
 }
 

@@ -92,6 +92,8 @@ it("links opted-in habits to daily snapshots without stacking data or overriding
   expect(habitStats.success).toBe(true);
   expect(JSON.parse(habitStats.output)).toMatchObject({ scope: "只统计允许读取的记录" });
   expect((await readHabitContextWithEvidence(store, date)).text).toContain("只统计可读的健康记录");
+  const partialDashboard = await store.getTaskDashboard(date);
+  expect((await getTodayCard(store, partialDashboard)).habits.find(row => row.id === habit.id)?.healthCoveragePartial).toBe(true);
 });
 
 it("keeps field-looking lines entered as free text out of numerical records", async () => {
