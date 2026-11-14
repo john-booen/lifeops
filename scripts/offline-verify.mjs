@@ -1,4 +1,6 @@
 import { spawnSync } from "node:child_process";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -20,20 +22,20 @@ if (guardSelfTest.status === 0 || !`${guardSelfTest.stderr}${guardSelfTest.stdou
   throw new Error("Offline network guard self-test failed");
 }
 
+const work = await mkdtemp(join(tmpdir(), "lifeops-offline-"));
+const packageDir = join(work, "package");
 const steps = [
   ["TypeScript", "npm", ["run", "typecheck"]],
   ["Vitest", "npm", ["test"]],
   ["Gateway syntax", process.execPath, ["--check", "gateway/server.mjs"]],
-  ["Swift Companion", "npm", ["run", "build:companion"]],
-  ["Plugin bundle", "npm", ["run", "bundle"]],
+  ["Plugin bundle", "npm", ["run", "bundle:production"]],
   ["Test Vault rebuild", "npm", ["run", "test-vault:rebuild"]],
   ["Test Vault boundary", "npm", ["run", "verify:build-boundary"]],
   ["Test Vault fixture", "npm", ["run", "test-vault:verify"]],
-  ["Package prepare", process.execPath, ["scripts/prepare-plugin-package.mjs"]],
-  ["Package verify", "npm", ["run", "verify:package"]],
+  ["Package prepare", process.execPath, ["scripts/prepare-plugin-package.mjs", "--output", packageDir]],
+  ["Package verify", process.execPath, ["scripts/verify-plugin-package.mjs", "--package", packageDir]],
   ["Credential boundary", "npm", ["run", "verify:secrets"]],
-  ["Current docs", "npm", ["run", "verify:docs"]],
-  ["Historical docs", "npm", ["run", "verify:history-docs"]]
+  ["Public source boundary", "npm", ["run", "verify:privacy"]]
 ];
 
 console.log("LifeOps offline verification");

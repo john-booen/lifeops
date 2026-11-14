@@ -4,7 +4,9 @@ body:
   - type: input
     id: version
     attributes:
-      label: 插件版本与操作系统
+      label: LifeOps 版本、Obsidian 版本与操作系统
+      description: Obsidian 的「设置 → 关于」会显示应用版本和安装器版本，请一起填上。
+      placeholder: 例如 LifeOps 0.5.9 / Obsidian 1.15.1 / 安装器 1.12.7 / macOS
     validations:
       required: true
   - type: textarea
