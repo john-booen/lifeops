@@ -84,11 +84,15 @@ class HealthScreenshotModal extends Modal {
     const status = contentEl.createEl("p", { attr: { role: "status" } });
     new Setting(contentEl).addButton(button => button.setButtonText("确认并保存").setCta().onClick(async () => {
       if (button.buttonEl.disabled) return;
+      const inputs = fields.flatMap(({ pick, date, metrics }) => [pick, date, ...metrics.map(([, field]) => field)]);
       button.setDisabled(true);
+      for (const input of inputs) input.disabled = true;
       try {
         current();
         const entries = fields.filter(row => row.pick.checked).map(({ date, metrics }) =>
-          healthDay(date.value, Object.fromEntries(metrics.map(([key, field]) => [key, field.value.trim() ? field.valueAsNumber : undefined]))));
+          healthDay(date.value, Object.fromEntries(metrics.map(([key, field]) => [
+            key, field.validity.badInput ? NaN : field.value.trim() ? field.valueAsNumber : undefined
+          ]))));
         if (!entries.length || entries.some(entry => entry.date > todayString() || !healthMetricKeys.some(key => entry[key] !== undefined))) {
           throw Error("请勾选至少一条有指标的记录，并核对日期。");
         }
@@ -103,6 +107,7 @@ class HealthScreenshotModal extends Modal {
       } catch (error) {
         if (!this.request.signal.aborted) {
           status.setText((error as Error).message || "健康记录未读回，请核对最近操作。");
+          for (const input of inputs) input.disabled = false;
           button.setDisabled(false);
         }
       }
