@@ -6,13 +6,58 @@ import { DEFAULT_SETTINGS } from "../src/defaults";
 import { setProviderEgressSink } from "../src/privacy";
 import { confirmTradeScreenshot, parseTradeScreenshotRows, previewTradeScreenshot, readTradeScreenshot } from "../src/features/trading/screenshotImport";
 import { recognizeTradeScreenshot } from "../src/features/trading/screenshotVision";
+import { openTradeScreenshotImport } from "../src/features/trading/screenshotImportModal";
 import { readTradeDatabase } from "../src/features/trading/persistence";
 import type { StoreHost } from "../src/store/settingsSlice";
 import type { LocalOperationHost } from "../src/features/serviceHost";
 import { createFsApp } from "./helpers/fsApp";
 
-vi.mock("obsidian", () => ({ App: class {}, Notice: class {}, TFile: class {}, TFolder: class {},
-  normalizePath: (path: string) => path.replace(/\\/g, "/").replace(/\/{2,}/g, "/") }));
+const ui = vi.hoisted(() => {
+  class Element {
+    children: Element[] = [];
+    textContent = "";
+    disabled = false;
+    checked = false;
+    onchange?: () => void;
+    onClick?: () => Promise<void>;
+    constructor(readonly tag: string) {}
+    createEl(tag: string, options?: { text?: string }) {
+      const child = new Element(tag);
+      child.textContent = options?.text ?? "";
+      this.children.push(child);
+      return child;
+    }
+    empty() { this.children = []; }
+    addClass() {}
+    setText(text: string) { this.textContent = text; }
+  }
+  const root = new Element("modal");
+  const elements = (element = root): Element[] => [element, ...element.children.flatMap(child => elements(child))];
+  return { root, elements };
+});
+vi.mock("obsidian", () => ({
+  App: class {}, Notice: class {}, TFile: class {}, TFolder: class {},
+  Modal: class {
+    contentEl = ui.root;
+    open() { (this as unknown as { onOpen(): void }).onOpen(); }
+    close() { (this as unknown as { onClose(): void }).onClose(); }
+  },
+  Setting: class {
+    constructor(private readonly host: typeof ui.root) {}
+    addButton(callback: (button: unknown) => void) {
+      const el = this.host.createEl("button");
+      const button = {
+        buttonEl: el, setCta: () => button,
+        setButtonText: (text: string) => { el.setText(text); return button; },
+        setDisabled: (disabled: boolean) => { el.disabled = disabled; return button; },
+        onClick: (handler: () => Promise<void>) => { el.onClick = handler; return button; }
+      };
+      callback(button);
+      return this;
+    }
+  },
+  normalizePath: (path: string) => path.replace(/\\/g, "/").replace(/\/{2,}/g, "/")
+}));
 const { AgentRuntime } = await import("../src/agentRuntime");
 const { LifeOpsStore } = await import("../src/store");
 
@@ -72,6 +117,40 @@ const settings = () => {
 };
 
 afterEach(() => { vi.unstubAllGlobals(); setProviderEgressSink(null); });
+
+it("allows the same trade screenshot selection to be retried after a transient save failure", async () => {
+  const root = await mkdtemp(join(tmpdir(), "lifeops-trade-screenshot-retry-"));
+  const store = new LifeOpsStore(createFsApp(root), settings()) as unknown as StoreHost;
+  const content = await readFile(join("tests/fixtures/trade-screenshots/equity-match.png"));
+  const image = new File([new Uint8Array(content)], "fictional.png", { type: "image/png" });
+  const runtime = new AgentRuntime({ store, refreshViews: async () => {} });
+  const save = vi.fn<LocalOperationHost["saveLocalOperation"]>(async (name, args, operation, options) => {
+    const result = await runtime.executeLocalOperation(name, args, operation, undefined, options);
+    if (!result.success) throw Error(result.output);
+  }).mockRejectedValueOnce(Error("虚构：暂时繁忙"));
+  const recognize = vi.fn(async () => [cases["equity-match"]]);
+  try {
+    await store.initializeVault();
+    openTradeScreenshotImport({
+      app: store.app, store, settings: store.settings, register: () => {}, saveLocalOperation: save,
+      refreshViews: async () => {}, recognizeTradeScreenshot: recognize
+    }, image);
+    const button = (label: string) => ui.elements().find(el => el.tag === "button" && el.textContent === label);
+    await vi.waitFor(() => expect(button("确认保存 0 笔")).toBeDefined());
+    const choice = ui.elements().find(el => el.tag === "input");
+    expect(choice).toBeDefined();
+    choice!.checked = true;
+    choice!.onchange!();
+    const confirm = button("确认保存 1 笔")!;
+    await confirm.onClick!();
+    expect(ui.elements().some(el => el.textContent.includes("暂时繁忙"))).toBe(true);
+    expect([choice!.disabled, confirm.disabled]).toEqual([false, false]);
+    expect((await readTradeDatabase(store)).trades).toEqual([]);
+    await confirm.onClick!();
+    expect(recognize).toHaveBeenCalledOnce();
+    expect((await readTradeDatabase(store)).trades).toMatchObject([{ symbol: "FICT-A", pnl: 97.5 }]);
+  } finally { ui.root.empty(); await rm(root, { recursive: true, force: true }); }
+});
 
 it.each([
   ["equity-match", { kind: "ready", computedPnl: 97.5, screenshotPnl: 97.5, mismatch: false }],

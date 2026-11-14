@@ -69,7 +69,7 @@ class TradeScreenshotImportModal extends Modal {
         status.setText("正在识别这张截图…");
         try {
           assertTradeScreenshotReady(this.host.settings);
-          if (selected.size > TRADE_SCREENSHOT_MAX_BYTES) throw Error("截图请裁到 4 MB 以内。");
+          if (selected.size > TRADE_SCREENSHOT_MAX_BYTES) throw Error("请选择 4 MB 以内的截图。");
           await assertSelectedFileAllowed(store, selected, selected === this.clipboardImage);
           current();
           const image = readTradeScreenshot(await selected.arrayBuffer());
@@ -140,6 +140,7 @@ class TradeScreenshotImportModal extends Modal {
         updateButton = () => { const count = picked().length; button.setButtonText(`确认保存 ${count} 笔`).setDisabled(!count); };
         updateButton();
         button.setCta().onClick(async () => {
+          if (button.buttonEl.disabled) return;
           button.setDisabled(true);
           for (const input of choices.values()) input.disabled = true;
           try {
@@ -147,7 +148,10 @@ class TradeScreenshotImportModal extends Modal {
             try { current(); this.close(); } catch { /* A replacement view owns its own picker. */ }
             new Notice(`已保存并核对 ${count} 笔交易。可以使用撤销。`);
           } catch (error) {
+            try { current(); } catch { return; }
             feedback.setText(error instanceof Error ? error.message : "没有保存，请重新核对。");
+            for (const input of choices.values()) input.disabled = false;
+            updateButton();
           }
         });
       });
