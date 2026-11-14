@@ -16,7 +16,7 @@ import { effectiveLearningTrack } from "../learning/model";
 import { countDueQuizCards } from "../learning/quiz";
 import { readLearningDocument, visibleLearningTrack } from "../learning/store";
 import { buildTodayCard } from "../today/model";
-import { readSummary, readSummaryScope } from "../summaries/notes";
+import { readSummary, readSummaryScope, type SavedSummary } from "../summaries/notes";
 import { summaryPeriod } from "../summaries/periods";
 import { readStats } from "../stats/tools";
 import { taskCapacity, taskOverloadReason, tasksDueBy } from "../tasks/capacity";
@@ -110,6 +110,11 @@ function eveningReason(board: TaskDashboardData): string {
     + (habits.length ? habitLine + leaveLine + missingLine : "今日没有需核对的习惯。");
 }
 
+function weeklySummaryStatus(note?: SavedSummary): string {
+  if (!note) return "本周摘要暂未生成。";
+  return note.properties.complete ? "本周摘要已可查看。" : "本周摘要草稿已可查看。";
+}
+
 async function weeklyPlan(store: StoreHost, now: Date) {
   const today = formatDate(now), nextWeek = addDays(today, 1);
   const [doc, scope, tasks] = await Promise.all([readLearningDocument(store), readSummaryScope(store),
@@ -118,10 +123,12 @@ async function weeklyPlan(store: StoreHost, now: Date) {
   const plans = doc.tracks.map(track => visibleLearningTrack(store, effectiveLearningTrack(track, nextWeek)))
     .filter(track => track.weeklyMinutes > 0)
     .map(track => track.name + " " + track.weeklyMinutes + " 分钟").join("、");
-  const completed = report?.properties.metrics.tasksCompleted ?? (tasks.success ? JSON.parse(tasks.output).completedCount : undefined);
-  const summary = typeof completed === "number" ? "本周已完成 " + completed + " 项任务。" : "本周任务数据暂不可用。";
+  const taskStats = tasks.success ? JSON.parse(tasks.output) : undefined;
+  const summary = typeof taskStats?.completedCount === "number"
+    ? (taskStats.scope ? "本周可读记录中已完成 " : "本周已完成 ") + taskStats.completedCount + " 项任务。"
+    : "本周任务数据暂不可用。";
   return {
-    text: summary + (report ? "本周摘要已可查看。" : "本周摘要预计 21:30 生成。")
+    text: summary + (report ? weeklySummaryStatus(report) : "本周摘要预计 21:30 生成。")
       + (plans ? "下周学习计划：" + plans + "。可以在学习页调整。" : "下周学习时长还没有设置，可以在学习页安排。"),
     summaryPath: report?.path
   };
@@ -235,8 +242,7 @@ export async function withWeeklySummary(store: StoreHost, candidates: ProactiveC
   return Promise.all(candidates.map(async item => {
     if (!item.steward || item.kind !== "weekly_review") return item;
     const note = await readSummary(store, summaryPeriod("week", formatDate(new Date(item.createdAt))), scope.hash);
-    const reason = item.reason.replace(/本周摘要(?:已可查看|预计 21:30 生成)。/,
-      note ? "本周摘要已可查看。" : "本周摘要暂未生成。");
+    const reason = item.reason.replace(/本周摘要(?:草稿已可查看|已可查看|预计 21:30 生成|暂未生成)。/, weeklySummaryStatus(note));
     return { ...item, reason, summaryPath: note?.path };
   }));
 }

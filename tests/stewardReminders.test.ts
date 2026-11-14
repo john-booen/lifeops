@@ -232,6 +232,25 @@ it("simulates three calendar days with real saved reminders, strict quiet hours,
   expect((await store.readProactiveCandidates(20)).filter(item => item.steward)).toHaveLength(11);
 });
 
+it("keeps the Sunday task count current when a weekly summary is still a draft", async () => {
+  const point = now(15, 20), date = formatDate(point);
+  const week = summaryPeriod("week", date), path = summaryPath(store, week);
+  const scope = await readSummaryScope(store);
+  await seedCompletedTask(12);
+  await seedCompletedTask(15);
+  const metrics = { taskCompletionPercent: 100, tasksCompleted: 1, energy: null, tradePnlCny: null, tradePnlUsd: null };
+  await vault.seed(path, renderSummary(week, "2026-11-14", scope.hash, metrics, 6, false, "model", "虚构周摘要草稿"));
+  const candidates = await collectStewardCandidates(store, emptyProactivePolicyState(), point, undefined);
+  const weekly = candidates.find(item => item.kind === "weekly_review")!;
+  expect(weekly.reason).toContain("本周已完成 2 项任务。");
+  expect(weekly.reason).toContain("本周摘要草稿已可查看。");
+  expect(weekly.summaryPath).toBe(path);
+  await vault.seed(path, renderSummary(week, date, scope.hash, { ...metrics, tasksCompleted: 2 }, 7, true, "model", "虚构最终周摘要"));
+  expect(await withWeeklySummary(store, [weekly])).toMatchObject([{ summaryPath: path, reason: expect.stringContaining("本周摘要已可查看。") }]);
+  store.settings.privacy = { ...store.settings.privacy, excludedVaultPrefixes: [store.settings.folders.aiReports] };
+  expect(await withWeeklySummary(store, [weekly])).toMatchObject([{ summaryPath: undefined, reason: expect.stringContaining("本周摘要暂未生成。") }]);
+});
+
 it("queues an overload once, after a real chat task is saved and verified", async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(now(15, 12));
