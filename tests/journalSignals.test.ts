@@ -140,6 +140,10 @@ describe("journal signals with actual vault files", () => {
     expect(request).toHaveBeenCalledTimes(2);
     const resident = await buildResidentContext(store, "我今天状态如何", now);
     expect(resident.text).not.toContain("精力 2");
+    const runtime = new AgentRuntime({ store, refreshViews: async () => {} });
+    const stats = await runtime.executeAiToolCall({ name: "get_stats", arguments: { domain: "journal", range: "today" } }, "kimi");
+    expect(stats.success, stats.output).toBe(true);
+    expect(JSON.parse(stats.output)).toMatchObject({ count: 2, signalAverages: { energy: null, mood: 4 } });
   });
 
   it("rejects a source changed after the model call and ignores excluded sources before any request", async () => {
