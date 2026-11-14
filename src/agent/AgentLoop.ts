@@ -412,7 +412,7 @@ export class AgentLoop {
       guidance.push("把工具读回的信息写成面向用户的正文，别输出结果标签或原始 JSON。");
     }
     if (tools.some(tool => tool.name === "create_task")) {
-      guidance.push("创建待办时，标题保留用户原话里的人名和对象。日期填 date。「下午三点做」填 time=15:00，省略 endTime。「下午三点前做完」只填 endTime=15:00，省略 time 和 startTime。明确说开始才填 startTime。");
+      guidance.push("创建提醒任务时，标题写清提醒谁做什么，保留用户原话里的人名和对象。例如「提醒小王寄样品」写成「小王寄样品」。日期填 date。「下午三点做」填 time=15:00，省略 endTime。「下午三点前做完」只填 endTime=15:00，省略 time 和 startTime。明确说开始才填 startTime。");
     }
     if (evidenceCalls.some(call => call.name === "create_task")) {
       guidance.push("创建回执使用工具读回的标题、日期和时刻。只确认已经保存的内容，简短结束。");
