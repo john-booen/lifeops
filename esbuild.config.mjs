@@ -42,6 +42,9 @@ const context = await esbuild.context({
   target: "es2022",
   logLevel: "info",
   sourcemap: prod ? false : "inline",
+  minifyWhitespace: prod,
+  minifySyntax: prod,
+  minifyIdentifiers: prod,
   treeShaking: true,
   outfile: options.outfile
 });

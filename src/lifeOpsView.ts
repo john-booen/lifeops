@@ -74,7 +74,8 @@ import type {
 } from "./types";
 import { applyComposerPanel, type ComposerPanelApi } from "./panel/composer";
 import { applyMessageListPanel, cancelMessageListRequest, type MessageListPanelApi } from "./panel/messageList";
-import { applyStatusBarPanel, type LifeOpsAgentVisual, type StatusBarPanelApi } from "./panel/statusBar";
+import { applyStatusBarPanel, type StatusBarPanelApi } from "./panel/statusBar";
+import type { LifeOpsAgentVisual } from "./panel/agentVisual";
 import { applySuggestionsPanel, type SuggestionsPanelApi } from "./panel/suggestions";
 import { mergePendingAgentActions, PENDING_ACTION_CONFLICT_NOTICE } from "./pendingAgentActions";
 import { renderStewardShell, type StewardPage } from "./panel/stewardShell";

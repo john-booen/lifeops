@@ -6,7 +6,6 @@ import type { NeuralDomain } from "./neuralRecordsModel";
 import { HOME_MODULES, homeBranches, type HomeBranch } from "./neuralHomeModel";
 import { createHomeMotion } from "./neuralHomeMotion";
 import { HOME_MEDIA } from "./neuralHomeMedia";
-import { drawHomeMediaCover } from "./neuralHomeCanvas";
 import { renderTodayCard } from "./todayCard";
 import type { JournalPlanChoice, TodayCardData } from "../features/today/model";
 
@@ -39,30 +38,20 @@ export function mountNeuralHomeView(container: HTMLElement, initial: NeuralHomeO
   const header = el(element, "header", "lh-heading");
   const intro = el(header, "div", "");
   const date = el(intro, "p", "lh-eyebrow");
-  el(intro, "h1", "", "让生活，慢慢连接起来");
-  el(intro, "p", "lh-caption", "从一个领域展开，看看已保存的安排与记录。");
   const actions = el(header, "div", "lh-actions");
   button(actions, "lh-button lh-primary", "记下一件事", () => options.onQuickCapture());
   button(actions, "lh-button", "与管家对话", () => options.onChat());
 
   const stage = el(element, "div", "lh-stage"); stage.dataset.expanded = "false"; stage.dataset.motion = "stopped";
   const dust = el(stage, "canvas", "lh-dust"); dust.setAttribute("aria-hidden", "true");
-  const mediaHost = el(stage, "div", "lh-media-source"); mediaHost.hidden = true;
-  const pairs: Array<{ video: HTMLVideoElement; source: string; canvases: HTMLCanvasElement[] }> = [];
-  function mediaPair(source: string) {
-    const video = el(mediaHost, "video", "");
-    video.muted = true; video.loop = true; video.playsInline = true; video.preload = "none";
-    const pair = { video, source, canvases: [] as HTMLCanvasElement[] }; pairs.push(pair); return pair;
-  }
-  const orbPair = mediaPair(HOME_MEDIA.orb), jellyPair = mediaPair(HOME_MEDIA.jelly);
-  function picture(parent: HTMLElement, cls: string, poster: string, pair: typeof orbPair) {
+  function picture(parent: HTMLElement, cls: string, poster: string) {
     const box = el(parent, "span", cls); box.setAttribute("aria-hidden", "true");
     const img = el(box, "img", "lh-poster"); img.src = poster; img.alt = ""; img.draggable = false;
-    const canvas = el(box, "canvas", "lh-media-canvas"); pair.canvases.push(canvas); return box;
+    return box;
   }
   const orb = button(stage, "lh-orb", "", () => selectDomain(null));
   orb.setAttribute("aria-label", "收起领域，返回网络空间");
-  picture(orb, "lh-orb-picture", HOME_MEDIA.orbPoster, orbPair);
+  picture(orb, "lh-orb-picture", HOME_MEDIA.orbPoster);
   el(orb, "span", "lh-orb-label", "LIFEOPS");
   const modules = el(stage, "nav", "lh-modules"); modules.setAttribute("aria-label", "生活领域");
   const moduleButtons = new Map<NeuralDomain, HTMLButtonElement>();
@@ -70,7 +59,7 @@ export function mountNeuralHomeView(container: HTMLElement, initial: NeuralHomeO
     const node = button(modules, "lh-module", "", () => selectDomain(item.id));
     node.dataset.domain = item.id; node.style.setProperty("--lh-color", item.color);
     node.style.setProperty("--lh-index", String(index));
-    picture(node, "lh-jelly-picture", HOME_MEDIA.jellyPoster, jellyPair).style.filter = item.filter;
+    picture(node, "lh-jelly-picture", HOME_MEDIA.jellyPoster).style.filter = item.filter;
     el(node, "span", "lh-module-label", item.label); node.setAttribute("aria-pressed", "false");
     moduleButtons.set(item.id, node);
   });
@@ -94,7 +83,6 @@ export function mountNeuralHomeView(container: HTMLElement, initial: NeuralHomeO
     return { ...item, node, value, label };
   });
   const footer = el(element, "footer", "lh-footer");
-  el(footer, "span", "lh-caption", "从这里查看安排，也可以回到原文继续。");
   const footerActions = el(footer, "div", "lh-actions");
   if (options.onNewTask) button(footerActions, "lh-text-button", "新建任务", () => options.onNewTask?.());
   if (options.onRecordPicker) button(footerActions, "lh-text-button", "手写与其他记录", () => options.onRecordPicker?.());
@@ -194,21 +182,12 @@ export function mountNeuralHomeView(container: HTMLElement, initial: NeuralHomeO
     renderDetail(items);
   }
 
-  function startMedia() {
-    for (const pair of pairs) { pair.video.autoplay = true; pair.video.src = pair.source; }
+  function startMotion() {
     stage.dataset.motion = "running";
   }
-  function stopMedia() {
+  function stopMotion() {
     stage.dataset.motion = "stopped";
-    let failed = false;
-    for (const pair of pairs) {
-      try { pair.video.autoplay = false; pair.video.pause(); pair.video.removeAttribute("src"); pair.video.load(); }
-      catch { failed = true; }
-      // Leave the static approved poster visible while the decoder is stopped.
-      for (const canvas of pair.canvases) { canvas.width = 0; canvas.height = 0; }
-    }
     dust.width = 0; dust.height = 0;
-    if (failed) throw Error("decorative media cleanup incomplete");
   }
   function paint(time: number) {
     if (time - lastPaint < 1000 / 30) return;
@@ -238,21 +217,10 @@ export function mountNeuralHomeView(container: HTMLElement, initial: NeuralHomeO
         }
       }
     }
-    for (const pair of pairs) {
-      if (pair.video.readyState < 2 || !pair.video.videoWidth) continue;
-      for (const canvas of pair.canvases) {
-        const rect = canvas.getBoundingClientRect();
-        if (!rect.width || !rect.height) continue;
-        const cw = Math.round(rect.width * dpr), ch = Math.round(rect.height * dpr);
-        if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch; }
-        const context = canvas.getContext("2d");
-        if (context) drawHomeMediaCover(context, pair.video, pair.video.videoWidth, pair.video.videoHeight, cw, ch);
-      }
-    }
   }
   const reduced = win.matchMedia?.("(prefers-reduced-motion: reduce)");
   const motion = createHomeMotion({ request: callback => win.requestAnimationFrame(callback),
-    cancel: id => win.cancelAnimationFrame(id), start: startMedia, stop: stopMedia, paint },
+    cancel: id => win.cancelAnimationFrame(id), start: startMotion, stop: stopMotion, paint },
   { active: false, visible: !document.hidden, focused: document.hasFocus(), intersecting: false,
     reduced: reduced?.matches ?? false, paused: false });
   const onVisibility = () => motion.setGate({ visible: !document.hidden });
@@ -274,8 +242,7 @@ export function mountNeuralHomeView(container: HTMLElement, initial: NeuralHomeO
       motion.setGate({ active, visible: !document.hidden, focused: document.hasFocus(),
         ...(!observer ? { intersecting: active && element.isConnected && element.getClientRects().length > 0 } : {}) });
     },
-    snapshot() { return { ...motion.snapshot(), domain, selected, ownVideos: pairs.map(pair => ({
-      paused: pair.video.paused, readyState: pair.video.readyState, hasSource: pair.video.hasAttribute("src") })) }; },
+    snapshot() { return { ...motion.snapshot(), domain, selected }; },
     destroy() {
       if (disposed) return; disposed = true;
       observer?.disconnect(); document.removeEventListener("visibilitychange", onVisibility);

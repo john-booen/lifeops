@@ -34,7 +34,6 @@
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^24.0.0",
-    "@types/three": "^0.184.1",
     "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "4.1.12",
     "builtin-modules": "^5.0.0",
@@ -45,7 +44,6 @@
     "vitest": "4.1.12"
   },
   "dependencies": {
-    "three": "^0.184.0",
     "ws": "^8.21.0"
   },
   "overrides": {

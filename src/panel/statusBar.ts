@@ -1,5 +1,5 @@
 import { ItemView, Notice, setIcon, WorkspaceLeaf } from "obsidian";
-import { AdditiveBlending, BufferAttribute, BufferGeometry, Material, PerspectiveCamera, Points, PointsMaterial, Scene, WebGLRenderer } from "three";
+import { LifeOpsAgentVisual, type AgentVisualActivity } from "./agentVisual";
 import { BailianRealtimeClient } from "../bailianRealtime";
 import { BailianRealtimeTtsClient } from "../bailianTtsRealtime";
 import type { AiToolCall } from "../ai";
@@ -1540,99 +1540,6 @@ const statusBarPanel = {
 
 export function applyStatusBarPanel(View: ViewConstructor): void {
   Object.assign(View.prototype, statusBarPanel);
-}
-
-type AgentVisualActivity = "idle" | "listening" | "thinking" | "speaking";
-
-export class LifeOpsAgentVisual {
-  private renderer: WebGLRenderer | null = null;
-  private scene: Scene | null = null;
-  private camera: PerspectiveCamera | null = null;
-  private points: Points | null = null;
-  private frame = 0;
-  private animation = 0;
-  private readonly onResize = () => this.resize();
-
-  constructor(private readonly canvas: HTMLCanvasElement, private readonly activity: AgentVisualActivity) {}
-
-  start(): void {
-    this.scene = new Scene();
-    this.camera = new PerspectiveCamera(48, 1, 0.1, 100);
-    this.camera.position.set(0, 0, 7.2);
-    this.renderer = new WebGLRenderer({ canvas: this.canvas, alpha: true, antialias: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-
-    const geometry = new BufferGeometry();
-    const count = 720;
-    const positions = new Float32Array(count * 3);
-    const colors = new Float32Array(count * 3);
-    for (let index = 0; index < count; index += 1) {
-      const t = index / count;
-      const ring = Math.floor(index / 90);
-      const angle = t * Math.PI * 12;
-      const radius = 1.05 + ring * 0.14 + Math.sin(angle * 0.7) * 0.22;
-      positions[index * 3] = Math.cos(angle) * radius;
-      positions[index * 3 + 1] = Math.sin(angle) * radius * 0.54;
-      positions[index * 3 + 2] = (t - 0.5) * 4.6;
-      colors[index * 3] = this.activity === "speaking" ? 0.42 + t * 0.32 : 0.18 + t * 0.34;
-      colors[index * 3 + 1] = this.activity === "listening" ? 0.78 - t * 0.18 : 0.72 - t * 0.2;
-      colors[index * 3 + 2] = this.activity === "thinking" ? 0.9 : 0.96;
-    }
-    geometry.setAttribute("position", new BufferAttribute(positions, 3));
-    geometry.setAttribute("color", new BufferAttribute(colors, 3));
-    const material = new PointsMaterial({
-      size: this.activity === "idle" ? 0.04 : 0.052,
-      vertexColors: true,
-      transparent: true,
-      opacity: this.activity === "idle" ? 0.72 : 0.92,
-      depthWrite: false,
-      blending: AdditiveBlending
-    });
-    this.points = new Points(geometry, material);
-    this.scene.add(this.points);
-    window.addEventListener("resize", this.onResize);
-    this.resize();
-    this.animate();
-  }
-
-  dispose(): void {
-    window.removeEventListener("resize", this.onResize);
-    window.cancelAnimationFrame(this.animation);
-    this.points?.geometry.dispose();
-    (this.points?.material as Material | undefined)?.dispose();
-    this.renderer?.dispose();
-    this.renderer = null;
-    this.scene = null;
-    this.camera = null;
-    this.points = null;
-  }
-  private resize(): void {
-    if (!this.renderer || !this.camera) return;
-    const rect = this.canvas.getBoundingClientRect();
-    const width = Math.max(1, rect.width);
-    const height = Math.max(1, rect.height);
-    this.renderer.setSize(width, height, false);
-    this.camera.aspect = width / height;
-    this.camera.updateProjectionMatrix();
-  }
-  private animate(): void {
-    if (!this.renderer || !this.scene || !this.camera || !this.points) return;
-    const tempo = this.activity === "listening" ? 0.024 : this.activity === "speaking" ? 0.02 : this.activity === "thinking" ? 0.016 : 0.01;
-    const amplitude = this.activity === "listening" ? 0.12 : this.activity === "speaking" ? 0.09 : this.activity === "thinking" ? 0.065 : 0.035;
-    this.frame += tempo;
-    const breath = 1 + Math.sin(this.frame * 3.2) * amplitude;
-    this.points.rotation.x = Math.sin(this.frame * 0.8) * (this.activity === "idle" ? 0.12 : 0.22);
-    this.points.rotation.y += this.activity === "idle" ? 0.004 : 0.009;
-    this.points.scale.setScalar(breath);
-    const positions = this.points.geometry.getAttribute("position") as BufferAttribute;
-    for (let index = 0; index < positions.count; index += 9) {
-      const z = positions.getZ(index);
-      positions.setZ(index, z + Math.sin(this.frame * 9 + index * 0.025) * (this.activity === "idle" ? 0.002 : 0.006));
-    }
-    positions.needsUpdate = true;
-    this.renderer.render(this.scene, this.camera);
-    this.animation = window.requestAnimationFrame(() => this.animate());
-  }
 }
 
 function agentTraceLabel(view: ViewHost): string {
