@@ -1279,8 +1279,8 @@ export default class LifeOpsPlugin extends Plugin {
     await this.updateStatusBar();
   }
 
-  async getStats(): Promise<DashboardStats> {
-    return this.store.getDashboardStats();
+  async getStats(board?: Promise<TaskDashboardData>): Promise<DashboardStats> {
+    return this.store.getDashboardStats(undefined, board);
   }
 
   async getTaskDashboard(): Promise<TaskDashboardData> {

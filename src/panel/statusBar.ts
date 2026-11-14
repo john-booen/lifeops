@@ -167,7 +167,7 @@ export interface LifeOpsViewController {
   deleteHabit(habitId: string): Promise<void>;
   moveTaskToQuadrant(taskId: string, quadrant: LifeOpsTaskQuadrant): Promise<void>;
   refreshViews(): Promise<void>;
-  getStats(): Promise<DashboardStats>;
+  getStats(board?: Promise<TaskDashboardData>): Promise<DashboardStats>;
   getTaskDashboard(): Promise<TaskDashboardData>;
   getProactiveCandidates(): Promise<ProactiveCandidate[]>;
 }
@@ -350,9 +350,10 @@ const statusBarPanel = {
         await this.refreshStewardConversation();
         return;
       }
+      const pendingBoard = this.controller.getTaskDashboard();
       const [stats, board, proactiveCandidates] = await Promise.all([
-        this.controller.getStats(),
-        this.controller.getTaskDashboard(),
+        this.controller.getStats(pendingBoard),
+        pendingBoard,
         this.controller.getProactiveCandidates()
       ]);
       this.proactiveCandidates = proactiveCandidates.slice(0, 3);

@@ -278,7 +278,7 @@ export interface StoreHost extends ProjectSliceApi, TradingSliceApi {
   rebuildKnowledgeStructure(index?: VaultIndex): Promise<{ chunks: number; nodes: number; edges: number }>;
   buildKnowledgeGraphContext(query: string, record?: ContextSourceRecorder): Promise<string>;
   rebuildVectorIndex(model: string, embed: (input: string) => Promise<number[]>, assertCurrent?: () => void, onCommitted?: () => void): Promise<{ path: string; indexedFiles: number; reusedFiles: number; generatedFiles: number }>;
-  getDashboardStats(date?: string): Promise<DashboardStats>;
+  getDashboardStats(date?: string, board?: Promise<TaskDashboardData>): Promise<DashboardStats>;
   getTaskDashboard(date?: string, options?: { forContext?: boolean }): Promise<TaskDashboardData>;
   checkPunishments(now?: Date, acknowledgeLegacy?: boolean): Promise<void>;
   acceptPunishments(): Promise<void>;
@@ -389,7 +389,7 @@ export interface SettingsSliceApi {
   createDailyReview(markdown: string, date?: string): Promise<void>;
   appendCalendarNote(date: string, note: string): Promise<void>;
   createTradingReview(markdown: string, date?: string): Promise<void>;
-  getDashboardStats(date?: string): Promise<DashboardStats>;
+  getDashboardStats(date?: string, board?: Promise<TaskDashboardData>): Promise<DashboardStats>;
   buildLatestJournalContext(maxChars?: number): Promise<string>;
 }
 
@@ -559,10 +559,11 @@ async createTradingReview(this: StoreHost, markdown: string, date: string = toda
     await this.appendFile(this.tradingReviewPath(date), `\n## AI 交易复盘\n\n> LifeOps 生成的复盘草稿，请核对；不代表已经确认的交易事实。\n\n${markdown.trim()}\n`);
   },
 
-async getDashboardStats(this: StoreHost, date: string = todayString()): Promise<DashboardStats> {
+async getDashboardStats(this: StoreHost, date: string = todayString(), board?: Promise<TaskDashboardData>): Promise<DashboardStats> {
+    const dashboard = board ? await board : await this.getTaskDashboard(date);
+    if (board) date = dashboard.date;
     const morningNotePath = this.dailyNotePath(date, "早");
     const eveningNotePath = this.dailyNotePath(date, "晚");
-    const dashboard = await this.getTaskDashboard(date);
     const health = await this.readPath(this.path(this.settings.folders.health, `${date}.md`));
     const todayTrade = await this.readPath(this.tradingReviewPath(date));
     const habits = dashboard.habits;

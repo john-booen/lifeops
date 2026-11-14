@@ -198,7 +198,7 @@ export interface LifeOpsViewController extends StewardRecordsController {
   deleteHabit(habitId: string): Promise<void>;
   moveTaskToQuadrant(taskId: string, quadrant: LifeOpsTaskQuadrant): Promise<void>;
   refreshViews(): Promise<void>;
-  getStats(): Promise<DashboardStats>;
+  getStats(board?: Promise<TaskDashboardData>): Promise<DashboardStats>;
   getTaskDashboard(): Promise<TaskDashboardData>;
   getTodayCard?(board: TaskDashboardData): Promise<TodayCardData>;
   addJournalPlanTask?(plan: JournalPlanChoice): Promise<void>;
@@ -440,8 +440,9 @@ export class LifeOpsView extends ItemView {
     let board: TaskDashboardData;
     let todayCard: TodayCardData | undefined;
     try {
+      const pendingBoard = this.controller.getTaskDashboard();
       const result = await Promise.all([
-        this.controller.getStats(), this.controller.getTaskDashboard(),
+        this.controller.getStats(pendingBoard), pendingBoard,
         this.controller.getProactiveCandidates()
       ]);
       if (this.viewClosed || renderVersion !== this.renderVersion) return;

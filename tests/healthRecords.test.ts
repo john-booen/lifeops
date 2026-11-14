@@ -80,6 +80,10 @@ it("links opted-in habits to daily snapshots without stacking data or overriding
   const dashboard = await store.getTaskDashboard();
   expect(dashboard.habits.find(row => row.habit.id === habit.id)?.periodDone).toBe(3.4);
   expect(await store.getDashboardStats()).toMatchObject({ habitDone: 1, habitTotal: 1 });
+  const reread = vi.spyOn(store, "getTaskDashboard");
+  expect(await store.getDashboardStats(undefined, Promise.resolve(dashboard))).toMatchObject({ date, habitDone: 1, habitTotal: 1 });
+  expect(reread).not.toHaveBeenCalled();
+  reread.mockRestore();
   expect((await readHabitContextWithEvidence(store, date)).text).toContain("3.4/3 公里");
   const { checkins: projection, partial } = await projectHealthHabitProgress(store, await store.readHabitDb());
   expect(partial).toBe(false);
