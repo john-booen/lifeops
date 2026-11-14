@@ -1,5 +1,6 @@
 import { hasPendingFactOperation } from "../../dataFoundation/factOperation";
 import { readScopedMarkdown } from "../../dataFoundation/markdownSources";
+import { OperationLedger } from "../../dataFoundation/operationLedger";
 import { todayString } from "../../date";
 import type { LifeOpsEventBus } from "../../lifeOpsEventBus";
 import { isVaultPathExcluded } from "../../privacy";
@@ -58,13 +59,21 @@ export class PhoneInbox {
     if (!this.enabled) return [];
     const store = this.host.store();
     const doc = await this.read(store);
-    const positions = store.getFile(PHONE_INBOX_PATH)
-      ? await this.lines(store, true).then(lines => new Map(lines.map(({ id, line }) => [id, line])), () => undefined)
-      : new Map<string, number>();
+    const ledger = new OperationLedger(store);
+    const operationIds = doc.records.flatMap(row => row.operationId && !row.undone ? [row.operationId] : []);
+    const [positions, reverted] = await Promise.all([
+      store.getFile(PHONE_INBOX_PATH)
+        ? this.lines(store, true).then(lines => new Map(lines.map(({ id, line }) => [id, line])), () => undefined)
+        : undefined,
+      operationIds.length && !isVaultPathExcluded(ledger.filePath, store.settings.privacy?.excludedVaultPrefixes)
+        ? ledger.revertedOperations(operationIds).catch(() => new Set<string>())
+        : new Set<string>()
+    ]);
     this.assertCurrent(store);
     return doc.records.slice().reverse().map(row => {
       const line = positions?.get(row.id);
-      return { ...row, ...(line === undefined ? { sourceUnavailable: true as const } : { line }) };
+      return { ...row, ...(line === undefined ? { sourceUnavailable: true as const } : { line }),
+        ...(row.operationId && reverted.has(row.operationId) ? { undone: true } : {}) };
     });
   }
 

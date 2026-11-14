@@ -1238,7 +1238,9 @@ describe("phone inbox", () => {
         await reopened.resolve(rows[0].id, "confirm");
         expect((await store.readTaskDb()).tasks.map(task => task.title)).not.toContain("撤掉旧样品");
         await reopened.resolve(rows[0].id, "undo");
-        await reopened.resolve(rows[4].id, "undo");
+        expect(rows[4].operationId).toBeDefined();
+        await runtime.undoOperation(rows[4].operationId!);
+        expect((await reopened.list()).find(row => row.id === rows[4].id)?.undone).toBe(true);
         expect((await store.readTaskDb()).tasks.map(task => task.title)).toEqual(["撤掉旧样品"]);
         expect(await store.readPath(PHONE_INBOX_PATH)).toBe(original);
       } finally { reopened.stop(); }

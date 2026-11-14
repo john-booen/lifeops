@@ -239,6 +239,13 @@ export class OperationLedger {
     return null;
   }
 
+  async revertedOperations(operationIds: readonly string[]): Promise<Set<string>> {
+    const document = await this.readDocument();
+    const hashes = new Set(document.revertedOperationHashes ?? []);
+    const reverted = new Set(document.records.filter(record => record.status === "reverted").map(record => record.operationId));
+    return new Set(operationIds.filter(id => reverted.has(id) || hashes.has(operationIdHash(id))));
+  }
+
   async revert(
     operationId: string,
     executeUndo: (descriptor: OperationUndoDescriptor, plannedLedger: OperationLedgerDocument) => Promise<void>,
