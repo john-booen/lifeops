@@ -89,4 +89,13 @@ describe("parseHealthCsv", () => {
   it("rejects unquoted comma-separated thousands that would shift values", () => {
     expect(() => parseHealthCsv("日期,步数\n2026-05-25,8,000")).toThrow(/第 1 条健康记录的列数/);
   });
+
+  it.each(['8""000', '"8"000', '80"00"'])("rejects misplaced CSV quotes in a metric: %s", value => {
+    expect(() => parseHealthCsv("日期,步数\n2026-05-25," + value)).toThrow("引号");
+  });
+
+  it("allows spaces around a quoted field and retains escaped quotes and line breaks", () => {
+    const [entry] = parseHealthCsv('日期,步数,备注\r\n2026-05-25, "8,000" ,"虚构备注含""引号""，及\r\n换行"');
+    expect(entry).toMatchObject({ steps: 8000, note: '虚构备注含"引号"，及\n换行' });
+  });
 });

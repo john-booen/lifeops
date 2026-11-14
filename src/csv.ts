@@ -70,6 +70,7 @@ export function parseHealthCsv(text: string): HealthEntry[] {
 
 export function parseCsvGrid(text: string, strict = false): string[][] {
   const normalized = text.replace(/^\ufeff/, "").replace(/\r\n?/g, "\n");
+  if (strict) return parseStrictCsvGrid(normalized);
   const rows: string[] = [];
   let quoted = false, start = 0;
   for (let index = 0; index < normalized.length; index++) {
@@ -81,9 +82,43 @@ export function parseCsvGrid(text: string, strict = false): string[][] {
       start = index + 1;
     }
   }
-  if (strict && quoted) throw new Error("CSV 有未闭合的引号，请核对文件格式。");
   rows.push(normalized.slice(start));
   return (quoted ? normalized.split("\n") : rows).filter(row => row.length > 0).map(splitCsvLine);
+}
+
+function parseStrictCsvGrid(text: string): string[][] {
+  const rows: string[][] = [];
+  let fields: string[] = [], field = "";
+  let state: "plain" | "quoted" | "closed" = "plain";
+  const endField = () => {
+    fields.push(field);
+    field = "";
+    state = "plain";
+  };
+  let rowStart = 0;
+  for (let index = 0; index <= text.length; index++) {
+    const char = text[index];
+    if (state === "quoted") {
+      if (char === undefined) throw Error("CSV 有未闭合的引号，请核对文件格式。");
+      if (char === '"' && text[index + 1] === '"') {
+        field += '"';
+        index++;
+      } else if (char === '"') state = "closed";
+      else field += char;
+    } else if (char === "," || char === "\n" || char === undefined) {
+      endField();
+      if (char !== ",") {
+        if (index > rowStart) rows.push(fields);
+        fields = [];
+        rowStart = index + 1;
+      }
+    } else if (char === '"' && state === "plain" && !field.trim()) {
+      state = "quoted";
+    } else if (char === '"' || state === "closed" && !/[ \t]/u.test(char)) {
+      throw Error(`CSV 第 ${rows.length + 1} 行的引号位置无效，请核对字段。`);
+    } else field += char;
+  }
+  return rows;
 }
 
 function splitCsvLine(line: string): string[] {
