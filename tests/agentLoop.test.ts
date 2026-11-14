@@ -1218,6 +1218,39 @@ it("still handles a task question that begins with a greeting", async () => {
   expect(requests).toHaveLength(1);
 });
 
+it("answers standalone greetings and device date questions by voice without checking background jobs or loading personal records", async () => {
+  const { VoiceJobManager } = await import("../src/voice/jobs");
+  const jobs = new VoiceJobManager((_task, signal) => new Promise((_resolve, reject) => {
+    signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+  }), vi.fn());
+  jobs.start({ title: "虚构后台计划", question: "三条虚构计划", scope: "" });
+  const readDashboard = vi.spyOn(store, "getTaskDashboard");
+  const onVoiceText = vi.fn();
+  const loop = new AgentLoop(host);
+  const source = "voice" as const;
+  try {
+    expect(await loop.run(input({ source, message: "你好，简短回答一句。", voiceJobs: jobs, onVoiceText })))
+      .toMatchObject({ text: "你好！", usage: { model: "local" } });
+    expect(await loop.run(input({ source, message: "今天是几号？只说日期。", voiceJobs: jobs, onVoiceText,
+      now: new Date(2027, 0, 1, 0, 2) }))).toMatchObject({ text: "2027年1月1日。", usage: { model: "local" } });
+    expect(onVoiceText.mock.calls).toEqual([["你好！"], ["2027年1月1日。"]]);
+    expect(jobs.list()[0].status).toBe("running");
+    expect(readDashboard).not.toHaveBeenCalled();
+    expect(requests).toEqual([]);
+  } finally { jobs.stop(); }
+});
+
+it("answers the device date with the text model disabled and preserves multi-part questions", async () => {
+  host.settings.ai.provider = "off";
+  const loop = new AgentLoop(host);
+  expect((await loop.run(input({ message: "请问，今天几号？", now: new Date(2026, 11, 31, 23, 59) }))).text).toBe("2026年12月31日。");
+  expect(requests).toEqual([]);
+  host.settings.ai.provider = "custom";
+  responses.push(reply("先核对日期和虚构任务。"));
+  expect((await loop.run(input({ message: "今天是几号？还有哪些虚构任务？", source: "voice" }))).text).toBe("先核对日期和虚构任务。");
+  expect(requests).toHaveLength(1);
+});
+
 describe("phone inbox", () => {
   const phoneDate = "2026-01-09";
 

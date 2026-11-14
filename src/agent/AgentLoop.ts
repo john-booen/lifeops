@@ -89,6 +89,8 @@ interface TurnState {
 
 const MAX_TOOL_ROUNDS = 4;
 const PLAIN_GREETING = /^(你好|您好|早安|早上好|中午好|下午好|晚上好|嗨)[。！？!?，,.]*$/u;
+const BRIEF_GREETING = /^(你好|您好|早安|早上好|中午好|下午好|晚上好|嗨)[。！？!?，,. ]+(?:请)?(?:简短回答一句|简单回一句)[。！？!?]*$/u;
+const TODAY_DATE = /^(?:请问[，, ]*)?(?:今天(?:是)?(?:几月几[日号]|几号|什么日期)|(?:今天的|今日)日期(?:是什么)?)[。！？!?，,. ]*(?:只说日期[。！？!?]*)?$/u;
 const TODAY_UNFINISHED_TASK_QUESTIONS = [
   /^我?今天还?有(?:哪些|什么)(?:任务|待办)还?(?:没做完?|没(?:有)?完成|未完成)$/u,
   /^我?今天(?:还?有)?(?:哪些|什么)(?:没做完?|没(?:有)?完成|未完成)的(?:任务|待办)$/u,
@@ -169,13 +171,19 @@ export class AgentLoop {
         assertPolicy();
         return this.localAnswer(input, state, result?.output || "撤销没有完成，请稍后再试。");
       }
+      if (!input.voiceBackground && (input.source === "text" || input.source === "voice")) {
+        const message = input.message.trim();
+        const greeting = PLAIN_GREETING.exec(message)?.[1] ?? BRIEF_GREETING.exec(message)?.[1];
+        if (greeting) return this.localAnswer(input, state, `${greeting}！`);
+        if (TODAY_DATE.test(message) && Number.isFinite(input.now.getTime())) {
+          return this.localAnswer(input, state, `${input.now.getFullYear()}年${input.now.getMonth() + 1}月${input.now.getDate()}日。`);
+        }
+      }
       if (!this.modelAvailable()) {
         if (input.voiceBackground) throw new Error("后台模型未就绪。");
         return await this.offline(input, state);
       }
       if (input.voiceJobs?.needsControlCheck() && await this.tryVoiceJobControl(input, state, assertPolicy)) return this.result(state);
-      const greeting = input.source === "text" && !input.voiceBackground && PLAIN_GREETING.exec(input.message.trim())?.[1];
-      if (greeting) return this.localAnswer(input, state, `${greeting}！`);
       await waitForFactOperations(this.host.store, { signal: input.signal });
       const question = input.message.trim().replace(/^请问[，, ]*/u, "").replace(/[。！？!?]+$/u, "");
       if (input.source === "text" && !input.voiceBackground && TODAY_UNFINISHED_TASK_QUESTIONS.some(pattern => pattern.test(question))) {
