@@ -103,3 +103,18 @@ it.each(["store", "folder"] as const)("requires a fresh health CSV preview after
   await button("确认导入 1 条").onclick();
   expect(write).toHaveBeenCalledOnce();
 });
+
+it("rechecks the destination inside the queued confirmation", async () => {
+  const { save, fill, write, button, store, replaceStore } = fixture();
+  const original = save.getMockImplementation()!;
+  save.mockImplementationOnce(async (...args) => {
+    replaceStore({ ...store });
+    await original(...args);
+  });
+  fill(valid);
+  await button("核对导入内容").onclick();
+  await button("确认导入 1 条").onclick();
+  expect(save).toHaveBeenCalledOnce();
+  expect(write).not.toHaveBeenCalled();
+  expect(notices.at(-1)).toContain("重新核对");
+});
