@@ -308,10 +308,12 @@ async getTaskDashboard(this: StoreHost, date: string = todayString(), options: {
       })),
       habits: await this.buildHabitDashboard(progress.checkins, date, { ...habitDb, checkins: progress.checkins }, progress.unavailable)
     };
-    if (progress.healthPartial) {
-      for (const item of dashboard.habits) {
-        if (isHealthHabitSource(item.habit.source)) item.healthCoveragePartial = true;
-      }
+    // Only a saved habit entry can be undone from the habit card.
+    const savedToday = new Set(habitDb.checkins.filter(entry => entry.date === date).map(entry => entry.habitId));
+    for (const item of dashboard.habits) {
+      if (!isHealthHabitSource(item.habit.source)) continue;
+      if (progress.healthPartial) item.healthCoveragePartial = true;
+      if (!options.forContext && item.checkin && !savedToday.has(item.habit.id)) item.checkinFromHealth = true;
     }
     if (taskContext && habitContext && policy) {
       if (contextDataPolicy(this) !== policy) throw new Error("当前记录权限变化，无法核对上下文。");

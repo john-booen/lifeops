@@ -702,7 +702,7 @@ const statusBarPanel = {
           if (item.habit.target?.kind === "number") this.controller.openHabitCheckinModal(item.habit, { status: "done", date });
           else void this.run("已补记昨天", () => this.controller.recordHabitStatus(item.habit.id, "done", date));
         });
-        if (item.checkin && (!auto || item.checkin.status === "leave")) {
+        if (item.checkin && !item.checkinFromHealth && (!auto || item.checkin.status === "leave")) {
           this.plainButton(actions, "撤销", () => {
             void this.run("已撤销今日打卡", () => this.controller.clearHabitCheckin(item.habit.id));
           });

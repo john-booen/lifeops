@@ -613,6 +613,7 @@ export interface HabitDashboardItem {
   periodUnavailable?: boolean;
   healthCoveragePartial?: boolean;
   healthUnrecorded?: boolean;
+  checkinFromHealth?: boolean;
   history: HabitCheckin[];
 }
 

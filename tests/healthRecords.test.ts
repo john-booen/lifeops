@@ -78,7 +78,9 @@ it("links opted-in habits to daily snapshots without stacking data or overriding
   await store.appendHealthEntry({ date: previous, runningKm: 4 });
   const { checkins: actual } = await store.readHabitDb();
   const dashboard = await store.getTaskDashboard();
-  expect(dashboard.habits.find(row => row.habit.id === habit.id)?.periodDone).toBe(3.4);
+  expect(dashboard.habits.find(row => row.habit.id === habit.id)).toMatchObject({ periodDone: 3.4, checkinFromHealth: true });
+  const manual = await store.getTaskDashboard(previous);
+  expect(manual.habits.find(row => row.habit.id === habit.id)?.checkinFromHealth).toBeUndefined();
   expect(await store.getDashboardStats()).toMatchObject({ habitDone: 1, habitTotal: 1 });
   const reread = vi.spyOn(store, "getTaskDashboard");
   expect(await store.getDashboardStats(undefined, Promise.resolve(dashboard))).toMatchObject({ date, habitDone: 1, habitTotal: 1 });
