@@ -331,8 +331,9 @@ it("reads the completed historical summary when a correction restates the task p
     expect(call.name).toBe("get_summaries");
     const { level, range } = call.arguments;
     expect(level).toBe("week");
+    expect(range).toEqual({ from: "2026-11-02", to: "2026-11-08" });
     return { callId: call.id!, success: true, output: JSON.stringify({ summaries: [
-      { from: range.from, through: range.to, complete: true, metrics: { tasksCompleted: 26 } }
+      { from: "2026-11-02", through: "2026-11-08", complete: true, metrics: { tasksCompleted: 26 } }
     ] }), actions: [] };
   });
   const result = await loop.run(input({ source: "text", message: "不对，我问的是上周任务完成情况。", history: [
