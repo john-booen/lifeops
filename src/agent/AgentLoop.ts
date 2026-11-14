@@ -124,6 +124,14 @@ function isBackgroundReadTool(name: string): boolean {
   return getLifeOpsTool(name)?.safety === "safe";
 }
 
+const localUndoCommands = new Set(["撤销", "撤销一下", "撤销刚才那个", "撤销刚才的操作", "把刚才保存的撤销", "撤回刚才那条"]);
+
+function isLocalUndoCommand(message: string): boolean {
+  const text = message.trim();
+  const last = text.at(-1);
+  return localUndoCommands.has(last && "。！!".includes(last) ? text.slice(0, -1).trimEnd() : text);
+}
+
 export class AgentLoop {
   constructor(private readonly host: AgentLoopHost) {}
 
@@ -137,6 +145,14 @@ export class AgentLoop {
     };
     try {
       assertProviderActive(input.signal);
+      if (!input.voiceBackground && isLocalUndoCommand(input.message)) {
+        state.voiceUndoAllowed = true;
+        const calls = this.scopedCalls([{ name: "undo_latest_operation", arguments: {} }], state.id, 0);
+        const [result] = await this.executeRegular(input, state, calls);
+        assertProviderActive(input.signal);
+        assertPolicy();
+        return this.localAnswer(input, state, result?.output || "撤销没有完成，请稍后再试。");
+      }
       if (!this.modelAvailable()) {
         if (input.voiceBackground) throw new Error("后台模型未就绪。");
         return await this.offline(input, state);

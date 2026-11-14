@@ -175,7 +175,7 @@ describe("habit changes through the real store and operation ledger", () => {
   });
   afterEach(async () => { lifecycle?.stop(); lifecycle = undefined; vi.useRealTimers(); await rm(root, { recursive: true, force: true }); });
 
-  it.each(["assistant", "panel", "no user task", "edited after the check"])(
+  it.each(["assistant", "panel", "no user task", "unrelated task added later", "target task edited later"])(
     "only undoes the user task across a scheduled compensation write (%s)", async kind => {
       await store.createHabit({ name: "虚构阅读", frequencyUnit: "day", frequencyInterval: 1,
         targetCount: 1, startDate: date, punishment: config(reflection) });
@@ -190,24 +190,59 @@ describe("habit changes through the real store and operation ledger", () => {
       await runScheduledPunishmentCheck(host, store, sunday, () => {});
       const compensation = (await store.readTaskDb()).tasks.find(task => task.category === "punishment");
       expect(compensation).toBeDefined();
-      if (kind === "edited after the check") await store.createTask({ title: "虚构外部编辑" });
+      let later: Awaited<ReturnType<StoreHost["createTask"]>> | undefined;
+      if (kind === "unrelated task added later") later = await store.createTask({ title: "虚构外部新增" });
+      if (kind === "target task edited later") {
+        const target = (await store.readTaskDb()).tasks.find(task => task.title === title)!;
+        await store.updateTaskDetails(target.id, { title, note: "虚构补充说明" });
+      }
       const before = await vault.bytes(store.taskDbPath());
       const habits = await vault.bytes(store.habitDbPath());
 
       const result = await runtime.executeAiToolCall({ name: "undo_latest_operation", arguments: {} }, "kimi", "撤销刚才那个");
 
-      if (kind === "no user task" || kind === "edited after the check") {
+      if (kind === "no user task" || kind === "target task edited later") {
         expect(result.success).toBe(false);
         expect(await vault.bytes(store.taskDbPath())).toBe(before);
       } else {
         expect(result.success, result.output).toBe(true);
         expect(result.output).toContain(title);
-        expect((await store.readTaskDb()).tasks).toEqual([compensation]);
+        expect((await store.readTaskDb()).tasks).toEqual([compensation, ...(later ? [later] : [])]);
         expect(await vault.bytes(store.taskMirrorPath())).not.toContain(title);
       }
       expect(await vault.bytes(store.habitDbPath())).toBe(habits);
     }
   );
+
+  it("undoes selected task A after user task B and automatic compensation C", async () => {
+    const add = (title: string) => runtime.executeAiToolCall({ name: "create_task", arguments: { title, date } }, "kimi");
+    const first = await add("虚构任务甲");
+    expect(first.success, first.output).toBe(true);
+    expect((await add("虚构任务乙")).success).toBe(true);
+    await store.createHabit({ name: "虚构出门检查", frequencyUnit: "day", frequencyInterval: 1, targetCount: 1,
+      startDate: date, punishment: config(reflection) });
+    await runScheduledPunishmentCheck(host, store, sunday, () => {});
+    const before = (await store.readTaskDb()).tasks;
+    expect(before).toHaveLength(3);
+    await expect(runtime.undoOperation(first.receipt!.operationId)).resolves.toBe(true);
+    expect((await store.readTaskDb()).tasks).toEqual(before.slice(1));
+    expect(await vault.bytes(store.taskMirrorPath())).not.toContain("虚构任务甲");
+    expect(await vault.bytes(store.taskMirrorPath())).toContain("虚构任务乙");
+  });
+
+  it("restores the prior revision of an earlier task reschedule without changing another task", async () => {
+    const first = await store.createTask({ title: "虚构排练甲", date });
+    const other = await store.createTask({ title: "虚构排练乙", date });
+    const rescheduled = await runtime.executeAiToolCall({
+      name: "reschedule_task", arguments: { taskIdOrTitle: first.id, date: addDays(date, 1) }
+    }, "kimi");
+    expect(rescheduled.success, rescheduled.output).toBe(true);
+    await store.updateTaskDetails(other.id, { title: other.title, note: "后来补上的说明" });
+    const before = await store.readTaskDb();
+    await runtime.undoOperation(rescheduled.receipt!.operationId);
+    const after = await store.readTaskDb();
+    expect(after.tasks).toEqual([first, before.tasks.find(task => task.id === other.id)]);
+  });
 
   it("records actual amounts and rates separately through the model tools, and undoes the last value", async () => {
     const call = (name: string, args: Record<string, unknown>) => runtime.executeAiToolCall({ name, arguments: args }, "kimi");

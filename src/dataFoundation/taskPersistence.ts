@@ -74,7 +74,7 @@ export function assertTaskMirrorMatches(mirror: string | null, tasks: LifeOpsTas
   if (comparable(parsed) !== comparable(projected)) conflict();
 }
 
-export function renderTaskMirror(tasks: LifeOpsTask[], original: string | null): string {
+function parseTaskMirror(original: string | null) {
   const lines = (original ?? defaultTaskBoard()).replace(/\r\n/g,"\n").split("\n");
   const sections: Array<{ heading: string; title: string; lines: string[] }> = [];
   const preamble: string[] = [];
@@ -119,6 +119,14 @@ export function renderTaskMirror(tasks: LifeOpsTask[], original: string | null):
     }
     finish();
   }
+  return { sections, preamble, extras };
+}
+
+export function renderTaskMirror(tasks: LifeOpsTask[], original: string | null, restoreFrom?: string | null): string {
+  const { sections, preamble, extras } = parseTaskMirror(original);
+  if (restoreFrom) {
+    for (const [id, lines] of parseTaskMirror(restoreFrom).extras) if (!extras.has(id)) extras.set(id, lines);
+  }
   for (const title of Object.keys(statuses)) if (!sections.some(s=>s.title===title)) sections.push({heading:`## ${title}`,title,lines:[]});
   if (sections.filter(s=>Object.hasOwn(statuses,s.title)).length !== 3) conflict();
   const output = [...preamble];
@@ -153,7 +161,7 @@ async function replace(store: StoreHost, path: string, before: string | null, af
   }
   if (await readTaskFile(store,path) !== after) conflict();
 }
-export function planTaskDatabaseWrite(store: StoreHost, database: TaskDatabase) {
+export function planTaskDatabaseWrite(store: StoreHost, database: TaskDatabase, restoreMirrorExtrasFrom?: string | null) {
   const snapshot = database[taskReadSnapshot];
   if (!snapshot) conflict();
   validateTaskRecords(database.tasks);
@@ -163,7 +171,7 @@ export function planTaskDatabaseWrite(store: StoreHost, database: TaskDatabase) 
   if (snapshot.json === null && parseVaultTasks(snapshot.mirror ?? "").length) conflict();
   checkMirrorRevision(before,snapshot.mirror);
   if (!before.taskMirror) assertTaskMirrorMatches(snapshot.mirror,before.tasks);
-  const mirror = renderTaskMirror(database.tasks,snapshot.mirror);
+  const mirror = renderTaskMirror(database.tasks,snapshot.mirror,restoreMirrorExtrasFrom);
   const revision: TaskMirrorRevision = {version:1,sha256:digest(mirror)};
   const json = `${JSON.stringify({...database,taskMirror:revision},null,2)}\n`;
   parseJsonData(json,store.taskDbPath(),contract);

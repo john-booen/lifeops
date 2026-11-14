@@ -591,10 +591,11 @@ describe("unified agent loop", () => {
     expect((await store.readTaskDb()).tasks).toHaveLength(1);
     expect((await store.readPersonalMemories()).records.map(record => record.content)).toContain(preference);
 
-    responses.push(reply("", [tool("undo_latest_operation", {})]), voiceUndoApproval());
+    const callsBeforeUndo = requests.length;
     const undo = await loop.run(input({ source: "voice", message: "撤销刚才那个。" }));
     expect(undo.text).toContain(title);
     expect(undo.voiceSpeech).toBe(undo.text);
+    expect(requests).toHaveLength(callsBeforeUndo);
     expect((await store.readTaskDb()).tasks).toEqual([]);
     expect((await store.readPersonalMemories()).records.map(record => record.content)).toContain(preference);
 
@@ -855,7 +856,7 @@ it("keeps a successful query for a requested undo across model rounds", async ()
   expect(requests).toHaveLength(3);
 });
 
-it("rechecks an unexpected query requirement with the model before retrying a plain undo", async () => {
+it("keeps a requested query prerequisite and runs a subsequent bare undo locally", async () => {
   const original = await runtime.executeAiToolCall(tool("create_task", { title: "虚构整理盒子" }, "undo-retry-original"), "kimi");
   expect(original.success).toBe(true);
   const plugin = Object.assign(Object.create(Plugin.prototype), { app: store.app, store, settings: store.settings,
@@ -868,11 +869,9 @@ it("rechecks an unexpected query requirement with the model before retrying a pl
   const refused = await plugin.submitAgentMessage("请先查记录再撤销刚才那个。", [], { selfTest: true });
   expect(refused.reply).toContain("没有执行");
   expect((await store.readTaskDb({ readOnly: true })).tasks).toHaveLength(1);
-  responses.push(
-    reply("", [tool("undo_latest_operation", { requirePriorQuery: true }, "mistaken-query-requirement")]),
-    reply("", [tool("choose_voice_job_control", { intent: "undo_latest_operation", target: "latest" })])
-  );
+  const callsBeforeUndo = requests.length;
   const corrected = await plugin.submitAgentMessage("撤销刚才那个。", [], { selfTest: true });
+  expect(requests).toHaveLength(callsBeforeUndo);
   expect(corrected.reply).toContain("已撤销");
   expect(corrected.reply).toContain("虚构整理盒子");
   expect((await store.readTaskDb({ readOnly: true })).tasks).toEqual([]);

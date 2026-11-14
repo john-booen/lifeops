@@ -6,7 +6,7 @@ import { isCopiedTaskTitleReference, isTaskIdentifierReference } from "./taskRef
 import type { AiToolDefinition } from "./ai";
 import { assertSafeOperationId, fileRevision, MAX_CONFIRMATION_ACTION_ID_LENGTH, recordRevision } from "./operationIdentity";
 import { OperationLedger, type OperationUndoDescriptor, type OperationResultSnapshot, type OperationLedgerRecord } from "./dataFoundation/operationLedger";
-import { createdTaskForUndo, taskCreationUndoAcrossCompensation } from "./dataFoundation/taskCreationUndo";
+import { createdTaskForUndo, rebaseTaskRecordUndo } from "./dataFoundation/taskRecordUndo";
 import type { FactOperationOptions, GuardedFileChange } from "./dataFoundation/factOperation";
 import { addDays, normalizeJournalDate, todayString } from "./date";
 import { isVaultPathExcluded } from "./privacy";
@@ -871,9 +871,9 @@ export async function undoRecordedOperation(operationId: string, context: ToolEx
           throw new Error("最近操作在撤销前发生变化，未撤销其它记录。");
         }
       }
-      await new OperationLedger(store).revert(operationId, async (descriptor, plannedLedger, later) => {
+      await new OperationLedger(store).revert(operationId, async (descriptor, plannedLedger) => {
         if (descriptor.kind === "restore_guarded_files") {
-          const rebased = expectedLatest && await taskCreationUndoAcrossCompensation(store, expectedLatest, descriptor, later);
+          const rebased = await rebaseTaskRecordUndo(store, descriptor);
           if (rebased) descriptor = { kind: "restore_guarded_files", files: rebased };
           const ledgerFile = store.getFile(ledger.filePath);
           const before = ledgerFile ? await store.app.vault.read(ledgerFile) : null;

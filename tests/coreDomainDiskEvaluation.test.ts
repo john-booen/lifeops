@@ -51,7 +51,7 @@ describe("EVAL-02 fixed five-domain disk execution", () => {
     it("TASK-delete-confirmation",async()=>{await createTask();const before=await vault.bytes(store.taskDbPath());const r=await call("delete_task",{taskIdOrTitle:"合成核对"},"请删除合成核对");expect(r.actions).toHaveLength(1);expect(await vault.bytes(store.taskDbPath())).toBe(before);await plugin.executeAgentAction(r.actions[0]);expect((await tasks()).tasks).toHaveLength(0);});
     it("TASK-pending-card-zero-write",async()=>{await createTask();const before=await vault.bytes(store.taskDbPath());await call("delete_task",{taskIdOrTitle:"合成核对"},"请删除合成核对");expect(await vault.bytes(store.taskDbPath())).toBe(before);});
     it("TASK-undo-restores",async()=>{const before=await vault.bytes(store.taskDbPath());const r=await createTask();await runtime.undoOperation(r.callId);expect(await vault.bytes(store.taskDbPath())).toBe(before);});
-    it("TASK-undo-conflict-preserves-later-edit",async()=>{const r=await createTask();await store.createTask({title:"后来人工新增"});const later=await vault.bytes(store.taskDbPath());await expect(runtime.undoOperation(r.callId)).rejects.toThrow();expect(await vault.bytes(store.taskDbPath())).toBe(later);});
+    it("TASK-undo-keeps-an-unrelated-later-task",async()=>{const r=await createTask();const later=await store.createTask({title:"后来人工新增"});await expect(runtime.undoOperation(r.callId)).resolves.toBe(true);expect((await tasks()).tasks).toEqual([later]);});
   });
   it("RECOVERY-disk-failure-safe-retry-and-undo", async () => {
     const paths = [store.taskDbPath(), store.taskMirrorPath()];
@@ -88,7 +88,14 @@ describe("EVAL-02 fixed five-domain disk execution", () => {
     it("JOURNAL-period-exact",async()=>{await vault.seed(store.dailyNotePath(todayString(),"早"),"早间计划");await vault.seed(store.dailyNotePath(todayString(),"晚"),"晚间实际");const q=await query({domain:"journal",operation:"get",date:todayString(),period:"晚"});expect(q.output).toContain("晚间实际");expect(q.output).not.toContain("早间计划");});
     it("JOURNAL-invalid-date",async()=>{expect((await call("append_journal_entry",{content:"不能落错日期",period:"晚",date:"2026-02-30"},"请保存晚间日记：不能落错日期")).success).toBe(false);});
     it("JOURNAL-empty-content",async()=>{expect((await call("append_journal_entry",{content:" ",period:"晚"},"请保存晚间日记")).success).toBe(false);});
-    it("JOURNAL-idempotent-retry",async()=>{const args={content:"合成唯一日记段",period:"晚"};await call("append_journal_entry",args,"请保存晚间日记：合成唯一日记段","same");await call("append_journal_entry",args,"请保存晚间日记：合成唯一日记段","same");expect((await store.readPath(store.dailyNotePath(todayString(),"晚"))).split("合成唯一日记段")).toHaveLength(2);});
+    it("JOURNAL-idempotent-retry",async()=>{
+      const args={content:"合成唯一日记段",period:"晚"}, original="请保存晚间日记：合成唯一日记段";
+      await call("append_journal_entry",args,original,"same");
+      await call("append_journal_entry",args,original,"same");
+      const diary=await store.readPath(store.dailyNotePath(todayString(),"晚"));
+      expect(diary.match(/^合成唯一日记段$/gm)).toHaveLength(1);
+      expect(diary.match(/^请保存晚间日记：合成唯一日记段$/gm)).toHaveLength(1);
+    });
     it("JOURNAL-undo-preserves-original",async()=>{const p=store.dailyNotePath(todayString(),"晚");await vault.seed(p,"原始亲写段落");const r=await call("append_journal_entry",{content:"追加合成",period:"晚"},"请保存晚间日记：追加合成");await runtime.undoOperation(r.callId);expect(await vault.bytes(p)).toBe("原始亲写段落");});
     it("JOURNAL-undo-conflict",async()=>{const p=store.dailyNotePath(todayString(),"晚");const r=await call("append_journal_entry",{content:"合成段落",period:"晚"},"请保存晚间日记：合成段落");await vault.seed(p,"后来手写版本");await expect(runtime.undoOperation(r.callId)).rejects.toThrow();expect(await vault.bytes(p)).toBe("后来手写版本");});
   });

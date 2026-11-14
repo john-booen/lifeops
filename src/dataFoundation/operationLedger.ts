@@ -241,7 +241,7 @@ export class OperationLedger {
 
   async revert(
     operationId: string,
-    executeUndo: (descriptor: OperationUndoDescriptor, plannedLedger: OperationLedgerDocument, later: OperationLedgerRecord[]) => Promise<void>,
+    executeUndo: (descriptor: OperationUndoDescriptor, plannedLedger: OperationLedgerDocument) => Promise<void>,
     toolReceipt?: { claim: OperationLedgerRecord; result: OperationResultSnapshot }
   ): Promise<OperationLedgerRecord> {
     assertSafeOperationId(operationId);
@@ -260,7 +260,7 @@ export class OperationLedger {
       const plan = planLedgerRevertV1(document, operationId, timestamp, toolReceipt);
       // Both audit transitions are one native JSON write. A crash cannot leave
       // a reverted original paired with an unfinished new undo tool receipt.
-      await executeUndo(existing.result.undo, plan.document, document.records.slice(document.records.indexOf(existing) + 1));
+      await executeUndo(existing.result.undo, plan.document);
       await this.host.writeJson(this.filePath, plan.document, { compact: true });
       return plan.record;
     });
