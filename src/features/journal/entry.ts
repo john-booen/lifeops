@@ -1,6 +1,7 @@
 function appendSection(text: string, heading: string, entry: string): string {
   let fence: string | undefined;
   let inFrontmatter = false;
+  let inComment = false;
   let found = false;
   let offset = 0;
   for (const line of text.match(/[^\n]*\n|[^\n]+$/g) ?? []) {
@@ -12,6 +13,11 @@ function appendSection(text: string, heading: string, entry: string): string {
     }
     if (inFrontmatter) {
       if (body === "---" || body === "...") inFrontmatter = false;
+      offset += line.length;
+      continue;
+    }
+    if (inComment || !fence && /^\s*<!--/u.test(body)) {
+      inComment = !body.includes("-->");
       offset += line.length;
       continue;
     }
@@ -27,7 +33,7 @@ function appendSection(text: string, heading: string, entry: string): string {
     }
     offset += line.length;
   }
-  if (inFrontmatter || fence) throw Error("日记里有未闭合的属性或代码块，请先核对原文再追加。");
+  if (inFrontmatter || inComment || fence) throw Error("日记里有未闭合的属性、注释或代码块，请先核对原文再追加。");
   const before = text.slice(0, offset), after = text.slice(offset);
   const separator = before.endsWith("\n\n") ? "" : before.endsWith("\n") ? "\n" : "\n\n";
   return before + separator + (found ? "" : `## ${heading}\n\n`) + entry + "\n\n" + after;

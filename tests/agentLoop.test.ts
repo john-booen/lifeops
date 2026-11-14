@@ -634,6 +634,23 @@ describe("unified agent loop", () => {
     expect(await store.readPath(path)).toBe(openFence);
   });
 
+  it("leaves hidden Markdown headings alone when writing the evening diary", async () => {
+    const date = formatDate(now), path = store.dailyNotePath(date, "晚");
+    const comment = "<!--\n## 原话\n虚构模板\n## 整理\n-->\n";
+    await store.writeFile(path, "# 虚构日记\n" + comment);
+    const args = { date, period: "晚", content: "写完地图。" };
+    const original = "刚把虚构地图画好了。";
+    const saved = await runtime.executeAiToolCall(tool("append_journal_entry", args, "journal-comment"), "kimi", original);
+    expect(saved.success).toBe(true);
+    expect(await store.readPath(path)).toContain(comment + "\n## 整理");
+    expect(await store.readPath(path)).toContain("## 原话\n\n~~~\n" + original);
+    const unfinished = "<!--\n虚构草稿还在填写\n";
+    await store.writeFile(path, unfinished);
+    const blocked = await runtime.executeAiToolCall(tool("append_journal_entry", args, "journal-open-comment"), "kimi", original);
+    expect(blocked.output).toContain("未闭合的属性、注释或代码块");
+    expect(await store.readPath(path)).toBe(unfinished);
+  });
+
   it("keeps an automatically saved memory when undoing the task from the same turn", async () => {
     const loop = new AgentLoop(host);
     const title = "虚构样品盒贴标签", preference = "我习惯用虚构绿色标签归档";
