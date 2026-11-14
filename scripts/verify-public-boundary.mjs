@@ -28,6 +28,7 @@ const reviewedImages = [
   ["docs/images/lifeops-overview.png", "9e6d8c5f4596b3c199b44fcb22564550bc1b981c6c139b25acc37a8886baaa99"],
   ["docs/images/lifeops-overview.png", "4ec2e6c178b78348a56e7a0ec9e1c9c04319e496fff630f047d86ae761591ac7"],
   ["docs/images/lifeops-operations.png", "56b270ef863ca155c0236896df7d85edf8a018590fc0972ed12a13e5398afb68"],
+  ["docs/images/lifeops-phone-inbox.png", "15966e0be4926e2b89e0791e293cf7d541692652e5e9d2c2c86a7174d3e36173"],
   ["tests/fixtures/trade-screenshots/crypto-open.png", "2b84f4a23a4f2db71483fa2ad17e0e5b174b997ef37279614ba5699205ab3d67"],
   ["tests/fixtures/trade-screenshots/equity-match.png", "6b78eba15f381e9ba33fa7cdb257ae31f8a25f8576d77ac04a3310ac2db3f783"],
   ["tests/fixtures/trade-screenshots/forex-missing-zone.png", "1db5531c73553f1784338394632603e2ea1f4a9cf3ef85dee79ab917619c76ce"],
