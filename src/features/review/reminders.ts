@@ -76,9 +76,10 @@ async function morningReason(store: StoreHost, board: TaskDashboardData, now: Da
 
 function eveningReason(board: TaskDashboardData): string {
   const context = dashboardContextData(board);
-  const habits = board.habits.filter(item => item.habit.source !== "trades" && item.requiredToday);
-  const recordedHabits = habits.filter(item => !item.healthUnrecorded);
-  const missingHabits = habits.length - recordedHabits.length;
+  const habits = board.habits.filter(item => item.habit.source !== "trades" && isHabitRequiredOn(item.habit, board.date));
+  const excusedHabits = habits.filter(item => item.status === "leave").length;
+  const missingHabits = habits.filter(item => item.status !== "leave" && item.healthUnrecorded).length;
+  const recordedHabits = habits.filter(item => item.status !== "leave" && !item.healthUnrecorded);
   const trades = board.habits.filter(item => item.habit.source === "trades" && (item.requiredToday
     || item.periodUnavailable && isHabitRequiredOn(item.habit, board.date)));
   const tradeProgress = trades.map(item => item.habit.name + " " + (item.periodUnavailable ? "暂不可用"
@@ -94,9 +95,10 @@ function eveningReason(board: TaskDashboardData): string {
   if (context?.habits.available === false) return taskLine + "习惯和交易目标记录暂不可用。";
   const habitLine = recordedHabits.length
     ? "习惯已完成 " + recordedHabits.filter(item => item.status === "done").length + "/" + recordedHabits.length + " 项。" : "";
+  const leaveLine = excusedHabits ? excusedHabits + " 项习惯已请假。" : "";
   const missingLine = missingHabits ? missingHabits + " 项设备习惯缺少读数。" : "";
   return taskLine + (tradeProgress ? "交易目标 " + tradeProgress + "。" : "今日没有待核对的交易目标。")
-    + (habitLine || missingLine ? habitLine + missingLine : "今日没有需核对的习惯。");
+    + (habits.length ? habitLine + leaveLine + missingLine : "今日没有需核对的习惯。");
 }
 
 async function weeklyPlan(store: StoreHost, now: Date) {

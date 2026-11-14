@@ -150,6 +150,23 @@ it("reports unavailable evening sources and distinguishes missing device reading
   expect(excluded).not.toContain("0");
 });
 
+it("includes a reached weekly goal and reports excused habits separately in evening review", async () => {
+  const point = now(16, 21), date = formatDate(point);
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(point);
+  const weekly = await store.createHabit({ name: "虚构每周剪纸", frequencyUnit: "week",
+    frequencyInterval: 1, targetCount: 1, startDate: date });
+  const excused = await store.createHabit({ name: "虚构请假习惯", frequencyUnit: "day",
+    frequencyInterval: 1, targetCount: 1, startDate: date });
+  await store.recordHabitStatus(weekly.id, "done", date);
+  await store.recordHabitStatus(excused.id, "leave", date);
+  const board = await store.getTaskDashboard(date);
+  expect(board.habits.find(row => row.habit.id === weekly.id)).toMatchObject({ requiredToday: false, status: "done" });
+  const candidates = await collectStewardCandidates(store, emptyProactivePolicyState(), point, undefined);
+  const review = candidates.find(item => item.kind === "evening_review")?.reason;
+  expect(review).toContain("习惯已完成 1/1 项。1 项习惯已请假。");
+});
+
 it("simulates three calendar days with real saved reminders, strict quiet hours, and same-kind cooldown", async () => {
   const older = await seedIdea("虚构旧想法", "2026-10-02", ["2026-11-12"]);
   await seedIdea("虚构较新想法", "2026-10-19");
