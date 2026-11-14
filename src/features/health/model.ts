@@ -83,8 +83,13 @@ export function inspectHealthMarkdown(date: string, text: string): { day: Health
   const result: HealthDay = { date };
   const lines = text.replace(/^\uFEFF/u, "").split(/\r\n|\r|\n/u);
   const blocks = new MarkdownBlocks();
+  let freeText = false;
   for (const [index, line] of lines.entries()) {
+    // The note writer indents all continuations of these two free-text fields.
+    if (freeText && line.startsWith("  ")) continue;
+    freeText = false;
     if (blocks.skip(line, index === 0)) continue;
+    freeText = line.startsWith("- 备注：") || line.startsWith("- 运动：");
     for (const key of healthMetricKeys) {
       const prefix = `- ${HEALTH_METRICS[key].label}：`;
       if (!line.startsWith(prefix)) continue;

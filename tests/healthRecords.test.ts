@@ -160,6 +160,24 @@ it("keeps field-looking lines entered as free text out of numerical records", as
   expect(await store.readPath(healthNotePath(store, date))).toContain("  - 跑步距离：120 公里");
 });
 
+it.each(["```", "~~~", "<!--", "%%"])("keeps metrics readable after a literal %s in a multiline health note", async marker => {
+  const path = healthNotePath(store, date);
+  const initial = [{ date, steps: 850, note: "虚构手环备注\n" + marker + "\n字面内容" }];
+  const note = await runtime.executeLocalOperation("local_appendHealthEntry", { entries: initial }, scope => recordHealthEntries(scope, initial));
+  expect(note.success).toBe(true);
+  const prior = await store.readPath(path);
+  expect(prior).toContain("\n  " + marker + "\n  字面内容");
+  expect(await readHealthDay(store, date)).toEqual({ date, steps: 850 });
+
+  const next = [{ date, sleepHours: 7.5 }];
+  const appended = await runtime.executeLocalOperation("manual_health_csv_batch", { entries: next }, scope => recordHealthEntries(scope, next));
+  expect(appended.success).toBe(true);
+  expect((await store.readPath(path)).startsWith(prior)).toBe(true);
+  expect(await readHealthDay(store, date)).toEqual({ date, steps: 850, sleepHours: 7.5 });
+  await runtime.undoOperation(appended.callId);
+  expect(await store.readPath(path)).toBe(prior);
+});
+
 it("does not save or report a health entry with a malformed subjective score", async () => {
   const path = healthNotePath(store, date);
   await store.appendHealthEntry({ date, steps: 750 });
