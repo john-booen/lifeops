@@ -8,7 +8,7 @@ import { habitDateEvidence } from "../features/stats/habitEvidence";
 import { asksForRecentStatus, formatRecentStatus, recentStatusDomains } from "../features/stats/statusEvidence";
 import { backgroundStatsTool } from "../features/stats/tools";
 import { resolveStatsRange } from "../features/stats/stats";
-import { formatHabitCompensationReply, formatTaskListReply, formatVoiceTaskPriorities, habitCompensationQuestion, repeatedTaskListPriority, voiceTaskPriorityTool } from "../features/tasks/planTools";
+import { formatHabitCompensationReply, formatTaskCompletionRate, formatTaskListReply, formatVoiceTaskPriorities, habitCompensationQuestion, repeatedTaskListPriority, taskCompletionRateQuestion, voiceTaskPriorityTool } from "../features/tasks/planTools";
 import { planCapacityEvidence } from "../features/tasks/capacityEvidence";
 import { weekendClarification } from "../features/tasks/weekendClarification";
 import { phoneInboxCall, phoneInboxRequest, phoneInboxToolDefinitions } from "../features/phoneInbox/agent";
@@ -193,16 +193,20 @@ export class AgentLoop {
           return this.localAnswer(input, state, result?.output || "任务没有保存，请稍后再试。");
         }
       }
-      const sleepRange = !input.voiceBackground && (input.source === "text" || input.source === "voice")
-        ? deviceSleepRange(input.message) : undefined;
-      if (sleepRange) {
-        await waitForFactOperations(this.host.store, { signal: input.signal, assertCurrent: assertPolicy });
-        const range = resolveStatsRange(sleepRange, input.now);
-        const calls = this.scopedCalls([{ name: "get_stats", arguments: { domain: "health", range } }], state.id, 0);
-        const [result] = await this.executeRegular(input, state, calls);
-        assertProviderActive(input.signal);
-        assertPolicy();
-        return this.localAnswer(input, state, result?.success ? deviceSleepAnswer(result.output) : result?.output || "健康记录暂不可用。");
+      if (!input.voiceBackground && (input.source === "text" || input.source === "voice")) {
+        const sleepRange = deviceSleepRange(input.message);
+        const completionRange = sleepRange ? undefined : taskCompletionRateQuestion(input.message);
+        const period = sleepRange ?? completionRange;
+        if (period) {
+          await waitForFactOperations(this.host.store, { signal: input.signal, assertCurrent: assertPolicy });
+          const range = resolveStatsRange(period, input.now);
+          const calls = this.scopedCalls([{ name: "get_stats", arguments: { domain: sleepRange ? "health" : "tasks", range } }], state.id, 0);
+          const [result] = await this.executeRegular(input, state, calls);
+          assertProviderActive(input.signal);
+          assertPolicy();
+          const format = sleepRange ? deviceSleepAnswer : formatTaskCompletionRate;
+          return this.localAnswer(input, state, result?.success ? format(result.output) : result?.output || "记录暂不可用。");
+        }
       }
       if (!this.modelAvailable()) {
         if (input.voiceBackground) throw new Error("后台模型未就绪。");

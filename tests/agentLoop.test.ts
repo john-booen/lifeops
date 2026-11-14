@@ -483,6 +483,16 @@ describe("unified agent loop", () => {
     expect(requests).toHaveLength(0);
   });
 
+  it("reports the completion rate from the actual period without choosing a summary", async () => {
+    const date = formatDate(now);
+    await store.createTask({ title: "虚构本月计划", date });
+    await store.createTask({ title: "虚构其他月计划", date: "2026-10-12" });
+    const response = await new AgentLoop(host).run(input({ message: "我这个月任务完成率是多少？" }));
+    expect(response.text).toContain("计划任务完成率为 0%，完成 0 项，共计划 1 项。");
+    expect(response.toolCalls).toEqual([{ name: "get_stats", ok: true }]);
+    expect(requests).toHaveLength(0);
+  });
+
   it.each(["text", "voice"] as const)("answers explicit device sleep questions from confirmed health records (%s)", async source => {
     const date = formatDate(now);
     const previous = addDays(date, -1);

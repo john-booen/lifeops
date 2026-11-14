@@ -4,7 +4,7 @@ import { isVaultPathExcluded } from "../../privacy";
 import { taskScheduleLabel } from "../../taskSchedule";
 import type { LifeOpsToolDefinition, ToolExecutionContext } from "../../toolRegistry";
 import { currentSignalValues } from "../journal/signals";
-import { todayTaskCounts } from "../stats/stats";
+import { todayTaskCounts, type StatsRange } from "../stats/stats";
 import { taskCategory, taskDraftRoom, taskEstimates } from "./capacity";
 import { prioritizeTasks, todayTaskPlan } from "./priority";
 import { advanceCompensationDebt, compensationDueLabel } from "../habits/compensationDebt";
@@ -137,6 +137,25 @@ export const TASK_PLANNING_TOOLS: LifeOpsToolDefinition[] = [
     }
   }
 ];
+
+export function taskCompletionRateQuestion(message: string): StatsRange | undefined {
+  const period = /^(?:请问[，, ]*|我(?:的)?)?(这周|本周|上周|这月|本月|这个月|上个月)(?:的)?(?:任务|待办)完成率(?:是)?(?:多少|怎样|怎么样)[。？！?!]?$/u.exec(message.trim())?.[1];
+  if (!period) return;
+  if (period === "这周" || period === "本周") return "this_week";
+  if (period === "上周") return "last_week";
+  return period === "上个月" ? "last_month" : "this_month";
+}
+
+export function formatTaskCompletionRate(output: string): string {
+  const { range, completionPercent, completedPlannedCount, plannedCount, scope } = JSON.parse(output) as {
+    range: { from: string; to: string }; completionPercent: number | null; completedPlannedCount: number; plannedCount: number; scope?: string;
+  };
+  const period = `${range.from} 至 ${range.to}`;
+  const coverage = scope ? "只统计允许读取的记录。" : "";
+  return completionPercent === null
+    ? `${period} 暂无可核对的计划任务，无法计算完成率。${coverage}`
+    : `${period} 计划任务完成率为 ${completionPercent}%，完成 ${completedPlannedCount} 项，共计划 ${plannedCount} 项。${coverage}`;
+}
 
 export function habitCompensationQuestion(message: string): string | undefined {
   return /^(?:我的)?([^，,。；;！？?\r\n]{1,30}?)(?:没有|没|未)达标(?:会怎么样|会怎样|怎么办)[？?。]?$/u.exec(message.trim())?.[1]?.trim();
