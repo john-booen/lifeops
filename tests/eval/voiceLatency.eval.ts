@@ -182,6 +182,7 @@ const reportOnly = process.env.LIFEOPS_VOICE_REPORT === "1";
 const correctionOnly = process.env.LIFEOPS_VOICE_CORRECTIONS === "1";
 const playbackOnly = process.env.LIFEOPS_VOICE_PLAYBACK_INPUT === "1";
 const playbackAudio = playbackOnly && process.env.LIFEOPS_VOICE_PLAYBACK_AUDIO === "1";
+const hotwordAudio = process.env.LIFEOPS_VOICE_HOTWORDS === "1";
 
 it.runIf(playbackOnly)("distinguishes incidental speech from requests during fictional voice playback", async () => {
   const { settings, transport } = await voiceSettings();
@@ -259,7 +260,43 @@ it.runIf(playbackAudio)("replays identical synthetic audio fixtures for the curr
   expect(results.filter(row => row.expected !== row.decision)).toEqual([]);
 });
 
-it.skipIf(reportOnly || correctionOnly || playbackOnly || process.env.LIFEOPS_VOICE_JOBS === "1" || process.env.LIFEOPS_VOICE_SOAK === "1")("measures 30 simple and 15 complex fictional turns through real providers and the PCM worklet", async () => {
+it.runIf(hotwordAudio)("records streaming ASR hotword differences using paired fictional audio", async () => {
+  const { settings } = await voiceSettings();
+  const directory = await mkdtemp(join(tmpdir(), "lifeops-synthetic-hotwords-"));
+  const cases = [
+    { id: "box-name", text: "提醒郝榆给栖枝样品盒贴标签。", term: "栖枝", person: "郝榆" },
+    { id: "timed-sample", text: "明天下午三点十五，让齐曈送绢鹭样品。", term: "绢鹭", person: "齐曈", time: /(?:三|3)点(?:十五|15)|3[:：]15/u },
+    { id: "named-habit", text: "帮我打卡浮苇步法，已走两公里。", term: "浮苇步法" }
+  ];
+  vi.stubGlobal("window", globalThis);
+  vi.stubGlobal("WebSocket", WebSocket);
+  const results = [];
+  try {
+    for (const item of cases) {
+      const pcm = await preparePcm(directory, item, 165);
+      const base = { ...settings.realtimeVoice, asrEngine: "streaming-hotwords" as const };
+      const transcripts: { without?: string; with?: string } = {};
+      for (const [label, words] of [["without", ""], ["with", [item.term, item.person].filter(Boolean).join("\n")]] as const) {
+        try { transcripts[label] = await transcribe(pcm, { ...base, asrHotwords: words }, {}); }
+        catch (error) { throw Error(item.id + " · " + redactSensitiveText(error, configuredCredentials(settings))); }
+      }
+      results.push({ id: item.id, transcriptWithout: transcripts.without, transcriptWith: transcripts.with,
+        termWithout: transcripts.without?.includes(item.term), termWith: transcripts.with?.includes(item.term),
+        personWithout: item.person ? transcripts.without?.includes(item.person) : null,
+        personWith: item.person ? transcripts.with?.includes(item.person) : null,
+        pointWithout: item.time ? item.time.test(transcripts.without ?? "") : null,
+        pointWith: item.time ? item.time.test(transcripts.with ?? "") : null });
+    }
+  } finally {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    await rm(directory, { recursive: true, force: true });
+  }
+  process.stdout.write(JSON.stringify(results) + "\n");
+  expect(results).toHaveLength(cases.length);
+});
+
+it.skipIf(reportOnly || correctionOnly || playbackOnly || hotwordAudio || process.env.LIFEOPS_VOICE_JOBS === "1" || process.env.LIFEOPS_VOICE_SOAK === "1")("measures 30 simple and 15 complex fictional turns through real providers and the PCM worklet", async () => {
   const rows = (await readFile("tests/eval/voice-cases.tsv", "utf8")).trim().split("\n").map(row => {
     const [id, text] = row.split("\t");
     if (!/^[sc]\d{2}$/.test(id) || !text) throw Error("语音评测夹具格式异常");
