@@ -1222,6 +1222,7 @@ describe("phone inbox", () => {
       await Promise.all([inbox.scan(), inbox.scan()]);
       const rows = await inbox.list();
       expect(rows.map(row => row.status)).toEqual(["confirm", "saved", "saved", "saved", "saved"]);
+      expect(rows[3].message).toContain(phoneDate);
       expect(notifications).toEqual([expect.stringContaining("手机随手记已处理 5 条")]);
       expect(requests).toHaveLength(5);
       expect(catalogs.every(tools => !tools.includes("query_vault") && !tools.includes("undo_latest_operation"))).toBe(true);
@@ -1281,6 +1282,24 @@ describe("phone inbox", () => {
       expect(await store.readPath(PHONE_INBOX_PATH)).toBe(notes);
     } finally { inbox.stop(); }
   });
+});
+
+it("uses the requested relative dates for habit creation and writes date-correct receipts", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(now);
+  const name = "虚构剪纸";
+  const create = await runtime.executeAiToolCall(tool("create_habit", { name, startDate: "本周一" }, "habit-date-create"), "kimi");
+  expect(create.success).toBe(true);
+  expect(create.output).toContain("2026-11-09 开始");
+  const done = await runtime.executeAiToolCall(tool("complete_habit", { name, date: "大前天" }, "habit-date-done"), "kimi");
+  const missed = await runtime.executeAiToolCall(tool("miss_habit", { name, date: "本周二" }, "habit-date-missed"), "kimi");
+  expect(done.output).toContain("已完成2026-11-09打卡");
+  expect(missed.output).toContain("已记录2026-11-10未完成");
+  const invalid = await runtime.executeAiToolCall(tool("complete_habit", { name, date: "2月30日" }, "habit-date-invalid"), "kimi");
+  expect(invalid.success).toBe(false);
+  const records = await store.readHabitDb();
+  expect(records.habits[0]).toMatchObject({ name, startDate: "2026-11-09" });
+  expect(records.checkins).toMatchObject([{ date: "2026-11-09", status: "done" }, { date: "2026-11-10", status: "missed" }]);
 });
 
 it("waits for a complete phone inbox line while mobile sync updates an unfinished draft", async () => {

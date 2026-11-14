@@ -430,6 +430,7 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
         frequencyUnit: { type: "string", enum: ["day", "week"], description: "day 表示每天，week 表示每周。" },
         targetCount: { type: "number", description: "周期内目标次数。" },
         source: { type: "string", enum: ["trades"], description: "交易笔数习惯用 trades，单位笔，每日整数目标。" },
+        startDate: { type: "string", description: "用户指定的开始日期，可用中文相对日期。省略为今天。" },
         target: { type: "object", description: "用户明确给出数值目标时，填写单位和每日或每周数值。", properties: {
           kind: { const: "number" }, unit: { type: "string" }, perDay: { type: "number" }, perWeek: { type: "number" }
         }, required: ["kind", "unit"] }
@@ -439,6 +440,8 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
     execute: async (args, context, request) => {
       const name = toolArgString(args, "name");
       if (!name) return toolError("创建习惯缺少名称。");
+      const startDate = habitToolDate(args.startDate);
+      if (!startDate) return toolError("习惯开始日期无法识别，请核对。");
       let target: HabitInput["target"];
       try { target = validateHabitTarget(args.target); }
       catch (error) { return toolError(error instanceof Error ? error.message : "习惯目标无法核对。"); }
@@ -453,18 +456,19 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
         frequencyInterval: 1,
         targetCount: normalizeTargetCount(args.targetCount),
         target,
-        startDate: todayString(),
+        startDate,
         penaltyThreshold: 3,
         color: "#27ae60",
         source: args.source === "trades" ? "trades" : operationSource
       });
       const verified = (await context.store.readHabitDb()).habits.find((item) => item.id === habit.id || item.source === operationSource);
-      if (!verified || verified.name !== habit.name || recordRevision([verified.target]) !== recordRevision([habit.target])) {
+      if (!verified || verified.name !== habit.name || verified.startDate !== startDate
+        || recordRevision([verified.target]) !== recordRevision([habit.target])) {
         return toolError(`习惯写入后校验失败，没有确认习惯库中存在：${habit.name}。`);
       }
       await context.refreshViews();
       return toolReply(
-        `已创建习惯：${verified.name}。已从习惯库读回校验（ID：${verified.id}）。`,
+        `已创建习惯：${verified.name}${args.startDate === undefined ? "" : `（${startDate} 开始）`}。已从习惯库读回校验（ID：${verified.id}）。`,
         [],
         { kind: "delete_habit", habitId: verified.id }
       );
@@ -472,12 +476,13 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
   },
   {
     name: "complete_habit",
-    description: "记录今日习惯打卡。用户说刚完成某习惯时调用。若明确给了实测量，按次数的习惯也传 value 和原单位 unit。",
+    description: "记录习惯打卡，默认今天。用户给出日期时传 date，实测量传 value 和原单位 unit。",
     safety: "direct-write",
     parameters: {
       type: "object",
       properties: {
         name: { type: "string", description: "习惯名称或名称片段。" },
+        date: { type: "string", description: "明确完成的日期，可用中文相对日期。省略为今天。" },
         value: { type: "number", minimum: 0, description: "数值习惯本次实测量，以配置的单位填写。" },
         unit: { type: "string", description: "用户明确给出的单位，可省略。" }
       },
@@ -503,9 +508,9 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
       }
       if (configuredUnit && suppliedUnit && suppliedUnit !== configuredUnit) return toolError(`请按${configuredUnit}记录「${habit.name}」。`);
       const before = await context.store.readHabitDb();
-      const suppliedDate = args.date;
-      const date = suppliedDate === undefined ? todayString() : typeof suppliedDate === "string" ? normalizeJournalDate(suppliedDate) : "";
+      const date = habitToolDate(args.date);
       if (!date) return toolError("打卡日期无法识别。");
+      const when = date === todayString() ? "今日" : date;
       if (typeof value === "number") await context.store.recordHabitStatus(habit.id, "done", date, "", value, suppliedUnit);
       else await context.store.recordHabitStatus(habit.id, "done", date);
       const verified = (await context.store.readHabitDb()).checkins.find((item) => (
@@ -514,12 +519,12 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
       const previousValue = before.checkins.find(item => item.habitId === habit.id && item.date === date)?.value ?? 0;
       if (!verified || typeof value === "number" && (verified.valueUnit !== (configuredUnit ?? suppliedUnit)
         || verified.value !== Math.max(0, previousValue) + value)) {
-        return toolError(`习惯打卡写入后校验失败，没有确认今日状态：${habit.name}。`);
+        return toolError(`习惯打卡写入后校验失败，没有确认${when}状态：${habit.name}。`);
       }
       await context.refreshViews();
       return toolReply(
-        value !== undefined ? `已记录「${habit.name}」本次 ${value} ${verified.valueUnit}，今天累计 ${verified.value} ${verified.valueUnit}。`
-          : `已完成今日打卡：${habit.name}。已从习惯库读回校验。`,
+        value !== undefined ? `已记录「${habit.name}」本次 ${value} ${verified.valueUnit}，${when === "今日" ? "今天" : when}累计 ${verified.value} ${verified.valueUnit}。`
+          : `已完成${when}打卡：${habit.name}。已从习惯库读回校验。`,
         [],
         { kind: "restore_habit_database", database: structuredClone(before) as unknown as Record<string, unknown> }
       );
@@ -527,12 +532,13 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
   },
   {
     name: "miss_habit",
-    description: "标记今日习惯为未完成或请假。用户把疲惫、不想做、请假、今天算了、放弃、暂停等表达和习惯名放在一起时必须使用，即使没有说“打卡”。例：最近太累不想健身 -> name=健身, reason=太累。",
+    description: "标记习惯为未完成，默认今天。用户把疲惫、不想做、请假、今天算了、放弃、暂停等表达和习惯名放在一起时使用。用户指定日期时传 date。",
     safety: "direct-write",
     parameters: {
       type: "object",
       properties: {
         name: { type: "string", description: "习惯名称或名称片段。" },
+        date: { type: "string", description: "用户明确指定的日期，可用中文相对日期。省略为今天。" },
         reason: { type: "string", description: "未完成原因，可省略。" }
       },
       required: ["name"]
@@ -546,16 +552,19 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
       }
       const habit = resolution.item;
       const before = await context.store.readHabitDb();
-      await context.store.recordHabitStatus(habit.id, "missed", todayString(), toolArgString(args, "reason"));
+      const date = habitToolDate(args.date);
+      if (!date) return toolError("未完成日期无法识别。");
+      const when = date === todayString() ? "今日" : date;
+      await context.store.recordHabitStatus(habit.id, "missed", date, toolArgString(args, "reason"));
       const verified = (await context.store.readHabitDb()).checkins.find((item) => (
-        item.habitId === habit.id && item.date === todayString() && item.status === "missed"
+        item.habitId === habit.id && item.date === date && item.status === "missed"
       ));
       if (!verified) {
-        return toolError(`习惯状态写入后校验失败，没有确认今日未完成：${habit.name}。`);
+        return toolError(`习惯状态写入后校验失败，没有确认${when}未完成：${habit.name}。`);
       }
       await context.refreshViews();
       return toolReply(
-        `已记录今日未完成：${habit.name}。已从习惯库读回校验。`,
+        `已记录${when}未完成：${habit.name}。已从习惯库读回校验。`,
         [],
         { kind: "restore_habit_database", database: structuredClone(before) as unknown as Record<string, unknown> }
       );
@@ -1261,6 +1270,10 @@ function dateDisplay(date: string): string {
   if (date === addDays(todayString(), 1)) return "明天";
   if (date === addDays(todayString(), 2)) return "后天";
   return date;
+}
+
+function habitToolDate(value: unknown): string {
+  return value === undefined ? todayString() : typeof value === "string" ? normalizeJournalDate(value) : "";
 }
 
 type ReferenceResolution<T> =
