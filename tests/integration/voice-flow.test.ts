@@ -2655,6 +2655,7 @@ describe("voice integration flow", () => {
     runtime.transitionTurn("routing");
     runtime.transitionTurn("generating");
     const recordFailure = vi.fn();
+    const close = vi.fn();
     const view = {
       controller: {
         settings: {
@@ -2670,6 +2671,7 @@ describe("voice integration flow", () => {
       agentRecording: true,
       agentVoiceReady: true,
       agentVoiceRuntime: runtime,
+      agentRealtimeClient: { close },
       agentVoiceCircuitBreaker: { recordFailure },
       agentVoiceBargeIn: { reset: vi.fn() },
       agentAudioOutput: { cancel: vi.fn() },
@@ -2698,6 +2700,7 @@ describe("voice integration flow", () => {
       transitionVoiceSession: vi.fn(),
       refreshAgentSurfaceState: vi.fn()
     } as any;
+    close.mockImplementation(() => view.agentRealtimeClient);
 
     handleRealtimeDisconnect(view, 1006, "connection dropped");
     handleRealtimeDisconnect(view, 1006, "duplicate close event");
@@ -2705,6 +2708,9 @@ describe("voice integration flow", () => {
     expect(runtime.snapshot().sessionPhase).toBe("recovering");
     expect(view.agentVoiceReconnectAttempts).toBe(1);
     expect(recordFailure).toHaveBeenCalledTimes(1);
+    expect(close).toHaveBeenCalledOnce();
+    expect(close.mock.results[0].value).toBeNull();
+    expect(view.agentRealtimeClient).toBeNull();
     expect(view.agentReply).toContain("正在重连（1/5）");
     expect(view.agentVoiceReconnectTimer).not.toBe(0);
     window.clearTimeout(view.agentVoiceReconnectTimer);

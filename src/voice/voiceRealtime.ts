@@ -1163,7 +1163,9 @@ export function handleRealtimeDisconnect(view: VoiceRealtimeView, code: number, 
   retireOmniPlaybackDrain(view);
   view.agentOmniPlaybackReady = null;
   view.agentVoiceFallbackReason = "";
+  const disconnectedClient = view.agentRealtimeClient;
   view.agentRealtimeClient = null;
+  try { disconnectedClient?.close(); } catch { /* Continue releasing capture and scheduling recovery. */ }
   cleanupRealtimeAudio(view);
   view.setAgentBusy?.(false);
   view.agentSpeaking = false;
