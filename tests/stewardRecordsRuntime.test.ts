@@ -312,7 +312,8 @@ describe("steward record entry points on real temporary Vault files", () => {
     ["local_appendHealthEntry", "手动记录健康"],
     ["manual_health_csv_batch", "导入健康 CSV"],
     ["manual_health_screenshot", "截图记健康"],
-    ["manual_trade_screenshot_batch", "截图记交易"]
+    ["manual_trade_screenshot_batch", "截图记交易"],
+    ["local_addJournalPlanTask", "将日记计划加到任务"]
   ])("names the recent operation %s without exposing its entries", async (name, title) => {
     const path = store.path(store.settings.folders.health, "2026-11-14.md");
     const id = "synthetic-import-label";
