@@ -7,7 +7,7 @@ import { DEFAULT_SETTINGS } from "../src/defaults";
 import { AgentRuntime } from "../src/agentRuntime";
 import { runDerivedOperation } from "../src/dataFoundation/derivedOperation";
 import { factRecoveryPath, fileRevision, recoverFactOperation } from "../src/dataFoundation/factOperation";
-import { RecoveryCapacityError } from "../src/dataFoundation/recoveryEncoding";
+import { MAX_RECOVERY_BYTES, RecoveryCapacityError } from "../src/dataFoundation/recoveryEncoding";
 import { executeProactiveFeedback } from "../src/proactiveFeedbackRuntime";
 import { emptyProactivePolicyState } from "../src/proactivePolicy";
 import type { ProactiveCandidate } from "../src/scheduler";
@@ -49,20 +49,38 @@ describe("cross-class persistence boundaries", () => {
     await store.syncVaultSources();
     expect(await vault.bytes(store.chunkIndexPath())).toContain("New source material");
   });
-  it("uses recoverable per-source writes when a full refresh exceeds capacity", async () => {
-    const other = store.path(store.settings.folders.ideas, "fictional-other.md");
-    const otherText = "# Fictional note\n\nAnother independent source.";
-    await vault.seed(other, otherText);
-    const run = vi.spyOn(store, "runFactOperation").mockRejectedValueOnce(new RecoveryCapacityError());
-
-    await expect(store.syncVaultSources()).resolves.toEqual({ addedOrChanged: 2, deleted: 0, unchanged: 0 });
-    expect(run).toHaveBeenCalledTimes(3);
-    expect((await store.readSourceManifest()).entries.map(row => row.path).sort()).toEqual([source, other].sort());
-    expect(await vault.bytes(source)).toBe(raw);
-    expect(await vault.bytes(other)).toBe(otherText);
+  it("recovers from a real journal capacity limit without changing imported notes", async () => {
+    await store.upsertVaultSource(source);
+    const indexPath = store.vaultIndexPath();
+    const legacyIndex = JSON.parse(await vault.bytes(indexPath));
+    // Keep one legacy index entry large enough for two snapshots to fit, while
+    // a third snapshot of an intermediate batch update exceeds the limit.
+    const largeField = "x".repeat(Math.floor(MAX_RECOVERY_BYTES * 0.35));
+    legacyIndex.entries[0].frontmatter = { legacyCapture: largeField };
+    await vault.seed(indexPath, JSON.stringify(legacyIndex));
+    const first = store.path(store.settings.folders.ideas, "fictional-import-a.md");
+    const second = store.path(store.settings.folders.ideas, "fictional-import-b.md");
+    const firstText = "# Fictional import A\n\nA paper model of a lighthouse.\n";
+    const secondText = "# Fictional import B\n\nA paper model of a bridge.\n";
+    await vault.seed(first, firstText);
+    await vault.seed(second, secondText);
+    const run = vi.spyOn(store, "runFactOperation");
+    try {
+      await expect(store.syncVaultSources()).resolves.toEqual({ addedOrChanged: 2, deleted: 0, unchanged: 1 });
+      await expect(run.mock.results[0].value).rejects.toBeInstanceOf(RecoveryCapacityError);
+      expect(run).toHaveBeenCalledTimes(3);
+    } finally { run.mockRestore(); }
+    const sources = await Promise.all([source, first, second].map(path => vault.bytes(path)));
+    expect(sources).toEqual([raw, firstText, secondText]);
+    expect((await store.readSourceManifest()).entries.map(row => row.path).sort()).toEqual([source, first, second].sort());
+    const index = JSON.parse(await vault.bytes(indexPath));
+    expect(index.entries.find((entry: { path: string }) => entry.path === source).frontmatter.legacyCapture.length).toBe(largeField.length);
+    expect(JSON.parse(await vault.bytes(factRecoveryPath(store)))).toMatchObject({ purpose: "derived", status: "committed" });
     expect(store.getFile(auditPath())).toBeNull();
-    await expect(store.syncVaultSources()).resolves.toEqual({ addedOrChanged: 0, deleted: 0, unchanged: 2 });
-  });
+    const writes = vault.writes.length;
+    await expect(store.syncVaultSources()).resolves.toEqual({ addedOrChanged: 0, deleted: 0, unchanged: 3 });
+    expect(vault.writes).toHaveLength(writes);
+  }, 15_000);
   it("prevents a derived operation from writing personal facts", async () => {
     await expect(runDerivedOperation(store, scope => scope.writeFile(source, "replacement"))).rejects.toThrow("不能修改用户记录");
     expect(await vault.bytes(source)).toBe(raw);
