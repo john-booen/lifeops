@@ -35,6 +35,7 @@ export async function collectSessionHotwords(store: StoreHost, configured: strin
   const keywords = tasks.status === "fulfilled" ? tasks.value.tasks
     .filter(task => [task.date, task.createdAt.slice(0, 10), task.updatedAt.slice(0, 10)].some(day => day >= from && day <= today))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .filter(task => safeHotword(task.title, credentials))
     .flatMap(task => [...segmenter.segment(task.title)].filter(({ isWordLike, segment }) =>
       isWordLike && Array.from(segment).length > 1 && !/^\d+$/u.test(segment) && !stopwords.has(segment)).map(({ segment }) => segment)) : [];
   const automatic = [

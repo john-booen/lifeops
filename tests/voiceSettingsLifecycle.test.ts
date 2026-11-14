@@ -242,6 +242,8 @@ describe("ordinary voice and text mode cycles", () => {
     const today = new Date().toLocaleDateString("sv-SE");
     await plugin.store.createHabit({ name: "虚构纸牌训练", frequencyUnit: "day", frequencyInterval: 1, targetCount: 1, startDate: today });
     await plugin.store.createTask({ title: "整理 EVALBOX 目录", date: today });
+    const syntheticToken = ["sk", "fixture", "only", "ASR", "ABC123456"].join("-");
+    await plugin.store.createTask({ title: "测试 " + syntheticToken, date: today });
     const configured = "虚构手填词\n" + plugin.settings.realtimeVoice.apiKey;
     plugin.settings.realtimeVoice.asrHotwords = configured;
     view.agentMode = "voice";
@@ -252,6 +254,7 @@ describe("ordinary voice and text mode cycles", () => {
     expect(words[0]).toBe("虚构手填词");
     expect(words).toEqual(expect.arrayContaining(["虚构纸牌训练", "EVALBOX"]));
     expect(words).not.toContain(plugin.settings.realtimeVoice.apiKey);
+    expect(words).not.toContain("ABC123456");
     expect(plugin.settings.realtimeVoice.asrHotwords).toBe(configured);
     expect(getUserMedia).toHaveBeenCalledOnce();
   });
