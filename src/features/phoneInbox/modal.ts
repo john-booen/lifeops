@@ -32,6 +32,10 @@ export class PhoneInboxModal extends Modal {
     this.button(host, "检查新记录", async () => {
       status.setText("正在检查新记录…");
       try { await this.inbox.scan(true); }
+      catch (error) {
+        if (!(error instanceof PhoneInboxBusyError)) throw error;
+        new Notice(error.message);
+      }
       finally { status.setText(""); }
     });
     try {

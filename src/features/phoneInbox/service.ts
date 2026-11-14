@@ -19,7 +19,7 @@ const EMPTY_NOTE = "# 手机随手记\n";
 const MAX_BATCH_LINES = 20;
 
 export class PhoneInboxBusyError extends Error {
-  constructor() { super("另一个保存还没结束，请稍后再检查末行。"); }
+  constructor() { super("另一个保存还没结束，待处理记录暂缓检查。"); }
 }
 
 interface PhoneInboxHost {
@@ -123,10 +123,12 @@ export class PhoneInbox {
         return invalid || canSubmitPhoneInbox(store) ? [{ line, invalid }] : [];
       });
       const added: PhoneInboxRecord[] = [];
+      let pausedBySave = false;
       for (const { line, invalid } of lines.slice(0, MAX_BATCH_LINES)) {
         if (!this.enabled || store !== this.host.store()) break;
         if (!invalid && !canSubmitPhoneInbox(store)) continue;
         if (await hasPendingFactOperation(store)) {
+          pausedBySave = true;
           this.schedule(10_000);
           break;
         }
@@ -134,6 +136,7 @@ export class PhoneInbox {
       }
       if (added.length) this.host.notify(summarizePhoneInbox(added));
       if (added.length === MAX_BATCH_LINES && lines.length > added.length) this.schedule();
+      if (pausedBySave && includeUnterminated) throw new PhoneInboxBusyError();
     });
   }
 

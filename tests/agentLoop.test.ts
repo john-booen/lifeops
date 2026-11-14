@@ -1747,7 +1747,7 @@ it("does not replay permission to process the last phone line after a blocked ma
     });
     await ready;
     try {
-      await expect(inbox.scan(true)).rejects.toThrow("请稍后再检查末行");
+      await expect(inbox.scan(true)).rejects.toThrow("待处理记录暂缓检查");
       expect(schedule).toHaveBeenCalledExactlyOnceWith(10_000);
       expect(submit).not.toHaveBeenCalled();
     } finally { finish(); await writing; }
@@ -1783,8 +1783,8 @@ it("rejects a synced phone row when its final newline is removed during processi
   } finally { inbox.stop(); }
 });
 
-it("leaves later phone rows unclaimed if a guarded save starts during a batch", async () => {
-  const { PhoneInbox } = await import("../src/features/phoneInbox/service");
+it.each([false, true])("leaves later phone rows unclaimed if a guarded save starts during a batch (manual: %s)", async manual => {
+  const { PhoneInbox, PhoneInboxBusyError } = await import("../src/features/phoneInbox/service");
   const { PHONE_INBOX_PATH } = await import("../src/features/phoneInbox/model");
   const { LifeOpsEventBus } = await import("../src/lifeOpsEventBus");
   let finish!: () => void, started!: () => void;
@@ -1802,14 +1802,18 @@ it("leaves later phone rows unclaimed if a guarded save starts during a batch", 
     }
     return { reply: "核对完成。", actions: [] };
   });
+  const notify = vi.fn();
   const inbox = new PhoneInbox({ store: () => store, enabled: () => true, submit,
-    confirm: async () => undefined, undo: async () => true, notify: () => undefined }, new LifeOpsEventBus());
+    confirm: async () => undefined, undo: async () => true, notify }, new LifeOpsEventBus());
   const schedule = vi.spyOn(inbox, "schedule").mockImplementation(() => undefined);
   const source = "虚构第一行\n虚构第二行\n";
   try {
     await store.ensureFile(PHONE_INBOX_PATH, source);
-    await inbox.scan();
+    const scan = inbox.scan(manual);
+    if (manual) await expect(scan).rejects.toBeInstanceOf(PhoneInboxBusyError);
+    else await scan;
     expect(submit.mock.calls.map(([text]) => text)).toEqual(["虚构第一行"]);
+    expect(notify).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("已处理 1 条"));
     expect(schedule).toHaveBeenCalledExactlyOnceWith(10_000);
     expect((await inbox.list()).map(row => row.line)).toEqual([1]);
     finish();
