@@ -1345,7 +1345,7 @@ function failOmniE2eVoiceTurn(
 
 function failOmniToolContext(view:VoiceRealtimeView,message:string):void{
   // Withdraw old visible details and stop playback; this is not a model fallback.
-  updateManagedAssistantText(view,message);
+  handleOmniE2eResponseText(view, message);
   // Closing/cancelling can synchronously emit callbacks. Retire the turn first
   // so a cancelled old queue cannot re-enter fallback and settle as completed.
   failOmniE2eVoiceTurn(view,message);
@@ -1416,16 +1416,9 @@ export function handleRealtimeDisconnect(view: VoiceRealtimeView, code: number, 
   scheduleVoiceReconnect(view, `socket_closed_${code}`);
 }
 
-function updateManagedAssistantText(
-  view: VoiceRealtimeView,
-  text: string,
-  response?: BailianRealtimeResponseEvent
-): void {
+function updateManagedAssistantText(view: VoiceRealtimeView, text: string): void {
   if (!hasActiveVoiceRuntimeTurn(view) || view.agentOmniE2eAssistantIndex < 0) return;
-  if (response && !acceptsOmniRuntimeEvent(view, response)) return;
-  text = projectProposalFailure(view) || text;
   if (!text.trim()) return;
-  armOmniResponseTimer(view);
   view.agentVoiceRuntime?.updateAssistantText?.(text);
   if (!view.agentVoiceTrace.modelFirstText) {
     view.markVoiceTrace("modelFirstText");
@@ -2113,7 +2106,7 @@ function captureVoicePresentationGuard(view: VoiceRealtimeView): () => boolean {
 }
 
 const {
-  handleOmniE2eResponseCreated, handleOmniE2eAudioDelta, handleOmniE2eAudioDone, finishOmniE2eVoiceTurn,
+  handleOmniE2eResponseCreated, handleOmniE2eResponseText, handleOmniE2eAudioDelta, handleOmniE2eAudioDone, finishOmniE2eVoiceTurn,
   settleCommittedOmniTool, fallbackOmniResponseToBrain, currentOmniModelTerminal, retireModelTerminal
 } = createOmniResponseHandlers({
   isOmniE2eRealtimeMode, hasActiveVoiceRuntimeTurn, armOmniResponseTimer, failOmniE2eVoiceTurn, acceptsOmniRuntimeEvent,
@@ -2131,7 +2124,8 @@ export function executeOmniE2eToolCall(view: VoiceRealtimeView, toolCall: AiTool
 export function executeOmniE2eToolCall(view: VoiceRealtimeView, toolCall: AiToolCall, retainOutput: true): Promise<string | RealtimeToolOutput>;
 export function executeOmniE2eToolCall(view: VoiceRealtimeView, toolCall: AiToolCall, retainOutput = false): Promise<string | RealtimeToolOutput> {
   return executeOmniE2eTool(view, toolCall, retainOutput, {
-    captureVoicePresentationGuard, retireOmniPlaybackDrain, updateManagedAssistantText, failOmniToolContext
+    captureVoicePresentationGuard, retireOmniPlaybackDrain,
+    updateManagedAssistantText: handleOmniE2eResponseText, failOmniToolContext
   });
 }
 
@@ -2141,7 +2135,7 @@ const omniSessionHandlers = {
   speechStarted: handleOmniE2eSpeechStarted,
   speechStopped: handleOmniE2eSpeechStopped,
   responseCreated: handleOmniE2eResponseCreated,
-  responseText: updateManagedAssistantText,
+  responseText: handleOmniE2eResponseText,
   audioDelta: handleOmniE2eAudioDelta,
   audioDone: handleOmniE2eAudioDone,
   responseDone: finishOmniE2eVoiceTurn,

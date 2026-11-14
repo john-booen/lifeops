@@ -21,7 +21,7 @@ interface OmniResponseHost {
   startSystemSpeechForActiveTurn(view: VoiceRealtimeView, text: string, reason: string): unknown;
   settleCompletedOmniE2eVoiceTurn(view: VoiceRealtimeView, text: string): Promise<void>;
   startFallbackTtsForActiveTurn(view: VoiceRealtimeView, text: string, reason: string): Promise<void>;
-  updateManagedAssistantText(view: VoiceRealtimeView, text: string, response?: BailianRealtimeResponseEvent): void;
+  updateManagedAssistantText(view: VoiceRealtimeView, text: string): void;
   clearVoiceReconnectState(view: VoiceRealtimeView): void;
   clearVoiceRecoveryTimers(view: VoiceRealtimeView): void;
   cleanupRealtimeAudio(view: VoiceRealtimeView): void;
@@ -39,6 +39,16 @@ type OmniModelTerminalReceipt = {
 
 export function createOmniResponseHandlers(host: OmniResponseHost) {
   const omniModelTerminals = new WeakMap<object, OmniModelTerminalReceipt>();
+
+  function handleOmniE2eResponseText(view: VoiceRealtimeView, text: string, response?: BailianRealtimeResponseEvent): void {
+    if (!host.hasActiveVoiceRuntimeTurn(view) || view.agentOmniE2eAssistantIndex < 0
+      || response && !host.acceptsOmniRuntimeEvent(view, response)) return;
+    const reply = projectProposalFailure(view) || text;
+    if (!reply.trim()) return;
+    host.armOmniResponseTimer(view);
+    host.updateManagedAssistantText(view, reply);
+  }
+
   function handleOmniE2eResponseCreated(
     view: VoiceRealtimeView,
     response: BailianRealtimeResponseEvent
@@ -196,7 +206,7 @@ export function createOmniResponseHandlers(host: OmniResponseHost) {
         }
         host.finishOmniPlaybackWhenReady(view);
         if (!runtime.snapshot().currentTurn?.playbackDrained) {
-          host.updateManagedAssistantText(view, reply, response);
+          handleOmniE2eResponseText(view, reply, response);
           return;
         }
       }
@@ -288,7 +298,7 @@ export function createOmniResponseHandlers(host: OmniResponseHost) {
     runtime?.selectOutputOwner?.("none");
     view.agentTtsClient?.cancel?.();view.agentTtsClient=null;
     view.agentOmniPendingAudio=[];view.agentOmniPlaybackReady=null;view.agentRealtimeClient=null;
-    host.updateManagedAssistantText(view,text,response);
+    handleOmniE2eResponseText(view, text, response);
     runtime?.updateAssistantText?.(text);runtime?.markModelDone?.();runtime?.markPlaybackDrained?.();
     try{await host.settleCompletedOmniE2eVoiceTurn(view,text);}
     catch{
@@ -300,7 +310,7 @@ export function createOmniResponseHandlers(host: OmniResponseHost) {
   }
 
   return {
-    handleOmniE2eResponseCreated, handleOmniE2eAudioDelta, handleOmniE2eAudioDone, finishOmniE2eVoiceTurn,
+    handleOmniE2eResponseCreated, handleOmniE2eResponseText, handleOmniE2eAudioDelta, handleOmniE2eAudioDone, finishOmniE2eVoiceTurn,
     settleCommittedOmniTool, fallbackOmniResponseToBrain, currentOmniModelTerminal,
     retireModelTerminal: (view: VoiceRealtimeView) => omniModelTerminals.delete(view)
   };
