@@ -2114,3 +2114,51 @@ it("reads an already confirmed phone action from the ledger after the original l
     expect((await store.readTaskDb()).tasks[0]?.title).toBe("虚构旧色卡");
   } finally { put.mockRestore(); inbox.stop(); }
 });
+
+it.each(["complete", "legacy", "manual"] as const)("checks the original line ending before confirming a %s phone record", async origin => {
+  const { PhoneInbox } = await import("../src/features/phoneInbox/service");
+  const { PHONE_INBOX_PATH, PHONE_INBOX_STATE } = await import("../src/features/phoneInbox/model");
+  const { LifeOpsEventBus } = await import("../src/lifeOpsEventBus");
+  const setup = await runtime.executeAiToolCall(tool("create_task", { title: "虚构旧便签" }), "kimi");
+  expect(setup.success).toBe(true);
+  const raw = "删除虚构旧便签";
+  const note = await store.ensureFile(PHONE_INBOX_PATH, origin === "manual" ? raw : raw + "\n");
+  const confirm = vi.fn(async (action: Parameters<typeof runConfirmedToolAction>[0], turn: NonNullable<AgentTurnInput["phoneInbox"]>) => {
+    await turn.assertLineCurrent();
+    await runConfirmedToolAction(action, { store, refreshViews: async () => {}, assertCurrent: turn.assertCurrent }, turn.assertLineCurrent);
+  });
+  const inbox = new PhoneInbox({
+    store: () => store, enabled: () => true,
+    submit: async (text, phoneInbox, signal) => {
+      const result = await new AgentLoop(host).run(input({ message: text, source: "system", phoneInbox, signal }));
+      return { reply: result.text, receipts: result.receipts, actions: result.confirmations };
+    },
+    confirm, undo: id => runtime.undoOperation(id), notify: () => {}
+  }, new LifeOpsEventBus());
+  try {
+    responses.push(reply("", [tool("delete_task", { taskIdOrTitle: "虚构旧便签" })]));
+    await inbox.scan(origin === "manual");
+    const [proposal] = await inbox.list();
+    expect(proposal.status).toBe("confirm");
+    if (origin === "legacy") {
+      const path = store.path(store.settings.folders.aiReports, "System", PHONE_INBOX_STATE);
+      const document = await store.readJson<import("../src/features/phoneInbox/model").PhoneInboxDocument>(path, { version: 1, records: [] });
+      delete document.records[0].sourceTerminated;
+      await store.writeJson(path, document);
+    }
+    if (origin !== "manual") {
+      await store.app.vault.modify(note, raw);
+      expect((await inbox.list())[0]).toMatchObject({ line: 1, sourceEditing: true });
+      await expect(inbox.resolve(proposal.id, "confirm")).rejects.toThrow("这一行已回到编辑状态");
+      expect(confirm).not.toHaveBeenCalled();
+      expect((await store.readTaskDb()).tasks.map(task => task.title)).toEqual(["虚构旧便签"]);
+      await store.app.vault.modify(note, raw + "\n");
+    } else {
+      expect(proposal.sourceEditing).toBeUndefined();
+    }
+    await inbox.resolve(proposal.id, "confirm");
+    expect(confirm).toHaveBeenCalledOnce();
+    expect((await store.readTaskDb()).tasks).toEqual([]);
+    expect(await store.readPath(PHONE_INBOX_PATH)).toBe(origin === "manual" ? raw : raw + "\n");
+  } finally { inbox.stop(); }
+});

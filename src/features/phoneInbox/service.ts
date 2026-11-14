@@ -81,12 +81,14 @@ export class PhoneInbox {
     const doc = await this.read(store);
     const exists = !!store.getFile(PHONE_INBOX_PATH);
     const lines = exists ? await this.lines(store, true).catch(() => undefined) : undefined;
-    const positions = new Map(lines?.map(({ id, line }) => [id, line]));
+    const positions = new Map(lines?.map(line => [line.id, line]));
     await this.restoreReceipts(store, doc.records);
     this.assertCurrent(store);
     const receipts = doc.records.slice().reverse().map(row => {
-      const line = positions.get(row.id);
-      return { ...row, ...(line === undefined ? { sourceUnavailable: true as const } : { line }) };
+      const source = positions.get(row.id);
+      if (!source) return { ...row, sourceUnavailable: true as const };
+      const sourceEditing = row.status === "confirm" && requiresPhoneLineEnding(row) && !source.terminated;
+      return { ...row, line: source.line, ...(sourceEditing ? { sourceEditing: true as const } : {}) };
     });
     const known = new Set(receipts.map(row => row.id));
     let pending = 0, unfinished = 0;
@@ -166,6 +168,7 @@ export class PhoneInbox {
         delete row.pendingOperationId;
       } else if (decision === "confirm" && row.status === "confirm" && row.action) {
         const line = await this.findLine(store, id);
+        if (requiresPhoneLineEnding(row) && !line.terminated) throw Error("这一行已回到编辑状态，请等它写完。");
         const turn = this.turn(store, line);
         await this.host.confirm(row.action, turn);
         row.operationId = `confirmed:${row.action.id}`;
@@ -206,6 +209,7 @@ export class PhoneInbox {
       } else if (isPhoneInboxAction(action)) {
         row.action = action;
         row.status = "confirm";
+        row.sourceTerminated = line.terminated;
         delete row.pendingOperationId;
       } else {
         row.status = "review";
@@ -324,6 +328,11 @@ function phoneInboxReviewReason(store: StoreHost, line: PhoneInboxLine): string 
   if (!line.text.trim()) return "这一行没有记录内容。";
   if (line.text.length > 2000) return "这行超过 2000 字，请分成几条再追加。";
   return hasCredential(store, line.text) ? "这一行疑似含密钥。请去掉密钥后另追加一行。" : "";
+}
+
+function requiresPhoneLineEnding(row: PhoneInboxRecord): boolean {
+  // Older confirmations did not record whether the last line was complete.
+  return row.sourceTerminated !== false;
 }
 
 function hasCredential(store: StoreHost, text: string): boolean {

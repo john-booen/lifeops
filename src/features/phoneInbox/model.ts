@@ -36,6 +36,7 @@ export interface PhoneInboxRecord {
   operationId?: string;
   pendingOperationId?: string;
   undone?: boolean;
+  sourceTerminated?: boolean;
 }
 
 export interface PhoneInboxDocument {
@@ -43,7 +44,7 @@ export interface PhoneInboxDocument {
   records: PhoneInboxRecord[];
 }
 
-export type PhoneInboxReceipt = PhoneInboxRecord & { sourceUnavailable?: true };
+export type PhoneInboxReceipt = PhoneInboxRecord & { sourceUnavailable?: true; sourceEditing?: true };
 
 export interface PhoneInboxSnapshot {
   receipts: PhoneInboxReceipt[];
@@ -110,6 +111,7 @@ export function validPhoneInboxDocument(value: unknown): value is PhoneInboxDocu
         || row.status !== "processing" && row.status !== "review")
       || row.status === "confirm" && !isPhoneInboxAction(row.action)
       || row.action !== undefined && (row.status !== "confirm" || !isPhoneInboxAction(row.action))
+      || row.sourceTerminated !== undefined && typeof row.sourceTerminated !== "boolean"
       || row.undone !== undefined && (typeof row.undone !== "boolean" || !row.operationId)) return false;
     seen.add(row.id);
     return true;

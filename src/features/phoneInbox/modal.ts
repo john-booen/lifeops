@@ -59,7 +59,8 @@ export class PhoneInboxModal extends Modal {
     item.createEl("p", { text: row.message });
     if (row.status === "confirm" && row.action) {
       item.createEl("p", { text: [row.action.title, row.action.content, row.action.description].join(" · ") });
-      if (!row.sourceUnavailable) this.button(item, "确认执行", () => this.inbox.resolve(row.id, "confirm"));
+      if (row.sourceEditing) item.createEl("p", { text: "原行正在编辑中。写完后换行，再检查新记录。" });
+      else if (!row.sourceUnavailable) this.button(item, "确认执行", () => this.inbox.resolve(row.id, "confirm"));
     }
     if (["confirm", "review", "processing"].includes(row.status)) {
       this.button(item, row.status === "confirm" ? "取消操作" : "归档回执", () => this.inbox.resolve(row.id, "dismiss"));
