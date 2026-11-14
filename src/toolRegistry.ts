@@ -503,7 +503,9 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
       }
       if (configuredUnit && suppliedUnit && suppliedUnit !== configuredUnit) return toolError(`请按${configuredUnit}记录「${habit.name}」。`);
       const before = await context.store.readHabitDb();
-      const date = todayString();
+      const suppliedDate = args.date;
+      const date = suppliedDate === undefined ? todayString() : typeof suppliedDate === "string" ? normalizeJournalDate(suppliedDate) : "";
+      if (!date) return toolError("打卡日期无法识别。");
       if (typeof value === "number") await context.store.recordHabitStatus(habit.id, "done", date, "", value, suppliedUnit);
       else await context.store.recordHabitStatus(habit.id, "done", date);
       const verified = (await context.store.readHabitDb()).checkins.find((item) => (
@@ -718,7 +720,7 @@ export function agentToolsForRealtime(): Array<Record<string, unknown>> {
   }));
 }
 
-export async function runConfirmedToolAction(action: AgentActionSuggestion, context: ToolExecutionContext): Promise<boolean> {
+export async function runConfirmedToolAction(action: AgentActionSuggestion, context: ToolExecutionContext, assertBeforeCommit?: () => Promise<void>): Promise<boolean> {
   // The claim and the write must use the exact approval at entry, even while
   // an awaited Ledger read yields to later changes of the caller's object.
   action=structuredClone(action);context.assertCurrent?.();
@@ -789,7 +791,7 @@ export async function runConfirmedToolAction(action: AgentActionSuggestion, cont
       if (recordRevision(context.store.settings.privacy?.excludedVaultPrefixes ?? []) !== projectPrivacyRevision) {
         throw new Error("保存期间隐私排除范围发生变化，已停止并恢复本次项目变更；请重新核对。");
       }
-    }, assertBeforeCommit: action.projectCommand?.kind === "record_task_result" ? async () => { await resultGuard?.(); } : undefined } : undefined);
+    }, assertBeforeCommit: action.projectCommand?.kind === "record_task_result" ? async () => { await resultGuard?.(); } : undefined } : { assertBeforeCommit });
     return true;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

@@ -10,6 +10,8 @@ import { resolveStatsRange } from "../features/stats/stats";
 import { formatHabitCompensationReply, formatTaskListReply, formatVoiceTaskPriorities, habitCompensationQuestion, repeatedTaskListPriority, voiceTaskPriorityTool } from "../features/tasks/planTools";
 import { planCapacityEvidence } from "../features/tasks/capacityEvidence";
 import { weekendClarification } from "../features/tasks/weekendClarification";
+import { phoneInboxCall, phoneInboxRequest, phoneInboxToolDefinitions } from "../features/phoneInbox/agent";
+import type { PhoneInboxTurn } from "../features/phoneInbox/model";
 import { waitForFactOperations } from "../dataFoundation/factOperation";
 import { ensureToolCallId, newLocalOperationId } from "../operationIdentity";
 import { providerDisclosureRequired } from "../privacy";
@@ -33,6 +35,7 @@ export interface AgentTurnInput {
   history: AgentConversationMessage[];
   source: "text" | "voice" | "system";
   now: Date;
+  phoneInbox?: PhoneInboxTurn;
   signal?: AbortSignal;
   onText?: (delta: string) => void;
   onVoiceText?: (delta: string) => void;
@@ -145,6 +148,7 @@ export class AgentLoop {
     };
     try {
       assertProviderActive(input.signal);
+      if (input.phoneInbox) return await this.runPhoneInbox(input, state, input.phoneInbox);
       if (!input.voiceBackground && isLocalUndoCommand(input.message)) {
         state.voiceUndoAllowed = true;
         const calls = this.scopedCalls([{ name: "undo_latest_operation", arguments: {} }], state.id, 0);
@@ -368,6 +372,23 @@ export class AgentLoop {
     }
   }
 
+  private async runPhoneInbox(input: AgentTurnInput, state: TurnState, inbox: PhoneInboxTurn): Promise<AgentTurnResult> {
+    if (!this.modelAvailable()) throw Error("手机随手记需要已配置并授权的文字模型。");
+    await waitForFactOperations(this.host.store, { signal: input.signal });
+    await inbox.assertLineCurrent();
+    const tools = phoneInboxToolDefinitions(agentToolsForChat({ compact: true }));
+    const response = await this.callModel(input, state, "main", phoneInboxRequest(input.message, inbox.date), tools, false, false);
+    if (response.toolCalls.length !== 1) {
+      state.text = "请在对话里补充或逐条处理，尚无保存回执。";
+      return this.result(state);
+    }
+    await inbox.assertLineCurrent();
+    const calls = this.scopedCalls([phoneInboxCall(response.toolCalls[0], inbox)], state.id, 0);
+    const [result] = await this.executeRegular(input, state, calls);
+    state.text = result?.output ?? "处理结果需要核对，尚无保存回执。";
+    return this.result(state);
+  }
+
   private newState(role: AgentModelRole): TurnState {
     return { id: newLocalOperationId("agent-turn"), started: performance.now(), text: "",
       model: settingsForAgentModel(this.host.settings, role).ai.model, inputTokens: 0, outputTokens: 0,
@@ -512,6 +533,7 @@ export class AgentLoop {
       reasoning: role === "deep" && (!input.voiceBackground || final && messages.length === 2) ? "enabled" : "disabled",
       ...(input.voiceBackground && final && messages.length === 2 ? { timeoutMs: role === "deep" ? 45_000 : 12_000 } : {}),
       maxTokens: role === "deep" ? 4096 : shortTextFirst || role === "fast" && input.source !== "text" ? 512 : 1536,
+      ...(input.phoneInbox ? { beforeTextRequest: input.phoneInbox.assertLineCurrent, assertTextRequestCurrent: input.phoneInbox.assertCurrent } : {}),
       onProviderRun: run => { state.providerRuns.push(run); } });
     if (response.providerRun && state.providerRuns.length === before) state.providerRuns.push(response.providerRun);
     this.recordUsage(state, response);

@@ -14,6 +14,7 @@ export interface NeuralHomeOptions extends StewardTodayOptions {
   todayCard?: TodayCardData;
   onAddJournalPlan?(plan: JournalPlanChoice): Promise<void>;
   onReviewIdeas?(): void;
+  onOpenPhoneInbox?(): void;
   onCorrectYesterdayHabit?(taskId: string): Promise<void>;
 }
 
@@ -41,6 +42,9 @@ export function mountNeuralHomeView(container: HTMLElement, initial: NeuralHomeO
   const actions = el(header, "div", "lh-actions");
   button(actions, "lh-button lh-primary", "记下一件事", () => options.onQuickCapture());
   button(actions, "lh-button", "与管家对话", () => options.onChat());
+
+  const phoneInbox = button(actions, "lh-button", "手机随手记", () => options.onOpenPhoneInbox?.());
+  phoneInbox.style.display = options.onOpenPhoneInbox ? "" : "none";
 
   const stage = el(element, "div", "lh-stage"); stage.dataset.expanded = "false"; stage.dataset.motion = "stopped";
   const dust = el(stage, "canvas", "lh-dust"); dust.setAttribute("aria-hidden", "true");
@@ -237,7 +241,7 @@ export function mountNeuralHomeView(container: HTMLElement, initial: NeuralHomeO
   renderContent();
   return {
     element,
-    update(next: NeuralHomeOptions) { if (disposed) return; options = next; renderContent(); },
+    update(next: NeuralHomeOptions) { if (disposed) return; options = next; phoneInbox.style.display = options.onOpenPhoneInbox ? "" : "none"; renderContent(); },
     setActive(active: boolean) {
       motion.setGate({ active, visible: !document.hidden, focused: document.hasFocus(),
         ...(!observer ? { intersecting: active && element.isConnected && element.getClientRects().length > 0 } : {}) });

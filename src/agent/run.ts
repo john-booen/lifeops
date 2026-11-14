@@ -33,6 +33,7 @@ export async function runAgentTurn(this: AgentTurnHost, message: string, history
   const entry = { controller: request, stage: "classification" as const, revision: this.finiteProviderRevision("classification") };
   (this.activeProviderRequests ??= new Set()).add(entry);
   const settings = structuredClone(this.settings), ai = this.ai, store = this.store as unknown as StoreHost;
+  const inbox = options.phoneInbox;
   const historyPolicy = memorySourcePolicy(store);
   let historyRevision: string | undefined;
   let lastQuery: VaultQueryRead | undefined;
@@ -43,26 +44,27 @@ export async function runAgentTurn(this: AgentTurnHost, message: string, history
       const selected = settingsForAgentModel(settings, role);
       return selected === settings ? ai : new LifeOpsAi(selected);
     },
-    executeTools: (calls, userMessage, signal, onResult) => this.executeToolCalls(calls, userMessage, signal, undefined,
+    executeTools: (calls, userMessage, signal, onResult) => this.executeToolCalls(calls, userMessage, signal, inbox?.assertLineCurrent,
       async (call, result) => { onResult(call, result); }, [], undefined, (_result, read) => {
         lastQuery?.dispose();
         lastQuery = read;
-      }, lastQuery).then(execution => execution.results),
+      }, lastQuery, inbox?.assertCurrent).then(execution => execution.results),
     offlineFallback: input => offlineFallback(input, store, this.createAgentRuntime())
   });
   try {
     let streamed = "";
-    const result = await loop.run({ message, history, source: options.source ?? "text", now: new Date(), signal: request.signal,
-      voiceBackground: options.voiceBackground, voiceJobs: options.voiceJobs,
+    const result = await loop.run({ message, history, source: inbox ? "system" : options.source ?? "text", now: new Date(), signal: request.signal,
+      phoneInbox: inbox, voiceBackground: options.voiceBackground, voiceJobs: options.voiceJobs,
       onVoiceText: options.source === "voice" ? options.onVoiceText : undefined,
       onText: delta => { streamed += delta; onText(streamed); } });
     const response = { reply: result.text, actions: result.confirmations, receipts: result.receipts,
-      ...(result.voiceSpeech ? { voiceSpeech: result.voiceSpeech } : {}) };
+      ...(result.voiceSpeech ? { voiceSpeech: result.voiceSpeech } : {}),
+      ...(inbox ? { toolCalls: result.toolCalls } : {}) };
     if (historyRevision !== undefined && !request.signal.aborted && !this.unloaded) {
       attestAgentHistoryResponse(response, store, historyRevision, historyPolicy, message);
     }
     const conversationPath = store.path(settings.folders.aiReports, "Conversations", `${todayString()}.md`);
-    if (!options.selfTest && !(options.source === "voice" && options.deferConversation) && !request.signal.aborted && !this.unloaded && result.text.trim()
+    if (!inbox && !options.selfTest && !(options.source === "voice" && options.deferConversation) && !request.signal.aborted && !this.unloaded && result.text.trim()
       && !isVaultPathExcluded(conversationPath, settings.privacy?.excludedVaultPrefixes)) {
       await store.appendAgentConversation(message, result.text, undefined, () => !request.signal.aborted && !this.unloaded)
         .then(() => retainAgentConversationAppend(store, response, message))

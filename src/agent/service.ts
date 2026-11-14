@@ -90,7 +90,7 @@ export async function appendAgentConversation(this: AgentHost, userMessage: stri
     }
   }
 
-export async function executeToolCalls(this: AgentHost, toolCalls: AiToolCall[], userMessage: string, signal?: AbortSignal, beforeToolCall?: (call:Readonly<AiToolCall>) => Promise<void>, afterToolCall?: (call: Readonly<AiToolCall>, result: ToolCallResult, results: ToolCallResult[]) => Promise<void>, sourcePaths: readonly string[] = [], assertPlanInputsCurrent?: () => Promise<void>, onQueryRead?: (result:ToolCallResult,read:VaultQueryRead)=>void, previousQuery?: VaultQueryRead): Promise<AgentToolExecutionResult> {
+export async function executeToolCalls(this: AgentHost, toolCalls: AiToolCall[], userMessage: string, signal?: AbortSignal, beforeToolCall?: (call:Readonly<AiToolCall>) => Promise<void>, afterToolCall?: (call: Readonly<AiToolCall>, result: ToolCallResult, results: ToolCallResult[]) => Promise<void>, sourcePaths: readonly string[] = [], assertPlanInputsCurrent?: () => Promise<void>, onQueryRead?: (result:ToolCallResult,read:VaultQueryRead)=>void, previousQuery?: VaultQueryRead, assertWriteCurrent?: () => void): Promise<AgentToolExecutionResult> {
     const results: ToolCallResult[] = [];
     const frozenCalls = structuredClone(toolCalls).map(call => ({ ...call, id: ensureToolCallId(call) }));
     const freeze = (value: unknown): void => {
@@ -146,7 +146,8 @@ export async function executeToolCalls(this: AgentHost, toolCalls: AiToolCall[],
       }
       assertProviderActive(signal);
       const result = await runtime.executeAiToolCall(toolCall, "kimi", userMessage,
-        { assertCurrent: () => assertProviderActive(signal),signal,assertPriorQuery,onQueryRead:acceptQuery });
+        { assertCurrent: () => { assertProviderActive(signal); assertWriteCurrent?.(); },
+          assertBeforeCommit: assertWriteCurrent && beforeToolCall ? () => beforeToolCall(toolCall) : undefined, signal, assertPriorQuery, onQueryRead: acceptQuery });
       results.push(result);
       if (afterToolCall) {
         try { await afterToolCall(toolCall, result, results); }

@@ -315,6 +315,7 @@ export interface LifeOpsSettings {
   tradingCnyPerUsd?: number;
   tradingCsvTemplates?: import("./features/trading/csvImport").TradeCsvTemplate[];
   habits: HabitDefinition[];
+  phoneInboxEnabled?: boolean;
   ai: AiSettings;
   embedding: EmbeddingSettings;
   vision: VisionSettings;
@@ -399,6 +400,7 @@ export interface AgentWriteReceipt {
 export interface AgentResponse {
   reply: string;
   voiceSpeech?: string;
+  toolCalls?: { name: string; ok: boolean }[];
   actions: AgentActionSuggestion[];
   receipts?: AgentWriteReceipt[];
 }
@@ -408,6 +410,7 @@ export interface AgentSubmissionOptions {
   providerTraceId?: string;
   source?: "text" | "voice";
   fast?: boolean;
+  phoneInbox?: import("./features/phoneInbox/model").PhoneInboxTurn;
   selfTest?: boolean;
   signal?: AbortSignal;
   onVoiceText?: (delta: string) => void;

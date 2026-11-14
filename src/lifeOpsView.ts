@@ -206,6 +206,8 @@ export interface LifeOpsViewController extends StewardRecordsController {
   mountIdeaPanel?(container: HTMLElement): () => Promise<void>;
   mountLearningPanel?(container: HTMLElement): () => Promise<void>;
   openIdeaCandidates?(): void;
+  hasPhoneInbox?(): boolean;
+  openPhoneInbox?(): void;
   getProactiveCandidates(): Promise<ProactiveCandidate[]>;
   respondToProactiveCandidate(candidateId: string, decision: ProactiveFeedbackDecision): Promise<void>;
 }
@@ -494,6 +496,7 @@ export class LifeOpsView extends ItemView {
           stats, board, todayCard, onAddJournalPlan: this.controller.addJournalPlanTask?.bind(this.controller),
           onCorrectYesterdayHabit: this.controller.correctYesterdayHabit?.bind(this.controller),
           onReviewIdeas: this.controller.openIdeaCandidates?.bind(this.controller),
+          onOpenPhoneInbox: this.controller.hasPhoneInbox?.() ? this.controller.openPhoneInbox?.bind(this.controller) : undefined,
           onOpenTasks: filter => {
             this.mode = "tasks"; this.taskFilter = filter as TaskFilter;
             void this.navigateSteward("affairs");

@@ -7,6 +7,7 @@ import { signalDateFromDocumentPath, validSignalDocument } from "../features/jou
 import { TRADE_DATABASE_NAME, validTradeDatabase } from "../features/trading/types";
 import { validLearningDocument } from "../features/learning/model";
 import { validQuizDocument } from "../features/learning/quizModel";
+import { PHONE_INBOX_STATE, validPhoneInboxDocument } from "../features/phoneInbox/model";
 import { validReadingDocument } from "../features/reading/model";
 
 export interface JsonWriteOptions { compact?: boolean }
@@ -65,6 +66,7 @@ export function jsonDataContract(
     [path(folders.aiReports, "Situation", "observations.json")]: object(["observations"], 1),
     [path(folders.aiReports, "Proactive", "policy-state.json")]: object(["deliveries", "feedback", "mutedKinds"], 1),
     [path(folders.aiReports, "摘要", "调度.json")]: object([], 1),
+    [path(folders.aiReports, "System", PHONE_INBOX_STATE)]: { ...object(["records"], 1), validate: validPhoneInboxDocument },
     [path(folders.aiReports, "Operations", "operation-ledger.json")]: { ...object(["records"], 1), optionalHashes: ["revertedOperationHashes"] },
     [path(folders.aiReports, "Operations", "write-recovery.json")]: { ...object(["entries"]), versions: [1, 2, 3] },
     [path(folders.aiReports, "Jobs", "project-job.json")]: { ...object([]), versions: [1, 2], validate: validateProjectJobDocument },

@@ -1,4 +1,4 @@
-import { Notice, PluginSettingTab, Setting, type TextComponent } from "obsidian";
+import { Notice, Platform, PluginSettingTab, Setting, type TextComponent } from "obsidian";
 import type LifeOpsPlugin from "./main";
 import type { LifeOpsSettings } from "./types";
 import { openSetupWizard } from "./features/setup/wizard";
@@ -47,6 +47,17 @@ export class LifeOpsSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           });
         });
+    }
+
+    if (Platform.isDesktopApp) {
+      new Setting(containerEl).setName("手机随手记")
+        .setDesc("自动把「输入/手机随手记.md」的新行交给已配置并授权的文字模型。回执保存在本库。")
+        .addToggle(toggle => toggle.setValue(this.plugin.settings.phoneInboxEnabled === true).onChange(async enabled => {
+          this.plugin.settings.phoneInboxEnabled = enabled;
+          await this.plugin.saveSettings();
+          await this.plugin.refreshViews();
+        }))
+        .addButton(button => button.setButtonText("打开回执").onClick(() => this.plugin.openPhoneInbox()));
     }
 
     new Setting(containerEl).setName("主动提醒").setDesc("在 LifeOps 面板和 Obsidian 内显示。23:00 到次日 7:00 静默。")

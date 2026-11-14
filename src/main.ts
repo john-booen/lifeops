@@ -76,6 +76,10 @@ import { mountIdeaPanel } from "./features/ideas/panel";
 import { mountLearningPanel, openLearningPlan, registerLearningCommands, type LearningUiHost } from "./features/learning/panel";
 import { subscribeLearningNotes } from "./features/learning/capture";
 import { subscribeReadingNotes } from "./features/reading/capture";
+import { PHONE_INBOX_PATH } from "./features/phoneInbox/model";
+import { PhoneInbox } from "./features/phoneInbox/service";
+import { PhoneInboxModal } from "./features/phoneInbox/modal";
+import { runConfirmedToolAction } from "./toolRegistry";
 import type { JournalPlanChoice } from "./features/today/model";
 import { settingsForAgentModel } from "./agent/models";
 import type { LocalOperationHost } from "./features/serviceHost";
@@ -134,6 +138,7 @@ export default class LifeOpsPlugin extends Plugin {
   readonly lifeOpsEvents = new LifeOpsEventBus();
   private journalSignals?: JournalSignalLifecycle;
   private habitPunishments?: HabitPunishmentLifecycle;
+  private phoneInbox?: PhoneInbox;
 
   async onload(): Promise<void> {
     const openedAt = new Date();
@@ -159,6 +164,7 @@ export default class LifeOpsPlugin extends Plugin {
             void summaryService.startSummarySchedule(this as unknown as summaryService.SummaryHost);
             startStewardReminders(this as unknown as reviewService.ReviewHost, openedAt);
             void startMemoryMaintenance(this as unknown as memoryService.MemoryHost);
+            this.phoneInbox?.schedule();
           }
         },
         (error) => {
@@ -204,6 +210,24 @@ export default class LifeOpsPlugin extends Plugin {
     setProviderEgressSink((record) => this.store.appendProviderEgressAudit(record));
     this.ai = new LifeOpsAi(this.settings);
     this.registerView(LIFEOPS_VIEW_TYPE, (leaf: WorkspaceLeaf) => new LifeOpsView(leaf, this));
+    if (Platform.isDesktopApp) {
+      this.phoneInbox = new PhoneInbox({
+        store: () => this.store as unknown as StoreHost,
+        enabled: () => this.isLifecycleCurrent(generation) && this.settings.phoneInboxEnabled === true,
+        submit: (text, turn, signal) => this.submitAgentMessage(text, [], { phoneInbox: turn, signal }),
+        confirm: async (action, turn) => {
+          await turn.assertLineCurrent();
+          await runConfirmedToolAction(action, {
+            store: this.store as unknown as StoreHost,
+            assertCurrent: turn.assertCurrent,
+            refreshViews: () => this.refreshViews()
+          }, turn.assertLineCurrent);
+        },
+        undo: id => this.createAgentRuntime().undoOperation(id),
+        notify: message => new Notice(message)
+      }, this.lifeOpsEvents);
+      this.addCommand({ id: "open-phone-inbox", name: "手机随手记回执", callback: () => this.openPhoneInbox() });
+    }
     this.addRibbonIcon("layout-dashboard", "Open LifeOps", () => this.activateView(true));
     this.statusBar = this.addStatusBarItem();
 
@@ -447,6 +471,8 @@ export default class LifeOpsPlugin extends Plugin {
     this.journalSignals = undefined;
     this.habitPunishments?.stop();
     this.habitPunishments = undefined;
+    this.phoneInbox?.stop();
+    this.phoneInbox = undefined;
     this.lifeOpsEvents.clear();
     this.styleEl?.remove();
     this.app.workspace.detachLeavesOfType(LIFEOPS_VIEW_TYPE);
@@ -486,6 +512,7 @@ export default class LifeOpsPlugin extends Plugin {
     setProviderEgressSink((record) => this.store.appendProviderEgressAudit(record));
     this.ai = new LifeOpsAi(this.settings);
     this.journalSignals?.restart();
+    this.phoneInbox?.schedule();
     await this.updateStatusBar();
   }
 
@@ -550,12 +577,14 @@ export default class LifeOpsPlugin extends Plugin {
       if (!(file instanceof TFile)) return;
       this.clearVaultSourceTimer(oldPath);
       this.clearVaultSourceTimer(file.path);
-      if (!this.store.isManagedSourcePath(oldPath) && !this.store.isManagedSourcePath(file.path)) return;
+      const managed = this.store.isManagedSourcePath(oldPath) || this.store.isManagedSourcePath(file.path);
+      if (!managed && file.path !== PHONE_INBOX_PATH) return;
       this.lifeOpsEvents.publish({
         type: "vault.renamed",
         source: "vault",
         payload: { oldPath, path: file.path }
       });
+      if (!managed) return;
       void this.store.renameVaultSource(oldPath, file.path).catch((error) => {
         console.error("LifeOps failed to rename Vault source", error);
       });
@@ -793,6 +822,15 @@ export default class LifeOpsPlugin extends Plugin {
     await this.store.appendQualityLog(entry);
   }
 
+  hasPhoneInbox(): boolean { return this.phoneInbox?.enabled === true; }
+
+  openPhoneInbox(): void {
+    if (!this.phoneInbox) return;
+    const modal = new PhoneInboxModal(this.app, this.phoneInbox);
+    this.register(() => modal.close());
+    modal.open();
+  }
+
   async appendAgentActionReceipt(title: string, receipt: string): Promise<boolean> {
     return agentService.appendAgentActionReceipt.call(this as unknown as agentService.AgentHost, title, receipt);
   }
@@ -979,9 +1017,10 @@ export default class LifeOpsPlugin extends Plugin {
     sourcePaths: readonly string[] = [],
     assertPlanInputsCurrent?: () => Promise<void>,
     onQueryRead?: (result:ToolCallResult,read:VaultQueryRead)=>void,
-    previousQuery?: VaultQueryRead
+    previousQuery?: VaultQueryRead,
+    assertWriteCurrent?: () => void
   ): Promise<AgentToolExecutionResult> {
-    return agentService.executeToolCalls.call(this as unknown as agentService.AgentHost, toolCalls, userMessage, signal, beforeToolCall, afterToolCall, sourcePaths, assertPlanInputsCurrent, onQueryRead, previousQuery);
+    return agentService.executeToolCalls.call(this as unknown as agentService.AgentHost, toolCalls, userMessage, signal, beforeToolCall, afterToolCall, sourcePaths, assertPlanInputsCurrent, onQueryRead, previousQuery, assertWriteCurrent);
   }
 
   async executeAgentToolCall(toolCall: AiToolCall, userMessage = "", assertCurrent?: () => void,

@@ -1149,3 +1149,84 @@ it("still handles a task question that begins with a greeting", async () => {
   expect(result.text).toBe("我会先核对今天的任务。");
   expect(requests).toHaveLength(1);
 });
+
+describe("phone inbox", () => {
+  const phoneDate = "2026-01-09";
+
+  it("runs five offline-captured lines once, preserves raw input, and supports approval and targeted undo", async () => {
+    const { PhoneInbox } = await import("../src/features/phoneInbox/service");
+    const { PHONE_INBOX_PATH } = await import("../src/features/phoneInbox/model");
+    const { LifeOpsEventBus } = await import("../src/lifeOpsEventBus");
+    const staleTask = await runtime.executeAiToolCall(tool("create_task", { title: "撤掉旧样品" }, "inbox-stale"), "kimi");
+    expect(staleTask.success).toBe(true);
+    await store.createHabit({ name: "跑步", frequencyUnit: "day", frequencyInterval: 1, targetCount: 1, target: { kind: "number", perDay: 5, unit: "公里" },
+      startDate: phoneDate, penaltyThreshold: 3, color: "#27ae60" });
+    const notes = [
+      "明天下午三点带样品", "今天跑了 5 公里", "想法：做一张园艺地图",
+      "今天很平静，想记进日记  ", "请删除撤掉旧样品这个任务"
+    ];
+    const original = "# 手机随手记\n\n" + notes.map(line => `[${phoneDate} 16:20] ${line}`).join("\n") + "\n";
+    await store.ensureFile(PHONE_INBOX_PATH, original);
+    const notifications: string[] = [];
+    const events = new LifeOpsEventBus();
+    const options = {
+      store: () => store, enabled: () => true,
+      submit: async (text: string, phoneInbox: NonNullable<AgentTurnInput["phoneInbox"]>, signal: AbortSignal) => {
+        const result = await new AgentLoop(host).run(input({ message: text, source: "system", phoneInbox, signal }));
+        return { reply: result.text, receipts: result.receipts, actions: result.confirmations, toolCalls: result.toolCalls };
+      },
+      confirm: async (action: Parameters<typeof runConfirmedToolAction>[0], turn: NonNullable<AgentTurnInput["phoneInbox"]>) => {
+        await runConfirmedToolAction(action, { store, refreshViews: async () => {}, assertCurrent: turn.assertCurrent }, turn.assertLineCurrent);
+      },
+      undo: (id: string) => runtime.undoOperation(id),
+      notify: (message: string) => { notifications.push(message); }
+    };
+    responses.push(
+      reply("", [tool("create_task", { title: "带样品", date: "明天", time: "15:00" })]),
+      reply("", [tool("complete_habit", { name: "跑步", value: 5, unit: "公里" })]),
+      reply("", [tool("upsert_idea", { title: "园艺地图", description: "做一张园艺地图" })]),
+      reply("", [tool("append_journal_entry", { content: "今天感觉平静。", period: "晚" })]),
+      reply("", [tool("delete_task", { taskIdOrTitle: "撤掉旧样品" })])
+    );
+    const inbox = new PhoneInbox(options, events);
+    try {
+      await Promise.all([inbox.scan(), inbox.scan()]);
+      const rows = await inbox.list();
+      expect(rows.map(row => row.status)).toEqual(["confirm", "saved", "saved", "saved", "saved"]);
+      expect(notifications).toEqual([expect.stringContaining("手机随手记已处理 5 条")]);
+      expect(requests).toHaveLength(5);
+      expect(catalogs.every(tools => !tools.includes("query_vault") && !tools.includes("undo_latest_operation"))).toBe(true);
+      expect(store.isManagedSourcePath(PHONE_INBOX_PATH)).toBe(false);
+      expect(requests[3].at(-1)?.content).toBe(notes[3]);
+      expect(await store.readPath(store.dailyNotePath(phoneDate, "晚"))).toContain(notes[3]);
+      expect((await store.readHabitDb()).checkins).toContainEqual(expect.objectContaining({ date: phoneDate, value: 5 }));
+      expect((await store.readTaskDb()).tasks).toContainEqual(expect.objectContaining({ title: "带样品", date: "2026-01-10", time: "15:00" }));
+      expect((await store.readTaskDb()).tasks.map(task => task.title)).toContain("撤掉旧样品");
+      inbox.stop();
+      const reopened = new PhoneInbox(options, events);
+      try {
+        await reopened.scan();
+        expect(requests).toHaveLength(5);
+        await reopened.resolve(rows[0].id, "confirm");
+        expect((await store.readTaskDb()).tasks.map(task => task.title)).not.toContain("撤掉旧样品");
+        await reopened.resolve(rows[0].id, "undo");
+        await reopened.resolve(rows[4].id, "undo");
+        expect((await store.readTaskDb()).tasks.map(task => task.title)).toEqual(["撤掉旧样品"]);
+        expect(await store.readPath(PHONE_INBOX_PATH)).toBe(original);
+      } finally { reopened.stop(); }
+    } finally { inbox.stop(); }
+  });
+
+  it("blocks changes to permissions, rejects out-of-scope tool requests, and declines multiple writes on one line", async () => {
+    const turn = { date: phoneDate, assertCurrent: () => {}, assertLineCurrent: vi.fn(async () => {}) };
+    const request = input({ message: "纯虚构手机记录", phoneInbox: turn, source: "system" });
+    responses.push(reply("", [tool("delete_habit", { name: "甲" }), tool("delete_task", { taskIdOrTitle: "乙" }, "second")]));
+    expect((await new AgentLoop(host).run(request)).receipts).toEqual([]);
+    responses.push(reply("", [tool("undo_latest_operation", {})]));
+    await expect(new AgentLoop(host).run(request)).rejects.toThrow("需要在对话中处理");
+    responses.push(reply("", [tool("create_task", { title: "纸船" })]));
+    turn.assertLineCurrent.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("编辑冲突"));
+    await expect(new AgentLoop(host).run(request)).rejects.toThrow("编辑冲突");
+    expect((await store.readTaskDb()).tasks).toEqual([]);
+  });
+});

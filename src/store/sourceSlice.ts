@@ -1,3 +1,4 @@
+import { PHONE_INBOX_PATH } from "../features/phoneInbox/model";
 import { TFile, normalizePath } from "obsidian";
 import { guardDerivedMethods, guardReadonlyDerivedMethods, runDerivedOperation } from "../dataFoundation/derivedOperation";
 import { isGuardedOperationScope } from "../dataFoundation/factOperation";
@@ -68,7 +69,7 @@ async writeSourceManifest(this: StoreHost, manifest: SourceManifest): Promise<vo
 isManagedSourcePath(this: StoreHost, path: string): boolean {
     const normalized = normalizePath(path);
     const generatedRoot = normalizePath(this.settings.folders.aiReports);
-    return normalized.endsWith(".md")
+    return normalized !== PHONE_INBOX_PATH && normalized.endsWith(".md")
       && normalized !== generatedRoot
       && !normalized.startsWith(`${generatedRoot}/`)
       && !isVaultPathExcluded(normalized, this.settings.privacy?.excludedVaultPrefixes);
