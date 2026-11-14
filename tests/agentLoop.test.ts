@@ -1385,3 +1385,28 @@ it("does not replay permission to process the last phone line after a blocked ma
     expect(submit.mock.calls.map(args => args[0])).toEqual(["已经写完", "还在修改"]);
   } finally { inbox.stop(); }
 });
+
+it("rejects a synced phone row when its final newline is removed during processing", async () => {
+  const { PhoneInbox } = await import("../src/features/phoneInbox/service");
+  const { PHONE_INBOX_PATH } = await import("../src/features/phoneInbox/model");
+  const { LifeOpsEventBus } = await import("../src/lifeOpsEventBus");
+  const original = "虚构记录写完\n";
+  const note = await store.ensureFile(PHONE_INBOX_PATH, original);
+  const write = vi.fn();
+  const inbox = new PhoneInbox({
+    store: () => store, enabled: () => true, confirm: async () => {}, undo: async () => true, notify: () => {},
+    submit: async (_text, turn) => {
+      await turn.assertLineCurrent();
+      await store.app.vault.modify(note, original.trimEnd());
+      await turn.assertLineCurrent();
+      write();
+      return { reply: "已保存。", actions: [] };
+    }
+  }, new LifeOpsEventBus());
+  try {
+    await inbox.scan();
+    expect(write).not.toHaveBeenCalled();
+    expect((await inbox.list())[0].status).toBe("review");
+    expect(await store.readPath(PHONE_INBOX_PATH)).toBe(original.trimEnd());
+  } finally { inbox.stop(); }
+});

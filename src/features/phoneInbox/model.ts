@@ -15,6 +15,7 @@ export interface PhoneInboxLine {
   line: number;
   text: string;
   date: string;
+  terminated: boolean;
 }
 
 export interface PhoneInboxTurn {
@@ -60,7 +61,8 @@ export function parsePhoneInbox(text: string, today: string, includeUnterminated
     const date = stamp && !/^(?:[01]\d|2[0-3]):[0-5]\d$/u.test(stamp[2]) ? ""
       : stamp ? normalizeJournalDate(stamp[1], today) : today;
     const content = stamp ? raw.slice(stamp[0].length) : raw;
-    return [{ id: `${hash}:${occurrence}`, line: index + 1, text: content, date }];
+    return [{ id: `${hash}:${occurrence}`, line: index + 1, text: content, date,
+      terminated: !includeUnterminated || index < lines.length - 1 }];
   });
 }
 

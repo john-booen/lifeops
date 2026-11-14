@@ -182,7 +182,10 @@ export class PhoneInbox {
     return {
       date: line.date,
       assertCurrent: () => this.assertCurrent(store),
-      assertLineCurrent: async () => { await this.findLine(store, line.id); }
+      assertLineCurrent: async () => {
+        const current = await this.findLine(store, line.id);
+        if (line.terminated && !current.terminated) throw Error("这一行已回到编辑状态，请等它写完。");
+      }
     };
   }
 
