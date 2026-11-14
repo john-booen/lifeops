@@ -257,17 +257,20 @@ export async function startBailianRealtimeRecording(view: VoiceRealtimeView): Pr
       onCascadeCapture: event => handleCascadeCapture(view, cascadeEndpoint, event)
     } : createOmniCallbacks(view, omniSessionHandlers);
     const createClient = (voice: RealtimeVoiceSettings): BailianRealtimeClient => {
+      // Before onOpen, connect() owns failure handling and its bounded startup retries.
+      let opened = false;
       const connection: BailianRealtimeClient = new BailianRealtimeClient(voice, { ...guardRealtimeCallbacks({
       onOpen: () => {
+        opened = true;
         view.agentReply = "百炼实时语音已连接，正在预热；等提示变成“语音常驻监听中”再开始说。";
         view.refreshAgentSurfaceState();
       },
       ...modeCallbacks,
       onDisconnected: ({ code, reason }) => {
-        handleRealtimeDisconnect(view, code, reason);
+        if (opened) handleRealtimeDisconnect(view, code, reason);
       },
       onTransportError: (message) => {
-        handleRealtimeDisconnect(view, 1006, message);
+        if (opened) handleRealtimeDisconnect(view, 1006, message);
       },
       onInitialContextError: (message) => {
         view.agentVoiceConversation = false;

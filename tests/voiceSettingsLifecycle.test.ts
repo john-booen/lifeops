@@ -449,6 +449,31 @@ describe("ordinary voice and text mode cycles", () => {
     expect(getUserMedia).toHaveBeenCalledOnce();
   });
 
+  it.each(["error", "close"] as const)("settles a first socket %s before it opens without scheduling another microphone", async failure => {
+    const capture = captureFixture(false);
+    transport.flags.allowFakeSockets = true;
+    Object.assign(plugin.settings.realtimeVoice, { provider: "qwen-omni-realtime", mode: "cascade", asrEngine: "realtime-only" });
+    view.agentMode = "voice";
+    view.agentVoiceConversation = true;
+    view.agentInput = "保留的虚构草稿";
+    const starting = startBailianRealtimeRecording(view);
+    await vi.advanceTimersByTimeAsync(0);
+    const [socket] = transport.sockets;
+    if (failure === "error") socket.emit("error", new Error("虚构连接错误"));
+    else socket.emit("close", 1006, Buffer.from("虚构连接关闭"));
+    await starting;
+    expect(view.agentVoiceConversation).toBe(false);
+    expect(view.agentVoiceRuntime.snapshot().sessionPhase).toBe("stopped");
+    expect(view.agentRealtimeClient).toBeNull();
+    expect(view.agentVoiceReconnectTimer).toBe(0);
+    expect(view.agentReply).toContain("启动失败");
+    expect(view.agentInput).toBe("保留的虚构草稿");
+    expect(capture.tracks[0].readyState).toBe("ended");
+    await vi.advanceTimersByTimeAsync(31_000);
+    expect(getUserMedia).toHaveBeenCalledOnce();
+    expect(transport.sockets).toHaveLength(1);
+  });
+
   it("retries a failed original voice selection once while keeping busy, pending and active capture protected", async () => {
     const capture = captureFixture(), [voice, text] = modeButtons();
     vi.spyOn(plugin, "buildVoiceSessionContextBlock").mockResolvedValue("纯虚构重试上下文");
