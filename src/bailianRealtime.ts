@@ -1383,7 +1383,9 @@ export class BailianRealtimeClient {
         if(this.hasProtectedContextSources())await this.assertContextSourcesCurrent();
         if(!isCurrent())return;
         this.assertContextSourcesCurrentNow();
-        const output=await this.callbacks.onToolCall!(toolCall);
+        const output = toolCall.arguments === undefined
+          ? "工具参数未完整读取，请重新给出完整参数。未执行操作。"
+          : await this.callbacks.onToolCall!({ ...toolCall, arguments: toolCall.arguments });
         const callId = toolCall.id;
         if (!callId || !isCurrent()){disposeRealtimeToolOutput(output);return;}
         const retained=typeof output==="string"?{text:output,committed:false}:this.toolOutputs.claim(output);

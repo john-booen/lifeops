@@ -999,6 +999,23 @@ describe("voice integration flow", () => {
     client.close();
   });
 
+  it.each(["{", "[]", "null", ""])("does not execute an Omni undo on malformed arguments (%j)", async args => {
+    const onToolCall = vi.fn(async () => "不应该调用");
+    const client = new BailianRealtimeClient({ ...TEST_REALTIME_SETTINGS, mode: "omni-e2e", apiKey: "test-key" }, { onToolCall });
+    const connected = client.connect();
+    const socket = websocketMock.instances[0];
+    socket.emit("open");
+    await connected;
+    client.createResponse();
+    socket.emit("message", JSON.stringify({ type: "response.created", response: { id: "bad-args" } }));
+    socket.emit("message", JSON.stringify({ type: "response.function_call_arguments.done", response_id: "bad-args",
+      call_id: "undo-bad", name: "undo_latest_operation", arguments: args }));
+    expect(onToolCall).not.toHaveBeenCalled();
+    const output = socket.sent.map(value => JSON.parse(value)).find(value => value.item?.type === "function_call_output");
+    expect(output?.item).toMatchObject({ call_id: "undo-bad", output: expect.stringContaining("未执行操作") });
+    client.close();
+  });
+
   it("ignores messages from a retired socket after reconnecting", async () => {
     const callbacks = { onToolCall: vi.fn(), onResponseTextDelta: vi.fn(), onDisconnected: vi.fn(), onTransportError: vi.fn() };
     const client = new BailianRealtimeClient({

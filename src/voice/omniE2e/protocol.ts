@@ -70,28 +70,30 @@ function toolCallId(event: Record<string, unknown>): string {
   return "";
 }
 
-export function normalizeOmniToolCall(event: Record<string, unknown>, buffers: Map<string, string>): AiToolCall | null {
+export function normalizeOmniToolCall(event: Record<string, unknown>, buffers: Map<string, string>): (Omit<AiToolCall, "id" | "arguments"> & {
+  id: string;
+  arguments: Record<string, unknown> | undefined;
+}) | null {
   const item = isRecord(event.item) ? event.item : event;
   const callId = toolCallId(event);
   const name = stringValue(item.name) || stringValue(event.name);
-  if (!name) return null;
+  if (!name || !callId) return null;
   const argsText = stringValue(event.arguments)
     || stringValue(item.arguments)
     || (callId ? buffers.get(callId) ?? "" : "");
   return {
-    id: callId || undefined,
+    id: callId,
     name,
     arguments: parseToolArguments(argsText)
   };
 }
 
-function parseToolArguments(value: string): Record<string, unknown> {
-  if (!value.trim()) return {};
+function parseToolArguments(value: string): Record<string, unknown> | undefined {
   try {
     const parsed = JSON.parse(value) as unknown;
-    return isRecord(parsed) ? parsed : {};
+    if (isRecord(parsed) && !Array.isArray(parsed)) return parsed;
   } catch {
-    return {};
+    return undefined;
   }
 }
 
