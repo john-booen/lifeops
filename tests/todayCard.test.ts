@@ -95,6 +95,15 @@ describe("today card reads and journal plan creation", () => {
     expect(await vault.bytes(morning)).toBe(raw);
   });
 
+  it("includes a task scheduled today in the day's priorities even if its deadline is tomorrow", async () => {
+    const task = await store.createTask({ title: "今天处理虚构纸卡", date, dueDate: tomorrow, startTime: "10:30" });
+    const card = await getTodayCard(store, await store.getTaskDashboard(date));
+    expect(card.capacity.plannedCount).toBe(1);
+    expect(card.priorities).toMatchObject([{ id: task.id, reasons: expect.arrayContaining(["一小时内有安排"]) }]);
+    const plan = await runtime.executeAiToolCall({ name: "plan_today", arguments: {} }, "kimi");
+    expect(JSON.parse(plan.output).tasks.map((row: { id: string }) => row.id)).toEqual([task.id]);
+  });
+
   it("stops a stale plan before any task write and retains a source edit that lands during save", async () => {
     const [choice] = (await getTodayCard(store, await store.getTaskDashboard(date))).plans;
     await vault.seed(morning, raw + "补一行。");
