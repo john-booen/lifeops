@@ -47,6 +47,20 @@ it("asks for an explicit offset when a US local time occurs twice", () => {
   const data = { ...cases["equity-match"], openedAt: "2026-11-01T01:30", openedZone: null, closedAt: undefined };
   expect(previewTradeScreenshot([data], "a".repeat(64), []).rows[0]).toMatchObject({ kind: "invalid", reason: expect.stringContaining("夏令时") });
 });
+
+it.each(["2026-11-12T24:00", "2026-11-12T09:60", "2026-02-30T09:30"])("rejects invalid printed market-local dates and clocks (%s)", openedAt => {
+  const row = { ...cases["equity-match"], openedAt, openedZone: null, closedAt: undefined };
+  expect(previewTradeScreenshot([row], "a".repeat(64), []).rows[0]).toMatchObject({ kind: "invalid", reason: expect.stringContaining("日期或时刻") });
+});
+
+it("normalizes a printed unicode minus and rejects offsets beyond fourteen hours", () => {
+  const row = { ...cases["equity-match"], openedAt: "2026-11-12T09:30 UTC−05:00", openedZone: "UTC−05:00", closedAt: undefined };
+  const preview = (values: typeof row) => previewTradeScreenshot([values], "a".repeat(64), []).rows[0];
+  expect(preview(row)).toMatchObject({ kind: "ready", draft: { openedAt: "2026-11-12T09:30-05:00" } });
+  expect(preview({ ...row, openedAt: "2026-11-12T09:30", openedZone: "+14:30" })).toMatchObject({
+    kind: "invalid", reason: expect.stringContaining("时区无效")
+  });
+});
 const readFixture = async (name: CaseName) => readTradeScreenshot(await readFile(join("tests/fixtures/trade-screenshots", name + ".png")));
 const settings = () => {
   const selected = structuredClone(DEFAULT_SETTINGS);

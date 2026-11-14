@@ -55,7 +55,7 @@ function explicitOffset(value: unknown): string | undefined {
   const zone = value.toUpperCase().trim().replace("−", "-");
   if (zone === "Z" || zone === "UTC" || zone === "GMT") return "+00:00";
   const match = /^(?:UTC|GMT)?([+-])((?:0\d|1[0-4])):?([0-5]\d)$/u.exec(zone);
-  if (match) return `${match[1]}${match[2]}:${match[3]}`;
+  if (match && (match[2] !== "14" || match[3] === "00")) return `${match[1]}${match[2]}:${match[3]}`;
 }
 
 const marketTimeZones: Partial<Record<TradeMarket, string>> = { 美股: "America/New_York", A股: "Asia/Shanghai" };
@@ -75,7 +75,7 @@ function offsetForLocalClock(date: string, time: string, timeZone: string): stri
 
 function screenshotTimestamp(value: unknown, printedZone: unknown, marketZone?: string): { timestamp: string; inferred?: string } {
   const text = typeof value === "string" ? value : "";
-  const clock = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2})?)(?:\s*(Z|(?:UTC|GMT)?[+-]\d{2}:?\d{2}|UTC|GMT))?$/iu.exec(text);
+  const clock = /^(\d{4}-\d{2}-\d{2})[ T]((?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?)(?:\s*(Z|(?:UTC|GMT)?[+−-]\d{2}:?\d{2}|UTC|GMT))?$/iu.exec(text);
   if (!clock) throw Error("缺少截图上明确显示的日期或时刻。");
   const printed = explicitOffset(printedZone);
   if (printedZone && !printed || printed && clock[3] && explicitOffset(clock[3]) !== printed) {
