@@ -283,6 +283,49 @@ describe("ordinary voice and text mode cycles", () => {
     expect(client.settings.asrHotwords).toBe("虚构词");
   });
 
+  it("does not stop the microphone twice when hotword collection resolves after standby stops", async () => {
+    const capture = captureFixture();
+    const entered = deferred<void>();
+    const hotwords = deferred<string[]>();
+    vi.spyOn(plugin, "collectVoiceSessionHotwords").mockImplementation(() => {
+      entered.resolve();
+      return hotwords.promise;
+    });
+    view.agentMode = "voice";
+    view.agentVoiceConversation = true;
+    const starting = startBailianRealtimeRecording(view);
+    await entered.promise;
+    view.stopVoiceStandby();
+    hotwords.resolve(["虚构词"]);
+    await starting;
+
+    expect(capture.tracks[0].stop).toHaveBeenCalledOnce();
+    expect(capture.connects).not.toHaveBeenCalled();
+    expect(view.agentStream).toBeNull();
+    expect(view.agentVoiceRuntime.snapshot().sessionPhase).toBe("stopped");
+  });
+
+  it("retires startup cleanly when the voice settings are replaced during hotword collection", async () => {
+    const capture = captureFixture();
+    const entered = deferred<void>();
+    const hotwords = deferred<string[]>();
+    vi.spyOn(plugin, "collectVoiceSessionHotwords").mockImplementation(() => {
+      entered.resolve();
+      return hotwords.promise;
+    });
+    view.agentMode = "voice";
+    const starting = startBailianRealtimeRecording(view);
+    await entered.promise;
+    plugin.settings.realtimeVoice = { ...plugin.settings.realtimeVoice };
+    hotwords.resolve(["虚构词"]);
+    await starting;
+
+    expect(capture.tracks[0].stop).toHaveBeenCalledOnce();
+    expect(capture.connects).not.toHaveBeenCalled();
+    expect(view.agentStream).toBeNull();
+    expect(view.agentVoiceRuntime.snapshot().sessionPhase).toBe("stopped");
+  });
+
   it.each(["cascade", "omni-e2e"] as const)("installs mode-specific realtime callbacks for %s", async mode => {
     const capture = captureFixture();
     Object.assign(plugin.settings.realtimeVoice, { provider: "qwen-omni-realtime", mode, asrEngine: "realtime-only" });

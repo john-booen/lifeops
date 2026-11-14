@@ -241,12 +241,13 @@ export async function startBailianRealtimeRecording(view: VoiceRealtimeView): Pr
     });
     if (!startIsCurrent()) { stream.getTracks().forEach(track => track.stop()); return; }
     view.agentStream = stream;
+    const ownsMicrophone = () => startIsCurrent() && view.agentStream === stream;
     resetSpeakerEcho(view, stream.getAudioTracks?.()[0]?.getSettings?.().echoCancellation !== false);
 
     const injectedContextBlock = isOmniE2eRealtimeMode(realtimeVoice)
       ? await (view.controller.buildVoiceSessionContextBlock?.() ?? view.controller.buildAgentInjectedContextBlock?.() ?? Promise.resolve("")).catch(() => "")
       : "";
-    if (!startIsCurrent()) { stream.getTracks().forEach(track => track.stop()); return; }
+    if (!ownsMicrophone()) return;
     const providerRuntime: VoiceSessionController | undefined = view.agentVoiceRuntime;
     const cascadeEndpoint = isOmniE2eRealtimeMode(realtimeVoice) ? undefined : new ServerVoiceEndpoint();
     const automaticHotwords = !!cascadeEndpoint && (realtimeVoice.asrEngine ?? "realtime") === "realtime"
@@ -256,8 +257,9 @@ export async function startBailianRealtimeRecording(view: VoiceRealtimeView): Pr
         ?? Promise.resolve(safeManualHotwords(view.controller.settings, realtimeVoice.asrHotwords)))
         .catch(() => safeManualHotwords(view.controller.settings, realtimeVoice.asrHotwords))
       : [];
-    if (!startIsCurrent() || view.controller.settings.realtimeVoice !== realtimeVoice) {
-      stream.getTracks().forEach(track => track.stop());
+    if (!ownsMicrophone()) return;
+    if (view.controller.settings.realtimeVoice !== realtimeVoice) {
+      await stopBailianRealtimeRecording(view, true);
       return;
     }
     const useHotwords = automaticHotwords && words.length > 0 || realtimeVoice.asrEngine === "streaming-hotwords";
