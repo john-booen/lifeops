@@ -1311,3 +1311,34 @@ it("waits for a complete phone inbox line while mobile sync updates an unfinishe
     expect(saved).toHaveBeenCalledTimes(2);
   } finally { inbox.stop(); }
 });
+
+it("does not replay permission to process the last phone line after a blocked manual check", async () => {
+  const { PhoneInbox } = await import("../src/features/phoneInbox/service");
+  const { PHONE_INBOX_PATH } = await import("../src/features/phoneInbox/model");
+  const { LifeOpsEventBus } = await import("../src/lifeOpsEventBus");
+  const submit = vi.fn(async (_text: string) => ({ reply: "已核对。", actions: [] }));
+  const inbox = new PhoneInbox({ store: () => store, enabled: () => true, submit,
+    confirm: async () => {}, undo: async () => true, notify: () => {} }, new LifeOpsEventBus());
+  const schedule = vi.spyOn(inbox, "schedule").mockImplementation(() => {});
+  let finish!: () => void, started!: () => void;
+  const hold = new Promise<void>(resolve => { finish = resolve; });
+  const ready = new Promise<void>(resolve => { started = resolve; });
+  try {
+    await store.ensureFile(PHONE_INBOX_PATH, "已经写完\n还在修改");
+    const writing = runtime.executeLocalOperation("synthetic_concurrent_save", {}, async scope => {
+      await scope.writeFile(scope.path(scope.settings.folders.ideas, "synthetic-concurrent-save.md"), "虚构保存");
+      started();
+      await hold;
+    });
+    await ready;
+    try {
+      await expect(inbox.scan(true)).rejects.toThrow("请稍后再检查末行");
+      expect(schedule).toHaveBeenCalledExactlyOnceWith(10_000);
+      expect(submit).not.toHaveBeenCalled();
+    } finally { finish(); await writing; }
+    await inbox.scan();
+    expect(submit.mock.calls.map(args => args[0])).toEqual(["已经写完"]);
+    await inbox.scan(true);
+    expect(submit.mock.calls.map(args => args[0])).toEqual(["已经写完", "还在修改"]);
+  } finally { inbox.stop(); }
+});

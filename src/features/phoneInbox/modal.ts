@@ -1,6 +1,6 @@
 import { App, Modal, Notice } from "obsidian";
 import { PHONE_INBOX_PATH, type PhoneInboxReceipt } from "./model";
-import { summarizePhoneInbox, type PhoneInbox } from "./service";
+import { PhoneInboxBusyError, summarizePhoneInbox, type PhoneInbox } from "./service";
 
 export class PhoneInboxModal extends Modal {
   private generation = 0;
@@ -60,8 +60,8 @@ export class PhoneInboxModal extends Modal {
       try {
         await action();
         if (refresh && generation === this.generation) await this.render();
-      } catch {
-        new Notice("操作未读回成功，请核对「最近操作」和手机随手记回执。");
+      } catch (error) {
+        new Notice(error instanceof PhoneInboxBusyError ? error.message : "操作未读回成功，请核对「最近操作」和手机随手记回执。");
       } finally {
         button.disabled = false;
       }

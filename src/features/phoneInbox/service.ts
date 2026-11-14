@@ -14,6 +14,10 @@ import {
 const EMPTY_NOTE = "# 手机随手记\n";
 const MAX_BATCH_LINES = 20;
 
+export class PhoneInboxBusyError extends Error {
+  constructor() { super("另一个保存还没结束，请稍后再检查末行。"); }
+}
+
 interface PhoneInboxHost {
   store(): StoreHost;
   enabled(): boolean;
@@ -41,10 +45,10 @@ export class PhoneInbox {
     return !this.stopped && this.host.enabled() && this.allowed(this.host.store());
   }
 
-  schedule(delay = 650, includeUnterminated = false): void {
+  schedule(delay = 650): void {
     clearTimeout(this.scheduled);
     if (!this.enabled) return;
-    this.scheduled = setTimeout(() => void this.scan(includeUnterminated).catch(() =>
+    this.scheduled = setTimeout(() => void this.scan().catch(() =>
       this.host.notify("手机随手记暂时无法读取或处理，请打开回执核对。")), delay);
   }
 
@@ -90,7 +94,8 @@ export class PhoneInbox {
       const store = this.host.store();
       if (!store.getFile(PHONE_INBOX_PATH)) return;
       if (await hasPendingFactOperation(store)) {
-        this.schedule(10_000, includeUnterminated);
+        this.schedule(10_000);
+        if (includeUnterminated) throw new PhoneInboxBusyError();
         return;
       }
       const ai = store.settings.ai;
@@ -104,7 +109,7 @@ export class PhoneInbox {
         added.push(await this.process(store, doc, line));
       }
       if (added.length) this.host.notify(summarizePhoneInbox(added));
-      if (added.length === MAX_BATCH_LINES && lines.length > added.length) this.schedule(650, includeUnterminated);
+      if (added.length === MAX_BATCH_LINES && lines.length > added.length) this.schedule();
     });
   }
 
