@@ -44,6 +44,23 @@ afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllGlobals(); await rm(ro
 
 describe("task references through real Runtime and temporary disk", () => {
   it.each([
+    ["请创建任务 展馆：给蓝色样品贴标签，安排在明天下午三点。", "给蓝色样品贴标签", "展馆：给蓝色样品贴标签"],
+    ["新建待办：给绿色文件夹贴标签，定在明天。", "绿色文件夹贴标签", "给绿色文件夹贴标签"],
+    ["请创建任务：原样抄下，安排在明天，再找原图。", "原样抄下", "原样抄下"],
+    ["请创建任务：给黄色盒子贴标签，安排在明天下午三点。", "擦拭样品台", "擦拭样品台"]
+  ])("preserves an explicit title before its separately stated schedule: %s", async (userMessage, title, expected) => {
+    await seed([task("task-1800-new", "纯虚构已有任务")]);
+    const before = await facts();
+    const result = await runtime.executeToolCall({ toolName: "create_task", arguments: { title, date: "明天", time: "15:00" },
+      source: "qwen-omni", callId: "fiction-explicit-title", userMessage });
+    expect(result.success).toBe(true);
+    expect(result.output).toContain(expected);
+    expect((await store.readTaskDb({ readOnly: true })).tasks).toContainEqual(expect.objectContaining({ title: expected, time: "15:00" }));
+    expect(await runtime.undoOperation(result.callId)).toBe(true);
+    expect(await facts()).toEqual(before);
+  });
+
+  it.each([
     ["帮我创建一个明天下午三点的任务，标题是虚构口令里的数字。", "虚构口令里的数字"],
     ["请创建任务，标题用刚才提到的编号。", "刚才提到的编号"],
     ["请创建任务，任务名是前面说的项目名称。", "前面说的项目名称"],

@@ -3,7 +3,7 @@ import { saveMemoryNote } from "./memoryNoteWrite";
 import { activityNotePath } from "./activityRecords";
 import { linkedNoteName } from "./linkedNoteSettings";
 import { journalOriginalBlock } from "./features/journal/entry";
-import { isCopiedTaskTitleReference, isTaskIdentifierReference } from "./taskReference";
+import { explicitScheduledTaskTitle, isCopiedTaskTitleReference, isTaskIdentifierReference } from "./taskReference";
 import type { AiToolDefinition } from "./ai";
 import { assertSafeOperationId, fileRevision, MAX_CONFIRMATION_ACTION_ID_LENGTH, recordRevision } from "./operationIdentity";
 import { OperationLedger, type OperationUndoDescriptor, type OperationResultSnapshot, type OperationLedgerRecord } from "./dataFoundation/operationLedger";
@@ -232,8 +232,9 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
       required: ["title"]
     },
     execute: async (args, context, request) => {
-      const title = toolArgString(args, "title");
-      if (!title) return toolError("创建任务缺少标题。");
+      const proposedTitle = toolArgString(args, "title");
+      if (!proposedTitle) return toolError("创建任务缺少标题。");
+      const title = explicitScheduledTaskTitle(proposedTitle, request.userMessage);
       if (isCopiedTaskTitleReference(title, request.userMessage)) return toolError("任务标题仍在引用前文，请核对具体标题；这次没有创建任务。");
       const suppliedDate = toolArgString(args, "date");
       const date = suppliedDate ? normalizeJournalDate(suppliedDate) : "";

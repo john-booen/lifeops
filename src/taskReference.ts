@@ -6,6 +6,15 @@ export function isTaskIdentifierReference(reference: string): boolean {
     || /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/i.test(shape);
 }
 
+/** Preserve the user's literal title when an explicit create command puts
+ * the schedule in its own clause and the proposed title is a suffix of it. */
+export function explicitScheduledTaskTitle(title: string, userMessage = ""): string {
+  const match = /^(?:请(?:帮我)?|帮我)?\s*(?:创建|新建|添加|建)(?:一[个条项])?(?:任务|待办)[：:\s]*([^，,。；;！？!?\r\n]+)[，,]\s*(?:安排在|定在|时间是)[^，,。；;！？!?\r\n]+[。！!]*$/u.exec(userMessage.trim());
+  const original = match?.[1].trim();
+  if (!original || /^(?:标题|任务名|[「『“"'‘])/u.test(original)) return title;
+  return original.replace(/\s+/gu, "").endsWith(title.replace(/\s+/gu, "")) ? original : title;
+}
+
 /** Refuse a copied, explicitly assigned reference instead of inventing its value.
  * This is a conservative guard for reference-only titles, not a language resolver.
  * Actual resolution stays with the model and the current, authorized context.
