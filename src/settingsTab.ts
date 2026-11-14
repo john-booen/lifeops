@@ -16,6 +16,7 @@ import type { ProactiveTone } from "./proactivePolicy";
 import { renderExternalVaultSettings, type ExternalVaultHost } from "./features/externalVault/ui";
 import { voiceVadSilenceMs } from "./voice/continuousInput";
 import { asrHotwords } from "./voice/realtimeAsrOptions";
+import { linkedNoteName, normalizeLinkedNoteName } from "./linkedNoteSettings";
 
 export class LifeOpsSettingTab extends PluginSettingTab {
 
@@ -29,6 +30,24 @@ export class LifeOpsSettingTab extends PluginSettingTab {
     containerEl.createEl("h2", { text: "LifeOps Assistant" });
     new Setting(containerEl).setName("初次设置").addButton(button =>
       button.setButtonText("打开向导").onClick(() => openSetupWizard(this.plugin)));
+    for (const [kind, label] of [["knowledge", "知识沉淀笔记"], ["trading", "交易模型笔记"]] as const) {
+      new Setting(containerEl).setName(label).setDesc("填写文件名。改名后从下次写入生效。")
+        .addText(field => {
+          field.setValue(linkedNoteName(this.plugin.settings, kind));
+          field.inputEl.addEventListener("change", async () => {
+            const name = normalizeLinkedNoteName(field.getValue());
+            if (!name) {
+              new Notice("请填写有效的笔记文件名。");
+              field.setValue(linkedNoteName(this.plugin.settings, kind));
+              return;
+            }
+            const settings = this.plugin.settings;
+            settings.linkedNoteNames = { knowledge: linkedNoteName(settings, "knowledge"), trading: linkedNoteName(settings, "trading"), [kind]: name };
+            field.setValue(name);
+            await this.plugin.saveSettings();
+          });
+        });
+    }
 
     new Setting(containerEl).setName("主动提醒").setDesc("在 LifeOps 面板和 Obsidian 内显示。23:00 到次日 7:00 静默。")
       .addToggle(toggle => toggle.setValue(this.plugin.settings.proactive.enabled).onChange(async enabled => {

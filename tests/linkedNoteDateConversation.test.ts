@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { App } from "obsidian";
 import { beforeEach, afterEach, describe, it, expect, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "../src/defaults";
+import { migrateLinkedNoteNames } from "../src/linkedNoteSettings";
 import type { StoreHost } from "../src/store/settingsSlice";
 vi.mock("obsidian", () => ({ App: class {}, Plugin: class {}, TFile: class {}, TFolder: class {}, WorkspaceLeaf: class {}, ItemView: class {}, Modal: class {}, PluginSettingTab: class {}, Setting: class {}, Platform: { isDesktopApp: true }, Notice: class {}, normalizePath: (p: string) => p.replace(/\\/g, "/").replace(/\/{2,}/g, "/"), setIcon: vi.fn(), requestUrl: () => { throw Error("Offline fictional dates"); } }));
 const { default: LifeOpsPlugin } = await import("../src/main");
@@ -21,6 +22,7 @@ beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "lifeops-linked-date-main-")); vault = new DiskVault(root);
   const app = { vault, workspace: { getLeavesOfType: vi.fn(() => []) } } as unknown as App;
   store = new LifeOpsStore(app, structuredClone(DEFAULT_SETTINGS)) as unknown as StoreHost; await store.initializeVault();
+  store.settings.linkedNoteNames = migrateLinkedNoteNames({ folders: store.settings.folders });
   for (const item of tools) await vault.seed(store.path(store.settings.folders[item.folder], item.note), original);
   await vault.seed(store.dailyNotePath("2026-01-01", "晚"), diary);
   plugin = Object.assign(Object.create(LifeOpsPlugin.prototype), { app, store, settings: store.settings, lifecycleGeneration: 1, unloaded: false, updateStatusBar: vi.fn(async () => {}), refreshViews: vi.fn(async () => {}), lifeOpsEvents: { publish: vi.fn() }, buildSemanticContext: vi.fn(async () => ""), tryLocalAgentFallback: vi.fn(async () => null) });
@@ -31,6 +33,17 @@ function model(call: AiToolCall) {
   stubAgentModel(plugin, fixed); return fixed;
 }
 describe("linked knowledge and trading dates through actual Main and disk", () => {
+  it("writes a configured neutral note and uses its name in the activity link", async () => {
+    expect(migrateLinkedNoteNames({})).toEqual({ knowledge: "知识沉淀.md", trading: "交易模型迭代.md" });
+    store.settings.linkedNoteNames = { knowledge: "虚构研究摘记.md", trading: "虚构规则.md" };
+    model({ name: "append_knowledge_note", id: "fiction-custom-file", arguments: { content: "虚构摘记正文", date: "今天" } });
+    const result = await plugin.submitAgentMessage("保存到知识库：虚构摘记正文", [], { selfTest: true });
+    expect(result.reply).toContain("已写入知识库");
+    const folder = store.settings.folders.ideas;
+    expect(await store.readPath(store.path(folder, "虚构研究摘记.md"))).toContain("虚构摘记正文");
+    expect(await store.readPath(store.path(folder, "每日记录", "2026-01-01.md"))).toContain("|虚构研究摘记]]");
+    expect(await store.readPath(store.path(folder, "Cici 知识沉淀.md"))).toBe(original);
+  });
   for (const item of tools) {
     it.each(["text", "voice"] as const)(`${item.tool} resolves cross-year relative dates, preserves originals, and undoes both files: %s`, async source => {
       const folder = store.settings.folders[item.folder], path = store.path(folder, item.note);

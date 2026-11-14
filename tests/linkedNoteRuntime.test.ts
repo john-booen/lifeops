@@ -5,6 +5,7 @@ import type { StoreHost } from "../src/store/settingsSlice";
 
 class LinkedNoteStore {
   readonly settings = {
+    linkedNoteNames: { knowledge: "Cici 知识沉淀.md", trading: "Cici 交易模型迭代.md" },
     folders: {
       aiReports: "LifeOps/Output/AI",
       ideas: "LifeOps/Knowledge/Ideas",

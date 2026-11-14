@@ -1,6 +1,7 @@
 import {executeStoredQuery} from "./storedQueryRead";
 import { saveMemoryNote } from "./memoryNoteWrite";
 import { activityNotePath } from "./activityRecords";
+import { linkedNoteName } from "./linkedNoteSettings";
 import { appendEveningEntry, journalOriginalBlock } from "./features/journal/entry";
 import { isCopiedTaskTitleReference, isTaskIdentifierReference } from "./taskReference";
 import type { AiToolDefinition } from "./ai";
@@ -955,6 +956,14 @@ async function restoreFileSnapshot(
   }
 }
 
+async function rollbackLegacyToolWrite(context: ToolExecutionContext, error: unknown, restore: () => Promise<void>): Promise<never> {
+  if (!context.store.runFactOperation) {
+    try { await restore(); }
+    catch (rollbackError) { throw new AggregateError([error, rollbackError], "写入失败，回退未通过校验。请检查相关记录。"); }
+  }
+  throw error;
+}
+
 async function executeLinkedNoteWrite(
   kind: "knowledge" | "trading",
   args: Record<string, unknown>,
@@ -967,17 +976,16 @@ async function executeLinkedNoteWrite(
   const suppliedDate = toolArgString(args, "date");
   const date = suppliedDate ? normalizeJournalDate(suppliedDate) : todayString();
   if (!date) return toolError("记录日期无法识别或不存在，请明确有效日期；这次没有写入笔记或日期记录。");
+  const name = linkedNoteName(context.store.settings, kind);
   const config = kind === "knowledge"
     ? {
-      notePath: context.store.path(context.store.settings.folders.ideas, "Cici 知识沉淀.md"),
+      notePath: context.store.path(context.store.settings.folders.ideas, name),
       dailyHeading: "灵感",
-      linkLabel: "Cici 知识沉淀",
       successOutput: "已写入知识库和当日知识记录，并完成读回校验。"
     }
     : {
-      notePath: context.store.path(context.store.settings.folders.tradingModels, "Cici 交易模型迭代.md"),
+      notePath: context.store.path(context.store.settings.folders.tradingModels, name),
       dailyHeading: "交易",
-      linkLabel: "Cici 交易模型迭代",
       successOutput: "已写入交易模型和当日交易学习记录，并完成读回校验。"
     };
   const dailyPath = activityNotePath(context.store, kind === "knowledge" ? "ideas" : "tradingModels", date);
@@ -985,7 +993,7 @@ async function executeLinkedNoteWrite(
     captureFileSnapshot(config.notePath, context),
     captureFileSnapshot(dailyPath, context)
   ]);
-  const dailyLink = `[[${config.notePath.replace(/\.md$/, "")}|${config.linkLabel}]]`;
+  const dailyLink = `[[${config.notePath.slice(0, -3)}|${name.slice(0, -3)}]]`;
 
   try {
     if (kind === "knowledge") {
@@ -1001,8 +1009,7 @@ async function executeLinkedNoteWrite(
       throw new Error(`${config.dailyHeading}写入后读回校验失败。`);
     }
   } catch (error) {
-    await executeUndoDescriptor({ kind: "restore_files", files: snapshots }, context);
-    throw error;
+    await rollbackLegacyToolWrite(context, error, () => executeUndoDescriptor({ kind: "restore_files", files: snapshots }, context));
   }
 
   await context.refreshViews();
@@ -1058,9 +1065,10 @@ async function executeConfirmedToolAction(
         throw new Error("任务删除后校验失败");
       }
     } catch (error) {
-      await context.store.writeTaskDb(before).catch(() => undefined);
-      await context.store.writeTaskMirror(before.tasks).catch(() => undefined);
-      throw error;
+      await rollbackLegacyToolWrite(context, error, async () => {
+        await context.store.writeTaskDb(before);
+        await context.store.writeTaskMirror(before.tasks);
+      });
     }
     await context.refreshViews();
     return {
@@ -1096,9 +1104,10 @@ async function executeConfirmedToolAction(
         throw new Error("习惯删除后校验失败");
       }
     } catch (error) {
-      await context.store.writeHabitDb(before).catch(() => undefined);
-      await context.store.writeHabitMirror(before.habits, before.checkins).catch(() => undefined);
-      throw error;
+      await rollbackLegacyToolWrite(context, error, async () => {
+        await context.store.writeHabitDb(before);
+        await context.store.writeHabitMirror(before.habits, before.checkins);
+      });
     }
     await context.refreshViews();
     return {
@@ -1134,9 +1143,10 @@ async function executeConfirmedToolAction(
     if (action.memoryDecision === "forget" ? !forgetVerified : !saved || saved.status !== "active") throw new Error("个人记忆审查后校验失败");
     await context.store.writePersonalMemoryReview();
   } catch (error) {
-    await context.store.writePersonalMemories(before).catch(() => undefined);
-    await context.store.writePersonalMemoryReview().catch(() => undefined);
-    throw error;
+    await rollbackLegacyToolWrite(context, error, async () => {
+      await context.store.writePersonalMemories(before);
+      await context.store.writePersonalMemoryReview();
+    });
   }
   await context.refreshViews();
   return {

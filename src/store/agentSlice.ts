@@ -2,6 +2,7 @@ import { App, Notice, TFile, TFolder, normalizePath } from "obsidian";
 import { contextSourceHash, isContextSourcePath, recordContextSource, type ContextSourceRecorder } from "../sourceReferences";
 import { readRecentMarkdownSnapshot, type RecentMarkdownSnapshot } from "../recentContext";
 import { activityNotePath } from "../activityRecords";
+import { linkedNoteName } from "../linkedNoteSettings";
 import { isVaultPathExcluded, isVisualCachePath } from "../privacy";
 import { randomUUID } from "node:crypto";
 import { guardDerivedMethods } from "../dataFoundation/derivedOperation";
@@ -375,9 +376,10 @@ async appendKnowledgeNote(this: StoreHost, content: string, date: string = today
       throw new Error("知识库内容不能为空");
     }
     const stamp = new Date().toISOString();
-    const notePath = this.path(this.settings.folders.ideas, "Cici 知识沉淀.md");
+    const name = linkedNoteName(this.settings, "knowledge");
+    const notePath = this.path(this.settings.folders.ideas, name);
     await this.appendFile(notePath, `\n## ${stamp}\n\n${value}\n`);
-    await this.appendActivity("ideas", date, "灵感", `- [[${notePath.replace(/\.md$/, "")}|Cici 知识沉淀]]`);
+    await this.appendActivity("ideas", date, "灵感", `- [[${notePath.slice(0, -3)}|${name.slice(0, -3)}]]`);
   },
 
 async appendTradingModelNote(this: StoreHost, content: string, date: string = todayString()): Promise<void> {
@@ -386,9 +388,10 @@ async appendTradingModelNote(this: StoreHost, content: string, date: string = to
       throw new Error("交易模型内容不能为空");
     }
     const stamp = new Date().toISOString();
-    const notePath = this.path(this.settings.folders.tradingModels, "Cici 交易模型迭代.md");
+    const name = linkedNoteName(this.settings, "trading");
+    const notePath = this.path(this.settings.folders.tradingModels, name);
     await this.appendFile(notePath, `\n## ${stamp}\n\n${value}\n`);
-    await this.appendActivity("tradingModels", date, "交易学习", `- [[${notePath.replace(/\.md$/, "")}|Cici 交易模型迭代]]`);
+    await this.appendActivity("tradingModels", date, "交易学习", `- [[${notePath.slice(0, -3)}|${name.slice(0, -3)}]]`);
   },
 
 async createRetrievalDebugReport(this: StoreHost, query: string, sections: { semantic: string; keyword: string; knowledge: string }): Promise<string> {

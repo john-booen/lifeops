@@ -92,6 +92,7 @@ import { TradingResearchBoard } from "./tradingResearchBoard";
 import { runVoiceAgentSelfTest, runVoiceRuntimeSelfTest } from "./voiceCheck";
 import { openSetupWizard } from "./features/setup/wizard";
 import { migrateRealtimeVoiceSettings } from "./settingsMigration";
+import { migrateLinkedNoteNames } from "./linkedNoteSettings";
 
 import { voiceSettingsRevision } from "./voice/voiceSettingsBoundary";
 import type { LifeOpsWorkflowId } from "./workflows";
@@ -1349,6 +1350,7 @@ function mergeSettings(defaults: LifeOpsSettings, saved: Partial<LifeOpsSettings
   return {
     ...defaults,
     ...saved,
+    linkedNoteNames: migrateLinkedNoteNames(saved),
     folders: { ...defaults.folders, ...(saved.folders ?? {}) },
     ai,
     embedding,
