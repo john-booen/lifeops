@@ -48,6 +48,7 @@ import { createOmniCallbacks, omniSessionOptions } from "./omniE2e/session";
 import { projectProposalFailure } from "./omniE2e/projectProposals";
 import { checkContextSources, CONTEXT_CHANGED_MESSAGE } from "./omniE2e/contextSources";
 import {
+  canQueueAfterNativePlayback,
   handleOmniE2eBargeInEvent as applyOmniBargeInEvent,
   handleOmniE2eSpeechStarted as suspectOmniInterruption,
   handleOmniE2eSpeechStopped,
@@ -126,7 +127,7 @@ function maybeAnnounceVoiceJob(view: VoiceRealtimeView): void {
     || activeCascadeCapture.get(view)?.awaitingTranscript || pendingCascadeInterruptions.has(view) || view.voiceSession.inputQueue.length
     || view.currentVoiceMessageText() || hasActiveVoiceRuntimeTurn(view)
     || confirmation?.played && view.pendingAgentActions.includes(confirmation.action)
-    || omniTurnSettlements.get(view)?.current()) return;
+    || voiceTurnSettlements.get(view)?.current()) return;
   const runtime: VoiceSessionController | undefined = view.agentVoiceRuntime;
   if (runtime?.snapshot().sessionPhase !== "listening") return;
   const job = held.manager.takeAnnouncement();
@@ -1446,30 +1447,20 @@ function updateManagedAssistantText(
   view.refreshAgentSurfaceState();
 }
 
-type OmniTurnSettlement = {
+type ManagedVoiceSettlement = {
   runtime: VoiceSessionController | undefined;
   turnId: string | undefined;
   current: () => boolean;
   promise: Promise<void>;
 };
-const omniTurnSettlements = new WeakMap<object, OmniTurnSettlement>();
+const voiceTurnSettlements = new WeakMap<object, ManagedVoiceSettlement>();
 
-// Only an already-drained, model-complete native reply may finish saving before
-// ordinary input begins the next turn. Generation, speech and control interruption
-// keep their existing paths; this is not a general busy-turn queue.
 export function shouldQueueOmniPostPlaybackInput(view: VoiceRealtimeView): boolean {
-  const settlement=omniTurnSettlements.get(view),terminal=currentOmniModelTerminal(view);
-  const held=settlement?.current()?settlement:terminal?.queueable?terminal:undefined;
-  if (!held || !view.agentBusy || view.agentSpeaking
-    || view.agentTtsClient || view.agentSpeechSources?.size || view.agentOmniPendingAudio?.length || view.agentMode !== "voice"
-    || !view.agentRecording || !view.agentVoiceConversation) return false;
-  const current = held.runtime?.snapshot().currentTurn;
-  const output = view.agentAudioOutput?.snapshot?.();
-  return Boolean(current && current.phase !== "completed" && current.phase !== "interrupted"
-    && current.phase !== "failed" && (current.modelDone||terminal?.queueable) && current.playbackDrained
-    && current.nativeAudioStarted && current.outputOwner === "native-e2e"
-    && current.playbackId && output?.playbackId === current.playbackId
-    && output.owner === "native-e2e" && output.status === "completed");
+  const settings = view.controller.settings.realtimeVoice;
+  if (!settings || !isOmniE2eRealtimeMode(settings)) return false;
+  const settlement = voiceTurnSettlements.get(view), terminal = currentOmniModelTerminal(view);
+  const held = settlement?.current() ? settlement : terminal?.queueable ? terminal : undefined;
+  return canQueueAfterNativePlayback(view, terminal?.queueable === true, held?.runtime);
 }
 
 async function settleManagedVoiceTurn(
@@ -1478,7 +1469,7 @@ async function settleManagedVoiceTurn(
   options: { persistConversation?: boolean } = {}
 ): Promise<void> {
   if (view.viewClosed) return;
-  const prior = omniTurnSettlements.get(view);
+  const prior = voiceTurnSettlements.get(view);
   if (prior?.current()) return prior.promise;
   const runtime: VoiceSessionController | undefined = view.agentVoiceRuntime;
   const snapshot = runtime?.snapshot();
@@ -1497,12 +1488,12 @@ async function settleManagedVoiceTurn(
       && runtime.snapshot().currentTurn?.generation === turnGeneration
       && runtime.snapshot().currentTurn?.phase !== "interrupted"
       && runtime.snapshot().currentTurn?.phase !== "failed");
-  const held: OmniTurnSettlement = { runtime, turnId, current, promise: Promise.resolve() };
-  omniTurnSettlements.set(view, held);
+  const held: ManagedVoiceSettlement = { runtime, turnId, current, promise: Promise.resolve() };
+  voiceTurnSettlements.set(view, held);
   held.promise = Promise.resolve().then(() => settleOwnedVoiceTurn(view, reply, options, held));
   try { await held.promise; }
   finally {
-    if (omniTurnSettlements.get(view) === held) omniTurnSettlements.delete(view);
+    if (voiceTurnSettlements.get(view) === held) voiceTurnSettlements.delete(view);
     if (held.current()) maybeAnnounceVoiceJob(view);
   }
 }
@@ -1511,7 +1502,7 @@ async function settleOwnedVoiceTurn(
   view: VoiceRealtimeView,
   reply: string,
   options: { persistConversation?: boolean },
-  held: OmniTurnSettlement
+  held: ManagedVoiceSettlement
 ): Promise<void> {
   if (!held.current()) return;
   const mainResponse = ordinaryMainResponseForActiveTurn(view,reply);

@@ -103,3 +103,29 @@ export function handleOmniE2eBargeInEvent(
   interruptTurn(`barge-in confirmed: ${event.reason}`);
   view.agentVoiceBargeIn?.reset?.("barge_in_applied");
 }
+
+type NativePlaybackView = {
+  agentBusy?: boolean;
+  agentSpeaking?: boolean;
+  agentTtsClient?: unknown;
+  agentSpeechSources?: { size: number };
+  agentOmniPendingAudio?: readonly unknown[];
+  agentMode?: string;
+  agentRecording?: boolean;
+  agentVoiceConversation?: boolean;
+  agentAudioOutput?: Pick<AudioOutputActor, "snapshot">;
+};
+
+/** Keep a drained native reply while its verified result finishes saving. */
+export function canQueueAfterNativePlayback(view: NativePlaybackView, completeModel: boolean, playbackRuntime?: VoiceSessionController): boolean {
+  if (!playbackRuntime || !view.agentBusy || view.agentSpeaking
+    || view.agentTtsClient || view.agentSpeechSources?.size || view.agentOmniPendingAudio?.length || view.agentMode !== "voice"
+    || !view.agentRecording || !view.agentVoiceConversation) return false;
+  const current = playbackRuntime.snapshot().currentTurn;
+  const output = view.agentAudioOutput?.snapshot?.();
+  return Boolean(current && current.phase !== "completed" && current.phase !== "interrupted"
+    && current.phase !== "failed" && (current.modelDone || completeModel) && current.playbackDrained
+    && current.nativeAudioStarted && current.outputOwner === "native-e2e"
+    && current.playbackId && output?.playbackId === current.playbackId
+    && output.owner === "native-e2e" && output.status === "completed");
+}
