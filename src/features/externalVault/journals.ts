@@ -5,7 +5,7 @@ import { fileRevision } from "../../operationIdentity";
 import { isVaultPathExcluded } from "../../privacy";
 import type { StoreHost } from "../../store/settingsSlice";
 import type { SignalRequest } from "../journal/signalStore";
-import { emptySignalDocument, journalSignalMessages, parseJournalSignal, validSignalDocument, type JournalSignal, type SignalDocument } from "../journal/signals";
+import { emptySignalDocument, journalSignalMessages, parseJournalSignal, validSignalDocument, type JournalSignal, type SignalDocument, type SignalSource } from "../journal/signals";
 import { externalCategory, externalFilesForCategory, externalJournalRoot, externalVaultScope, externalVaultSettings, resolveExternalSource } from "./catalog";
 
 const documentPath = (store: StoreHost, name: string, date: string) => store.path(store.settings.folders.aiReports, "Signals", "External", name, date + ".json");
@@ -19,18 +19,21 @@ async function readDocument(store: StoreHost, name: string, date: string): Promi
   return doc;
 }
 
+export async function externalJournalSignalSourceCurrent(store: StoreHost, date: string, source: SignalSource): Promise<boolean> {
+  const scope = externalVaultScope(store), external = resolveExternalSource(store, source.path);
+  if (!external || externalCategory(store.settings, external.path) !== "journal"
+    || journalDateFromPath(external.path, externalJournalRoot(store.settings, external.path), date.slice(0, 4)) !== date) return false;
+  const raw = await external.reader.read(external.path).catch(() => undefined);
+  return raw !== undefined && externalVaultScope(store) === scope && fileRevision(raw) === source.sha256;
+}
+
 export async function readExternalJournalSignals(store: StoreHost, date: string): Promise<JournalSignal[]> {
   const scope = externalVaultScope(store);
   const docs = await Promise.all(externalVaultSettings(store.settings).map(config => readDocument(store, config.name, date)));
   const result: JournalSignal[] = [];
   for (const doc of docs) {
     for (const item of [...doc.晨, ...doc.晚]) {
-      const source = item.sources[0];
-      const external = resolveExternalSource(store, source.path);
-      if (!external || externalCategory(store.settings, external.path) !== "journal"
-        || journalDateFromPath(external.path, externalJournalRoot(store.settings, external.path), date.slice(0, 4)) !== date) continue;
-      const raw = await external.reader.read(external.path).catch(() => undefined);
-      if (raw !== undefined && fileRevision(raw) === source.sha256) result.push(item);
+      if (await externalJournalSignalSourceCurrent(store, date, item.sources[0])) result.push(item);
     }
   }
   return externalVaultScope(store) === scope ? result : [];

@@ -20,6 +20,7 @@ const { ReadOnlyExternalVault } = await import("../src/features/externalVault/re
 const { indexedExternalVault, externalSourcePath } = await import("../src/features/externalVault/catalog");
 const { extractExternalJournalSignals } = await import("../src/features/externalVault/journals");
 const { readJournalSignals } = await import("../src/features/journal/signalStore");
+const { addJournalPlanTask, getTodayCard } = await import("../src/features/today/service");
 const { readStats } = await import("../src/features/stats/tools");
 const { listIdeaCandidates } = await import("../src/features/ideas/candidates");
 const { registerIdeaCandidates } = await import("../src/features/ideas/service");
@@ -150,4 +151,27 @@ it("generates external signals and candidates, and confirms imported ideas and t
   expect((await readTradeDatabase(store)).trades).toMatchObject([{ symbol: "AAPL", source: { ref: sources[0] } }]);
   expect(await readFile(join(origin, trade), "utf8")).toContain(tradeQuote);
   expect(fingerprint()).toBe(before);
+});
+
+it("adds and undoes an external diary plan locally, and rejects the plan after the original changes", async () => {
+  const date = "2026-08-01", title = "虚构整理纸卡";
+  await seedOriginal(journal, `# 虚构晚记\n明天${title}。`);
+  const before = fingerprint(), sourceNotePath = externalSourcePath(originName, journal);
+  const result = await extractExternalJournalSignals(store, async () => JSON.stringify({
+    date, period: "晚", plans: [{ text: title, when: "明天" }]
+  }), new AbortController().signal, () => {}, new Date(2026, 7, 1, 22));
+  expect(result.saved).toBe(1);
+  const [choice] = (await getTodayCard(store, await store.getTaskDashboard(date))).plans;
+  expect(choice.plan).toMatchObject({ title, date: "2026-08-02", source: { path: sourceNotePath } });
+  await addJournalPlanTask(host, store, choice.plan);
+  expect((await store.readTaskDb()).tasks).toMatchObject([{ title, date: "2026-08-02", sourceNotePath }]);
+  await runtime.undoLatestOperation();
+  expect((await store.readTaskDb()).tasks).toEqual([]);
+  expect(fingerprint()).toBe(before);
+
+  await seedOriginal(journal, "# 虚构晚记\n计划已变更。");
+  const afterEdit = fingerprint();
+  await expect(addJournalPlanTask(host, store, choice.plan)).rejects.toThrow("已变更");
+  expect((await store.readTaskDb()).tasks).toEqual([]);
+  expect(fingerprint()).toBe(afterEdit);
 });

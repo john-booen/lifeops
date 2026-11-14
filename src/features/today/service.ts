@@ -3,6 +3,7 @@ import { normalizeJournalDate } from "../../date";
 import { readHealthDay } from "../health/store";
 import type { StoreHost } from "../../store/settingsSlice";
 import type { TaskDashboardData } from "../../types";
+import { externalPrefix } from "../externalVault/catalog";
 import { journalSignalSourceCurrent, readJournalSignals } from "../journal/signalStore";
 import { listIdeaCandidates } from "../ideas/candidates";
 import { countDueQuizCards } from "../learning/quiz";
@@ -27,7 +28,11 @@ export async function addJournalPlanTask(host: LocalOperationHost, baseStore: St
   let created = false, notice = "", taskId = "";
   let savedSource: SignalSource | undefined;
   const assertSource = async (store: StoreHost, source: SignalSource) => {
-    if (!await journalSignalSourceCurrent(store, selected.journalDate, source)) {
+    const current = source.path.startsWith(externalPrefix + "/")
+      ? await import("../externalVault/journals").then(({ externalJournalSignalSourceCurrent }) =>
+        externalJournalSignalSourceCurrent(store, selected.journalDate, source))
+      : await journalSignalSourceCurrent(store, selected.journalDate, source);
+    if (!current) {
       throw Error("这条日记计划已变更，请刷新后再添加。");
     }
   };
