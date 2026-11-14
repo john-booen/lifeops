@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 // @ts-expect-error Release-only JavaScript is verified against isolated filesystem fixtures.
 import { installPackage, restorePackage, waitForHeartbeat } from "../scripts/release-files.mjs";
 // @ts-expect-error Release-only JavaScript is verified against isolated filesystem fixtures.
@@ -43,7 +43,7 @@ beforeEach(async () => {
   await put(vaultFile("自定义输出/AI/日报.md"), "synthetic generated report at configured path");
 });
 
-afterEach(async () => { await rm(root, { recursive: true, force: true }); });
+afterEach(async () => { vi.useRealTimers(); await rm(root, { recursive: true, force: true }); });
 
 async function prepare() {
   const output = join(root, "package");
@@ -86,6 +86,20 @@ it("aborts rollback before changing the plugin if any backed-up file is damaged"
   await put(join(installed.backup, "vault/LifeOps/Output/AI/日报.md"), "corrupted");
   await expect(restorePackage(config, installed.backup)).rejects.toThrow("备份清单");
   expect(await read(pluginFile("main.js"))).toBe(packageBytes);
+});
+
+it("preserves both verified backups when an installation retries in the same minute", async () => {
+  const output = await prepare();
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-11-14T18:30:00+08:00"));
+  const first = await installPackage(config, version, output);
+  await restorePackage(config, first.backup);
+  const retry = await installPackage(config, version, output);
+  expect(retry.backup).toBe(first.backup + "-1");
+  for (const backup of [first.backup, retry.backup]) {
+    expect(await read(join(backup, "vault/.obsidian/plugins/lifeops-assistant/main.js"))).toBe(oldProgram);
+    expect(await read(join(backup, "manifest.txt"))).toContain(hash(oldProgram));
+  }
 });
 
 it("leaves the old program in place when the new package is damaged", async () => {

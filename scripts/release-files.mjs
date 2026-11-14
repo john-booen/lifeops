@@ -164,8 +164,17 @@ function backupStamp(now) {
 
 async function createBackup(config, version) {
   await mkdir(config.backupRoot, { recursive: true, mode: 0o700 });
-  const directory = join(config.backupRoot, `${version}-${backupStamp(new Date())}`);
-  await mkdir(directory, { mode: 0o700 });
+  const base = join(config.backupRoot, `${version}-${backupStamp(new Date())}`);
+  let directory = base;
+  for (let retry = 1; ; retry++) {
+    try {
+      await mkdir(directory, { mode: 0o700 });
+      break;
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      directory = `${base}-${retry}`;
+    }
+  }
   try {
     const root = join(directory, "vault");
     const current = await inventory(config.vaultPath, await backupEntries(config));
