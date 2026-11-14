@@ -5,7 +5,7 @@ import type { App, TFile, Vault } from "obsidian";
 import type { StoreHost } from "../store/settingsSlice";
 import { OperationLedger, operationFingerprint, type OperationUndoDescriptor, type OperationLedgerDocument, type OperationLedgerRecord } from "./operationLedger";
 import { jsonDataContract, parseJsonData, serializeJsonData } from "./jsonDataGuard";
-import { assertSafeOperationId, fileRevision } from "../operationIdentity";
+import { assertSafeOperationId, fileRevision, UndoRecoveryRequiredError } from "../operationIdentity";
 import { decodeFactRecovery, encodeFactRecovery, MAX_RECOVERY_BYTES, RecoveryCapacityError } from "./recoveryEncoding";
 import { ledgerUndoAfter, type LedgerUndoRecovery } from "./ledgerUndoRecovery";
 import { signalDateFromDocumentPath } from "../features/journal/signals";
@@ -263,13 +263,6 @@ export async function assertOperationClaimAllowed(store: StoreHost): Promise<voi
   const ledgerPath = new OperationLedger(store).filePath;
   const ledgerInEntries = Array.isArray(journal.entries) && journal.entries.some((entry: { path?: string } | null) => entry?.path === ledgerPath);
   if (journal.ledgerUndo || ledgerInEntries && (journal.rollbackRequired || !await auditFinished(store, journal))) throw new UndoRecoveryRequiredError();
-}
-
-export class UndoRecoveryRequiredError extends Error {
-  constructor() {
-    super("撤销尚未结算。请稍候，或使用“检查并恢复未完成操作”后重试。");
-    this.name = "UndoRecoveryRequiredError";
-  }
 }
 
 /** Check the complete known undo before its first write, using the same exact

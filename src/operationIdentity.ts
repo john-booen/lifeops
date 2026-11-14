@@ -15,6 +15,13 @@ export const MAX_CONFIRMED_OPERATION_ID_LENGTH = MAX_CONFIRMATION_ACTION_ID_LENG
 export const MAX_STORED_OPERATION_ID_LENGTH = 512;
 export const INVALID_OPERATION_ID_MESSAGE = "操作标识无效，已停止执行。";
 
+export class UndoRecoveryRequiredError extends Error {
+  constructor() {
+    super("撤销尚未结算。请稍候，或使用“检查并恢复未完成操作”后重试。");
+    this.name = "UndoRecoveryRequiredError";
+  }
+}
+
 export function isSafeOperationId(value: unknown, maxLength = MAX_STORED_OPERATION_ID_LENGTH): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= maxLength
     && !/[\s\p{Cc}\p{Cf}<>]/u.test(value);

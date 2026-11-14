@@ -51,7 +51,7 @@ describe("undo command feedback through the production handler", () => {
     await runtime.executeLocalOperation("command-fixture", {}, scope => scope.writeFile(path, "saved note"), "command-capacity");
     const ledgerPath = store.path(store.settings.folders.aiReports, "Operations", "operation-ledger.json");
     const document = JSON.parse(await vault.bytes(ledgerPath));
-    document.preservedHistoricalExtension = "x".repeat(17 * 1024 * 1024);
+    document.preservedHistoricalExtension = "x".repeat(32 * 1024 * 1024);
     await vault.seed(ledgerPath, JSON.stringify(document));
     const walPath = store.path(store.settings.folders.aiReports, "Operations", "write-recovery.json");
     const wal = await vault.bytes(walPath), audit = await vault.bytes(ledgerPath), writes = vault.writes.length;
@@ -66,7 +66,7 @@ describe("undo command feedback through the production handler", () => {
     expect(await vault.bytes(ledgerPath)).toBe(audit);
     expect(vault.writes).toHaveLength(writes);
     expect(refreshViews).not.toHaveBeenCalled();
-  });
+  }, 20_000);
   it("reports that there is nothing to undo without refreshing the view", async () => {
     await plugin.undoLatestLifeOpsOperation();
     expect(notices).toEqual(["LifeOps 当前没有可撤销的写入操作"]);
