@@ -1321,7 +1321,8 @@ export default class LifeOpsPlugin extends Plugin {
   }
 
   private openHealthCsvImport(): void {
-    openHealthCsvImport({ app: this.app, register: cleanup => this.register(cleanup), ...this.localOperationHost() });
+    openHealthCsvImport({ app: this.app, store: () => this.store as unknown as StoreHost,
+      register: cleanup => this.register(cleanup), ...this.localOperationHost() });
   }
 
   private async injectStyles(issues?: ReleaseLoadIssue[]): Promise<void> {

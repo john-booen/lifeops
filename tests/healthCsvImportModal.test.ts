@@ -43,19 +43,20 @@ function fixture() {
   const store = {
     settings: { folders: { health: "Health" } },
     path: (...parts: string[]) => parts.join("/"),
-    getFile: () => write.mock.calls.length ? { path: "Health/2026-05-25.md" } : null,
+    getFile: (path: string) => write.mock.calls.length ? { path } : null,
     readPath: async () => "- 睡眠小时：7.5\n- 步数：8000",
     app: { vault: { adapter: { read: async () => "- 睡眠小时：7.5\n- 步数：8000" } } },
     appendHealthEntry: write
   } as unknown as StoreHost;
+  let activeStore = store;
   const save = vi.fn(async (_name: string, _args: Record<string, unknown>, action: (scope: StoreHost) => Promise<unknown>,
-    options?: FactOperationOptions) => { options?.assertCurrent?.(); await action(store); });
-  const modal = new HealthCsvImportModal({ app: {} as App, register: vi.fn(), refreshViews, saveLocalOperation: save });
+    options?: FactOperationOptions) => { options?.assertCurrent?.(); await action(activeStore); });
+  const modal = new HealthCsvImportModal({ app: {} as App, store: () => activeStore, register: vi.fn(), refreshViews, saveLocalOperation: save });
   modal.onOpen();
   const children = () => (modal.contentEl as unknown as Element).children;
   const fill = (text: string) => { children().find(el => el.tag === "textarea")!.value = text; };
   const button = (name: string) => children().find(el => el.tag === "button" && el.textContent === name)!;
-  return { modal, write, save, fill, button, children };
+  return { modal, write, save, fill, button, children, store, replaceStore: (replacement: StoreHost) => { activeStore = replacement; } };
 }
 
 beforeEach(() => { notices.length = 0; });
@@ -85,4 +86,20 @@ it("keeps invalid rows on the editable form without saving", async () => {
   expect(save).not.toHaveBeenCalled();
   expect(children().some(el => el.tag === "textarea")).toBe(true);
   expect(notices[0]).toContain("第 1 条健康记录");
+});
+
+it.each(["store", "folder"] as const)("requires a fresh health CSV preview after the destination %s changes", async (changed) => {
+  const { save, fill, write, button, store, replaceStore } = fixture();
+  fill(valid);
+  await button("核对导入内容").onclick();
+  if (changed === "store") replaceStore({ ...store });
+  else store.settings.folders.health = "虚构新健康目录";
+  await button("确认导入 1 条").onclick();
+  expect(save).not.toHaveBeenCalled();
+  expect(write).not.toHaveBeenCalled();
+  expect(notices.at(-1)).toContain("重新核对");
+  await button("返回修改").onclick();
+  await button("核对导入内容").onclick();
+  await button("确认导入 1 条").onclick();
+  expect(write).toHaveBeenCalledOnce();
 });

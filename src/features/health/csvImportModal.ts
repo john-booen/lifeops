@@ -1,5 +1,6 @@
 import { Modal, Notice, type App } from "obsidian";
 import { parseHealthCsv } from "../../csv";
+import type { StoreHost } from "../../store/settingsSlice";
 import type { HealthEntry } from "../../types";
 import type { LocalOperationHost } from "../serviceHost";
 import { HEALTH_METRICS, healthMetricKeys } from "./model";
@@ -7,6 +8,7 @@ import { recordHealthEntries } from "./store";
 
 interface CsvImportHost extends LocalOperationHost {
   app: App;
+  store(): StoreHost;
   register(callback: () => void): void;
 }
 
@@ -55,6 +57,7 @@ export class HealthCsvImportModal extends Modal {
 
   private preview(entries: HealthEntry[]): void {
     const generation = ++this.generation;
+    const store = this.host.store(), folder = store.settings.folders.health;
     const parent = this.contentEl;
     parent.empty();
     this.setTitle("确认导入健康记录");
@@ -74,12 +77,15 @@ export class HealthCsvImportModal extends Modal {
     this.button("返回修改", async () => this.edit());
     this.button(`确认导入 ${entries.length} 条`, async () => {
       const current = () => {
-        if (generation !== this.generation) throw Error("导入窗口已变化，请重新核对。");
+        if (generation !== this.generation || this.host.store() !== store || store.settings.folders.health !== folder) {
+          throw Error("导入窗口或健康记录位置已变化，请返回修改并重新核对。");
+        }
       };
       current();
       let saved = 0;
-      await this.host.saveLocalOperation("manual_health_csv_batch", { entries }, async store => {
-        saved = await recordHealthEntries(store, entries);
+      await this.host.saveLocalOperation("manual_health_csv_batch", { entries }, async scope => {
+        current();
+        saved = await recordHealthEntries(scope, entries);
       }, { assertCurrent: current });
       await this.host.refreshViews().catch(() => undefined);
       new Notice(saved ? `已导入 ${saved} 条健康记录，可在「最近操作」撤销。` : "与已有数据一致。");
