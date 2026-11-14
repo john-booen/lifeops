@@ -117,19 +117,21 @@ function weeklySummaryStatus(note?: SavedSummary): string {
 
 async function weeklyPlan(store: StoreHost, now: Date) {
   const today = formatDate(now), nextWeek = addDays(today, 1);
-  const [doc, scope, tasks] = await Promise.all([readLearningDocument(store), readSummaryScope(store),
+  const [doc, scope, tasks] = await Promise.all([
+    readLearningDocument(store).catch(() => undefined), readSummaryScope(store),
     readStats(store, { domain: "tasks", range: "this_week" }, now)]);
   const report = await readSummary(store, summaryPeriod("week", today), scope.hash);
-  const plans = doc.tracks.map(track => visibleLearningTrack(store, effectiveLearningTrack(track, nextWeek)))
+  const plans = doc?.tracks.map(track => visibleLearningTrack(store, effectiveLearningTrack(track, nextWeek)))
     .filter(track => track.weeklyMinutes > 0)
     .map(track => track.name + " " + track.weeklyMinutes + " 分钟").join("、");
+  const learning = !doc ? "下周学习计划暂时无法读取。"
+    : plans ? "下周学习计划：" + plans + "。可以在学习页调整。" : "下周学习时长还没有设置，可以在学习页安排。";
   const taskStats = tasks.success ? JSON.parse(tasks.output) : undefined;
   const summary = typeof taskStats?.completedCount === "number"
     ? (taskStats.scope ? "本周可读记录中已完成 " : "本周已完成 ") + taskStats.completedCount + " 项任务。"
     : "本周任务数据暂不可用。";
   return {
-    text: summary + (report ? weeklySummaryStatus(report) : "本周摘要预计 21:30 生成。")
-      + (plans ? "下周学习计划：" + plans + "。可以在学习页调整。" : "下周学习时长还没有设置，可以在学习页安排。"),
+    text: summary + (report ? weeklySummaryStatus(report) : "本周摘要预计 21:30 生成。") + learning,
     summaryPath: report?.path
   };
 }

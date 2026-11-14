@@ -24,6 +24,7 @@ const { DiskVault } = await import("./helpers/diskVault");
 const { listIdeas } = await import("../src/features/ideas/notes");
 const { collectStewardCandidates, deliverStewardReminder, queueTaskOverload, runStewardReminders, startStewardReminders, withWeeklySummary } = await import("../src/features/review/reminders");
 const { buildTodayCard } = await import("../src/features/today/model");
+const { learningPath } = await import("../src/features/learning/store");
 const { readSummaryScope, renderSummary, summaryPath } = await import("../src/features/summaries/notes");
 const { summaryPeriod } = await import("../src/features/summaries/periods");
 type ReviewHost = import("../src/features/review/service").ReviewHost;
@@ -249,6 +250,20 @@ it("keeps the Sunday task count current when a weekly summary is still a draft",
   expect(await withWeeklySummary(store, [weekly])).toMatchObject([{ summaryPath: path, reason: expect.stringContaining("本周摘要已可查看。") }]);
   store.settings.privacy = { ...store.settings.privacy, excludedVaultPrefixes: [store.settings.folders.aiReports] };
   expect(await withWeeklySummary(store, [weekly])).toMatchObject([{ summaryPath: undefined, reason: expect.stringContaining("本周摘要暂未生成。") }]);
+});
+
+it.each(["excluded", "malformed"] as const)("delivers both Sunday reminders with %s learning data", async (condition) => {
+  const point = now(15, 21), path = learningPath(store);
+  await seedCompletedTask(12);
+  const original = JSON.stringify({ version: 1, tracks: condition === "malformed" ? "虚构格式错误" : [] });
+  await vault.seed(path, original);
+  if (condition === "excluded") store.settings.privacy = { ...store.settings.privacy, excludedVaultPrefixes: [path] };
+  startStewardReminders(host, point);
+  await runStewardReminders(host, point);
+  expect(delivered.map(candidate => candidate.kind)).toEqual(["evening_review", "weekly_review"]);
+  expect(delivered[1].reason).toContain("本周已完成 1 项任务。");
+  expect(delivered[1].reason).toContain("下周学习计划暂时无法读取。");
+  expect(await vault.bytes(path)).toBe(original);
 });
 
 it("queues an overload once, after a real chat task is saved and verified", async () => {
