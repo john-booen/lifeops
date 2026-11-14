@@ -64,6 +64,11 @@ async function seedIdea(title: string, lastProgress: string, reminders: string[]
   return { path, original };
 }
 
+async function seedCompletedTask(day: number) {
+  const task = await store.createTask({ title: "虚构已完成任务", date: formatDate(now(day, 0)), estimateMin: 30 });
+  await store.updateTask(task.id, previous => ({ ...previous, status: "completed", completedAt: now(day, 10).toISOString() }));
+}
+
 it("shares the current debt between home and the morning brief, without writing a second assessment", async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(now(12, 21));
@@ -170,7 +175,8 @@ it("includes a reached weekly goal and reports excused habits separately in even
 it("simulates three calendar days with real saved reminders, strict quiet hours, and same-kind cooldown", async () => {
   const older = await seedIdea("虚构旧想法", "2026-10-02", ["2026-11-12"]);
   await seedIdea("虚构较新想法", "2026-10-19");
-  await store.createTask({ title: "虚构优先任务", date: "2026-11-13", quadrant: "important-urgent" });
+  await seedCompletedTask(12);
+  const priority = await store.createTask({ title: "虚构优先任务", date: "2026-11-13", quadrant: "important-urgent" });
   startStewardReminders(host, now(13, 6, 30));
   await runStewardReminders(host, now(13, 6, 59));
   expect(delivered).toEqual([]);
@@ -185,13 +191,17 @@ it("simulates three calendar days with real saved reminders, strict quiet hours,
   await runStewardReminders(host, now(14, 5, 45));
   startStewardReminders(host, now(14, 9));
   await runStewardReminders(host, now(14, 9));
-  queueTaskOverload(host, "first", "今天已排 5 个，平时大约完成 3 个。", now(14, 14));
+  const first = await store.createTask({ title: "虚构首条提醒任务", date: "2026-11-14" });
+  queueTaskOverload(host, first.id, "今天已排 5 个，平时大约完成 3 个。", now(14, 14));
   await runStewardReminders(host, now(14, 14));
-  queueTaskOverload(host, "second", "今天已排 6 个，平时大约完成 3 个。", now(14, 14, 30));
+  const second = await store.createTask({ title: "虚构第二条提醒任务", date: "2026-11-14" });
+  queueTaskOverload(host, second.id, "今天已排 3 个，平时大约完成 1 个。", now(14, 14, 30));
   await runStewardReminders(host, now(14, 14, 30));
+  await store.updateTask(priority.id, previous => ({ ...previous, status: "completed", completedAt: now(14, 15).toISOString() }));
   await runStewardReminders(host, now(14, 15, 30));
   await runStewardReminders(host, now(14, 21));
   expect(delivered.slice(3).map(item => item.kind)).toEqual(["task_overload", "stalled_idea", "task_overload", "evening_review"]);
+  expect(delivered[5].reason).toContain("今天已排 2 个");
 
   startStewardReminders(host, now(15, 8));
   await runStewardReminders(host, now(15, 8));
@@ -240,6 +250,29 @@ it("queues an overload once, after a real chat task is saved and verified", asyn
   expect(reason).toContain("今天已排 2 个");
   expect((await chat.executeAiToolCall(call, "kimi")).success).toBe(true);
   expect(onTaskOverload).toHaveBeenCalledOnce();
+});
+
+it.each(["before collection", "before persistence"] as const)("skips delayed overload when the trigger is completed %s", async (when) => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  const point = now(15, 13);
+  vi.setSystemTime(point);
+  await seedCompletedTask(12);
+  const task = await store.createTask({ title: "虚构已撤销的超载项", date: "2026-11-15", estimateMin: 120 });
+  startStewardReminders(host, point);
+  queueTaskOverload(host, task.id, "今天已排 1 个，平时大约完成 1 个。", point);
+  if (when === "before collection") {
+    await store.completeTask(task.id);
+  } else {
+    const save = host.saveLocalOperation.bind(host);
+    vi.spyOn(host, "saveLocalOperation").mockImplementationOnce(async (...args) => {
+      await store.completeTask(task.id);
+      await save(...args);
+    });
+  }
+  await runStewardReminders(host, point);
+  expect((await store.getTask(task.id))?.status).toBe("completed");
+  expect(delivered).toEqual([]);
+  expect((await store.readProactivePolicyState()).deliveries).toEqual([]);
 });
 
 it("does not persist a pending reminder if its lifecycle was disabled during data collection", async () => {

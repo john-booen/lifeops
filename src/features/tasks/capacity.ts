@@ -88,10 +88,14 @@ export function taskCapacity(tasks: readonly LifeOpsTask[], now: Date, estimate:
   return { overloaded, plannedCount, typicalCount, plannedMin, typicalMin, suggestDefer };
 }
 
-export function taskOverloadNotice(before: readonly LifeOpsTask[], after: readonly LifeOpsTask[], now: Date): string {
-  const capacity = taskCapacity(after, now);
-  if (!capacity.overloaded || capacity.typicalCount === null || taskCapacity(before, now).overloaded) return "";
+export function taskOverloadReason(capacity: ReturnType<typeof taskCapacity>): string {
+  if (!capacity.overloaded || capacity.typicalCount === null) return "";
   return `今天已排 ${capacity.plannedCount} 个，平时你大约完成 ${Math.round(capacity.typicalCount)} 个。`;
+}
+
+export function taskOverloadNotice(before: readonly LifeOpsTask[], after: readonly LifeOpsTask[], now: Date): string {
+  const reason = taskOverloadReason(taskCapacity(after, now));
+  return reason && !taskCapacity(before, now).overloaded ? reason : "";
 }
 
 export function taskDraftRoom(tasks: readonly LifeOpsTask[], date: string, typicalCount: number | null) {

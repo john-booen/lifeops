@@ -1,5 +1,5 @@
 import { Notice } from "obsidian";
-import { contextDataPolicy, dashboardContextData } from "../../contextData";
+import { contextDataPolicy, dashboardContextData, readContextTasks } from "../../contextData";
 import { addDays, formatDate } from "../../date";
 import { LIFEOPS_VIEW_TYPE, LifeOpsView } from "../../lifeOpsView";
 import { decideProactiveDelivery, recordProactiveDelivery, type ProactivePolicyState, type ProactiveTone } from "../../proactivePolicy";
@@ -19,9 +19,10 @@ import { buildTodayCard } from "../today/model";
 import { readSummary, readSummaryScope } from "../summaries/notes";
 import { summaryPeriod } from "../summaries/periods";
 import { readStats } from "../stats/tools";
+import { taskCapacity, taskOverloadReason, tasksDueBy } from "../tasks/capacity";
 import type { ReviewHost } from "./service";
 
-interface OverloadAlert { taskId: string; reason: string; at: Date }
+interface OverloadAlert { taskId: string; at: Date }
 type Runtime = { openedAt: Date; overload?: OverloadAlert };
 const runtimes = new WeakMap<ReviewHost, Runtime>();
 
@@ -33,7 +34,7 @@ export function startStewardReminders(host: ReviewHost, openedAt = new Date()): 
 export function queueTaskOverload(host: ReviewHost, taskId: string, reason: string, now = new Date()): void {
   const runtime = runtimes.get(host);
   if (!runtime || host.unloaded || !host.settings.proactive.enabled || !reason.trim()) return;
-  runtime.overload = { taskId, reason: reason.trim(), at: now };
+  runtime.overload = { taskId, at: now };
   host.proactiveLifecycle.schedule(0);
 }
 
@@ -47,6 +48,14 @@ function advice(facts: string, tone: ProactiveTone | undefined, next: string): s
   return facts + (tone === "gentle" ? " 可以先" + next + "。"
     : tone === "strict" ? " 先处理这一步：" + next + "。"
     : " 建议" + next + "。");
+}
+
+async function overloadCandidate(store: StoreHost, alert: OverloadAlert, now: Date, tone: ProactiveTone | undefined) {
+  const context = await readContextTasks(store).catch(() => undefined);
+  if (!context?.available || !tasksDueBy(context.tasks, formatDate(now)).some(task => task.id === alert.taskId)) return;
+  const reason = taskOverloadReason(taskCapacity(context.tasks, now));
+  if (reason) return stewardCandidate(now, "task_overload", "任务超载", advice(reason, tone, "推迟或拆小一项"),
+    { key: alert.taskId, priority: "high" });
 }
 
 async function morningReason(store: StoreHost, board: TaskDashboardData, now: Date): Promise<string> {
@@ -121,19 +130,18 @@ async function weeklyPlan(store: StoreHost, now: Date) {
 export async function collectStewardCandidates(store: StoreHost, state: ProactivePolicyState, now: Date,
   tone: ProactiveTone | undefined, overload?: OverloadAlert): Promise<ProactiveCandidate[]> {
   const date = formatDate(now), windows = stewardReminderWindows(now, state.firstOpen);
-  const due = (kind: ProactiveCandidate["kind"]) => !state.mutedKinds.includes(kind)
-    && !state.deliveries.some(row => row.dedupeKey === kind + ":" + date);
+  const due = (kind: ProactiveCandidate["kind"], key?: string) => !state.mutedKinds.includes(kind)
+    && !state.deliveries.some(row => row.dedupeKey === [kind, date, key].filter(Boolean).join(":"));
   const morning = windows.morning && due("daily_brief"), evening = windows.evening && due("evening_review");
-  const [board, ideas, week] = await Promise.all([
+  const [board, ideas, week, load] = await Promise.all([
     morning || evening ? store.getTaskDashboard(date, { forContext: true }) : undefined,
     windows.idea && due("stalled_idea") ? listIdeas(store) : [],
-    windows.weekly && due("weekly_review") ? weeklyPlan(store, now) : undefined
+    windows.weekly && due("weekly_review") ? weeklyPlan(store, now) : undefined,
+    overload && windows.overload && formatDate(overload.at) === date && due("task_overload", overload.taskId)
+      ? overloadCandidate(store, overload, now, tone) : undefined
   ]);
   const candidates: ProactiveCandidate[] = [];
-  if (overload && windows.overload && formatDate(overload.at) === date) {
-    candidates.push(stewardCandidate(now, "task_overload", "任务超载", advice(overload.reason, tone, "推迟或拆小一项"),
-      { key: overload.taskId, priority: "high" }));
-  }
+  if (load) candidates.push(load);
   if (board && morning) candidates.push(stewardCandidate(now, "daily_brief", "早间简报", await morningReason(store, board, now), { voiceEligible: true }));
   if (board && evening) {
     const reason = eveningReason(board);
@@ -167,7 +175,8 @@ export async function runStewardReminders(host: ReviewHost, now = new Date()): P
   try {
     const prior = await store.readProactivePolicyState();
     const firstOpen = firstOpenOnDay(prior.firstOpen, runtime.openedAt, now);
-    const candidates = await collectStewardCandidates(store, { ...prior, firstOpen }, now, host.settings.proactive.tone, runtime.overload);
+    const overload = runtime.overload;
+    const candidates = await collectStewardCandidates(store, { ...prior, firstOpen }, now, host.settings.proactive.tone, overload);
     current();
     if (prior.firstOpen === firstOpen && !candidates.some(item => decideProactiveDelivery(item, prior, host.settings.proactive, now).deliver)) return;
     const delivered: ProactiveCandidate[] = [];
@@ -180,6 +189,12 @@ export async function runStewardReminders(host: ReviewHost, now = new Date()): P
         const decision = decideProactiveDelivery(item, state, host.settings.proactive, now);
         if (!decision.deliver) continue;
         const candidate = { ...item, channel: decision.channel };
+        if (item.kind === "task_overload") {
+          if (!overload || runtime.overload !== overload) continue;
+          const fresh = await overloadCandidate(scope, overload, now, host.settings.proactive.tone);
+          if (!fresh || runtime.overload !== overload) continue;
+          candidate.reason = fresh.reason;
+        }
         if (item.ideaId) {
           const reminder = await recordIdeaReminder(scope, item.ideaId, formatDate(now));
           if (!reminder) continue;
@@ -198,7 +213,7 @@ export async function runStewardReminders(host: ReviewHost, now = new Date()): P
       host.lifeOpsEvents.publish({ type: "proactive.candidate", source: "runtime", payload: { candidate, decision } });
       host.lifeOpsEvents.publish({ type: "proactive.delivered", source: "runtime",
         payload: { candidateId: candidate.id, requestedChannel: decision.channel, channel: decision.channel, reason: decision.reason } });
-      if (candidate.kind === "task_overload" && runtime.overload && candidate.dedupeKey.endsWith(":" + runtime.overload.taskId)) runtime.overload = undefined;
+      if (candidate.kind === "task_overload" && runtime.overload === overload) runtime.overload = undefined;
     }
     if (delivered.length) await host.refreshViews().catch(() => undefined);
   } catch {
