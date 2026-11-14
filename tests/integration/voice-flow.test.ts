@@ -27,6 +27,7 @@ import { BailianConnectionTimeoutError, BailianRealtimeClient } from "../../src/
 import { BailianRealtimeTtsClient } from "../../src/bailianTtsRealtime";
 import { VoiceBargeInController } from "../../src/voice/voiceBargeIn";
 import { VoiceSessionController } from "../../src/voice/voiceRuntime";
+import { armOmniResponseTimer, clearOmniResponseTimer } from "../../src/voice/omniE2e/responseTimer";
 import * as breezeSpeech from "../../src/voice/breezeSpeech";
 import * as playbackInput from "../../src/voice/playbackInput";
 import type { BreezeResidentWorker } from "../../src/voice/breezeResident";
@@ -63,6 +64,41 @@ import {
 } from "../../src/voice/voiceRealtime";
 import { cleanupRealtimeAudio, voiceJobsForPanel } from "../../src/voice/voiceRealtime";
 import { handleVoiceJobTool } from "../../src/voice/jobs";
+
+it("lets only the current Omni runtime's active response time out", () => {
+  const callbacks: Array<() => void> = [];
+  const clearTimeout = vi.fn();
+  vi.stubGlobal("window", { setTimeout: (callback: () => void) => callbacks.push(callback), clearTimeout });
+  const start = () => {
+    const runtime = new VoiceSessionController({ provider: "offline-synthetic" });
+    runtime.connect();
+    runtime.connected();
+    runtime.beginTurn({ route: "e2e" });
+    return runtime;
+  };
+  const view = { agentVoiceRuntime: start(), agentVoiceResponseTimer: 0 };
+  const fallback = vi.fn();
+  try {
+    armOmniResponseTimer(view, fallback);
+    view.agentVoiceRuntime = start();
+    armOmniResponseTimer(view, fallback);
+    expect(clearTimeout).toHaveBeenCalledWith(1);
+    callbacks[0]();
+    expect(view.agentVoiceResponseTimer).toBe(2);
+    expect(fallback).not.toHaveBeenCalled();
+    callbacks[1]();
+    expect(fallback).toHaveBeenCalledExactlyOnceWith("Qwen-Omni response timeout after 20s");
+    expect(view.agentVoiceResponseTimer).toBe(0);
+    armOmniResponseTimer(view, fallback);
+    view.agentVoiceRuntime = start();
+    callbacks[2]();
+    expect(fallback).toHaveBeenCalledTimes(1);
+    armOmniResponseTimer(view, fallback);
+    clearOmniResponseTimer(view);
+    callbacks[3]();
+    expect(fallback).toHaveBeenCalledTimes(1);
+  } finally { vi.unstubAllGlobals(); }
+});
 
 const websocketMock = vi.hoisted(() => {
   type Handler = (...args: unknown[]) => void;

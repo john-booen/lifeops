@@ -44,6 +44,7 @@ import { classifyPlaybackInput, offlinePlaybackDecision } from "./playbackInput"
 
 import { executeOmniE2eTool } from "./omniE2e/tools";
 import { createOmniResponseHandlers } from "./omniE2e/responses";
+import { armOmniResponseTimer as armOmniTimer, clearOmniResponseTimer } from "./omniE2e/responseTimer";
 import { buildOmniE2eInstructions } from "./omniE2e/instructions";
 import { projectProposalFailure } from "./omniE2e/projectProposals";
 import {
@@ -59,7 +60,6 @@ export { handleOmniE2eSpeechStopped };
 
 type VoiceRealtimeView = any;
 const FALLBACK_TTS_FIRST_AUDIO_TIMEOUT_MS = 5_000;
-const OMNI_RESPONSE_TIMEOUT_MS = 20_000;
 const VOICE_RECONNECT_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 15_000] as const;
 const systemSpeechRecorded = new WeakMap<VoiceSessionController, string>();
 type SpeakerCue = { text: string; completed: boolean };
@@ -2238,30 +2238,7 @@ function clearVoiceRecoveryTimers(view: VoiceRealtimeView): void {
 }
 
 function armOmniResponseTimer(view: VoiceRealtimeView): void {
-  clearOmniResponseTimer(view);
-  const runtime = view.agentVoiceRuntime;
-  const current = runtime?.snapshot().currentTurn;
-  if (!runtime || !current || current.route !== "e2e") return;
-  const identity = {
-    generation: current.generation,
-    turnId: current.turnId
-  };
-  view.agentVoiceResponseTimer = window.setTimeout(() => {
-    view.agentVoiceResponseTimer = 0;
-    const latest = runtime.snapshot().currentTurn;
-    if (
-      !latest
-      || !runtime.accepts(identity)
-      || latest.route !== "e2e"
-      || latest.modelDone
-    ) return;
-    void fallbackOmniResponseToBrain(view, "Qwen-Omni response timeout after 20s");
-  }, OMNI_RESPONSE_TIMEOUT_MS);
-}
-
-function clearOmniResponseTimer(view: VoiceRealtimeView): void {
-  if (view.agentVoiceResponseTimer) window.clearTimeout(view.agentVoiceResponseTimer);
-  view.agentVoiceResponseTimer = 0;
+  armOmniTimer(view, message => { void fallbackOmniResponseToBrain(view, message); });
 }
 
 export async function fallbackOmniResponseToBrain(
