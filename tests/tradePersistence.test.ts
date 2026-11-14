@@ -194,6 +194,16 @@ it.each([
   }]);
   expect(trades[0].openedAtPrecision).toBe(precision);
   expect(trades[0].closedAt).toBe(closedAt);
+  if (precision === "date" && closedAt) expect(trades[0].openedAt).toBe("2026-11-12T00:00:00+08:00");
+});
+
+it("still rejects a closing timestamp on an earlier date when only the opening date is known", async () => {
+  const result = await runtime.executeAiToolCall({ name: "record_trade", arguments: { trades: [{
+    market: "A股", symbol: "ZTEST1", direction: "long", qty: 10, entry: 20, exit: 22,
+    openedAt: "2026-11-12", closedAt: "2026-11-11T15:00:00+08:00"
+  }] } }, "kimi", "2026-11-12 开仓 20，2026-11-11T15:00:00+08:00 平仓 22，做多 10 股。");
+  expect(result.success).toBe(false);
+  expect((await readTradeDatabase(store)).trades).toEqual([]);
 });
 
 it("uses the real trade count for daily goals, undo and the 21:00 compensation check", async () => {

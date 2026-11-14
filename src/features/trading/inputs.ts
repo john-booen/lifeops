@@ -61,6 +61,12 @@ export function chatTradeDraft(value: unknown, now = new Date(), userMessage = "
       opened = tradeTime(opened.openedAt.slice(0, 10), now);
     }
   }
+  if (opened.openedAtPrecision === "date" && closedAt) {
+    // The opening date has no clock or offset. Anchor its stored midnight
+    // to the known close's zone so a change of computer zone can't reverse them.
+    const date = opened.openedAt.slice(0, 10);
+    opened.openedAt = closedAt.replace(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?/u, `${date}T00:00:00`);
+  }
   return { ...input, ...opened, closedAt, source: { kind: "chat" } } as TradeDraft;
 }
 
