@@ -18,7 +18,7 @@ export interface SummaryHost extends LocalOperationHost {
   withAiFallback: LifeOpsPlugin["withAiFallback"];
 }
 type SummaryResult = { path: string; status: "saved" | "existing" | "unavailable"; generatedBy?: SummaryKind };
-type PendingSummary = { signal?: AbortSignal; operation: Promise<SummaryResult> };
+type PendingSummary = { store: StoreHost; signal?: AbortSignal; operation: Promise<SummaryResult> };
 const pending = new WeakMap<SummaryHost, Map<string, PendingSummary>>();
 const scheduleRuns = new WeakMap<SummaryHost, { phase: string; running: boolean; retryAt: number }>();
 const scheduledHosts = new WeakSet<SummaryHost>();
@@ -49,17 +49,20 @@ export function generatePeriodSummary(host: SummaryHost, period: SummaryPeriod, 
   const operations = pending.get(host) ?? new Map<string, PendingSummary>();
   pending.set(host, operations);
   const current = operations.get(path);
-  if (current && !current.signal?.aborted) return current.operation;
+  if (current?.store === store && !current.signal?.aborted) return current.operation;
   const operation = generateSummary(host, store, period, path, now, signal, scheduled).finally(() => {
     if (operations.get(path)?.operation === operation) operations.delete(path);
   });
-  operations.set(path, { signal, operation });
+  operations.set(path, { store, signal, operation });
   return operation;
 }
 
 async function generateSummary(host: SummaryHost, store: StoreHost, period: SummaryPeriod, path: string,
   now: Date, signal: AbortSignal | undefined, scheduled: boolean): Promise<SummaryResult> {
   signal?.throwIfAborted();
+  const assertStore = () => {
+    if (host.unloaded || host.store !== store) throw Error("摘要资料库已变化，请重新生成。");
+  };
   const scope = await readSummaryScope(store);
   const through = dateCutoff(period, now);
   const [old, children] = await Promise.all([
@@ -67,12 +70,17 @@ async function generateSummary(host: SummaryHost, store: StoreHost, period: Summ
     collectChildSummaries(store, period, through, scope)
   ]);
   const inputCount = children.filter(note => note.complete).length;
+  assertStore();
   const complete = periodIsComplete(period, now, children.some(note => note.complete && note.to === period.to));
   const canRefresh = old && !old.edited && (old.properties.through < through
     || !old.properties.complete && complete || old.properties.inputCount < inputCount
     || old.properties.generatedBy === "local" && providerReady(store.settings));
   if (store.getFile(path) && !canRefresh) return { path, status: "existing", generatedBy: old?.properties.generatedBy };
-  return host.observeProvider("daily_review", "text", async (request, _store, ai, current, onCommitted) => {
+  return host.observeProvider("daily_review", "text", async (request, _store, ai, providerCurrent, onCommitted) => {
+    const current = () => {
+      assertStore();
+      providerCurrent();
+    };
     const assertScope = async () => {
       current();
       if ((await readSummaryScope(store)).hash !== scope.hash || !summaryPathAllowed(store, path)) {

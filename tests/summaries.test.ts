@@ -208,6 +208,21 @@ it("leaves a note untouched when the user edits it while a replacement is genera
   expect(await vault.bytes(path)).toBe(edited);
 });
 
+it("does not write into a replacement store after preparing summary inputs in the old store", async () => {
+  const date = "2026-11-12", period = summaryPeriod("day", date);
+  const replacement = new LifeOpsStore(host.app, structuredClone(store.settings)) as unknown as StoreHost;
+  const start = vi.mocked(ask).mockImplementationOnce(async (_messages, options) => {
+    await options.beforeTextRequest?.();
+    host.store = replacement;
+    return summaryText("day");
+  });
+  const path = summaryPath(store, period);
+  await expect(generatePeriodSummary(host, period, now(12, 23, 30))).rejects.toThrow("摘要");
+  expect(start).toHaveBeenCalledOnce();
+  expect(store.getFile(path)).toBeNull();
+  expect(await generatePeriodSummary(host, period, now(12, 23, 30))).toMatchObject({ status: "saved" });
+});
+
 it("removes a forgotten phrase before shortening earlier summaries for the model", async () => {
   const memory = createPersonalMemory({ kind: "core_profile", content: "虚构须遗忘的特殊说明" });
   await vault.seed(store.personalMemoryPath(), JSON.stringify({
