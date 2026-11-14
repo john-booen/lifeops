@@ -98,6 +98,12 @@ it("keeps field-looking lines entered as free text out of numerical records", as
   expect(await store.readPath(healthNotePath(store, date))).toContain("  - 跑步距离：120 公里");
 });
 
+it("does not count sample values in Markdown code fences in an existing health note", async () => {
+  const note = "## 手填\r\n- 步数：850\r\n~~~markdown\r\n- 步数：41234\r\n~~~\r\n- 睡眠小时：7";
+  await store.writeFile(healthNotePath(store, date), note);
+  expect(await readHealthDay(store, date)).toEqual({ date, steps: 850, sleepHours: 7 });
+});
+
 it("keeps verified days when one health note cannot be safely read", async () => {
   await store.appendHealthEntry({ date, sleepHours: 7.5 });
   await store.writeFile(healthNotePath(store, previous), "虚构长记录\n".repeat(40_000));

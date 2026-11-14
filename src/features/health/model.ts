@@ -58,7 +58,16 @@ export function healthRows(content: string): HealthDay[] {
 
 export function readHealthMarkdown(date: string, text: string): HealthDay {
   const result: HealthDay = { date };
-  for (const line of text.split(/\r?\n/u)) {
+  let fence: string | undefined;
+  for (const line of text.replace(/^\uFEFF/u, "").split(/\r\n|\r|\n/u)) {
+    const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(line);
+    if (marker) {
+      const [, run, rest] = marker;
+      if (!fence) fence = run;
+      else if (run[0] === fence[0] && run.length >= fence.length && !rest.trim()) fence = undefined;
+      continue;
+    }
+    if (fence) continue;
     for (const key of healthMetricKeys) {
       const prefix = `- ${HEALTH_METRICS[key].label}：`;
       if (!line.startsWith(prefix)) continue;
