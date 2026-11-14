@@ -515,6 +515,20 @@ describe("unified agent loop", () => {
     expect(requests).toHaveLength(1);
   });
 
+  it.each([true, false])("keeps verified reading links when requested (present in draft: %s)", async present => {
+    const link = "[[虚构阅读/角色设定与镜头]]";
+    const answer = present ? "参考：" + link : "可以先读《角色设定与镜头》。";
+    host.executeTools = async calls => calls.map(call => ({ callId: call.id!, success: true,
+      output: JSON.stringify({ articles: [{ title: "角色设定与镜头", link }] }), actions: [] }));
+    responses.push(reply("", [tool("search_reading", { query: "虚构定格动画" })]), reply(answer));
+    const chunks: string[] = [];
+    const result = await new AgentLoop(host).run(input({ message: "哪些最近的阅读和虚构定格动画相关？给我原笔记链接。",
+      onText: chunk => chunks.push(chunk) }));
+    expect(result.text).toBe(present ? answer : answer + "\n\n笔记链接：" + link);
+    expect(chunks.join("")).toBe(result.text);
+    expect(result.receipts).toEqual([]);
+  });
+
   it("reports the completion rate from the actual period without choosing a summary", async () => {
     const date = formatDate(now);
     await store.createTask({ title: "虚构本月计划", date });

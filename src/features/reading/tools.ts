@@ -35,3 +35,13 @@ export const READING_TOOL: LifeOpsToolDefinition = {
     })) }), actions: [] };
   }
 };
+
+export function readingLinkEvidence(output: string, answer: string, question: string): string | undefined {
+  if (!/(?:笔记|原文|原始|原始网页)(?:的)?链接/u.test(question)) return;
+  let result: { articles?: Array<{ link: string }> };
+  try { result = JSON.parse(output); } catch { return; }
+  if (!Array.isArray(result?.articles)) return;
+  const links = [...new Set(result.articles.map(article => article?.link)
+    .filter(link => typeof link === "string" && link && !answer.includes(link)))];
+  if (links.length) return "笔记链接：" + links.join("、");
+}

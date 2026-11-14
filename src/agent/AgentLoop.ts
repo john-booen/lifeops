@@ -4,6 +4,7 @@ import type { ToolCallResult } from "../agentRuntime";
 import { formatDate } from "../date";
 import { deviceSleepAnswer, deviceSleepRange } from "../features/health/sleepAnswer";
 import { formatQuizQuestions } from "../features/learning/quizTools";
+import { readingLinkEvidence } from "../features/reading/tools";
 import { habitDateEvidence } from "../features/stats/habitEvidence";
 import { asksForRecentStatus, formatRecentStatus, recentStatusDomains } from "../features/stats/statusEvidence";
 import { backgroundStatsTool } from "../features/stats/tools";
@@ -446,6 +447,7 @@ export class AgentLoop {
         const evidence = messages.flatMap(message => message.tool_calls ?? []).reverse().map(call => {
           const result = state.results.get(call.id);
           if (!result?.success) return;
+          if (call.function.name === "search_reading") return readingLinkEvidence(result.output, state.text, input.message);
           if (call.function.name === "get_stats") return habitDateEvidence(result.output, state.text);
           if (call.function.name === "plan_today") return planCapacityEvidence(result.output, state.text, input.message);
         }).filter(Boolean).slice(0, 2);
