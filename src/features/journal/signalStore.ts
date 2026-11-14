@@ -8,7 +8,7 @@ import { assertProviderActive } from "../../providerRun";
 import { isContextSourcePath } from "../../sourceReferences";
 import type { StoreHost } from "../../store/settingsSlice";
 import type { ProviderRequestOptions } from "../../types";
-import { emptySignalDocument, journalSignalMessages, parseJournalSignal, validSignalDocument, type JournalSignal, type SignalDocument, type SignalPeriod } from "./signals";
+import { emptySignalDocument, journalSignalMessages, parseJournalSignal, validSignalDocument, type JournalSignal, type SignalDocument, type SignalPeriod, type SignalSource } from "./signals";
 
 export type SignalRequest = (messages: ChatMessage[], options: ProviderRequestOptions) => Promise<string>;
 
@@ -27,6 +27,16 @@ export function signalDocumentPath(store: StoreHost, date: string): string {
 
 function signalPathAllowed(store: StoreHost, path: string): boolean {
   return isContextSourcePath(path) && !isVaultPathExcluded(path, store.settings.privacy?.excludedVaultPrefixes);
+}
+
+export async function journalSignalSourceCurrent(store: StoreHost, date: string, source: SignalSource): Promise<boolean> {
+  const year = date.slice(0, 4);
+  if (journalSourceFor(store, source.path, year)?.date !== date) return false;
+  const raw = await readScopedMarkdown(store, source.path).catch(() => undefined);
+  if (raw === undefined || journalSourceFor(store, source.path, year)?.date !== date) return false;
+  // Extraction used Obsidian's text read, which can remove the BOM and normalize line endings.
+  const normalized = raw.replace(/^\uFEFF/u, "").replace(/\r\n?/gu, "\n");
+  return fileRevision(raw) === source.sha256 || raw !== normalized && fileRevision(normalized) === source.sha256;
 }
 
 async function readDocument(store: StoreHost, path: string, date: string): Promise<SignalDocument> {
@@ -48,13 +58,7 @@ export async function readJournalSignals(store: StoreHost, date: string): Promis
   const current = () => path === signalDocumentPath(store, date) && signalPathAllowed(store, path);
   if (!current()) return external;
   const verified = await Promise.all([...document.晨, ...document.晚].map(async item => {
-    const source = item.sources[0];
-    if (journalSourceFor(store, source.path, year)?.date !== date) return;
-    const raw = await readScopedMarkdown(store, source.path).catch(() => undefined);
-    if (raw === undefined) return;
-    // Extraction used Obsidian's text read, which can remove the BOM and normalize line endings.
-    const normalized = raw.replace(/^\uFEFF/u, "").replace(/\r\n?/gu, "\n");
-    if (fileRevision(raw) === source.sha256 || raw !== normalized && fileRevision(normalized) === source.sha256) return item;
+    if (await journalSignalSourceCurrent(store, date, item.sources[0])) return item;
   }));
   const local = current()
     ? verified.filter((item): item is JournalSignal => !!item && journalSourceFor(store, item.sources[0].path, year)?.date === date)

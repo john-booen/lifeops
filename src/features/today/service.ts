@@ -1,10 +1,9 @@
 import { Notice } from "obsidian";
 import { normalizeJournalDate } from "../../date";
 import { readHealthDay } from "../health/store";
-import { fileRevision } from "../../operationIdentity";
 import type { StoreHost } from "../../store/settingsSlice";
 import type { TaskDashboardData } from "../../types";
-import { readJournalSignals } from "../journal/signalStore";
+import { journalSignalSourceCurrent, readJournalSignals } from "../journal/signalStore";
 import { listIdeaCandidates } from "../ideas/candidates";
 import { countDueQuizCards } from "../learning/quiz";
 import type { SignalSource } from "../journal/signals";
@@ -28,8 +27,7 @@ export async function addJournalPlanTask(host: LocalOperationHost, baseStore: St
   let created = false, notice = "", taskId = "";
   let savedSource: SignalSource | undefined;
   const assertSource = async (store: StoreHost, source: SignalSource) => {
-    if (!store.isManagedSourcePath(source.path) || !store.getFile(source.path)
-      || fileRevision(await store.readPath(source.path)) !== source.sha256 || !store.isManagedSourcePath(source.path)) {
+    if (!await journalSignalSourceCurrent(store, selected.journalDate, source)) {
       throw Error("这条日记计划已变更，请刷新后再添加。");
     }
   };

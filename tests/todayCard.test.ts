@@ -95,6 +95,31 @@ describe("today card reads and journal plan creation", () => {
     expect(await vault.bytes(morning)).toBe(raw);
   });
 
+  it("adds and undoes a plan from a diary extracted with normalized text reads", async () => {
+    const exact = `\uFEFF${raw}\r\n虚构日记末行  \r\n`;
+    await vault.seed(morning, exact);
+    const read = vault.read.bind(vault);
+    Object.assign(vault, {
+      adapter: { getBasePath: () => root },
+      readBinary: async (file: { path: string }) => Buffer.from(await vault.bytes(file.path), "utf8")
+    });
+    vi.spyOn(vault, "read").mockImplementation(async file => {
+      const text = await read(file);
+      return file.path === morning ? text.replace(/^\uFEFF/u, "").replaceAll("\r\n", "\n") : text;
+    });
+    await extractJournalSignal(store, morning, "2026", async () => JSON.stringify({
+      date, period: "晨", plans: [{ text: "跑5公里", when: "明天" }]
+    }), new AbortController().signal, () => {});
+
+    const [choice] = (await getTodayCard(store, await store.getTaskDashboard(date))).plans;
+    expect(choice.plan).toMatchObject({ title: "跑5公里", date: tomorrow });
+    await addJournalPlanTask(host, store, choice.plan);
+    expect((await store.readTaskDb()).tasks).toMatchObject([{ title: "跑5公里", date: tomorrow, sourceNotePath: morning }]);
+    await runtime.undoLatestOperation();
+    expect((await store.readTaskDb()).tasks).toEqual([]);
+    expect(await vault.bytes(morning)).toBe(exact);
+  });
+
   it("includes a task scheduled today in the day's priorities even if its deadline is tomorrow", async () => {
     const task = await store.createTask({ title: "今天处理虚构纸卡", date, dueDate: tomorrow, startTime: "10:30" });
     const card = await getTodayCard(store, await store.getTaskDashboard(date));
