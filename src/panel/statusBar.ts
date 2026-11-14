@@ -4,7 +4,8 @@ import { BailianRealtimeClient } from "../bailianRealtime";
 import { BailianRealtimeTtsClient } from "../bailianTtsRealtime";
 import type { AiToolCall } from "../ai";
 import { addDays, formatLocalTime, todayString, weekDates } from "../date";
-import { automaticHabitDayDisplay, isHabitRequiredOn as isHabitRequiredOnDate, numericHabitWindow } from "../features/habits/targets";
+import { automaticHabitDayDisplay, healthHabitReadingDays, isHabitRequiredOn as isHabitRequiredOnDate, numericHabitWindow } from "../features/habits/targets";
+import { isHealthHabitSource } from "../features/health/habitSources";
 import { compensationDueLabel, formatCompensationMoney, summarizeCompensationDebt } from "../features/habits/compensationDebt";
 import { isTaskOverdue, taskCompletionDay, taskDayInterval, taskScheduleLabel, taskTimeGroup, taskTimelineStart, type TaskTimeGroup } from "../taskSchedule";
 import {
@@ -1226,7 +1227,11 @@ const statusBarPanel = {
       const sevenDays = habitWindowStats(item, 7);
       const thirtyDays = habitWindowStats(item, 30);
       const stats = detail.createDiv({ cls: "lifeops-habit-detail-stats" });
-      stats.createDiv({ text: `完成 ${done.reduce((sum, checkin) => sum + Math.max(1, checkin.count || 1), 0)} ${item.habit.source === "trades" ? "笔" : "次"}` });
+      if (isHealthHabitSource(item.habit.source)) {
+        stats.createDiv({ text: `有读数 ${healthHabitReadingDays(item.habit, item.history)} 天` });
+      } else {
+        stats.createDiv({ text: `完成 ${done.reduce((sum, checkin) => sum + Math.max(1, checkin.count || 1), 0)} ${item.habit.source === "trades" ? "笔" : "次"}` });
+      }
       stats.createDiv({ text: `未完成 ${missed.length} 次` });
       stats.createDiv({ text: `请假 ${leave.length} 次` });
       stats.createDiv({ text: `${item.periodLabel} ${item.healthUnrecorded ? "还没有健康记录" : `${item.periodDone}/${item.periodTarget} ${item.periodUnit ?? "次"}`}` });

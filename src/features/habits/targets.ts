@@ -103,6 +103,15 @@ export function automaticHabitDayDisplay(habit: HabitDefinition, checkin?: Habit
   };
 }
 
+export function healthHabitReadingDays(habit: HabitDefinition, checkins: readonly HabitCheckin[]): number {
+  const source = habit.source;
+  if (!isHealthHabitSource(source)) return 0;
+  return new Set(checkins.filter(checkin => checkin.status === "done" && checkin.date >= habit.startDate
+    && (habit.target?.kind !== "number" || typeof checkin.value === "number" && Number.isFinite(checkin.value)
+      && (checkin.valueUnit === undefined || checkin.valueUnit === habit.target.unit)))
+    .map(checkin => checkin.date)).size;
+}
+
 export function numericHabitGoalProgress(
   habit: HabitDefinition, checkins: readonly HabitCheckin[], required: string[], days: string[], includeWeek = true
 ) {

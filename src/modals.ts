@@ -1,7 +1,8 @@
 import { TASK_CATEGORIES } from "./features/tasks/capacity";
 import { isLearningTrackId, LEARNING_TRACKS } from "./features/learning/model";
 import { renderHabitPunishmentFields, renderHabitTargetFields } from "./features/habits/formFields";
-import { automaticHabitDayDisplay, isHabitRequiredOn as isHabitRequiredOnDate, numericHabitPeriods, numericHabitWindow } from "./features/habits/targets";
+import { automaticHabitDayDisplay, healthHabitReadingDays, isHabitRequiredOn as isHabitRequiredOnDate, numericHabitPeriods, numericHabitWindow } from "./features/habits/targets";
+import { isHealthHabitSource } from "./features/health/habitSources";
 import { Modal, Notice, Setting } from "obsidian";
 import { addDays, endOfWeek, todayString, weekDates } from "./date";
 import { taskScheduleLabel, validateTaskSchedule } from "./taskSchedule";
@@ -987,6 +988,7 @@ export class HabitDetailModal extends Modal {
   onOpen(): void {
     const { contentEl } = this;
     const { habit } = this.item;
+    const fromDevice = isHealthHabitSource(habit.source);
     const done = this.item.history.filter((checkin) => checkin.status === "done");
     const missed = this.item.history.filter((checkin) => checkin.status === "missed");
     const leave = this.item.history.filter((checkin) => checkin.status === "leave");
@@ -1018,7 +1020,8 @@ export class HabitDetailModal extends Modal {
     const stats = contentEl.createDiv({ cls: "lifeops-habit-modal-grid" });
     const progress = this.item.healthUnrecorded ? "还没有健康记录" : `${this.item.periodDone}/${this.item.periodTarget} ${this.item.periodUnit ?? "次"}`;
     this.statItem(stats, `${this.item.periodLabel}进度`, progress);
-    this.statItem(stats, "累计完成", `${totalDone} ${habit.source === "trades" ? "笔" : "次"}`);
+    if (fromDevice) this.statItem(stats, "有读数", `${healthHabitReadingDays(habit, this.item.history)} 天`);
+    else this.statItem(stats, "累计完成", `${totalDone} ${habit.source === "trades" ? "笔" : "次"}`);
     this.statItem(stats, "本周未完成", `${this.item.weeklyFailures} 次`);
     this.statItem(stats, "7天完成", `${sevenDays.done}/${sevenDays.required}`);
     this.statItem(stats, "30天完成", `${thirtyDays.done}/${thirtyDays.required}`);
@@ -1067,7 +1070,7 @@ export class HabitDetailModal extends Modal {
 
     contentEl.createEl("h3", { text: "记录汇总" });
     const summary = contentEl.createDiv({ cls: "lifeops-habit-modal-grid compact" });
-    this.statItem(summary, "完成日期", `${done.length} 天`);
+    if (!fromDevice) this.statItem(summary, "完成日期", `${done.length} 天`);
     this.statItem(summary, "未完成", `${missed.length} 天`);
     this.statItem(summary, "请假", `${leave.length} 天`);
     this.statItem(summary, "记录总数", `${this.item.history.length} 条`);

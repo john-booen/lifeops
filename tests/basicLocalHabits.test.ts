@@ -178,6 +178,25 @@ describe("local task and habit daily-use checks with actual files", () => {
     expect((await store.getTaskDashboard("2026-09-13")).habits[0].requiredToday).toBe(false);
   });
 
+  it("shows device readings as measured days and counts only days that meet the daily goal", async () => {
+    const habit = await createHabit({ name: "虚构设备步数", source: "health:steps", startDate: "2026-09-10",
+      target: { kind: "number", unit: "步", perDay: 3000 } });
+    const before = new Element();
+    panel().renderHabitDetail(before, await item(habit.id));
+    expect(before.texts()).toContain("有读数 0 天");
+    expect(before.texts()).toContain("完成率 暂无数据");
+    await store.appendHealthEntry({ date: "2026-09-11", steps: 0 });
+    await store.appendHealthEntry({ date: "2026-09-13", steps: 3500 });
+    await store.recordHabitStatus(habit.id, "leave", "2026-09-12");
+    reopen();
+    const detail = new Element();
+    panel().renderHabitDetail(detail, await item(habit.id));
+    expect(detail.texts()).toEqual(expect.arrayContaining(["有读数 2 天", "7天 1/2", "完成率 50%"]));
+    expect(detail.all().map(node => node.options.attr?.title)).toEqual(expect.arrayContaining([
+      "2026-09-11 0/3000 步", "2026-09-12 请假", "2026-09-13 3500/3000 步", "2026-09-14 未记录"
+    ]));
+  });
+
   it("retains weekly progress across dates and a restart without requiring a daily checkin after reaching the weekly target", async () => {
     const habit = await createHabit({ frequencyUnit: "week", targetCount: 3, startDate: date });
     await operation(scope => scope.recordHabitStatus(habit.id, "done", date));
