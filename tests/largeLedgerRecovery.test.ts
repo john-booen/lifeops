@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { gunzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { App } from "obsidian";
 import { DEFAULT_SETTINGS } from "../src/defaults";
@@ -23,6 +24,38 @@ beforeEach(async () => {
 afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
 describe("undo with substantial existing history", () => {
+  it("recovers recent undo headroom while retaining exact snapshots of completed reversions", async () => {
+    const path = store.path(store.settings.folders.ideas, "纯虚构大账本最近记录.md");
+    const id = "fiction-save-before-compaction";
+    const ledgerPath = new OperationLedger(store).filePath;
+    await vault.seed(path, "旧记录");
+    await vault.seed(ledgerPath, JSON.stringify({ version: 1, records: [] }));
+    expect((await runtime.executeLocalOperation("append_note", {}, scope => scope.writeFile(path, "新记录"), id)).success).toBe(true);
+    const ledger = JSON.parse(await vault.bytes(ledgerPath));
+    const oldId = "fiction-already-reverted-large";
+    const saved = ledger.records[0];
+    const oldUndo = { kind: "restore_file", path, content: "虚构反复记录".repeat(1_000_000), existed: true };
+    ledger.records.unshift({ ...saved, operationId: oldId, status: "reverted",
+      result: { ...saved.result, undo: oldUndo }, revertedAt: saved.updatedAt });
+    await vault.seed(ledgerPath, JSON.stringify(ledger) + "\n");
+    expect(Buffer.byteLength(await vault.bytes(ledgerPath))).toBeGreaterThan(16 * 1024 * 1024);
+    const result = await runtime.executeToolCall({ toolName: "undo_latest_operation", arguments: {}, source: "system",
+      confirmedByUser: true, callId: "fiction-undo-after-compaction" });
+    expect(result.success, result.output).toBe(true);
+    expect(await vault.bytes(path)).toBe("旧记录");
+    const audit = JSON.parse(await vault.bytes(ledgerPath));
+    const old = audit.records.find((record: { operationId: string }) => record.operationId === oldId);
+    const raw = gunzipSync(Buffer.from(old.archivedRevertedUndo.data, "base64"));
+    expect(raw.toString("utf8") === JSON.stringify(oldUndo)).toBe(true);
+    expect(raw.length).toBe(old.archivedRevertedUndo.utf8Bytes);
+    expect(fileRevision(raw.toString("utf8"))).toBe(old.archivedRevertedUndo.sha256);
+    expect(old.result.undo).toBeUndefined();
+    expect(audit.records.find((record: { operationId: string }) => record.operationId === id).status).toBe("reverted");
+    const reopened = new LifeOpsStore({ vault } as unknown as App, structuredClone(DEFAULT_SETTINGS)) as unknown as StoreHost;
+    expect(await recoverFactOperation(reopened)).toBe("none");
+    expect((await new OperationLedger(reopened).readSettledOperations([oldId, id])).reverted).toEqual(new Set([oldId, id]));
+  });
+
   it("retains a recreated deleted note when the undo fails at its final guard, settling both audits and WAL", async () => {
     const path = store.path(store.settings.folders.ideas, "纯虚构删除撤销回滚.md"), original = "原亲写内容\r\n";
     await vault.seed(path, original);

@@ -3,8 +3,8 @@ import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import type { App, TFile, Vault } from "obsidian";
 import type { StoreHost } from "../store/settingsSlice";
-import { OperationLedger, operationFingerprint, type OperationUndoDescriptor, type OperationLedgerDocument, type OperationLedgerRecord } from "./operationLedger";
-import { jsonDataContract, parseJsonData } from "./jsonDataGuard";
+import { compactRevertedUndo, OperationLedger, operationFingerprint, type OperationUndoDescriptor, type OperationLedgerDocument, type OperationLedgerRecord } from "./operationLedger";
+import { jsonDataContract, parseJsonData, serializeJsonData } from "./jsonDataGuard";
 import { assertSafeOperationId, fileRevision } from "../operationIdentity";
 import { decodeFactRecovery, encodeFactRecovery, MAX_RECOVERY_BYTES, RecoveryCapacityError } from "./recoveryEncoding";
 import { ledgerUndoAfter, type LedgerUndoRecovery } from "./ledgerUndoRecovery";
@@ -474,10 +474,27 @@ async function runFactOperationOnce<T>(
     options.assertCurrent?.();
     const journalPath = factRecoveryPath(store);
     let journalRaw = await readRaw(store, journalPath);
+    let canCompactLedger = identity.auditStatus === "reverted";
     if (journalRaw !== null) {
       const previous = inspectFactRecovery(store, journalRaw);
-      if (previous.status === "pending" && (previous.rollbackRequired || !await auditFinished(store, previous))) {
-        throw new Error("上次保存被中断。请先使用“检查并恢复未完成操作”，恢复后再继续保存。");
+      if (previous.status === "pending") {
+        canCompactLedger = false;
+        if (previous.rollbackRequired || !await auditFinished(store, previous)) {
+          throw new Error("上次保存被中断。请先使用“检查并恢复未完成操作”，恢复后再继续保存。");
+        }
+      }
+    }
+    if (canCompactLedger) {
+      const path = new OperationLedger(store).filePath;
+      const raw = await readRaw(store, path);
+      if (raw !== null) {
+        const contract = jsonDataContract(path, store.settings.folders);
+        const compacted = compactRevertedUndo(raw, parseJsonData(raw, path, contract) as OperationLedgerDocument);
+        if (compacted) {
+          // This changes only finished undo data. A pending recovery must keep its exact ledger bytes.
+          activeWrites.set(store.app.vault, { ...identity });
+          await replaceRaw(store, path, raw, serializeJsonData(compacted, { compact: true }), undefined, options.assertCurrent);
+        }
       }
     }
     const document: RecoveryDocument = { version: 1, ...identity, status: "pending", entries: [] };

@@ -1,5 +1,6 @@
 import type { AgentActionSuggestion } from "../types";
 import { createHash } from "node:crypto";
+import { gzipSync } from "node:zlib";
 import type { GuardedFileChange } from "./factOperation";
 import { assertSafeOperationId } from "../operationIdentity";
 import type { JsonWriteOptions } from "./jsonDataGuard";
@@ -49,6 +50,8 @@ export interface OperationLedgerRecord {
   finishedAt?: string;
   revertedAt?: string;
   result?: OperationResultSnapshot;
+  /** Finished reversions retain their original snapshots for local audit. */
+  archivedRevertedUndo?: { encoding: "gzip-base64-v1"; utf8Bytes: number; sha256: string; data: string };
   error?: string;
 }
 
@@ -83,6 +86,7 @@ export type OperationClaim =
 
 const storeLocks = new WeakMap<object, Promise<void>>();
 const MAX_OPERATION_RECORDS = 500;
+const REVERTED_UNDO_ARCHIVE_THRESHOLD = 12 * 1024 * 1024;
 const automaticOperations = new Set([
   "local_checkHabitPunishments", "observe_personal_memory_candidate", "local_capture_learning_note", "local_index_reading", "project_job_metadata"
 ]);
@@ -356,6 +360,24 @@ export class OperationLedger {
 }
 
 function operationIdHash(operationId: string): string { return createHash("sha256").update(operationId, "utf8").digest("hex"); }
+
+export function compactRevertedUndo(raw: string, document: OperationLedgerDocument): OperationLedgerDocument | undefined {
+  // Existing WAL replay must continue to apply its frozen transition to its
+  // exact saved base. Compact only outside ledger-revert-v1 planning.
+  if (Buffer.byteLength(raw, "utf8") <= REVERTED_UNDO_ARCHIVE_THRESHOLD) return;
+  const records = document.records.map(archiveRevertedUndo);
+  if (records.some((record, index) => record !== document.records[index])) return { ...document, records };
+}
+
+function archiveRevertedUndo(record: OperationLedgerRecord): OperationLedgerRecord {
+  if (record?.status !== "reverted" || !record.result?.undo || record.archivedRevertedUndo !== undefined) return record;
+  const raw = Buffer.from(JSON.stringify(record.result.undo), "utf8");
+  const archived = { encoding: "gzip-base64-v1" as const, utf8Bytes: raw.length,
+    sha256: createHash("sha256").update(raw).digest("hex"), data: gzipSync(raw).toString("base64") };
+  if (Buffer.byteLength(JSON.stringify(archived), "utf8") >= raw.length) return record;
+  const { undo: _undo, ...result } = record.result;
+  return { ...record, result, archivedRevertedUndo: archived };
+}
 
 export function operationFingerprint(toolName: string, args: Record<string, unknown>): string {
   return createHash("sha256").update(`${toolName}:${stableStringify(args)}`, "utf8").digest("hex");
