@@ -13,7 +13,6 @@ import {
   type BailianRealtimeResponseEvent
 } from "../bailianRealtime";
 import { createTtsClient } from "../breezeLocalTts";
-import { agentToolsForRealtime } from "../toolRegistry";
 import {
   addEchoText,
   finalizeTurn,
@@ -45,7 +44,7 @@ import { classifyPlaybackInput, offlinePlaybackDecision } from "./playbackInput"
 import { executeOmniE2eTool } from "./omniE2e/tools";
 import { createOmniResponseHandlers } from "./omniE2e/responses";
 import { armOmniResponseTimer as armOmniTimer, clearOmniResponseTimer } from "./omniE2e/responseTimer";
-import { buildOmniE2eInstructions } from "./omniE2e/instructions";
+import { createOmniCallbacks, omniSessionOptions } from "./omniE2e/session";
 import { projectProposalFailure } from "./omniE2e/projectProposals";
 import {
   handleOmniE2eSpeechStarted as suspectOmniInterruption,
@@ -256,45 +255,7 @@ export async function startBailianRealtimeRecording(view: VoiceRealtimeView): Pr
     const asr = useHotwords ? { ...realtimeVoice, asrEngine: "streaming-hotwords" as const, asrHotwords: words.join("\n") } : realtimeVoice;
     const modeCallbacks: BailianRealtimeCallbacks = cascadeEndpoint ? {
       onCascadeCapture: event => handleCascadeCapture(view, cascadeEndpoint, event)
-    } : {
-      onTranscriptDelta: (text) => {
-        if (!view.agentVoiceReady) return;
-        view.markVoiceTrace("firstTranscript");
-        observeOmniE2eBargeInTranscript(view, text);
-        view.updateRealtimeTranscript(text);
-      },
-      onTranscriptDone: (text) => {
-        if (!view.agentVoiceReady) return;
-        view.markVoiceTrace("transcriptDone");
-        observeOmniE2eBargeInTranscript(view, text);
-        view.updateRealtimeTranscript(text, true);
-        void sendOmniE2eVoiceTurn(view, "semantic_vad transcript completed");
-      },
-      onSpeechStarted: () => handleOmniE2eSpeechStarted(view),
-      onSpeechStopped: () => {
-        handleOmniE2eSpeechStopped(view);
-        view.handleVoiceSpeechStopped("server-vad", false);
-      },
-      onSpeechRejected: () => handleOmniE2eSpeechStopped(view),
-      onResponseCreated: response => handleOmniE2eResponseCreated(view, response),
-      onResponseTextDelta: (text, response) => updateManagedAssistantText(view, text, response),
-      onAudioDelta: (base64Audio, sampleRate, response) => handleOmniE2eAudioDelta(view, base64Audio, sampleRate, response),
-      onResponseAudioDone: response => handleOmniE2eAudioDone(view, response),
-      onResponseDone: (text, response) => { void finishOmniE2eVoiceTurn(view, text, response); },
-      onResponseFailed: (message, response) => { void fallbackOmniResponseToBrain(view, message, response); },
-      onToolCall: toolCall => executeOmniE2eToolCall(view, toolCall, true),
-      onToolContextError: message => failOmniToolContext(view, message),
-      onToolCommitted: (text, response) => { void settleCommittedOmniTool(view, text, response); },
-      onToolSessionRetired: () => {
-        if (view.agentRecording && view.agentRealtimeClient) void stopBailianRealtimeRecording(view, true);
-      },
-      onModelRetry: () => {
-        void view.controller.appendQualityLog({
-          inputSource: "voice",
-          errorCode: "qwen_omni_model_retry"
-        }).catch(() => undefined);
-      }
-    };
+    } : createOmniCallbacks(view, omniSessionHandlers);
     const createClient = (voice: RealtimeVoiceSettings): BailianRealtimeClient => {
       const connection: BailianRealtimeClient = new BailianRealtimeClient(voice, { ...guardRealtimeCallbacks({
       onOpen: () => {
@@ -332,9 +293,7 @@ export async function startBailianRealtimeRecording(view: VoiceRealtimeView): Pr
       onProviderRun: event => recordVoiceProviderRun(view, providerRuntime, event)
     }, {
       mode: realtimeVoice.mode ?? "cascade",
-      ...(!cascadeEndpoint ? {
-        instructions: buildOmniE2eInstructions(injectedContextBlock), tools: agentToolsForRealtime(), maxModelRetries: 5
-      } : {}),
+      ...(!cascadeEndpoint ? omniSessionOptions(injectedContextBlock) : {}),
       providerContext: () => {
         const snapshot = providerRuntime?.snapshot();
         return snapshot ? { sessionId: snapshot.sessionId, generation: snapshot.generation,
@@ -2390,3 +2349,20 @@ export function executeOmniE2eToolCall(view: VoiceRealtimeView, toolCall: AiTool
     captureVoicePresentationGuard, retireOmniPlaybackDrain, updateManagedAssistantText, failOmniToolContext
   });
 }
+
+const omniSessionHandlers = {
+  observeTranscript: observeOmniE2eBargeInTranscript,
+  sendVoiceTurn: sendOmniE2eVoiceTurn,
+  speechStarted: handleOmniE2eSpeechStarted,
+  speechStopped: handleOmniE2eSpeechStopped,
+  responseCreated: handleOmniE2eResponseCreated,
+  responseText: updateManagedAssistantText,
+  audioDelta: handleOmniE2eAudioDelta,
+  audioDone: handleOmniE2eAudioDone,
+  responseDone: finishOmniE2eVoiceTurn,
+  responseFailed: fallbackOmniResponseToBrain,
+  executeTool: (view: VoiceRealtimeView, call: AiToolCall) => executeOmniE2eToolCall(view, call, true),
+  toolContextError: failOmniToolContext,
+  toolCommitted: settleCommittedOmniTool,
+  stopRecording: stopBailianRealtimeRecording
+};
