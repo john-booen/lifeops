@@ -83,9 +83,9 @@ describe("today card reads and journal plan creation", () => {
     await store.createTask({ title: "跑 5 公里", date: tomorrow });
     const [existing, fresh] = (await getTodayCard(store, await store.getTaskDashboard(date))).plans;
     expect(existing.added).toBe(true);
-    await addJournalPlanTask(host, store, existing.plan);
+    await addJournalPlanTask(host, () => store, existing.plan);
     expect((await store.readTaskDb()).tasks).toHaveLength(1);
-    await Promise.all([addJournalPlanTask(host, store, fresh.plan), addJournalPlanTask(host, store, fresh.plan)]);
+    await Promise.all([addJournalPlanTask(host, () => store, fresh.plan), addJournalPlanTask(host, () => store, fresh.plan)]);
     const tasks = (await store.readTaskDb()).tasks;
     expect(tasks).toHaveLength(2);
     expect(tasks.find(task => task.title === "整理旧笔记")).toMatchObject({ date: "", sourceNotePath: morning });
@@ -113,7 +113,7 @@ describe("today card reads and journal plan creation", () => {
 
     const [choice] = (await getTodayCard(store, await store.getTaskDashboard(date))).plans;
     expect(choice.plan).toMatchObject({ title: "跑5公里", date: tomorrow });
-    await addJournalPlanTask(host, store, choice.plan);
+    await addJournalPlanTask(host, () => store, choice.plan);
     expect((await store.readTaskDb()).tasks).toMatchObject([{ title: "跑5公里", date: tomorrow, sourceNotePath: morning }]);
     await runtime.undoLatestOperation();
     expect((await store.readTaskDb()).tasks).toEqual([]);
@@ -135,7 +135,7 @@ describe("today card reads and journal plan creation", () => {
     const refreshed = await getTodayCard(store, await store.getTaskDashboard(date));
     expect(refreshed.plans).toEqual([]);
     expect(refreshed.status.find(item => item.label === "精力")?.value).toBe("未记录");
-    await expect(addJournalPlanTask(host, store, choice.plan)).rejects.toThrow("已变更");
+    await expect(addJournalPlanTask(host, () => store, choice.plan)).rejects.toThrow("已变更");
     expect((await store.readTaskDb()).tasks).toEqual([]);
     await vault.seed(morning, raw);
     const originalProcess = vault.process.bind(vault);
@@ -144,8 +144,24 @@ describe("today card reads and journal plan creation", () => {
       if (file.path === store.taskMirrorPath()) await vault.seed(morning, raw + "同步新增内容。");
       return next;
     });
-    await expect(addJournalPlanTask(host, store, choice.plan)).rejects.toThrow("已变更");
+    await expect(addJournalPlanTask(host, () => store, choice.plan)).rejects.toThrow("已变更");
     expect((await store.readTaskDb()).tasks).toEqual([]);
     expect(await vault.bytes(morning)).toBe(raw + "同步新增内容。");
+  });
+
+  it("rolls back a task when a settings reload replaces the store during save", async () => {
+    const [choice] = (await getTodayCard(store, await store.getTaskDashboard(date))).plans;
+    let current = store;
+    const replacement = new LifeOpsStore(store.app, structuredClone(store.settings)) as unknown as StoreHost;
+    const process = vault.process.bind(vault);
+    vi.spyOn(vault, "process").mockImplementation(async (file, updater) => {
+      const next = await process(file, updater);
+      if (file.path === store.taskMirrorPath()) current = replacement;
+      return next;
+    });
+    await expect(addJournalPlanTask(host, () => current, choice.plan)).rejects.toThrow("已变更");
+    expect(current).toBe(replacement);
+    expect((await replacement.readTaskDb()).tasks).toEqual([]);
+    expect(await vault.bytes(morning)).toBe(raw);
   });
 });

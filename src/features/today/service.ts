@@ -22,11 +22,17 @@ export async function getTodayCard(store: StoreHost, board: TaskDashboardData) {
     ...(quizDueCount !== undefined ? { quizDueCount } : {}) };
 }
 
-export async function addJournalPlanTask(host: LocalOperationHost, baseStore: StoreHost, plan: JournalPlanChoice): Promise<void> {
+export async function addJournalPlanTask(host: LocalOperationHost, getStore: () => StoreHost, plan: JournalPlanChoice): Promise<void> {
   if (normalizeJournalDate(plan.journalDate) !== plan.journalDate) throw Error("日记日期无效，请刷新今日卡片。");
+  const baseStore = getStore(), taskDb = baseStore.taskDbPath(), taskMirror = baseStore.taskMirrorPath();
   const selected = structuredClone(plan);
   let created = false, notice = "", taskId = "";
   let savedSource: SignalSource | undefined;
+  const assertCurrent = () => {
+    if (getStore() !== baseStore || baseStore.taskDbPath() !== taskDb || baseStore.taskMirrorPath() !== taskMirror) {
+      throw Error("任务保存位置已变更，请刷新今日卡片。");
+    }
+  };
   const assertSource = async (store: StoreHost, source: SignalSource) => {
     const current = source.path.startsWith(externalPrefix + "/")
       ? await import("../externalVault/journals").then(({ externalJournalSignalSourceCurrent }) =>
@@ -45,6 +51,7 @@ export async function addJournalPlanTask(host: LocalOperationHost, baseStore: St
     const before = (await store.readTaskDb({ readOnly: true })).tasks;
     if (existingJournalPlanTask(before, current)) return;
     await assertSource(store, current.source);
+    assertCurrent();
     taskId = (await store.createTask({
       title: current.title, date: current.date, source: journalPlanTaskSource(current),
       sourceNotePath: current.source.path
@@ -52,7 +59,7 @@ export async function addJournalPlanTask(host: LocalOperationHost, baseStore: St
     created = true;
     savedSource = current.source;
     notice = taskOverloadNotice(before, (await store.readTaskDb({ readOnly: true })).tasks, new Date());
-  }, { assertBeforeCommit: async () => { if (savedSource) await assertSource(baseStore, savedSource); } });
+  }, { assertCurrent, assertBeforeCommit: async () => { if (savedSource) await assertSource(baseStore, savedSource); } });
   if (created && notice) host.onTaskOverload?.(taskId, notice);
   new Notice(created ? "已将日记计划加到任务。" + notice : "已有这项任务。");
   await host.refreshViews();

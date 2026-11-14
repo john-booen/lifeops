@@ -163,7 +163,7 @@ it("adds and undoes an external diary plan locally, and rejects the plan after t
   expect(result.saved).toBe(1);
   const [choice] = (await getTodayCard(store, await store.getTaskDashboard(date))).plans;
   expect(choice.plan).toMatchObject({ title, date: "2026-08-02", source: { path: sourceNotePath } });
-  await addJournalPlanTask(host, store, choice.plan);
+  await addJournalPlanTask(host, () => store, choice.plan);
   expect((await store.readTaskDb()).tasks).toMatchObject([{ title, date: "2026-08-02", sourceNotePath }]);
   await runtime.undoLatestOperation();
   expect((await store.readTaskDb()).tasks).toEqual([]);
@@ -171,7 +171,7 @@ it("adds and undoes an external diary plan locally, and rejects the plan after t
 
   await seedOriginal(journal, "# 虚构晚记\n计划已变更。");
   const afterEdit = fingerprint();
-  await expect(addJournalPlanTask(host, store, choice.plan)).rejects.toThrow("已变更");
+  await expect(addJournalPlanTask(host, () => store, choice.plan)).rejects.toThrow("已变更");
   expect((await store.readTaskDb()).tasks).toEqual([]);
   expect(fingerprint()).toBe(afterEdit);
 });

@@ -1299,7 +1299,7 @@ export default class LifeOpsPlugin extends Plugin {
   }
 
   addJournalPlanTask(plan: JournalPlanChoice): Promise<void> {
-    return todayService.addJournalPlanTask(this.localOperationHost(), this.store as unknown as StoreHost, plan);
+    return todayService.addJournalPlanTask(this.localOperationHost(), () => this.store as unknown as StoreHost, plan);
   }
 
   mountIdeaPanel(container: HTMLElement): () => Promise<void> {
