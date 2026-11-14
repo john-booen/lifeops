@@ -17,6 +17,11 @@ const tidy = (value: string) => value.normalize("NFKC").replace(/[\p{P}\p{Z}\s]/
 type PeriodName = keyof typeof periods;
 type CountRange = typeof periods[PeriodName];
 
+export function explicitTaskCount(message: string): CountRange | undefined {
+  const name = originalQuestion.exec(message.trim().replace(/^请问[，, ]*/u, "").replace(/[。！？!?]+$/u, ""))?.[1] as PeriodName | undefined;
+  return name && periods[name];
+}
+
 /** Only resolve a read-only count with an immediate, already permission-checked history pair. */
 export function voiceTaskCountFollowup(message: string, history: readonly AgentConversationMessage[]): CountRange | undefined {
   const user = history.at(-2), assistant = history.at(-1);

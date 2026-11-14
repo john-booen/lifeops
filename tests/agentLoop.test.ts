@@ -434,7 +434,7 @@ describe("unified agent loop", () => {
       expect(readDashboard).not.toHaveBeenCalled();
     });
 
-  it("keeps overdue and due-today task groups separate using verified dates", async () => {
+  it.each(["text", "voice"] as const)("reports overdue and due-today task groups locally (%s)", async source => {
     const date = formatDate(now), yesterday = addDays(date, -1), tomorrow = addDays(date, 1);
     await store.createTask({ title: "虚构昨日到期", date, dueDate: yesterday });
     await store.createTask({ title: "虚构今日到期", date: tomorrow, dueDate: date });
@@ -442,8 +442,9 @@ describe("unified agent loop", () => {
     await store.createTask({ title: "虚构明日到期", date, dueDate: tomorrow });
     const finished = await store.createTask({ title: "虚构逾期已完成", date: yesterday, dueDate: yesterday });
     await store.completeTask(finished.id);
-    responses.push(reply("", [tool("list_tasks", { date, dueStatus: "overdue_and_today" })]));
+    const onVoiceText = vi.fn();
     const result = await new AgentLoop(host).run(input({
+      source, onVoiceText,
       message: "我今天还有什么任务没完成？请把已逾期的和今天到期的分开列出来。"
     }));
     expect(result.text.split("\n")).toEqual([
@@ -452,7 +453,29 @@ describe("unified agent loop", () => {
     ]);
     expect(result.toolCalls).toEqual([{ name: "list_tasks", ok: true }]);
     expect(result.receipts).toEqual([]);
+    expect(requests).toHaveLength(0);
+    if (source === "voice") expect(onVoiceText).toHaveBeenCalledExactlyOnceWith(result.text);
+    responses.push(reply("虚构综合规划。"));
+    expect((await new AgentLoop(host).run(input({ message: "我今天还有什么任务没完成？请把已逾期的和今天到期的分开列出来。再排一下优先级。" }))).text)
+      .toBe("虚构综合规划。");
     expect(requests).toHaveLength(1);
+  });
+
+  it("reports a direct completed-task count before checking model availability", async () => {
+    const date = formatDate(now);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(now);
+    host.settings.ai = { ...host.settings.ai, provider: "off" };
+    try {
+      const task = await store.createTask({ title: "虚构已完成任务", date });
+      await store.completeTask(task.id);
+      const loop = new AgentLoop(host);
+      const result = await loop.run(input({ message: "今天完成了几个任务？" }));
+      expect(result.text).toBe("今天已完成 1 个任务。");
+      expect(result.toolCalls).toEqual([{ name: "get_stats", ok: true }]);
+      expect(result.receipts).toEqual([]);
+      expect(requests).toHaveLength(0);
+    } finally { vi.useRealTimers(); }
   });
 
   it.each(["single", "duplicate", "also-plan"])("reports the remaining count and highest priorities (%s)", async mode => {
@@ -838,7 +861,7 @@ describe("unified agent loop", () => {
   it("offers a completed read-only response to the voice output", async () => {
     const onVoiceText = vi.fn();
     responses.push(reply("正在查看。", [tool("get_stats", { domain: "tasks", range: "today" })]), reply("今天还没完成任务。"));
-    const result = await new AgentLoop(host).run(input({ source: "voice", message: "今天完成几个任务？", onVoiceText }));
+    const result = await new AgentLoop(host).run(input({ source: "voice", message: "请概括一下今天的工作进展。", onVoiceText }));
     expect(result.text).toBe("今天还没完成任务。");
     expect(onVoiceText).toHaveBeenCalledExactlyOnceWith("今天还没完成任务。");
   });

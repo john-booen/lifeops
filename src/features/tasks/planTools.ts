@@ -138,6 +138,24 @@ export const TASK_PLANNING_TOOLS: LifeOpsToolDefinition[] = [
   }
 ];
 
+const todayUnfinishedQuestions = [
+  /^我?今天还?有(?:哪些|什么)(?:任务|待办)还?(?:没做完?|没(?:有)?完成|未完成)$/u,
+  /^我?今天(?:还?有)?(?:哪些|什么)(?:没做完?|没(?:有)?完成|未完成)的(?:任务|待办)$/u,
+  /^我?今天还?剩下?(?:哪些|什么)(?:任务|待办)$/u
+];
+const dueGroupsRequest = /^(?:请)?(?:把|将)?(?:已|已经)?逾期的?(?:任务|待办)?(?:和|跟|与|以及|、)(?:今天|今日)到期的?(?:任务|待办)?(?:各自|分别|分开)(?:列(?:出|出来|一下)?|说(?:一下)?|显示)$/u;
+
+export function todayTaskListQuestion(message: string, date: string): Record<string, unknown> | undefined {
+  const text = message.trim().replace(/^请问[，, ]*/u, "").replace(/[。！？!?]+$/u, "");
+  const parts = text.split(/[。！？!?]+\s*/u);
+  const [first, second] = parts;
+  const unfinished = todayUnfinishedQuestions.some(pattern => pattern.test(first));
+  if (parts.length === 1 && dueGroupsRequest.test(first) || parts.length === 2 && unfinished && dueGroupsRequest.test(second)) {
+    return { date, status: "active", dueStatus: "overdue_and_today" };
+  }
+  if (parts.length === 1 && unfinished) return { date, status: "active" };
+}
+
 export function taskCompletionRateQuestion(message: string): StatsRange | undefined {
   const period = /^(?:请问[，, ]*|我(?:的)?)?(这周|本周|上周|这月|本月|这个月|上个月)(?:的)?(?:任务|待办)完成率(?:是)?(?:多少|怎样|怎么样)[。？！?!]?$/u.exec(message.trim())?.[1];
   if (!period) return;

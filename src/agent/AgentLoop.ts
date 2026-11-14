@@ -9,7 +9,7 @@ import { habitDateEvidence } from "../features/stats/habitEvidence";
 import { asksForRecentStatus, formatRecentStatus, recentStatusDomains } from "../features/stats/statusEvidence";
 import { backgroundStatsTool } from "../features/stats/tools";
 import { resolveStatsRange } from "../features/stats/stats";
-import { formatHabitCompensationReply, formatTaskCompletionRate, formatTaskListReply, formatVoiceTaskPriorities, habitCompensationQuestion, repeatedTaskListPriority, taskCompletionRateQuestion, voiceTaskPriorityTool } from "../features/tasks/planTools";
+import { formatHabitCompensationReply, formatTaskCompletionRate, formatTaskListReply, formatVoiceTaskPriorities, habitCompensationQuestion, repeatedTaskListPriority, taskCompletionRateQuestion, todayTaskListQuestion, voiceTaskPriorityTool } from "../features/tasks/planTools";
 import { asksForTodayCapacity, formatTodayCapacity, planCapacityEvidence } from "../features/tasks/capacityEvidence";
 import { weekendClarification } from "../features/tasks/weekendClarification";
 import { phoneInboxCall, phoneInboxRequest, phoneInboxToolDefinitions } from "../features/phoneInbox/agent";
@@ -31,7 +31,7 @@ import { extractTradingRules } from "../features/trading/ruleSources";
 import { handleVoiceJobTool, isVoiceJobTool, needsVoiceJobSummary, voiceJobControlTool, voiceJobSpeech, voiceJobTools, type VoiceJobManager } from "../voice/jobs";
 import { speakTaskReport, taskReportBrief, TASK_REPORT_SPOKEN_INSTRUCTIONS } from "../voice/taskReportSpeech";
 import { formatVoiceStats, voiceStatsTool } from "../voice/quickStats";
-import { voiceTaskCountFollowup } from "../voice/taskCountFollowup";
+import { explicitTaskCount, voiceTaskCountFollowup } from "../voice/taskCountFollowup";
 
 export type WriteReceipt = AgentWriteReceipt;
 export interface AgentTurnInput {
@@ -95,11 +95,6 @@ const PLAIN_GREETING = /^(你好|您好|早安|早上好|中午好|下午好|晚
 const BRIEF_GREETING = /^(你好|您好|早安|早上好|中午好|下午好|晚上好|嗨)[。！？!?，,. ]+(?:请)?(?:简短回答一句|简单回一句)[。！？!?]*$/u;
 const TODAY_DATE = /^(?:请问[，, ]*)?(?:今天(?:是)?(?:几月几[日号]|几号|什么日期)|(?:今天的|今日)日期(?:是什么)?)[。！？!?，,. ]*(?:只说日期[。！？!?]*)?$/u;
 const DELETE_WITHOUT_TARGET = /^(?:请|帮我|请帮我)?\s*(?:删除|删掉|删了|删一下)(?:一下)?[。！？!?\s]*$/u;
-const TODAY_UNFINISHED_TASK_QUESTIONS = [
-  /^我?今天还?有(?:哪些|什么)(?:任务|待办)还?(?:没做完?|没(?:有)?完成|未完成)$/u,
-  /^我?今天(?:还?有)?(?:哪些|什么)(?:没做完?|没(?:有)?完成|未完成)的(?:任务|待办)$/u,
-  /^我?今天还?剩下?(?:哪些|什么)(?:任务|待办)$/u
-];
 const QUICK_TOOLS = new Set([
   "list_tasks", "plan_today", "get_stats", "get_summaries", "create_task", "reschedule_task", "complete_task", "delete_task",
   "create_habit", "complete_habit", "miss_habit", "delete_habit", "append_journal_entry",
@@ -204,6 +199,17 @@ export class AgentLoop {
         }
       }
       if (!input.voiceBackground && (input.source === "text" || input.source === "voice")) {
+        const date = formatDate(input.now);
+        const taskList = todayTaskListQuestion(input.message, date);
+        if (taskList) {
+          await waitForFactOperations(this.host.store, { signal: input.signal, assertCurrent: assertPolicy });
+          const calls = this.scopedCalls([{ name: "list_tasks", arguments: taskList }], state.id, 0);
+          const [result] = await this.executeRegular(input, state, calls);
+          assertProviderActive(input.signal);
+          assertPolicy();
+          const reply = result?.success ? formatTaskListReply(result.output, date) : result?.output;
+          return this.localAnswer(input, state, reply || "今天的任务记录暂不可用，请稍后再试。");
+        }
         if (asksForTodayCapacity(input.message)) {
           await waitForFactOperations(this.host.store, { signal: input.signal, assertCurrent: assertPolicy });
           const calls = this.scopedCalls([{ name: "plan_today", arguments: {} }], state.id, 0);
@@ -214,7 +220,8 @@ export class AgentLoop {
           return this.localAnswer(input, state, reply || "今天的任务记录暂不可用，请稍后再试。");
         }
         const health = deviceHealthQuestion(input.message);
-        const period = health?.range ?? taskCompletionRateQuestion(input.message);
+        const count = explicitTaskCount(input.message);
+        const period = health?.range ?? count ?? taskCompletionRateQuestion(input.message);
         if (period) {
           await waitForFactOperations(this.host.store, { signal: input.signal, assertCurrent: assertPolicy });
           const range = resolveStatsRange(period, input.now);
@@ -223,8 +230,10 @@ export class AgentLoop {
           assertProviderActive(input.signal);
           assertPolicy();
           const reply = !result?.success ? result?.output || "记录暂不可用。"
-            : health ? deviceHealthAnswer(result.output, health.metric, health.aggregate) : formatTaskCompletionRate(result.output);
-          return this.localAnswer(input, state, reply);
+            : health ? deviceHealthAnswer(result.output, health.metric, health.aggregate)
+            : count ? formatVoiceStats(result.output, { domain: "tasks", range: count, voiceAnswer: "completed_tasks" })
+            : formatTaskCompletionRate(result.output);
+          return this.localAnswer(input, state, reply || "这段时间的任务统计暂不可用。");
         }
       }
       if (!this.modelAvailable()) {
@@ -233,17 +242,6 @@ export class AgentLoop {
       }
       if (input.voiceJobs?.needsControlCheck() && await this.tryVoiceJobControl(input, state, assertPolicy)) return this.result(state);
       await waitForFactOperations(this.host.store, { signal: input.signal });
-      const question = input.message.trim().replace(/^请问[，, ]*/u, "").replace(/[。！？!?]+$/u, "");
-      if (input.source === "text" && !input.voiceBackground && TODAY_UNFINISHED_TASK_QUESTIONS.some(pattern => pattern.test(question))) {
-        assertPolicy();
-        const date = formatDate(input.now);
-        const calls = this.scopedCalls([{ name: "list_tasks", arguments: { date, status: "active" } }], state.id, 0);
-        const [result] = await this.executeRegular(input, state, calls);
-        assertProviderActive(input.signal);
-        assertPolicy();
-        const reply = result?.success && formatTaskListReply(result.output, date);
-        return this.localAnswer(input, state, reply || "今天的任务记录暂不可用，请稍后再试。");
-      }
       if ((input.source === "text" || input.source === "voice") && !input.voiceBackground && asksForRecentStatus(input.message)) {
         assertPolicy();
         const range = resolveStatsRange("last_7d", input.now);
