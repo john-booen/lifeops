@@ -5,9 +5,10 @@ import { describe, expect, it } from "vitest";
 
 const mainText = readFileSync(resolve("src/main.ts"), "utf8");
 const main = ts.createSourceFile("main.ts", mainText, ts.ScriptTarget.Latest, true);
+const healthStore = ts.createSourceFile("health-store.ts", readFileSync(resolve("src/features/health/store.ts"), "utf8"), ts.ScriptTarget.Latest, true);
 const serviceSources = [
   "src/features/tasks/service.ts", "src/features/habits/service.ts", "src/features/journal/service.ts",
-  "src/features/memory/service.ts", "src/features/review/service.ts", "src/agent/run.ts", "src/agent/service.ts"
+  "src/features/memory/service.ts", "src/features/review/service.ts", "src/agent/run.ts", "src/agent/service.ts", "src/features/health/modal.ts"
 ]
   .map((path) => ts.createSourceFile(path, readFileSync(resolve(path), "utf8"), ts.ScriptTarget.Latest, true));
 const factMethods = new Set([
@@ -53,7 +54,15 @@ describe("first-party action entry coverage", () => {
   it("keeps CSV rows within a single operation and closes the old classification fallback", () => {
     const csv = calls(method("openHealthCsvImport")).filter(call => call.expression.getText(main) === "this.saveLocalOperation");
     expect(csv).toHaveLength(1);
-    expect(csv[0].arguments[2].getText(main)).toContain("for (const entry of entries)");
+    expect(csv[0].arguments[2].getText(main)).toContain("recordHealthEntries(store, entries)");
+    const healthWriter = healthStore.statements.find((node): node is ts.FunctionDeclaration =>
+      ts.isFunctionDeclaration(node) && node.name?.text === "recordHealthEntries");
+    expect(healthWriter).toBeDefined();
+    expect(calls(healthWriter!).filter(call => call.expression.getText() === "store.appendHealthEntry")).toHaveLength(1);
+    const screenshot = serviceSources.find(source => source.fileName === "src/features/health/modal.ts")!;
+    const confirmation = calls(screenshot).filter(call => call.expression.getText() === "this.host.saveLocalOperation");
+    expect(confirmation).toHaveLength(1);
+    expect(confirmation[0].arguments[2].getText()).toContain("recordHealthEntries(store, entries)");
     expect(actionImplementation("executeAgentAction").getText()).toContain("executeConfirmedJournalSuggestion");
     expect(actionImplementation("executeAgentAction").getText()).toContain("executeConfirmedCaptureSuggestion");
     expect(mainText).not.toContain("actionToClassification");
