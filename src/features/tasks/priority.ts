@@ -22,13 +22,14 @@ export function prioritizeTasks(tasks: readonly LifeOpsTask[], now: Date, energy
     if (due === today) { score += 2; reasons.push("今天到期"); }
     if (task.quadrant === "important-urgent") { score += 3; reasons.push("重要且紧急"); }
     if (task.quadrant === "important-not-urgent") { score += 2; reasons.push("重要不紧急"); }
-    const time = (task.date === today ? task.startTime || task.time || task.endTime : "")
-      || (task.dueDate === today ? task.dueTime : "");
-    const scheduledMinute = timeMinutes(time);
-    if (scheduledMinute !== undefined) {
-      const remaining = scheduledMinute - minuteNow;
-      if (remaining >= 0 && remaining <= 60) { score += 2; reasons.push("一小时内有安排"); }
-    }
+    const start = task.date === today ? task.startTime || task.time : undefined;
+    const end = (task.endDate || task.date) === today ? task.endTime : undefined;
+    const deadline = task.dueDate === today ? task.dueTime : undefined;
+    const upcoming = [start, end, deadline].some(time => {
+      const minute = timeMinutes(time);
+      return minute !== undefined && minute >= minuteNow && minute <= minuteNow + 60;
+    });
+    if (upcoming) { score += 2; reasons.push("一小时内有安排"); }
     if (taskCategory(task) === "punishment") { score += 1; reasons.push("惩罚任务"); }
     const estimateMin = estimate(task);
     if (estimateMin > 90) {

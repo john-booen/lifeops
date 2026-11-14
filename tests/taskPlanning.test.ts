@@ -84,6 +84,17 @@ describe("capacity and task priority", () => {
     expect(prioritizeTasks([hardDeadline], now)[0].reasons).toContain("已逾期");
     expect(prioritizeTasks([spanning], new Date(addDays(today, 2) + "T12:00:00"))[0].reasons).toContain("已逾期");
   });
+
+  it("considers a cross-day end and an independent deadline in the next hour", () => {
+    const overnight = task("虚构跨日计划", { date: addDays(today, -1), endDate: today, startTime: "20:00", endTime: "10:30" });
+    const due = task("虚构即将截止", { startTime: "08:00", endTime: "09:00", dueDate: today, dueTime: "10:40" });
+    const futureEnd = task("虚构明日才结束", { startTime: "", endTime: "10:30", endDate: addDays(today, 1) });
+    const result = prioritizeTasks([overnight, due, futureEnd], now);
+    for (const item of [overnight, due]) {
+      expect(result.find(row => row.task.id === item.id)?.reasons).toContain("一小时内有安排");
+    }
+    expect(result.find(row => row.task.id === futureEnd.id)?.reasons).not.toContain("一小时内有安排");
+  });
 });
 
 describe("task planning through real files", () => {
