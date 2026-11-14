@@ -47,5 +47,9 @@ describe("home uses existing saved facts", () => {
     const row = homeBranches("tasks", stats, b)[0];
     expect(row.meta).toBe("待打卡"); expect(row.body).toContain("频率：每3周4次");
     expect(row.body).toContain("本阶段：1 / 4 次");
+    b.habits[0] = { ...b.habits[0], periodLabel: "本周", periodDone: 0, periodTarget: 8, periodUnit: "公里", healthUnrecorded: true };
+    expect(homeBranches("tasks", stats, b)[0].body).toContain("本周：还没有健康记录");
+    b.habits[0].healthUnrecorded = undefined;
+    expect(homeBranches("tasks", stats, b)[0].body).toContain("本周：0 / 8 公里");
   });
 });

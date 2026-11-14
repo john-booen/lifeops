@@ -40,7 +40,7 @@ export function homeBranches(domain: NeuralDomain, stats: DashboardStats, board:
       ...board.habits.map(item => ({
         id: `habit:${item.habit.id}`, title: item.habit.name,
         meta: item.status === "done" ? "已打卡" : item.status === "leave" ? "已请假" : item.status === "missed" ? "未完成" : "待打卡",
-        body: `频率：每${item.habit.frequencyInterval === 1 ? "" : item.habit.frequencyInterval}${item.habit.frequencyUnit === "week" ? "周" : "天"}${item.habit.targetCount}次\n\n${item.periodLabel}：${item.periodDone} / ${item.periodTarget} 次\n\n连续完成 ${item.streak} 天。`,
+        body: `频率：每${item.habit.frequencyInterval === 1 ? "" : item.habit.frequencyInterval}${item.habit.frequencyUnit === "week" ? "周" : "天"}${item.habit.targetCount}次\n\n${item.periodLabel}：${item.healthUnrecorded ? "还没有健康记录" : `${item.periodDone} / ${item.periodTarget} ${item.periodUnit ?? "次"}`}\n\n连续完成 ${item.streak} 天。`,
         action: { label: "查看习惯与热图", kind: "habits" as const }
       }))
     ];
