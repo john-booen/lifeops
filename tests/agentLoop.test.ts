@@ -325,6 +325,25 @@ it("answers a voice correction or short yes with the correct period's task count
   expect(await readFile(join(root, store.taskDbPath()), "utf8")).toBe(before);
 });
 
+it("reads the completed historical summary when a correction restates the task period", async () => {
+  const loop = new AgentLoop(host);
+  host.executeTools = async calls => calls.map(call => {
+    expect(call.name).toBe("get_summaries");
+    const { level, range } = call.arguments;
+    expect(level).toBe("week");
+    return { callId: call.id!, success: true, output: JSON.stringify({ summaries: [
+      { from: range.from, through: range.to, complete: true, metrics: { tasksCompleted: 26 } }
+    ] }), actions: [] };
+  });
+  const result = await loop.run(input({ source: "text", message: "不对，我问的是上周任务完成情况。", history: [
+    { role: "user", content: "总结一下最近的任务完成情况。" },
+    { role: "assistant", content: "这是今天的虚构待办。" }
+  ] }));
+  expect(result.text).toBe("上周完成了 26 项任务。");
+  expect(result.toolCalls).toEqual([{ name: "get_summaries", ok: true }]);
+  expect(requests).toEqual([]);
+});
+
 it("does not turn an unrelated confirmation into a task query", async () => {
   responses.push(reply("请说清楚你想确认哪件事。"));
   const result = await new AgentLoop(host).run(input({ source: "voice", message: "对。",
