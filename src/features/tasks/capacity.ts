@@ -1,4 +1,5 @@
 import { addDays, formatDate } from "../../date";
+import { taskDeadlineDate } from "../../taskSchedule";
 import type { LifeOpsTask } from "../../types";
 import { taskCompletionEvents } from "../stats/stats";
 
@@ -38,8 +39,9 @@ export function taskEstimates(tasks: readonly LifeOpsTask[]): Estimate {
 
 export function tasksDueBy(tasks: readonly LifeOpsTask[], date: string): LifeOpsTask[] {
   return tasks.filter(task => {
-    const due = task.dueDate || task.date;
-    return task.status === "active" && !!due && due <= date;
+    const due = taskDeadlineDate(task);
+    return task.status === "active" && (!!due && due <= date
+      || !!task.date && task.endDate > task.date && task.date <= date && date <= task.endDate);
   });
 }
 
@@ -57,9 +59,11 @@ export function taskCapacity(tasks: readonly LifeOpsTask[], now: Date, estimate:
     day.minutes += estimate(event.task);
     history.set(event.date, day);
   }
-  const planned = planDate === undefined ? tasksDueBy(tasks, today) : tasks.filter(task => task.status === "active"
-    && (task.dueDate === planDate || !!task.date && task.date <= planDate && planDate <= (task.endDate || task.date)
-      || planDate === today && !!(task.dueDate || task.date) && (task.dueDate || task.date) <= today));
+  const planned = planDate === undefined ? tasksDueBy(tasks, today) : tasks.filter(task => {
+    const due = taskDeadlineDate(task);
+    return task.status === "active" && (task.dueDate === planDate || !!task.date && task.date <= planDate && planDate <= (task.endDate || task.date)
+      || planDate === today && !!due && due <= today);
+  });
   const plannedCount = planned.length, plannedMin = planned.reduce((sum, task) => sum + estimate(task), 0);
   const counts = [...history.values()].map(day => day.count), minutes = [...history.values()].map(day => day.minutes);
   const typicalCount = counts.length ? quantile(counts, 0.5) : null;

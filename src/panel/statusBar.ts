@@ -6,7 +6,7 @@ import type { AiToolCall } from "../ai";
 import { addDays, formatLocalTime, todayString, weekDates } from "../date";
 import { automaticHabitDayDisplay, isHabitRequiredOn as isHabitRequiredOnDate, numericHabitWindow } from "../features/habits/targets";
 import { compensationDueLabel, formatCompensationMoney, summarizeCompensationDebt } from "../features/habits/compensationDebt";
-import { taskDayInterval, taskScheduleLabel, taskTimeGroup, taskTimelineStart, type TaskTimeGroup } from "../taskSchedule";
+import { isTaskOverdue, taskDayInterval, taskScheduleLabel, taskTimeGroup, taskTimelineStart, type TaskTimeGroup } from "../taskSchedule";
 import {
   addEchoText,
   clearEchoMemories,
@@ -1058,7 +1058,7 @@ const statusBarPanel = {
           `priority-${task.priority}`,
           `status-${task.status}`,
           compact ? "is-compact" : "",
-          task.status === "active" && isTaskOverdue(task) ? "is-overdue" : ""
+          task.status === "active" && isTaskOverdue(task, todayString()) ? "is-overdue" : ""
         ].filter(Boolean).join(" ")
       });
       const check = card.createEl("input", { cls: "lifeops-task-checkbox", attr: { type: "checkbox" } });
@@ -1696,11 +1696,6 @@ function timeGroupClass(label: string): string {
   if (label === "下午") return "afternoon";
   if (label === "晚上") return "evening";
   return "unscheduled";
-}
-
-function isTaskOverdue(task: LifeOpsTask): boolean {
-  const deadline = task.dueDate || task.date;
-  return Boolean(deadline && deadline < todayString());
 }
 
 function repeatLabel(task: LifeOpsTask): string {

@@ -1,5 +1,5 @@
 import { formatDate } from "../../date";
-import { timeMinutes } from "../../taskSchedule";
+import { taskDeadlineDate, timeMinutes } from "../../taskSchedule";
 import type { LifeOpsTask } from "../../types";
 import { taskCapacity, taskCategory, taskEstimates, tasksDueBy } from "./capacity";
 
@@ -17,7 +17,7 @@ export function prioritizeTasks(tasks: readonly LifeOpsTask[], now: Date, energy
   return tasks.filter(task => task.status === "active").map(task => {
     let score = 0;
     const reasons: string[] = [];
-    const due = task.dueDate || task.date;
+    const due = taskDeadlineDate(task);
     if (due && due < today) { score += 3; reasons.push("已逾期"); }
     if (due === today) { score += 2; reasons.push("今天到期"); }
     if (task.quadrant === "important-urgent") { score += 3; reasons.push("重要且紧急"); }

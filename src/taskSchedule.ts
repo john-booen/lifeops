@@ -4,6 +4,15 @@ import type { LifeOpsTask } from "./types";
 type Schedule = Pick<LifeOpsTask, "date" | "endDate" | "time" | "startTime" | "endTime" | "estimateMin">;
 export type TaskTimeGroup = "morning" | "afternoon" | "evening" | "spanning" | "boundary" | "unscheduled";
 
+export function taskDeadlineDate(task: Pick<LifeOpsTask, "dueDate" | "date" | "endDate">): string {
+  return task.dueDate || (task.date && task.endDate >= task.date ? task.endDate : task.date);
+}
+
+export function isTaskOverdue(task: Pick<LifeOpsTask, "dueDate" | "date" | "endDate">, date: string): boolean {
+  const deadline = taskDeadlineDate(task);
+  return Boolean(deadline && deadline < date);
+}
+
 export function timeMinutes(value: string | undefined): number | undefined {
   if (!value || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value)) return undefined;
   const [hour, minute] = value.split(":").map(Number);

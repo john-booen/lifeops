@@ -439,6 +439,7 @@ describe("unified agent loop", () => {
     await store.createTask({ title: "虚构昨日到期", date, dueDate: yesterday });
     await store.createTask({ title: "虚构今日到期", date: tomorrow, dueDate: date });
     await store.createTask({ title: "虚构今日计划", date });
+    await store.createTask({ title: "虚构跨日计划尚未结束", date: yesterday, endDate: tomorrow });
     await store.createTask({ title: "虚构明日到期", date, dueDate: tomorrow });
     const finished = await store.createTask({ title: "虚构逾期已完成", date: yesterday, dueDate: yesterday });
     await store.completeTask(finished.id);

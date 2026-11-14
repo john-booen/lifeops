@@ -4,6 +4,7 @@ import { personalMemoryReadSnapshot } from "./personalMemory";
 import { createPersonalMemoryContextFilter } from "./personalMemoryContext";
 import { readPersonalMemoryWithSources } from "./personalMemorySources";
 import type { StoreHost } from "./store/settingsSlice";
+import { isTaskOverdue } from "./taskSchedule";
 import type { TimeContext } from "./timeContext";
 import { getTimeContext } from "./timeContext";
 import type { LifeOpsTask, TaskDashboardData } from "./types";
@@ -153,11 +154,6 @@ export function formatContextForInstructions(context: InjectedContext): string {
 
 function isTaskOnDate(task: LifeOpsTask, date: string): boolean {
   return task.date === date || task.dueDate === date;
-}
-
-function isTaskOverdue(task: LifeOpsTask, date: string): boolean {
-  const due = task.dueDate || task.date;
-  return Boolean(due && due < date);
 }
 
 /** Task status is evidence; text claims and updatedAt are not completion timestamps. */

@@ -868,11 +868,6 @@ function timeGroupClass(label: string): string {
   return "unscheduled";
 }
 
-function isTaskOverdue(task: LifeOpsTask): boolean {
-  const deadline = task.dueDate || task.date;
-  return Boolean(deadline && deadline < todayString());
-}
-
 function repeatLabel(task: LifeOpsTask): string {
   const unit = task.repeatUnit === "day" ? "天" : task.repeatUnit === "week" ? "周" : "月";
   const base = task.repeatInterval > 1 ? `每 ${task.repeatInterval} ${unit}` : `每${unit}`;

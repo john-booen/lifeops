@@ -1,4 +1,5 @@
 import { addDays, datesBetween, formatDate, normalizeJournalDate, startOfWeek } from "../../date";
+import { isTaskOverdue } from "../../taskSchedule";
 import type { HabitCheckin, HabitDefinition, LifeOpsTask } from "../../types";
 import { JOURNAL_SIGNAL_FIELDS, type SignalValues } from "../journal/signals";
 import { habitMeasurementUnit, habitRecordedAmount, isHabitRequiredOn, numericHabitGoalProgress } from "../habits/targets";
@@ -161,7 +162,7 @@ function taskTotals(planned: readonly LifeOpsTask[], completed: readonly Complet
   return {
     plannedCount: planned.length, completedCount: completed.length, completedPlannedCount,
     completionPercent: percent(completedPlannedCount, planned.length),
-    overdueCount: planned.filter(task => task.status === "active" && (task.dueDate || task.date) < today).length,
+    overdueCount: planned.filter(task => task.status === "active" && isTaskOverdue(task, today)).length,
     averageCompletionMin: mean(completed.flatMap(event => event.elapsedMin === null ? [] : [event.elapsedMin]))
   };
 }
