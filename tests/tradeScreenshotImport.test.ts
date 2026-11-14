@@ -8,6 +8,7 @@ import { confirmTradeScreenshot, parseTradeScreenshotRows, previewTradeScreensho
 import { recognizeTradeScreenshot } from "../src/features/trading/screenshotVision";
 import { openTradeScreenshotImport } from "../src/features/trading/screenshotImportModal";
 import { readTradeDatabase } from "../src/features/trading/persistence";
+import type { Trade } from "../src/features/trading/types";
 import type { StoreHost } from "../src/store/settingsSlice";
 import type { LocalOperationHost } from "../src/features/serviceHost";
 import { createFsApp } from "./helpers/fsApp";
@@ -87,6 +88,19 @@ it.each([
   const [row] = previewTradeScreenshot([data], "a".repeat(64), []).rows;
   expect(row).toMatchObject({ kind: "ready", inferredTimeZone,
     draft: { openedAt: expect.stringMatching(new RegExp(offset.replace("+", "\\+") + "$")), notes: expect.stringContaining("按市场推定") } });
+});
+
+it("detects a reimport of the same date-only trade after the computer time zone changes", () => {
+  const digest = "a".repeat(64);
+  const input = { ...cases["equity-match"], openedAt: "2026-10-12", openClockShown: false, openedZone: undefined, closedAt: undefined };
+  const [initial] = previewTradeScreenshot([input], digest, []).rows;
+  if (initial.kind !== "ready") throw Error("Expected a date-only preview");
+  const alternateOffset = initial.draft.openedAt.endsWith("+08:00") ? "-04:00" : "+08:00";
+  const timestamp = "2026-10-12T17:00:00+00:00";
+  const prior: Trade = { ...initial.draft, id: "fiction-date-only", openedAt: `2026-10-12T00:00:00${alternateOffset}`,
+    currency: "USD", pnlSource: "computed", planned: null, ruleViolations: [], attachments: [], createdAt: timestamp, updatedAt: timestamp };
+  expect(previewTradeScreenshot([input], digest, [prior]).rows[0]?.kind).toBe("duplicate");
+  expect(previewTradeScreenshot([input], "b".repeat(64), [prior]).rows[0]?.kind).toBe("ready");
 });
 
 it("asks for an explicit offset when a US local time occurs twice", () => {

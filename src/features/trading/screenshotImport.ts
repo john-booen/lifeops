@@ -121,6 +121,12 @@ function screenshotDraft(row: ModelRow, digest: string, multipliers?: Record<str
   return { draft, computedPnl, screenshotPnl, mismatch, multiplier, inferredTimeZone };
 }
 
+function sameScreenshotOpening(left: TradeDraft, right: TradeDraft): boolean {
+  if (left.openedAtPrecision !== right.openedAtPrecision) return false;
+  return left.openedAtPrecision === "date"
+    ? left.openedAt.slice(0, 10) === right.openedAt.slice(0, 10) : Date.parse(left.openedAt) === Date.parse(right.openedAt);
+}
+
 export function previewTradeScreenshot(rows: readonly ModelRow[], digest: string, existing: readonly Trade[],
   multipliers?: Record<string, number>): TradeScreenshotPreview {
   if (!/^[a-f0-9]{64}$/u.test(digest) || rows.length > TRADE_SCREENSHOT_MAX_ROWS) throw Error("截图确认已失效，请重新选择。");
@@ -130,7 +136,7 @@ export function previewTradeScreenshot(rows: readonly ModelRow[], digest: string
     try {
       const value = screenshotDraft(row, digest, multipliers);
       const duplicate = dedup.duplicate(value.draft) || existing.some(trade => trade.source.ref === value.draft.source.ref
-        && trade.symbol === value.draft.symbol && trade.direction === value.draft.direction && trade.openedAt === value.draft.openedAt
+        && trade.symbol === value.draft.symbol && trade.direction === value.draft.direction && sameScreenshotOpening(trade, value.draft)
         && trade.qty === value.draft.qty && trade.entry === value.draft.entry && trade.exit === value.draft.exit);
       if (!duplicate) dedup.add(value.draft);
       return { line, kind: duplicate ? "duplicate" : "ready", ...value };
