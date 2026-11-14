@@ -1,4 +1,3 @@
-import { ACCOUNTABILITY_BOUNDARY } from "./accountability";
 import WebSocket from "ws";
 import { randomUUID } from "node:crypto";
 import type { AiToolCall } from "./ai";
@@ -11,6 +10,7 @@ import { RealtimeInstructionsBoundary, type RealtimeInstructionsSnapshot } from 
 import {RealtimeToolOutputs,disposeRealtimeToolOutput,type RealtimeToolOutput} from "./voice/realtimeToolOutput";
 import { voiceVadSilenceMs, type CascadeCaptureEvent } from "./voice/continuousInput";
 import { BailianStreamingAsr } from "./voice/bailianStreamingAsr";
+import { buildOmniSessionUpdate, mergeOmniToolArguments, normalizeOmniToolCall } from "./voice/omniE2e/protocol";
 import { normalizeRealtimeAsrLanguage } from "./voice/realtimeAsrOptions";
 
 export const UNCONFIRMED_VOICE_CANCEL_MESSAGE = "语音取消未获确认，旧连接已停止；重新连接后请重说刚才一句。";
@@ -583,41 +583,7 @@ export class BailianRealtimeClient {
   private buildSessionUpdatePayload(): Record<string, unknown> {
     const language = normalizeRealtimeAsrLanguage(this.settings.language);
     if (this.isOmniE2e()) {
-      const explicitAudio = this.settings.model.trim() === "qwen3.8-omni-flash-realtime";
-      return {
-        type: "session.update",
-        ...(this.initialSlot ? {event_id: this.initialSlot.nonce} : explicitAudio ? {event_id: `event_${randomUUID()}`} : {}),
-        session: {
-          modalities: ["text", "audio"],
-          input_audio_transcription: {
-            model: "qwen3-asr-flash-realtime",
-            ...(language ? { language } : {})
-          },
-          turn_detection: {
-            type: explicitAudio ? "server_vad" : "semantic_vad",
-            threshold: explicitAudio ? 0.35 : 0.8,
-            silence_duration_ms: 1500,
-            create_response: false,
-            interrupt_response: false
-          },
-          ...(explicitAudio ? {
-            audio: {
-              input: { format: { type: "pcm", sample_rate: 16000 } },
-              output: { format: { type: "pcm", sample_rate: 24000 } }
-            }
-          } : { input_audio_format: "pcm16", output_audio_format: "pcm16" }),
-          voice: this.settings.omniVoice?.trim() || "Tina",
-          instructions: this.initialSlot?.wireInstructions || this.options.instructions || defaultOmniInstructions(),
-          ...(this.options.tools?.length ? { tools: this.options.tools.map(tool => {
-            // Keep internal tool descriptors unchanged; Realtime uses a nested function.
-            if (tool.type !== "function" || "function" in tool) return tool;
-            const { name, description, parameters, ...rest } = tool;
-            return { ...rest, function: { name,
-              ...(description !== undefined ? { description } : {}),
-              ...(parameters !== undefined ? { parameters } : {}) } };
-          }) } : {})
-        }
-      };
+      return buildOmniSessionUpdate(this.settings, this.options, this.initialSlot, language);
     }
     return {
       type: "session.update",
@@ -1394,14 +1360,11 @@ export class BailianRealtimeClient {
   }
 
   private accumulateToolArguments(event: Record<string, unknown>): void {
-    const callId = toolCallId(event);
-    const delta = typeof event.delta === "string" ? event.delta : "";
-    if (!callId || !delta) return;
-    this.toolArgumentBuffers.set(callId, `${this.toolArgumentBuffers.get(callId) ?? ""}${delta}`);
+    mergeOmniToolArguments(this.toolArgumentBuffers, event);
   }
 
   private handleToolCallEvent(event: Record<string, unknown>): boolean {
-    const toolCall = normalizeRealtimeToolCall(event, this.toolArgumentBuffers);
+    const toolCall = normalizeOmniToolCall(event, this.toolArgumentBuffers);
     if (!toolCall || !this.callbacks.onToolCall) return false;
     if (toolCall.id && this.handledToolCallIds.has(toolCall.id)) return true;
     if (toolCall.id) this.handledToolCallIds.add(toolCall.id);
@@ -1488,52 +1451,6 @@ function extractResponseAudioTranscriptDone(event: Record<string, unknown>): str
   const item = isRecord(event.item) ? event.item : {};
   const part = isRecord(event.part) ? event.part : {};
   return transcriptFromContent(part) || transcriptFromContent(item);
-}
-
-function defaultOmniInstructions(): string {
-  return [
-    "你是 LifeOps 个人管家，正在和用户进行中文实时语音对话。",
-    ACCOUNTABILITY_BOUNDARY,
-    "回复要自然、简洁、口语化，通常 2 到 5 句话。",
-    "如果用户明确要求创建、完成、删除任务或处理习惯，请优先使用工具调用；删除类动作只会生成待确认卡片，不要声称已经真正删除。",
-    "不要使用 Markdown 表格、代码块或复杂编号。"
-  ].join("\n");
-}
-
-function toolCallId(event: Record<string, unknown>): string {
-  const direct = event.call_id ?? event.callId ?? event.item_id ?? event.itemId ?? event.id;
-  if (typeof direct === "string") return direct;
-  const item = event.item;
-  if (isRecord(item)) {
-    const nested = item.call_id ?? item.callId ?? item.id;
-    if (typeof nested === "string") return nested;
-  }
-  return "";
-}
-
-function normalizeRealtimeToolCall(event: Record<string, unknown>, buffers: Map<string, string>): AiToolCall | null {
-  const item = isRecord(event.item) ? event.item : event;
-  const callId = toolCallId(event);
-  const name = stringValue(item.name) || stringValue(event.name);
-  if (!name) return null;
-  const argsText = stringValue(event.arguments)
-    || stringValue(item.arguments)
-    || (callId ? buffers.get(callId) ?? "" : "");
-  return {
-    id: callId || undefined,
-    name,
-    arguments: parseToolArguments(argsText)
-  };
-}
-
-function parseToolArguments(value: string): Record<string, unknown> {
-  if (!value.trim()) return {};
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return isRecord(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
 }
 
 function stringValue(value: unknown): string {
