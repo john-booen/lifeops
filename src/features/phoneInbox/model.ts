@@ -62,8 +62,10 @@ export function parsePhoneInbox(text: string, today: string, includeUnterminated
     const occurrence = (occurrences.get(hash) ?? 0) + 1;
     occurrences.set(hash, occurrence);
     const stamp = /^\[(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})\][ \t]*/u.exec(raw);
-    const date = stamp && !/^(?:[01]\d|2[0-3]):[0-5]\d$/u.test(stamp[2]) ? ""
-      : stamp ? normalizeJournalDate(stamp[1], today) : today;
+    // A damaged stamp must reach review before the text can become a dated write.
+    const looksTimestamped = /^\s*[\[［]\s*[0-9０-９]{4}[-－][0-9０-９]{1,2}[-－][0-9０-９]{1,2}(?:\s|[Tt\]］]|$)/u.test(raw);
+    let date = looksTimestamped ? "" : today;
+    if (stamp && /^(?:[01]\d|2[0-3]):[0-5]\d$/u.test(stamp[2])) date = normalizeJournalDate(stamp[1], today);
     const content = stamp ? raw.slice(stamp[0].length) : raw;
     return [{ id: `${hash}:${occurrence}`, line: index + 1, text: content, date,
       terminated: !includeUnterminated || index < lines.length - 1 }];

@@ -1374,11 +1374,14 @@ describe("phone inbox", () => {
     const inbox = new PhoneInbox({ store: () => store, enabled: () => true, submit,
       confirm: async () => {}, undo: async () => true, notify: () => {} }, new LifeOpsEventBus());
     try {
-      const notes = "[2026-01-09 25:30] 明天取件\n[2026-02-30 12:00] 明天取餐\n[2026-01-09 15:00]\n";
+      const notes = ["[2026-01-09 25:30] 明天取件", "[2026-02-30 12:00] 明天取餐", "[2026-01-09 15:00]",
+        "[2026-01-09 9:00] 明天交虚构色卡", "[2026-01-09 09:00 明天交虚构草图", "[2026-1-9] 明天画虚构地图",
+        "［２０２６－０１－０９ ０９：００］明天买虚构便签", ""].join("\n");
       await store.ensureFile(PHONE_INBOX_PATH, notes);
       await inbox.scan();
       expect(submit).not.toHaveBeenCalled();
       expect((await inbox.list()).map(row => [row.status, row.message])).toEqual([
+        ...Array.from({ length: 4 }, () => ["review", expect.stringContaining("核对日期和时间")]),
         ["review", "这一行没有记录内容。"],
         ["review", expect.stringContaining("核对日期和时间")],
         ["review", expect.stringContaining("核对日期和时间")]
