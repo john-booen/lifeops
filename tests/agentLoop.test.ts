@@ -1257,6 +1257,27 @@ describe("phone inbox", () => {
     await expect(new AgentLoop(host).run(request)).rejects.toThrow("编辑冲突");
     expect((await store.readTaskDb()).tasks).toEqual([]);
   });
+
+  it("places an invalid timestamp or empty stamped line in review without sending it", async () => {
+    const { PhoneInbox } = await import("../src/features/phoneInbox/service");
+    const { PHONE_INBOX_PATH } = await import("../src/features/phoneInbox/model");
+    const { LifeOpsEventBus } = await import("../src/lifeOpsEventBus");
+    const submit = vi.fn(async () => ({ reply: "请核对。", actions: [] }));
+    const inbox = new PhoneInbox({ store: () => store, enabled: () => true, submit,
+      confirm: async () => {}, undo: async () => true, notify: () => {} }, new LifeOpsEventBus());
+    try {
+      const notes = "[2026-01-09 25:30] 明天取件\n[2026-02-30 12:00] 明天取餐\n[2026-01-09 15:00]\n";
+      await store.ensureFile(PHONE_INBOX_PATH, notes);
+      await inbox.scan();
+      expect(submit).not.toHaveBeenCalled();
+      expect((await inbox.list()).map(row => [row.status, row.message])).toEqual([
+        ["review", "这一行没有记录内容。"],
+        ["review", expect.stringContaining("核对日期和时间")],
+        ["review", expect.stringContaining("核对日期和时间")]
+      ]);
+      expect(await store.readPath(PHONE_INBOX_PATH)).toBe(notes);
+    } finally { inbox.stop(); }
+  });
 });
 
 it("waits for a complete phone inbox line while mobile sync updates an unfinished draft", async () => {

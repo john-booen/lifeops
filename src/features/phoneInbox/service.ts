@@ -129,8 +129,17 @@ export class PhoneInbox {
     const row: PhoneInboxRecord = { id: line.id, line: line.line, status: "processing", message: "上次处理未读回回执，请核对最近操作。" };
     doc.records.push(row);
     await this.write(store, doc);
+    const invalid = !line.date ? "请核对日期和时间。可把更正后的记录追加为新行。"
+      : !line.text.trim() ? "这一行没有记录内容。"
+      : line.text.length > 2000 ? "这行超过 2000 字，请分成几条再追加。"
+      : "";
+    if (invalid) {
+      row.status = "review";
+      row.message = invalid;
+      await this.write(store, doc);
+      return row;
+    }
     try {
-      if (!line.date || line.text.length > 2000) throw Error("Inbox line is invalid");
       const response = await this.host.submit(line.text, this.turn(store, line), this.controller.signal);
       const call = response.toolCalls?.find(item => isPhoneInboxTool(item.name));
       if (call?.ok && isPhoneInboxTool(call.name)) row.tool = call.name;
