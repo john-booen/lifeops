@@ -1,5 +1,5 @@
 {
-  "version": "0.5.9",
+  "version": "0.5.10",
   "date": "2026-11-14",
   "passRate": 1,
   "questionIds": [
@@ -52,7 +52,8 @@
     "short-acknowledgement-44",
     "short-correction-45",
     "finished-correction-46",
-    "voice-count-period-correction-48"
+    "voice-count-period-correction-48",
+    "voice-named-reminder-51"
   ],
   "passedIds": [
     "today-unfinished-01",
@@ -104,6 +105,7 @@
     "short-acknowledgement-44",
     "short-correction-45",
     "finished-correction-46",
-    "voice-count-period-correction-48"
+    "voice-count-period-correction-48",
+    "voice-named-reminder-51"
   ]
 }
