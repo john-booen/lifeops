@@ -1,6 +1,7 @@
 import {executeStoredQuery} from "./storedQueryRead";
 import { saveMemoryNote } from "./memoryNoteWrite";
 import { activityNotePath } from "./activityRecords";
+import { appendEveningEntry, journalOriginalBlock } from "./features/journal/entry";
 import { isCopiedTaskTitleReference, isTaskIdentifierReference } from "./taskReference";
 import type { AiToolDefinition } from "./ai";
 import { assertSafeOperationId, fileRevision, MAX_CONFIRMATION_ACTION_ID_LENGTH, recordRevision } from "./operationIdentity";
@@ -591,9 +592,16 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
         return toolReply(`这条日记此前已经写入并通过校验：${path} · ${heading}。`);
       }
 
-      await context.store.appendDaily(date, heading, `${content}\n${marker}`, period);
+      const original = period === "晚" && request.userMessage?.trim() ? request.userMessage : undefined;
+      if (original !== undefined) {
+        const file = await context.store.ensureDailyNote(date, period);
+        await context.store.app.vault.process(file, text => appendEveningEntry(text, heading, content, marker, original));
+      } else {
+        await context.store.appendDaily(date, heading, `${content}\n${marker}`, period);
+      }
       const verified = await context.store.readPath(path);
-      if (!verified.includes(marker) || !verified.includes(content)) {
+      if (!verified.includes(marker) || !verified.includes(content)
+        || original !== undefined && !verified.includes(journalOriginalBlock(original))) {
         return toolError(`日记写入后校验失败，没有在 ${path} 读回刚才的内容。`);
       }
       await context.refreshViews();

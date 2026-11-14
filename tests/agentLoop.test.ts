@@ -542,9 +542,20 @@ describe("unified agent loop", () => {
     const checkin = await voice("给虚构阅读习惯打卡", "complete_habit", { name: habit.name });
     expect(checkin.voiceSpeech).toBe("已完成今日打卡：虚构阅读习惯。");
     expect((await store.readHabitDb()).checkins).toContainEqual(expect.objectContaining({ habitId: habit.id, status: "done" }));
-    const note = await voice("记到晚间日记：虚构语音写入。", "append_journal_entry", { period: "晚", content: "虚构语音写入。" });
+    const transcript = "记到晚间日记：嗯，虚构蓝纸盒今天没整理。\n## 虚构行\n~~~  先保留这句。  ";
+    const note = await voice(transcript, "append_journal_entry", { period: "晚", content: "今天没整理蓝纸盒。", heading: "原话" });
     expect(note.voiceSpeech).toBe("好，已经记进日记了。");
-    expect(await store.readPath(store.dailyNotePath(todayString(), "晚"))).toContain("虚构语音写入。");
+    const diaryPath = store.dailyNotePath(todayString(), "晚");
+    const firstDiary = await store.readPath(diaryPath);
+    expect(firstDiary).toContain("## 整理\n\n今天没整理蓝纸盒。");
+    expect(firstDiary).toContain("## 原话\n\n~~~~\n" + transcript + "\n~~~~");
+    const second = "记到晚间日记：准备先整理一个。";
+    await voice(second, "append_journal_entry", { period: "晚", content: "先整理一个。"});
+    const diary = await store.readPath(diaryPath);
+    expect(diary.match(/^## 原话$/gm)).toHaveLength(1);
+    expect(diary).toContain(transcript);
+    expect(diary).toContain("~~~\n" + second + "\n~~~");
+    expect(diary.indexOf("先整理一个。")).toBeLessThan(diary.indexOf("## 原话"));
     const trade = await voice("记一笔虚构交易，A股 ZTEST8 做多", "record_trade", {
       trades: [{ market: "A股", symbol: "ZTEST8", direction: "long" }] });
     expect(trade.voiceSpeech).toBe("已记下 1 笔交易。");
@@ -552,6 +563,24 @@ describe("unified agent loop", () => {
     const undo = await voice("撤销", "undo_latest_operation", {});
     expect(undo.voiceSpeech).toBe("已撤销这次交易记录。");
     expect((await readTradeDatabase(store)).trades).toHaveLength(0);
+  });
+
+  it("preserves the original diary turn through batch confirmation", async () => {
+    const message = "请都记下。\n晚间原话：嗯，虚构路线今天才画完。";
+    const date = formatDate(now);
+    responses.push(reply("", [
+      tool("append_journal_entry", { date, period: "晚", content: "虚构路线绘制完毕。" }, "journal"),
+      ...["纸夹", "纸袋", "纸盒"].map(title => tool("create_task", { title: "虚构归档" + title, date }, title))
+    ]));
+    const result = await new AgentLoop(host).run(input({ message }));
+    const [action] = result.confirmations;
+    expect(action.type).toBe("tool_batch");
+    expect(JSON.stringify(action)).not.toContain("今天才画完");
+    const path = store.dailyNotePath(date, "晚");
+    expect(await store.readPath(path)).toBe("");
+    await executeConfirmedToolBatch(action, runtime, () => {});
+    expect(await store.readPath(path)).toContain("## 原话\n\n~~~\n" + message + "\n~~~");
+    expect((await store.readTaskDb()).tasks).toHaveLength(3);
   });
 
   it("keeps an automatically saved memory when undoing the task from the same turn", async () => {

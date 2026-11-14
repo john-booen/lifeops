@@ -104,7 +104,7 @@ export async function executeToolCalls(this: AgentHost, toolCalls: AiToolCall[],
         output: "本轮工具调用编号重复，已停止整批执行，请重新提出安排。", actions: [] }));
       return { ...toolResultsToAgentExecution(refused), results: refused };
     }
-    const batch = prepareToolBatch(frozenCalls);
+    const batch = prepareToolBatch(frozenCalls, 0, userMessage);
     if (batch) return { ...toolResultsToAgentExecution([batch]), results: [batch] };
     const queries = frozenCalls.filter(call => call.name === "query_vault");
     const planSources = [...new Set([...sourcePaths, ...queries.flatMap(call => typeof call.arguments.path === "string" ? [call.arguments.path.trim()] : []).filter(Boolean)])];
