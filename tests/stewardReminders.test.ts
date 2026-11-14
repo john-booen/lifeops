@@ -101,6 +101,55 @@ it("shares the current debt between home and the morning brief, without writing 
   expect(excluded.find(item => item.kind === "daily_brief")?.reason).toMatch(/^补偿欠账暂时无法核对。/u);
 });
 
+it("uses the same readable device sleep as the today card when sorting the morning brief", async () => {
+  const point = now(16, 8), date = formatDate(point);
+  await store.createTask({ title: "虚构长任务", date, estimateMin: 120, quadrant: "important-not-urgent" });
+  await store.createTask({ title: "虚构短任务", date, estimateMin: 30 });
+  await store.appendHealthEntry({ date, sleepHours: 5 });
+  const state = { ...emptyProactivePolicyState(), firstOpen: point.toISOString() };
+  const brief = async () => (await collectStewardCandidates(store, state, point, undefined))
+    .find(item => item.kind === "daily_brief")?.reason;
+  expect(await brief()).toContain("设备睡眠 5 小时");
+  expect(await brief()).toContain("优先做：虚构短任务、虚构长任务。");
+  expect(await brief()).toContain("近期完成记录不足，暂无法判断任务负荷。");
+  const excludedVaultPrefixes = [store.settings.folders.health];
+  store.settings.privacy = { ...store.settings.privacy, excludedVaultPrefixes };
+  const withoutSleep = await brief();
+  expect(withoutSleep).not.toContain("设备睡眠");
+  expect(withoutSleep).toContain("优先做：虚构长任务、虚构短任务。");
+  excludedVaultPrefixes.push(store.settings.folders.tasks);
+  const withoutTasks = await brief();
+  expect(withoutTasks).toContain("任务记录暂不可用。");
+  expect(withoutTasks).not.toContain("虚构长任务");
+});
+
+it("reports unavailable evening sources and distinguishes missing device readings from a measured zero", async () => {
+  const point = now(16, 21), date = formatDate(point);
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(point);
+  const state = emptyProactivePolicyState();
+  const review = async () => (await collectStewardCandidates(store, state, point, undefined))
+    .find(item => item.kind === "evening_review")?.reason;
+  await store.createTask({ title: "虚构未完任务", date });
+  await store.createHabit({ name: "虚构手动习惯", frequencyUnit: "day", frequencyInterval: 1, targetCount: 1, startDate: date });
+  await store.createHabit({ name: "虚构设备计步", source: "health:steps", frequencyUnit: "day", frequencyInterval: 1, targetCount: 1,
+    startDate: date, target: { kind: "number", unit: "步", perDay: 3000 } });
+  await store.createHabit({ name: "虚构交易目标", source: "trades", frequencyUnit: "day", frequencyInterval: 1, targetCount: 1,
+    startDate: date, target: { kind: "number", unit: "笔", perDay: 2 } });
+  const excludedVaultPrefixes = [store.settings.folders.tradingReviews];
+  store.settings.privacy = { ...store.settings.privacy, excludedVaultPrefixes };
+  const missing = await review();
+  expect(missing).toContain("交易目标 虚构交易目标 暂不可用");
+  expect(missing).toContain("习惯已完成 0/1 项。1 项设备习惯缺少读数。");
+  await store.appendHealthEntry({ date, steps: 0 });
+  expect(await review()).toContain("习惯已完成 0/2 项。");
+  excludedVaultPrefixes.push(store.settings.folders.tasks, store.settings.folders.habits);
+  const excluded = await review();
+  expect(excluded).toContain("任务和补偿记录暂不可用。习惯和交易目标记录暂不可用。");
+  expect(excluded).not.toContain("虚构");
+  expect(excluded).not.toContain("0");
+});
+
 it("simulates three calendar days with real saved reminders, strict quiet hours, and same-kind cooldown", async () => {
   const older = await seedIdea("虚构旧想法", "2026-10-02", ["2026-11-12"]);
   await seedIdea("虚构较新想法", "2026-10-19");

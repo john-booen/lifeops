@@ -9,6 +9,8 @@ import type { TaskDashboardData } from "../../types";
 import { ideaDaysStalled, listIdeas } from "../ideas/notes";
 import { ideaIsStalled, ideaRemindersSinceProgress, recordIdeaReminder } from "../ideas/progress";
 import { advanceCompensationDebt, compensationSummaryLine, summarizeCompensationDebt } from "../habits/compensationDebt";
+import { isHabitRequiredOn } from "../habits/targets";
+import { readHealthDay } from "../health/store";
 import { readJournalSignals } from "../journal/signalStore";
 import { effectiveLearningTrack } from "../learning/model";
 import { countDueQuizCards } from "../learning/quiz";
@@ -48,34 +50,53 @@ function advice(facts: string, tone: ProactiveTone | undefined, next: string): s
 }
 
 async function morningReason(store: StoreHost, board: TaskDashboardData, now: Date): Promise<string> {
-  const [signals, due] = await Promise.all([readJournalSignals(store, board.date).catch(() => []), countDueQuizCards(store, board.date).catch(() => null)]);
-  const card = buildTodayCard(board, signals, now);
-  const status = card.status.map(item => item.label + item.value).join("，");
-  const load = card.capacity.overloaded ? "当前任务超载" : "当前任务未超载";
-  const priorities = card.priorities.map(item => item.title).join("、");
+  const [signals, due, health] = await Promise.all([
+    readJournalSignals(store, board.date).catch(() => []),
+    countDueQuizCards(store, board.date).catch(() => null),
+    readHealthDay(store, board.date).catch(() => undefined)
+  ]);
+  const card = buildTodayCard(board, signals, now, health);
   const context = dashboardContextData(board);
+  const status = card.status.map(item => item.label + item.value).join("，");
+  const deviceSleep = health?.sleepHours === undefined ? "" : "，设备睡眠 " + health.sleepHours + " 小时";
+  const load = context?.tasks.available === false ? "任务记录暂不可用"
+    : card.capacity.typicalCount === null ? "近期完成记录不足，暂无法判断任务负荷"
+    : card.capacity.overloaded ? "当前任务超载" : "当前任务未超载";
+  const priorities = card.priorities.map(item => item.title).join("、");
+  const priorityLine = context?.tasks.available === false ? "" : priorities ? "优先做：" + priorities + "。" : "暂无可排序的任务。";
   const day = formatDate(now);
   const tasks = advanceCompensationDebt(board.tasks, board.habits.map(item => item.habit), day, store.settings.habitCompensation);
   const debt = compensationSummaryLine(summarizeCompensationDebt(tasks, day));
   const compensation = context?.tasks.available === false ? "补偿欠账暂时无法核对。"
     : debt ? "补偿" + debt.replaceAll(" · ", "，") + "。" : "目前没有未完成的补偿。";
-  return compensation + status + "。" + load + "。" + (priorities ? "优先做：" + priorities + "。" : "暂无可排序的任务。")
+  const scope = context?.tasks.filtered ? "仅核对可读任务。" : "";
+  return scope + compensation + status + deviceSleep + "。" + load + "。" + priorityLine
     + (due === null ? "复习卡暂不可用。" : "到期复习卡 " + due + " 张。");
 }
 
 function eveningReason(board: TaskDashboardData): string {
+  const context = dashboardContextData(board);
   const habits = board.habits.filter(item => item.habit.source !== "trades" && item.requiredToday);
-  const trades = board.habits.filter(item => item.habit.source === "trades" && item.requiredToday);
+  const recordedHabits = habits.filter(item => !item.healthUnrecorded);
+  const missingHabits = habits.length - recordedHabits.length;
+  const trades = board.habits.filter(item => item.habit.source === "trades" && (item.requiredToday
+    || item.periodUnavailable && isHabitRequiredOn(item.habit, board.date)));
   const tradeProgress = trades.map(item => item.habit.name + " " + (item.periodUnavailable ? "暂不可用"
     : item.periodDone + "/" + item.periodTarget + (item.periodUnit ?? "笔"))).join("、");
   const penalties = board.tasks.filter(task => task.status === "active" && task.habitPunishment?.judgedDate === board.date);
   const tasks = [...new Map([...board.today, ...board.overdue].map(task => [task.id, task])).values()];
   const examples = tasks.slice(0, 3).map(task => task.title).join("、");
-  return "还有 " + tasks.length + " 项今日或逾期任务" + (examples ? "，包括" + examples + "。" : "。")
-    + (tradeProgress ? "交易目标 " + tradeProgress + "。" : "今日没有配置交易笔数目标。")
-    + "习惯已完成 " + habits.filter(item => item.status === "done").length + "/" + habits.length + " 项。"
-    + (penalties.length ? "今天新生成 " + penalties.length + " 项补偿：" + penalties.map(task => task.title).slice(0, 3).join("、") + "。"
-      : "今天暂无新补偿。");
+  const taskLine = context?.tasks.available === false ? "任务和补偿记录暂不可用。"
+    : (context?.tasks.filtered ? "可读任务中还有 " : "还有 ") + tasks.length + " 项今日或逾期任务"
+      + (examples ? "，包括" + examples + "。" : "。")
+      + (penalties.length ? "今天新生成 " + penalties.length + " 项补偿：" + penalties.map(task => task.title).slice(0, 3).join("、") + "。"
+        : "今天暂无新补偿。");
+  if (context?.habits.available === false) return taskLine + "习惯和交易目标记录暂不可用。";
+  const habitLine = recordedHabits.length
+    ? "习惯已完成 " + recordedHabits.filter(item => item.status === "done").length + "/" + recordedHabits.length + " 项。" : "";
+  const missingLine = missingHabits ? missingHabits + " 项设备习惯缺少读数。" : "";
+  return taskLine + (tradeProgress ? "交易目标 " + tradeProgress + "。" : "今日没有待核对的交易目标。")
+    + (habitLine || missingLine ? habitLine + missingLine : "今日没有需核对的习惯。");
 }
 
 async function weeklyPlan(store: StoreHost, now: Date) {
@@ -112,7 +133,11 @@ export async function collectStewardCandidates(store: StoreHost, state: Proactiv
       { key: overload.taskId, priority: "high" }));
   }
   if (board && morning) candidates.push(stewardCandidate(now, "daily_brief", "早间简报", await morningReason(store, board, now), { voiceEligible: true }));
-  if (board && evening) candidates.push(stewardCandidate(now, "evening_review", "晚间检查", advice(eveningReason(board), tone, "把还没做完的任务过一遍")));
+  if (board && evening) {
+    const reason = eveningReason(board);
+    const reminder = dashboardContextData(board)?.tasks.available === false ? reason : advice(reason, tone, "把还没做完的任务过一遍");
+    candidates.push(stewardCandidate(now, "evening_review", "晚间检查", reminder));
+  }
   if (week) candidates.push(stewardCandidate(now, "weekly_review", "周日计划", week.text, { summaryPath: week.summaryPath }));
   const idea = ideas.filter(item => ideaIsStalled(item, date)).sort((left, right) => left.lastProgress.localeCompare(right.lastProgress)
     || left.created.localeCompare(right.created))[0];
