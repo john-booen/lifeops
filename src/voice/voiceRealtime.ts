@@ -39,7 +39,7 @@ import { formatDate, todayString } from "../date";
 import type { StoreHost } from "../store/settingsSlice";
 import { backgroundVoiceQuestion, VoiceJobManager, voiceJobSpeech, type VoiceJob } from "./jobs";
 import { isExactVoiceApproval, voiceActionPrompt } from "./actionConfirmation";
-import { classifyPlaybackInput, offlinePlaybackDecision } from "./playbackInput";
+import { classifyPlaybackInput, explicitPlaybackPause, offlinePlaybackDecision } from "./playbackInput";
 
 import { executeOmniE2eTool } from "./omniE2e/tools";
 import { createOmniResponseHandlers } from "./omniE2e/responses";
@@ -401,6 +401,14 @@ export function handleCascadeCapture(view: VoiceRealtimeView, endpoint: ServerVo
   if (!capture.ready.trim() || isSpeakerEcho(view, capture.ready)
     || overlapsPlayback && (isVoiceBackchannelOnly(capture.ready) || isDistantPlaybackSpeech(view, playbackLevel))) {
     maybeAnnounceVoiceJob(view);
+    return;
+  }
+  if (overlapsPlayback && view.agentMode === "voice" && explicitPlaybackPause(capture.ready)) {
+    view.clearVoiceNoTranscriptTimer();
+    if (playing) {
+      view.interruptAgentSpeech();
+      view.transitionVoiceSession("listening", "user paused voice playback");
+    }
     return;
   }
   if (!overlapsPlayback || voiceConfirmations.has(view)) {

@@ -53,7 +53,7 @@ export async function classifyPlaybackInput(
   return signal.aborted ? undefined : offlinePlaybackDecision(value, previousQuestion);
 }
 
-function explicitPlaybackPause(text: string): boolean {
+export function explicitPlaybackPause(text: string): boolean {
   const value = text.normalize("NFKC").replace(/\s+/gu, "");
   return /^(?:请)?(?:先停一下|停一下|先暂停|暂停一下|先别说|别说了|停|暂停)(?:[。！!]*)$/u.test(value);
 }

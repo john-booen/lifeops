@@ -2263,17 +2263,37 @@ describe("voice integration flow", () => {
     expect(Math.max(...measurements)).toBeLessThanOrEqual(300);
   });
 
-  it("filters distant interruption audio while allowing normal nearby speech during playback", () => {
-    const view = {
-      controller: { settings: { ...DEFAULT_SETTINGS, ai: { ...DEFAULT_SETTINGS.ai, dataDisclosureAccepted: false } } },
-      agentMode: "voice", agentRecording: true, agentVoiceReady: true, agentSpeaking: false,
-      handleVoiceSpeechStarted: vi.fn(), handleVoiceSpeechStopped: vi.fn(), markVoiceTrace: vi.fn(),
-      clearVoiceNoTranscriptTimer: vi.fn(), clearVoiceLocalEndpointTimer: vi.fn(),
-      updateRealtimeTranscript: vi.fn(), sendVoiceTurnIfReady: vi.fn()
-    };
+  it.for([false, true])("pauses nearby playback without a new request (text disclosure=%s)", async (dataDisclosureAccepted, { onTestFinished }) => {
+    const review = vi.spyOn(playbackInput, "classifyPlaybackInput");
+    onTestFinished(() => { review.mockRestore(); });
+    const runtime = new VoiceSessionController();
+    runtime.connect(); runtime.connected(); runtime.beginTurn({ route: "brain", transcript: "虚构问题。" });
+    runtime.transitionTurn("endpointing"); runtime.transitionTurn("routing"); runtime.transitionTurn("generating");
+    runtime.selectOutputOwner("fallback-tts"); runtime.bindPlayback("pause-check");
+    const stopTts = vi.fn(), save = vi.fn(async () => undefined);
+    const view = Object.assign(new CascadeComposerTestView(), {
+      controller: { settings: { ...DEFAULT_SETTINGS, ai: { ...DEFAULT_SETTINGS.ai, dataDisclosureAccepted },
+        realtimeVoice: { ...DEFAULT_SETTINGS.realtimeVoice, triggerEnabled: false } }, appendAgentConversation: save },
+      agentMode: "voice", agentRecording: true, agentVoiceConversation: true, agentVoiceReady: true, agentSpeaking: false,
+      agentVoiceRuntime: runtime, agentTtsClient: { cancel: stopTts }, agentVoiceTrace: {},
+      agentSpeechSources: new Set(), agentSpeechPlaybackId: 0, agentMessages: [], agentOmniE2eAssistantIndex: -1,
+      agentOmniE2eUserMessage: "虚构问题。", agentOmniE2eReply: "已经说过的句子。",
+      invalidateVoicePipeline: vi.fn(), setAgentBusy: vi.fn(), transitionVoiceSession: vi.fn(),
+      refreshAgentSurfaceState: vi.fn(), appendVoiceMetric: vi.fn(), handleVoiceSpeechStarted: vi.fn(),
+      handleVoiceSpeechStopped: vi.fn(), markVoiceTrace: vi.fn(), clearVoiceNoTranscriptTimer: vi.fn(),
+      clearVoiceLocalEndpointTimer: vi.fn(), updateRealtimeTranscript: vi.fn(), sendVoiceTurnIfReady: vi.fn()
+    }) as any;
+    const worklet = createVoiceWorklet(event => handleOmniE2eAudioOutputEvent(view, event));
+    view.agentAudioOutput = worklet.actor;
+    onTestFinished(async () => { await worklet.actor.close(); });
     const sample = (amplitude: number) => Float32Array.from({ length: 640 }, (_, i) => amplitude * Math.sin(i * Math.PI / 16));
     resetSpeakerEcho(view, true);
     observeLocalVoiceEnergy(view, sample(0.15));
+    await worklet.actor.start("pause-check", "fallback-tts");
+    worklet.actor.appendPcm16("pause-check", new Int16Array(4096).fill(8192), 48_000);
+    beginHeardSpeech(view);
+    rememberHeardPhrase(view, "已经说过的句子。", true);
+    expect(worklet.render().some(sample => sample > 0)).toBe(true);
     view.agentSpeaking = true;
     const endpoint = new ServerVoiceEndpoint();
     function hear(itemId: string, amplitude: number, text: string) {
@@ -2282,10 +2302,23 @@ describe("voice integration flow", () => {
       handleCascadeCapture(view, endpoint, { type: "stopped", itemId });
       handleCascadeCapture(view, endpoint, { type: "final", itemId, text });
     }
-    hear("far", 0.025, "等一下");
-    expect(view.sendVoiceTurnIfReady).not.toHaveBeenCalled();
+    hear("far", 0.025, "停一下");
+    hear("far-wait", 0.025, "等一下");
+    expect(stopTts).not.toHaveBeenCalled();
+    expect(worklet.actor.snapshot()?.status).toBe("playing");
     hear("near", 0.13, "停一下");
-    expect(view.updateRealtimeTranscript).toHaveBeenCalledExactlyOnceWith("停一下", true, true);
+    handleCascadeCapture(view, endpoint, { type: "final", itemId: "near", text: "停一下" });
+    expect(stopTts).toHaveBeenCalledOnce();
+    expect(worklet.render().every(sample => sample === 0)).toBe(true);
+    expect(runtime.snapshot().currentTurn?.phase).toBe("interrupted");
+    expect(view.transitionVoiceSession).toHaveBeenLastCalledWith("listening", "user paused voice playback");
+    expect(view.agentRecording).toBe(true);
+    expect(save).toHaveBeenCalledExactlyOnceWith("虚构问题。", "已经说过的句子。\n（被打断）", expect.any(Function));
+    expect(review).not.toHaveBeenCalled();
+    expect(view.updateRealtimeTranscript).not.toHaveBeenCalled();
+    expect(view.sendVoiceTurnIfReady).not.toHaveBeenCalled();
+    hear("new-question", 0.13, "明天有哪些待办？");
+    expect(view.updateRealtimeTranscript).toHaveBeenCalledExactlyOnceWith("明天有哪些待办？", true, true);
     expect(view.sendVoiceTurnIfReady).toHaveBeenCalledOnce();
   });
 
