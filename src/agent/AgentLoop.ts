@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { AiChatResult, AiToolCall, AiToolDefinition, ChatMessage, LifeOpsAi } from "../ai";
 import type { ToolCallResult } from "../agentRuntime";
 import { formatDate } from "../date";
-import { deviceSleepAnswer, deviceSleepQuestion } from "../features/health/sleepAnswer";
+import { deviceSleepAnswer } from "../features/health/sleepAnswer";
 import { formatQuizQuestions } from "../features/learning/quizTools";
 import { habitDateEvidence } from "../features/stats/habitEvidence";
 import { asksForRecentStatus, formatRecentStatus, recentStatusDomains } from "../features/stats/statusEvidence";
@@ -158,17 +158,6 @@ export class AgentLoop {
         assertPolicy();
         return this.localAnswer(input, state, result?.output || "撤销没有完成，请稍后再试。");
       }
-      const sleepPeriod = !input.voiceBackground && deviceSleepQuestion(input.message);
-      if (sleepPeriod) {
-        await waitForFactOperations(this.host.store, { signal: input.signal });
-        assertPolicy();
-        const range = resolveStatsRange(sleepPeriod, input.now);
-        const calls = this.scopedCalls([{ name: "get_stats", arguments: { domain: "health", range } }], state.id, 0);
-        const [result] = await this.executeRegular(input, state, calls);
-        assertProviderActive(input.signal);
-        assertPolicy();
-        return this.localAnswer(input, state, result?.success ? deviceSleepAnswer(result.output) : "设备睡眠资料暂不可用。");
-      }
       if (!this.modelAvailable()) {
         if (input.voiceBackground) throw new Error("后台模型未就绪。");
         return await this.offline(input, state);
@@ -313,6 +302,9 @@ export class AgentLoop {
             && call.arguments.domain === "trades" && call.arguments.groupBy === "model" && call.arguments.combineUsd !== true) {
             const ranking = (JSON.parse(single.output) as { modelRanking?: string }).modelRanking;
             if (typeof ranking === "string" && ranking) reply = ranking;
+          } else if (!input.voiceBackground && call.name === "get_stats"
+            && call.arguments.domain === "health" && call.arguments.directReply === "device_sleep") {
+            reply = deviceSleepAnswer(single.output);
           } else if (round === 0 && fastVoice && call.name === "get_stats") reply = formatVoiceStats(single.output, call.arguments);
           else if (round === 0 && fastVoice && call.name === "plan_today") reply = formatVoiceTaskPriorities(single.output, call.arguments);
           else if (round === 0 && call.name === "list_tasks" && call.arguments.category === undefined
@@ -465,7 +457,7 @@ export class AgentLoop {
     }
     if (tools.some(tool => tool.name === "get_stats")) {
       guidance.push("评价或批评这周表现，先用 get_stats(domain=habits,range=this_week) 查达标次数和漏做日期。");
-      guidance.push("设备睡眠时长、步数、体重等用 get_stats(domain=health)。日记里的主观睡眠、情绪或精力用 get_stats(domain=journal)。只问睡得怎么样时先查同一时段的健康记录，按需要补充日记感受并标明来源。最近三天用 range=last_3d。要找原因、原话或具体事件时，再查同一范围的日记。");
+      guidance.push("设备睡眠时长、步数、体重等用 get_stats(domain=health)。只问某时段的设备睡眠时长可加 directReply=device_sleep。日记里的主观睡眠、情绪或精力用 get_stats(domain=journal)。只问睡得怎么样时先查同一时段的健康记录，按需要补充日记感受并标明来源。最近三天用 range=last_3d。要找原因、原话或具体事件时，再查同一范围的日记。");
     }
     if (evidenceCalls.length) {
       guidance.push("把工具读回的信息写成面向用户的正文，别输出结果标签或原始 JSON。");

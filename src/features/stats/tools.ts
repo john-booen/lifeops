@@ -25,7 +25,8 @@ export const STATS_TOOL: LifeOpsToolDefinition = {
       domain: { type: "string", enum: statsDomains },
       range: rangeParameter(standardRanges),
       groupBy: { type: "string", enum: groups }, combineUsd: { type: "boolean", description: "用户明确要求把交易盈亏折成美元总额时才传 true。只问笔数或胜率时省略。" },
-      rankByNetPnl: { type: "boolean", description: "问各币种净盈亏第一的模型时传 true，配合交易模型分组。" }
+      rankByNetPnl: { type: "boolean", description: "问各币种净盈亏第一的模型时传 true，配合交易模型分组。" },
+      directReply: { type: "string", enum: ["device_sleep"], description: "只问一个时段的设备睡眠时长时用 device_sleep，直接返回本地读回数据。" }
     }, required: ["domain", "range"]
   },
   execute: (args, context) => readStats(context.store, args, new Date())

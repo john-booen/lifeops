@@ -481,18 +481,24 @@ describe("unified agent loop", () => {
     await store.appendHealthEntry({ date: addDays(date, 1), sleepHours: 20 });
     const spoken = vi.fn();
     const message = "最近三天设备记录的睡眠时长平均是多少小时？";
+    const query = () => responses.push(reply("", [tool("get_stats", {
+      domain: "health", range: { from: addDays(date, -2), to: date }, directReply: "device_sleep"
+    })]));
+    query();
     const result = await new AgentLoop(host).run(input({ source, message, onVoiceText: spoken }));
     expect(result.text).toContain("有 2 天设备睡眠记录，平均 6.5 小时。");
     if (source === "voice") expect(spoken).toHaveBeenCalledExactlyOnceWith(result.text);
     expect(result.toolCalls).toEqual([{ name: "get_stats", ok: true }]);
-    expect(requests).toHaveLength(0);
+    expect(requests).toHaveLength(1);
     store.settings.privacy!.excludedVaultPrefixes = [store.path(store.settings.folders.health, previous + ".md")];
+    query();
     const scoped = await new AgentLoop(host).run(input({ source, message }));
     expect(scoped.text).toContain("有 1 天设备睡眠记录，平均 7.75 小时。只统计允许读取的健康记录。");
     store.settings.privacy!.excludedVaultPrefixes.push(store.path(store.settings.folders.health, date + ".md"));
+    query();
     const empty = await new AgentLoop(host).run(input({ source, message }));
     expect(empty.text).toContain("暂无可读的设备睡眠记录。只统计允许读取的健康记录。");
-    expect(requests).toHaveLength(0);
+    expect(requests).toHaveLength(3);
   });
 
   it.each(["get_stats", "query_vault"])("adds verified habit dates only from the stats tool (%s)", async name => {
