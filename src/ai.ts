@@ -1095,7 +1095,8 @@ function assertRawToolArgumentsComplete(calls: unknown[], reportedModel?: string
   for (const raw of calls) {
     if (!isRecord(raw)) continue;
     const fn = isRecord(raw.function) ? raw.function : raw, args = fn.arguments ?? raw.arguments;
-    if (args == null || isRecord(args) || (typeof args === "string" && (!args.trim() || allowFragments || isRecord(parseJson(args))))) continue;
+    if (isRecord(args) || typeof args === "string" && (allowFragments || isRecord(parseJson(args)))
+      || allowFragments && args == null) continue;
     throw new ProviderResponseIncompleteError("unknown", reportedModel, httpStatus);
   }
 }

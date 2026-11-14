@@ -323,6 +323,19 @@ describe("AI tool calling", () => {
     expect(withoutIds(result.toolCalls)).toEqual([call("create_task", { title: "去银行", date: "明天" })]);
   });
 
+  it.each(["", " ", null, undefined])("fails closed when the provider finishes a parameterless tool call without an object (%j)", async args => {
+    const pendingCall = { id: "undo-synthetic", type: "function", function: { name: "undo_latest_operation", arguments: args } };
+    const fetchMock = vi.fn().mockImplementation(async () => streamResponse([
+      streamData({ choices: [{ delta: { tool_calls: [{ index: 0, ...pendingCall }] } }] }),
+      "data: [DONE]"
+    ]));
+    vi.stubGlobal("fetch", fetchMock);
+    requestUrlMock.mockResolvedValue({ status: 200, json: { choices: [{ message: { tool_calls: [pendingCall] } }] } });
+    const ai = new LifeOpsAi(testSettings());
+    await expect(ai.agentReplyStream("ctx", "虚构测试", [], () => {}, "text", { tools: TEST_TOOLS })).rejects.toThrow();
+    await expect(ai.agentReply("ctx", "虚构测试", [], "text", { tools: TEST_TOOLS })).rejects.toThrow();
+  });
+
   it("accepts streamed tool-only responses without visible text", async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(streamResponse([
       streamData({
