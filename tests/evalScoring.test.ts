@@ -14,6 +14,17 @@ it("scores actual created rows and receipts instead of trusting a completion cla
     .toEqual(expect.arrayContaining(["新建任务的标题、日期或时间不符", "写入数量 tasks.created 期望 1，实际 0"]));
 });
 
+it("requires a planned finish without storing a start or point appointment", () => {
+  const finish: EvalQuestion = { ...question, checks: { createdTask: {
+    titleIncludes: task.title, date: task.date, endTime: "15:00"
+  } } };
+  const issue = "新建任务的标题、日期或时间不符";
+  const endOnly = { ...task, time: "", endTime: "15:00" };
+  expect(scoreEvaluationCase(finish, observed)).toContain(issue);
+  expect(scoreEvaluationCase(finish, { ...observed, createdTasks: [endOnly] })).toEqual([]);
+  expect(scoreEvaluationCase(finish, { ...observed, createdTasks: [{ ...endOnly, startTime: "14:00" }] })).toContain(issue);
+});
+
 it("detects missing usage, slow replies, forbidden calls and a missing confirmation card", () => {
   const guarded = { ...question, checks: { maxInputTokens: 6000, maxFirstTokenMs: 3000,
     mustNotCallTools: ["delete_habit"], minConfirmations: 1 } };

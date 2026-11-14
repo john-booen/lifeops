@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { AiChatResult, AiToolCall, AiToolDefinition, ChatMessage, LifeOpsAi } from "../ai";
 import type { ToolCallResult } from "../agentRuntime";
 import { formatDate } from "../date";
+import { formatQuizQuestions } from "../features/learning/quizTools";
 import { habitDateEvidence } from "../features/stats/habitEvidence";
 import { asksForRecentStatus, formatRecentStatus, recentStatusDomains } from "../features/stats/statusEvidence";
 import { backgroundStatsTool } from "../features/stats/tools";
@@ -96,6 +97,7 @@ const QUICK_TOOLS = new Set([
 ]);
 const VOICE_QUICK_TOOLS = new Set([
   "list_tasks", "plan_today", "get_stats", "get_summaries", "learning_progress", "query_vault",
+  "start_quiz",
   "create_task", "reschedule_task", "complete_task", "delete_task", "complete_habit", "delete_habit",
   "append_journal_entry", "record_trade", "undo_latest_operation"
 ]);
@@ -242,6 +244,20 @@ export class AgentLoop {
           id: call.id!, type: "function", function: { name: call.name, arguments: JSON.stringify(call.arguments) }
         })) });
         const results = await this.executeTools(input, state, calls, context.text, availableTools);
+        if (round === 0 && input.source === "text" && calls.length === 1
+          && calls[0].name === "undo_latest_operation" && results[0]?.priorQueryUnverified
+          && Object.keys(calls[0].arguments).length === 1
+          && await this.isUnconditionalLatestUndo(input, state)) {
+          assertPolicy();
+          const retry = this.scopedCalls([{ name: "undo_latest_operation", arguments: {} }], state.id, round + 1);
+          const [result] = await this.executeRegular(input, state, retry);
+          assertProviderActive(input.signal);
+          assertPolicy();
+          state.text = result?.output || "撤销没有完成，请稍后再试。";
+          state.firstTokenMs ??= performance.now() - state.started;
+          input.onText?.(state.text);
+          break;
+        }
         if (!input.voiceBackground && calls.some(call => call.name === "plan_today" && call.arguments.draftTomorrow === true
           && results.some(result => result.callId === call.id && result.success))) nextTool = { name: "propose_task_plan" };
         const advance = calls.find(call => call.name === "list_ideas" && call.arguments.draftAdvance === true);
@@ -256,14 +272,20 @@ export class AgentLoop {
           let reply: string | undefined;
           if (isVoiceJobTool(call.name)) reply = single.output;
           else if (round === 0 && call.name === "undo_latest_operation") reply = single.output;
-          else if (!input.voiceBackground && call.name === "get_stats" && call.arguments.rankByNetPnl === true
+          else if (call.name === "start_quiz" && !state.confirmations.size && state.receipts.size <= 1
+            && (!state.receipts.size || single.receipt)) {
+            reply = formatQuizQuestions(single.output);
+            if (reply && input.source === "voice" && single.receipt) state.voiceSpeech = reply;
+          } else if (!input.voiceBackground && call.name === "get_stats" && call.arguments.rankByNetPnl === true
             && call.arguments.domain === "trades" && call.arguments.groupBy === "model" && call.arguments.combineUsd !== true) {
             const ranking = (JSON.parse(single.output) as { modelRanking?: string }).modelRanking;
             if (typeof ranking === "string" && ranking) reply = ranking;
           } else if (round === 0 && fastVoice && call.name === "get_stats") reply = formatVoiceStats(single.output, call.arguments);
           else if (round === 0 && fastVoice && call.name === "plan_today") reply = formatVoiceTaskPriorities(single.output, call.arguments);
           else if (round === 0 && call.name === "list_tasks" && call.arguments.category === undefined
-            && (call.arguments.directReply === true || call.arguments.order === "priority" && Number.isInteger(call.arguments.limit))) {
+            && call.arguments.directReply !== false
+            && (call.arguments.directReply === true || call.arguments.dueStatus === "overdue_and_today"
+              || call.arguments.order === "priority" && Number.isInteger(call.arguments.limit))) {
             reply = formatTaskListReply(single.output, formatDate(input.now));
           } else if (input.source === "text" && single.actions.length === 1
             && (requiredTool === "propose_task_plan" || call.name === "delete_habit" || call.name === "delete_task")) {
@@ -386,7 +408,10 @@ export class AgentLoop {
       }
     }
     if (tools.some(tool => tool.name === "list_tasks")) {
-      guidance.push("只问未完成总数和最要紧的 N 项时，用一个 list_tasks 调用：order=priority、limit=N、directReply=true，不用 plan_today。");
+      guidance.push("要求把逾期和今天到期的未完成任务分开时，用 list_tasks 的 dueStatus=overdue_and_today。如另要建议，设 directReply=false。问今天还剩几项和最要紧的 N 项（含今晚未完成提醒）时，用 list_tasks 的 order=priority、limit=N、directReply=true，省略 dueStatus，不用 plan_today。只问今天该先做什么、想知道排序理由或精力影响，用 plan_today，不用 list_tasks。");
+    }
+    if (input.source === "voice" && tools.some(tool => tool.name === "start_quiz")) {
+      guidance.push("用户明确要测验或出题时，先调用 start_quiz，按用户指定的学科和题数出题。不要按日记状态更改题数。");
     }
     if (tools.some(tool => tool.name === "get_stats")) {
       guidance.push("评价或批评这周表现，先用 get_stats(domain=habits,range=this_week) 查达标次数和漏做日期。");
@@ -396,7 +421,7 @@ export class AgentLoop {
       guidance.push("把工具读回的信息写成面向用户的正文，别输出结果标签或原始 JSON。");
     }
     if (tools.some(tool => tool.name === "create_task")) {
-      guidance.push("创建提醒任务时，标题写清提醒谁做什么，保留用户原话里的人名和对象。安排日期与时刻分别填到对应字段。");
+      guidance.push("创建提醒任务时，标题写清提醒谁做什么，保留用户原话里的人名和对象。例如「提醒小王寄样品」写成「小王寄样品」。日期填 date。「下午三点做」填 time=15:00，省略 endTime。「下午三点前做完」只填 endTime=15:00，省略 time 和 startTime。明确说开始才填 startTime。");
     }
     if (evidenceCalls.some(call => call.name === "create_task")) {
       guidance.push("创建回执使用工具读回的标题、日期和时刻。只确认已经保存的内容，简短结束。");
@@ -567,21 +592,29 @@ export class AgentLoop {
     return true;
   }
 
-  private async verifyVoiceUndo(input: AgentTurnInput, state: TurnState): Promise<boolean> {
-    if (state.voiceUndoAllowed !== undefined) return state.voiceUndoAllowed;
+  private async isUnconditionalLatestUndo(input: AgentTurnInput, state: TurnState): Promise<boolean> {
+    return this.classifyUndo(input, state, "只判断这句话是不是无条件撤销最近一次写入。单说「撤销」或「撤销刚才那个」时填 undo_latest_operation 和 latest。若提到先查询、限定对象、只撤某类记录、删除、取消，或意思不明确，填 ordinary 和 unknown。");
+  }
+
+  private async classifyUndo(input: AgentTurnInput, state: TurnState, instruction: string): Promise<boolean> {
     const tool = voiceJobControlTool([], ["ordinary", "undo_latest_operation"]);
     try {
       const response = await this.callModel(input, state, "fast", [
-        { role: "system", content: "只判断本轮话语是否明确要求撤回已经完成的写入。要求撤销已保存的操作时，填 undo_latest_operation 和 latest。删除记录、停止后台任务、取消未执行的操作或意图不明确时，填 ordinary 和 unknown。" },
+        { role: "system", content: instruction },
         { role: "user", content: input.message }
       ], [tool], false, false, tool.name);
       const [call] = response.toolCalls;
-      state.voiceUndoAllowed = response.toolCalls.length === 1 && call.name === tool.name
+      return response.toolCalls.length === 1 && call.name === tool.name
         && call.arguments.intent === "undo_latest_operation" && call.arguments.target === "latest";
     } catch {
       assertProviderActive(input.signal);
-      state.voiceUndoAllowed = false;
+      return false;
     }
+  }
+
+  private async verifyVoiceUndo(input: AgentTurnInput, state: TurnState): Promise<boolean> {
+    if (state.voiceUndoAllowed !== undefined) return state.voiceUndoAllowed;
+    state.voiceUndoAllowed = await this.classifyUndo(input, state, "只判断本轮话语是否明确要求撤回已经完成的写入。要求撤销已保存的操作时，填 undo_latest_operation 和 latest。删除记录、停止后台任务、取消未执行的操作或意图不明确时，填 ordinary 和 unknown。");
     return state.voiceUndoAllowed;
   }
 

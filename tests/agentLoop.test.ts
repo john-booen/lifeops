@@ -255,6 +255,36 @@ beforeEach(async () => {
 });
 afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllGlobals(); await rm(root, { recursive: true, force: true }); });
 
+it.each(["text", "voice"] as const)("presents quiz questions without a model-written answer example in %s", async source => {
+  if (source === "text") responses.push(reply("", [tool("load_more_tools", {}, "expand")]));
+  responses.push(
+    reply("", [tool("start_quiz", { trackId: "quant", count: 2 }, "quiz")]),
+    reply("请按题号作答，例如第一题：不参与。")
+  );
+  const executeTools = host.executeTools;
+  const receipt = { operationId: "fictional-quiz" };
+  host.executeTools = (calls, message, signal, onResult) => calls[0]?.name !== "start_quiz"
+    ? executeTools(calls, message, signal, onResult)
+    : Promise.resolve(calls.map(call => {
+      const result = { callId: call.id!, success: true, actions: [], receipt, output: JSON.stringify({ cards: [
+        { number: 1, question: "样本外数据是否参与参数选择？" },
+        { number: 2, question: "如何从毛收益得到净收益？" }
+      ] }) };
+      onResult(call, result);
+      return result;
+    }));
+  const onVoiceText = vi.fn();
+  const result = await new AgentLoop(host).run(input({ message: "从虚构量化笔记考我两题，先只出题。", source, onVoiceText }));
+  expect(result.text).toBe("第 1 题：样本外数据是否参与参数选择？\n\n第 2 题：如何从毛收益得到净收益？\n\n请按题号作答。");
+  if (source === "voice") {
+    expect(catalogs[0]).toContain("start_quiz");
+    expect(result.voiceSpeech).toBe(result.text);
+  }
+  expect(onVoiceText).not.toHaveBeenCalled();
+  expect(result.receipts).toEqual([receipt]);
+  expect(requests).toHaveLength(source === "voice" ? 1 : 2);
+});
+
 it("asks for an actual day for a vague weekend plan and never saves a guessed date", async () => {
   const loop = new AgentLoop(host);
   const ambiguous = await loop.run(input({ message: "周末我要给虚构盆栽换盆。" }));
@@ -383,6 +413,27 @@ describe("unified agent loop", () => {
       expect(requests).toEqual([]);
       expect(readDashboard).not.toHaveBeenCalled();
     });
+
+  it("keeps overdue and due-today task groups separate using verified dates", async () => {
+    const date = formatDate(now), yesterday = addDays(date, -1), tomorrow = addDays(date, 1);
+    await store.createTask({ title: "虚构昨日到期", date, dueDate: yesterday });
+    await store.createTask({ title: "虚构今日到期", date: tomorrow, dueDate: date });
+    await store.createTask({ title: "虚构今日计划", date });
+    await store.createTask({ title: "虚构明日到期", date, dueDate: tomorrow });
+    const finished = await store.createTask({ title: "虚构逾期已完成", date: yesterday, dueDate: yesterday });
+    await store.completeTask(finished.id);
+    responses.push(reply("", [tool("list_tasks", { date, dueStatus: "overdue_and_today" })]));
+    const result = await new AgentLoop(host).run(input({
+      message: "我今天还有什么任务没完成？请把已逾期的和今天到期的分开列出来。"
+    }));
+    expect(result.text.split("\n")).toEqual([
+      "已逾期 1 项。", expect.stringContaining("虚构昨日到期"),
+      "今天到期 1 项。", expect.stringContaining("虚构今日到期")
+    ]);
+    expect(result.toolCalls).toEqual([{ name: "list_tasks", ok: true }]);
+    expect(result.receipts).toEqual([]);
+    expect(requests).toHaveLength(1);
+  });
 
   it("reports the full remaining count and only the requested highest-priority tasks", async () => {
     const date = formatDate(now);
@@ -773,13 +824,14 @@ it("keeps a successful query for a requested undo across model rounds", async ()
   expect(requests).toHaveLength(3);
 });
 
-it("leaves the task alone after an unowned query requirement, then accepts an explicit corrected undo call", async () => {
+it("rechecks an unexpected query requirement with the model before retrying a plain undo", async () => {
   const original = await runtime.executeAiToolCall(tool("create_task", { title: "虚构整理盒子" }, "undo-retry-original"), "kimi");
   expect(original.success).toBe(true);
   const plugin = Object.assign(Object.create(Plugin.prototype), { app: store.app, store, settings: store.settings,
     ai: host.aiForRole("main"), lifecycleGeneration: 1, unloaded: false, refreshViews: async () => {} });
   responses.push(
     reply("", [tool("undo_latest_operation", { requirePriorQuery: true }, "unsupported-query-requirement")]),
+    reply("", [tool("choose_voice_job_control", { intent: "ordinary", target: "unknown" })]),
     reply("这次没有执行撤销。")
   );
   const refused = await plugin.submitAgentMessage("请先查记录再撤销刚才那个。", [], { selfTest: true });
@@ -787,12 +839,27 @@ it("leaves the task alone after an unowned query requirement, then accepts an ex
   expect((await store.readTaskDb({ readOnly: true })).tasks).toHaveLength(1);
   responses.push(
     reply("", [tool("undo_latest_operation", { requirePriorQuery: true }, "mistaken-query-requirement")]),
-    reply("", [tool("undo_latest_operation", {}, "corrected-plain-undo")]),
-    reply("已撤销虚构整理盒子。")
+    reply("", [tool("choose_voice_job_control", { intent: "undo_latest_operation", target: "latest" })])
   );
   const corrected = await plugin.submitAgentMessage("撤销刚才那个。", [], { selfTest: true });
   expect(corrected.reply).toContain("已撤销");
+  expect(corrected.reply).toContain("虚构整理盒子");
   expect((await store.readTaskDb({ readOnly: true })).tasks).toEqual([]);
+});
+
+it("keeps the target of an undo when the requested prior query has not run", async () => {
+  const task = await runtime.executeAiToolCall(tool("create_task", { title: "虚构目标任务" }, "targeted-undo-original"), "kimi");
+  expect(task.success).toBe(true);
+  const plugin = Object.assign(Object.create(Plugin.prototype), { app: store.app, store, settings: store.settings,
+    ai: host.aiForRole("main"), lifecycleGeneration: 1, unloaded: false, refreshViews: async () => {} });
+  responses.push(
+    reply("", [tool("undo_latest_operation", { taskTitle: "虚构目标任务", requirePriorQuery: true }, "targeted-undo")]),
+    reply("这次没有执行撤销。")
+  );
+  const result = await plugin.submitAgentMessage("先查记录再撤销虚构目标任务。", [], { selfTest: true });
+  expect(result.reply).toContain("没有执行");
+  expect(requests).toHaveLength(2);
+  expect((await store.readTaskDb({ readOnly: true })).tasks).toHaveLength(1);
 });
 
 describe("voice background AgentLoop", () => {

@@ -9,6 +9,16 @@ const optionsFor = (context: ToolExecutionContext, request: ToolExecutionRequest
 });
 const refusal = (output: string) => ({ success: false, output, actions: [] });
 
+export function formatQuizQuestions(output: string): string | undefined {
+  let result: { cards?: { number: number; question: string }[] } | null;
+  try { result = JSON.parse(output); } catch { return; }
+  const cards = result?.cards;
+  if (!Array.isArray(cards) || !cards.length || cards.length > 12
+    || cards.some((card, index) => card?.number !== index + 1 || !quizText(card.question, 300))) return;
+  const questions = cards.map(card => `第 ${card.number} 题：${card.question}`);
+  return [...questions, "请按题号作答。"].join("\n\n");
+}
+
 export const QUIZ_TOOLS: LifeOpsToolDefinition[] = [
   {
     name: "start_quiz", safety: "direct-write",

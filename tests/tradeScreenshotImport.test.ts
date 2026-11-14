@@ -110,5 +110,19 @@ it("writes only the selected rows on explicit confirmation, prevents repeat impo
     await expect(confirmTradeScreenshot(host, rows, screenshot.digest, preview, [1], () => {})).rejects.toThrow("已经变化");
     expect(await runtime.undoLatestOperation()).toBe(operationId);
     expect((await readTradeDatabase(store)).trades).toEqual([]);
+
+    const openPosition = await readFixture("crypto-open");
+    const unverifiedRows = parseTradeScreenshotRows(JSON.stringify({
+      rows: [{ ...cases["crypto-open"], displayedPnl: 12.5 }]
+    }));
+    const unverified = previewTradeScreenshot(unverifiedRows, openPosition.digest, []);
+    expect(unverified.rows[0]).toMatchObject({ kind: "ready", screenshotPnl: 12.5, computedPnl: undefined });
+    expect(await confirmTradeScreenshot(host, unverifiedRows, openPosition.digest, unverified, [1], () => {})).toBe(1);
+    const persisted = (await readTradeDatabase(store)).trades;
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0]).toMatchObject({ symbol: "FICT-COIN", pnlSource: "unknown", notes: expect.stringContaining("12.5 USD") });
+    expect(persisted[0].pnl).toBeUndefined();
+    expect(await runtime.undoLatestOperation()).toBe(operationId);
+    expect((await readTradeDatabase(store)).trades).toEqual([]);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

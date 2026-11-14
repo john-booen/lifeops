@@ -4,6 +4,7 @@ export interface EvalTask {
   date: string;
   time?: string;
   startTime?: string;
+  endTime?: string;
   dueDate?: string;
 }
 export interface EvalCheckin { habitId: string; date: string; value?: number; count: number; status: string }
@@ -27,7 +28,8 @@ interface EvalChecks {
   confirmationTarget?: { type: string; targetId: string };
   preludeCreatedTasks?: number;
   absentTaskTitle?: string;
-  createdTask?: { titleIncludes: string; date: string; time: string };
+  createdTask?: { titleIncludes: string; date: string } &
+    ({ time: string; endTime?: never } | { endTime: string; time?: never });
   createdOrClarify?: { titleIncludes: string; dates: string[]; clarify: string[] };
   changedTask?: { id: string; date: string };
   checkin?: EvalCheckin;
@@ -47,7 +49,7 @@ export interface EvalQuestion {
   mode: "text" | "voice";
   input: string;
   history: { role: "user" | "assistant"; content: string }[];
-  fixture?: "without_quiz_cards" | "scheduled_compensation_after_prelude" | "automatic_memory_after_create" | "task_already_undone";
+  fixture?: "without_quiz_cards" | "scheduled_compensation_after_prelude" | "automatic_memory_after_create" | "task_already_undone" | "one_overdue_task";
   prelude?: string[];
   checks: EvalChecks;
 }
@@ -136,7 +138,9 @@ export function scoreEvaluationCase(question: EvalQuestion, observed: EvalObserv
   if (checks.createdTask) {
     const expected = checks.createdTask;
     const matched = observed.createdTasks.some((task) => task.title.includes(expected.titleIncludes)
-      && task.date === expected.date && (task.startTime || task.time) === expected.time);
+      && task.date === expected.date && (expected.endTime === undefined
+        ? (task.startTime || task.time) === expected.time
+        : task.endTime === expected.endTime && !task.startTime && !task.time));
     if (!matched) issues.push("新建任务的标题、日期或时间不符");
   }
   if (checks.createdOrClarify) {

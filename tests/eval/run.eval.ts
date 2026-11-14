@@ -124,6 +124,9 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
     await store.createHabit({ name: "虚构晚间整理", frequencyUnit: "day", frequencyInterval: 1,
       targetCount: 1, startDate: formatDate(fixedNow), punishment: { enabled: true, rules: [{ kind: "reflection", minChars: 100 }] } });
   }
+  if (question.fixture === "one_overdue_task") {
+    await store.createTask({ title: "补齐纸箱清单", date: "2026-11-11", dueDate: "2026-11-11" });
+  }
   const plugin = Object.assign(Object.create(Plugin.prototype), {
     app, store, settings: store.settings, lifecycleGeneration: 1, unloaded: false,
     ai: new LifeOpsAi(store.settings), updateStatusBar: async () => {}, refreshViews: async () => {},
