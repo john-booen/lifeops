@@ -11,12 +11,13 @@ import {RealtimeToolOutputs,disposeRealtimeToolOutput,type RealtimeToolOutput} f
 import { voiceVadSilenceMs, type CascadeCaptureEvent } from "./voice/continuousInput";
 import { BailianStreamingAsr } from "./voice/bailianStreamingAsr";
 import {
-  buildOmniSessionUpdate, extractResponseAudioTranscriptDelta, extractResponseAudioTranscriptDone,
+  buildOmniSessionUpdate,
   isSuccessfulResponseStatus, mergeOmniToolArguments, normalizeOmniToolCall, normalizeSampleRate,
   responseEventId, responseFailureMessage, responseLifecycleEvent
 } from "./voice/omniE2e/protocol";
 import { normalizeRealtimeAsrLanguage } from "./voice/realtimeAsrOptions";
 import { ProtectedOmniResponses } from "./voice/omniE2e/protectedResponses";
+import { OmniResponseText } from "./voice/omniE2e/responseText";
 
 export const UNCONFIRMED_VOICE_CANCEL_MESSAGE = "语音取消未获确认，旧连接已停止；重新连接后请重说刚才一句。";
 
@@ -133,8 +134,7 @@ export class BailianRealtimeClient {
   private responseHasOutput = false;
   private socket: WebSocket | null = null;
   private transcript = "";
-  private responseText = "";
-  private responseTextSource: "" | "text" | "audio_transcript" = "";
+  private readonly responseText = new OmniResponseText();
   private intentionalClose = false;
   private modelRetries = 0;
   private speechStartTimestamp = 0;
@@ -763,26 +763,13 @@ export class BailianRealtimeClient {
       this.responseRun.responseId ||= responseEventId(event);
       this.responseReportedModel = providerIdentifier(realtimeReportedModel(event)) ?? this.responseReportedModel;
     }
-    if (type === "response.text.delta") {
-      const delta = typeof event.delta === "string" ? event.delta : "";
-      if (delta) {
-        this.responseHasOutput = true;
-        this.appendResponseText(delta, "text", event);
-      }
-      return;
-    }
-    const audioTranscriptDelta = extractResponseAudioTranscriptDelta(event);
-    if (audioTranscriptDelta) {
+    const responseText = this.responseText.update(event);
+    if (responseText !== undefined) {
       this.responseHasOutput = true;
-      this.appendResponseText(audioTranscriptDelta, "audio_transcript", event);
+      if (responseText !== null) this.callbacks.onResponseTextDelta?.(responseText, responseLifecycleEvent(event, this.activeResponseId));
       return;
     }
-    const audioTranscriptDone = extractResponseAudioTranscriptDone(event);
-    if (audioTranscriptDone) {
-      this.responseHasOutput = true;
-      this.setResponseText(audioTranscriptDone, "audio_transcript", event);
-      return;
-    }
+    if (type === "response.text.delta") return;
     if (type === "response.audio.delta") {
       const delta = typeof event.delta === "string" ? event.delta : "";
       if (delta) {
@@ -848,10 +835,9 @@ export class BailianRealtimeClient {
         this.flushQueuedResponseCreate();
         return;
       }
-      const doneText = this.responseText.trim();
+      const doneText = this.responseText.completed();
       this.callbacks.onResponseDone?.(doneText, responseEvent);
-      this.responseText = "";
-      this.responseTextSource = "";
+      this.responseText.reset();
       this.modelRetries = 0;
       this.clearActiveResponse(event);
       this.flushQueuedResponseCreate();
@@ -969,37 +955,6 @@ export class BailianRealtimeClient {
     this.socket.send(JSON.stringify(payload));
   }
 
-  private appendResponseText(
-    delta: string,
-    source: "text" | "audio_transcript",
-    event: Record<string, unknown>
-  ): void {
-    if (this.responseTextSource && this.responseTextSource !== source) {
-      if (this.responseTextSource === "text") return;
-      this.responseText = "";
-    }
-    this.responseTextSource = source;
-    this.responseText += delta;
-    this.callbacks.onResponseTextDelta?.(
-      this.responseText,
-      responseLifecycleEvent(event, this.activeResponseId)
-    );
-  }
-
-  private setResponseText(
-    text: string,
-    source: "text" | "audio_transcript",
-    event: Record<string, unknown>
-  ): void {
-    if (this.responseTextSource === "text" && source !== "text") return;
-    this.responseTextSource = source;
-    this.responseText = text;
-    this.callbacks.onResponseTextDelta?.(
-      this.responseText,
-      responseLifecycleEvent(event, this.activeResponseId)
-    );
-  }
-
   private isOmniE2e(): boolean {
     return (this.options.mode ?? this.settings.mode ?? "cascade") === "omni-e2e";
   }
@@ -1010,8 +965,7 @@ export class BailianRealtimeClient {
 
   private prepareResponseTracking(): void {
     this.responseHasOutput = false;
-    this.responseText = "";
-    this.responseTextSource = "";
+    this.responseText.reset();
     this.modelRetries = 0;
     this.handledToolCallIds.clear();
   }
@@ -1200,8 +1154,7 @@ export class BailianRealtimeClient {
     this.responseRequestPending = false;
     this.responseCancelPending = false;
     this.responseHasToolCall = false;
-    this.responseText = "";
-    this.responseTextSource = "";
+    this.responseText.reset();
     this.modelRetries = 0;
     this.flushQueuedResponseCreate();
   }
@@ -1213,8 +1166,7 @@ export class BailianRealtimeClient {
     this.responseRequestPending = false;
     this.responseCancelPending = false;
     this.responseHasToolCall = false;
-    this.responseText = "";
-    this.responseTextSource = "";
+    this.responseText.reset();
     this.flushQueuedResponseCreate();
   }
 

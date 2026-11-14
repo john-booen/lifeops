@@ -2856,6 +2856,49 @@ describe("voice integration flow", () => {
     });
   });
 
+  it("keeps the response text when a later audio transcript also arrives", async () => {
+    const callbacks = {
+      onResponseTextDelta: vi.fn(),
+      onResponseDone: vi.fn()
+    };
+    const client = new BailianRealtimeClient({
+      ...TEST_REALTIME_SETTINGS,
+      mode: "omni-e2e",
+      apiKey: "test-key",
+      endpoint: "wss://example.test/realtime",
+      model: "qwen-test"
+    }, callbacks, { mode: "omni-e2e" });
+
+    const connected = client.connect();
+    const socket = websocketMock.instances[0];
+    socket.emit("open");
+    await connected;
+
+    client.createResponse();
+    socket.emit("message", JSON.stringify({ type: "response.audio_transcript.delta", delta: "虚构语音预览" }));
+    socket.emit("message", JSON.stringify({ type: "response.text.delta", delta: "已核对的虚构原文。" }));
+    socket.emit("message", JSON.stringify({
+      type: "response.output_item.done",
+      item: {
+        type: "message",
+        content: [{ type: "audio", transcript: "我已经帮你创建好了。" }]
+      }
+    }));
+    socket.emit("message", JSON.stringify({ type: "response.done" }));
+
+    expect(callbacks.onResponseTextDelta).toHaveBeenCalledTimes(2);
+    expect(callbacks.onResponseTextDelta).toHaveBeenLastCalledWith("已核对的虚构原文。", {
+      eventType: "response.text.delta",
+      responseId: "",
+      status: ""
+    });
+    expect(callbacks.onResponseDone).toHaveBeenCalledWith("已核对的虚构原文。", {
+      eventType: "response.done",
+      responseId: "",
+      status: ""
+    });
+  });
+
   it("reports realtime transcription failures instead of silently ignoring them", async () => {
     const callbacks = {
       onOpen: vi.fn(),
