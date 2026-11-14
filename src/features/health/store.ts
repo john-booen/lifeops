@@ -29,15 +29,16 @@ async function checkHealthNote(store: StoreHost, date: string) {
 
 export async function readHealthRange(store: StoreHost, from: string, to: string): Promise<{ days: HealthDay[]; partial: boolean }> {
   const folder = normalizePath(store.settings.folders.health);
-  const files = store.app.vault.getMarkdownFiles().flatMap(file => {
-    if (!file.path.startsWith(folder + "/")) return [];
-    const rest = file.path.slice(folder.length + 1);
-    const date = /^(\d{4}-\d{2}-\d{2})\.md$/u.exec(rest)?.[1];
-    return date && date >= from && date <= to && normalizeJournalDate(date) === date ? [date] : [];
-  }).sort();
+  const dates = from === to && normalizeJournalDate(from) === from && !!from
+    ? [from] : store.app.vault.getMarkdownFiles().flatMap(file => {
+      if (!file.path.startsWith(folder + "/")) return [];
+      const rest = file.path.slice(folder.length + 1);
+      const date = /^(\d{4}-\d{2}-\d{2})\.md$/u.exec(rest)?.[1];
+      return date && date >= from && date <= to && normalizeJournalDate(date) === date ? [date] : [];
+    }).sort();
   let partial = false;
   const days: HealthDay[] = [];
-  for (const date of files) {
+  for (const date of dates) {
     if (!healthPathAllowed(store, date)) { partial = true; continue; }
     const note = await checkHealthNote(store, date).catch(() => undefined);
     if (!note || !healthPathAllowed(store, date)) { partial = true; continue; }

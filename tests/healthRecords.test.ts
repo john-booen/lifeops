@@ -210,6 +210,18 @@ it("keeps verified days when one health note cannot be safely read", async () =>
     sleepHours: { average: 7.5, recordedDays: 1 } });
 });
 
+it("reads a specific health day without enumerating vault notes and marks its exclusion even if it is missing", async () => {
+  await store.appendHealthEntry({ date, steps: 0 });
+  const enumerate = vi.spyOn(store.app.vault, "getMarkdownFiles");
+  const read = (day: string) => readStats(store, { domain: "health", range: { from: day, to: day } }, new Date());
+  expect(JSON.parse((await read(date)).output)).toMatchObject({ steps: { total: 0, recordedDays: 1 } });
+  store.settings.privacy = { ...store.settings.privacy, excludedVaultPrefixes: [healthNotePath(store, previous)] };
+  expect(JSON.parse((await read(previous)).output)).toMatchObject({
+    steps: { total: null, recordedDays: 0 }, scope: "只统计允许读取的记录"
+  });
+  expect(enumerate).not.toHaveBeenCalled();
+});
+
 it("saves compatible readings from the same screenshot day in one operation and refuses conflicting values", async () => {
   const rows = healthRows(JSON.stringify({ rows: [{ date, steps: 0 }, { date, sleepMinutes: 450 },
     { date, steps: 0, weightKg: 70.5 }, { date: previous, restingHeartRate: 65 }] }));
