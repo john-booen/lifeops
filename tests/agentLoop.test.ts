@@ -474,6 +474,15 @@ describe("unified agent loop", () => {
     expect(result.toolCalls).toEqual([]);
   });
 
+  it("keeps the exact title when a single explicit task places its start in a separate clause", async () => {
+    const title = "研习蓝色样品盒贴标签";
+    const result = await new AgentLoop(host).run(input({ message: `请创建任务 ${title}，安排在明天下午三点。` }));
+    expect(result.text).toContain(title);
+    expect(result.receipts).toHaveLength(1);
+    expect((await store.readTaskDb()).tasks).toMatchObject([{ title, date: addDays(formatDate(now), 1), time: "15:00" }]);
+    expect(requests).toHaveLength(0);
+  });
+
   it.each(["text", "voice"] as const)("answers explicit device sleep questions from confirmed health records (%s)", async source => {
     const date = formatDate(now);
     const previous = addDays(date, -1);

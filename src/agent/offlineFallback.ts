@@ -11,7 +11,18 @@ import type { AgentTurnInput } from "./AgentLoop";
 
 export function explicitSingleTimedTask(message: string, today: string): Record<string, unknown> | null {
   const text = message.trim().replace(/[。！!]$/u, "");
-  if (/[，,。；;？！!?\r\n]|(?:如果|要是|的话|然后|同时|另外|另外还|或者|再帮我|先查|每周|每天|重复)/u.test(text)) return null;
+  if (/[。；;？！!?\r\n]|(?:如果|要是|的话|然后|同时|另外|或者|再帮我|先查|每周|每天|重复)/u.test(text)) return null;
+  const separated = /^(?:请(?:帮我)?|帮我)?\s*(?:创建|新建|添加|建)(?:一[个条项])?(?:任务|待办)(?:[：:]\s*|[ \t]+)([^，,]+)[，,]\s*(?:安排在|定在|时间是)(今天|明天|后天|\d{4}-\d{2}-\d{2})\s*([^，,]+)$/u.exec(text);
+  if (separated) {
+    const [, rawTitle, day, clockText] = separated;
+    const title = rawTitle.trim();
+    const date = normalizeJournalDate(day, today);
+    const clock = parseTaskClock(clockText);
+    if (/^(?:标题|任务名|[「『“"'‘]|这个|那个|刚才|前面|之前|把)/u.test(title)) return null;
+    if (title && date && clock?.time && !clock.titleText.trim()) return { title, date, time: clock.time };
+    return null;
+  }
+  if (/[，,]/u.test(text)) return null;
   const command = /^(?:请(?:帮我)?|帮我)?\s*(?:创建|新建|加|建)(?:一[条项个])?\s*(.+?)的(?:任务|待办)$/u.exec(text);
   if (!command || !/^(?:今天|明天|后天|\d{4}-\d{2}-\d{2})(?:\s*\d|\s*(?:凌晨|早上|上午|中午|下午|傍晚|晚上))/u.test(command[1])) return null;
   const task = offlineTask(command[1], today);
