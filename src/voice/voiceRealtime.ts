@@ -1173,7 +1173,7 @@ const {
   sourceChanged: view => failOmniToolContext(view, CONTEXT_CHANGED_MESSAGE)
 });
 
-async function settleOmniAfterPlaybackEvent(view: VoiceRealtimeView): Promise<void> {
+async function settleVoiceAfterPlaybackEvent(view: VoiceRealtimeView): Promise<void> {
   const current = view.agentVoiceRuntime?.snapshot().currentTurn;
   if (!current?.modelDone || !current.playbackDrained) return;
   const reply = (
@@ -1259,6 +1259,7 @@ async function sendRoutedLifeOpsVoiceTurn(
     if (earlyPlayback) {
       speechParts?.finish(reply);
       await earlyPlayback;
+      if (isCurrent()) await settleVoiceAfterPlaybackEvent(view);
       return;
     }
     const shouldSpeak = Boolean(
@@ -1657,7 +1658,7 @@ export function handleOmniE2eAudioOutputEvent(
     view.markVoiceTrace("ttsDone");
     view.agentSpeaking = false;
     view.refreshAgentSurfaceState();
-    void settleOmniAfterPlaybackEvent(view);
+    void settleVoiceAfterPlaybackEvent(view);
     return;
   }
 
@@ -1930,7 +1931,7 @@ export function startSystemSpeechForActiveTurn(
     view.agentSpeaking = false;
     view.markVoiceTrace("ttsDone");
     view.refreshAgentSurfaceState();
-    void settleOmniAfterPlaybackEvent(view);
+    void settleVoiceAfterPlaybackEvent(view);
   };
 
   if (!("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") {
