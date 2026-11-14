@@ -1,21 +1,26 @@
 import { MarkdownBlocks } from "../../dataFoundation/markdownBlocks";
 
-function appendSection(text: string, heading: string, entry: string): string {
+function appendSection(text: string, heading: string, entry: string, preserveUnsectionedDiary = false): string {
   const blocks = new MarkdownBlocks();
   let found = false;
+  let hasOriginalSection = false;
   let offset = 0;
   for (const line of text.match(/[^\r\n]*(?:\r\n|\n|\r)|[^\r\n]+$/gu) ?? []) {
     const body = line.trimEnd();
     if (!blocks.skip(body, offset === 0)) {
       const title = /^ {0,3}#{1,2}[ \t]+(.+)$/u.exec(body)?.[1];
       if (title && found) break;
-      if (title === heading && /^ {0,3}##\s/u.test(body)) found = true;
+      if (title && /^ {0,3}##\s/u.test(body)) {
+        if (title === "原话") hasOriginalSection = true;
+        if (title === heading || preserveUnsectionedDiary && title === "日记") found = true;
+      }
     }
     offset += line.length;
   }
   if (!blocks.canAppend) throw Error("日记里有未闭合的属性、注释或代码块，请先核对原文再追加。");
   const before = text.slice(0, offset), after = text.slice(offset);
   const separator = before.endsWith("\n\n") ? "" : before.endsWith("\n") ? "\n" : "\n\n";
+  if (preserveUnsectionedDiary && !found && !hasOriginalSection) return before + separator + entry + "\n";
   return before + separator + (found ? "" : `## ${heading}\n\n`) + entry + "\n\n" + after;
 }
 
@@ -39,6 +44,6 @@ export function journalDraftContent(content: string): string {
 
 export function appendEveningEntry(text: string, heading: string, entry: string, original?: string): string {
   const section = heading === "原话" || heading === "日记" ? "整理" : heading;
-  const draft = appendSection(text, section, entry);
+  const draft = appendSection(text, section, entry, original === undefined && heading === "日记");
   return original === undefined ? draft : appendSection(draft, "原话", journalOriginalBlock(original));
 }
