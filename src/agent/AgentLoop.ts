@@ -196,6 +196,7 @@ export class AgentLoop {
       const sleepRange = !input.voiceBackground && (input.source === "text" || input.source === "voice")
         ? deviceSleepRange(input.message) : undefined;
       if (sleepRange) {
+        await waitForFactOperations(this.host.store, { signal: input.signal, assertCurrent: assertPolicy });
         const range = resolveStatsRange(sleepRange, input.now);
         const calls = this.scopedCalls([{ name: "get_stats", arguments: { domain: "health", range } }], state.id, 0);
         const [result] = await this.executeRegular(input, state, calls);
