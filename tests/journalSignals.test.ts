@@ -121,6 +121,27 @@ describe("journal signals with actual vault files", () => {
     expect(await vault.bytes(outputPath)).toBe(original);
   });
 
+  it("hides stale diary signals immediately after the original changes", async () => {
+    await vault.seed(morning, morningText);
+    await vault.seed(evening, "今晚心情好。");
+    const request = vi.fn()
+      .mockResolvedValueOnce(answer(date, "晨", {
+        energy: 2, quotes: [{ field: "energy", text: "今天很累" }]
+      }))
+      .mockResolvedValueOnce(answer(date, "晚", { mood: 4, quotes: [{ field: "mood", text: "今晚心情好" }] }));
+    await extractJournalSignal(store, morning, "2026", request, signal(), noChanges);
+    await extractJournalSignal(store, evening, "2026", request, signal(), noChanges);
+    expect((await readJournalSignals(store, date)).map(note => note.period)).toEqual(["晨", "晚"]);
+    const path = signalDocumentPath(store, date);
+    const saved = await vault.bytes(path);
+    await vault.seed(morning, "更正：今天精力不错。");
+    expect((await readJournalSignals(store, date)).map(note => note.period)).toEqual(["晚"]);
+    expect(await vault.bytes(path)).toBe(saved);
+    expect(request).toHaveBeenCalledTimes(2);
+    const resident = await buildResidentContext(store, "我今天状态如何", now);
+    expect(resident.text).not.toContain("精力 2");
+  });
+
   it("rejects a source changed after the model call and ignores excluded sources before any request", async () => {
     await vault.seed(morning, morningText);
     const request = vi.fn(async (_messages: ChatMessage[], options: ProviderRequestOptions) => {

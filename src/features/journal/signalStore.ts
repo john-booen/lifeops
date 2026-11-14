@@ -1,5 +1,6 @@
 import type { ChatMessage } from "../../ai";
 import { runDerivedOperation } from "../../dataFoundation/derivedOperation";
+import { readScopedMarkdown } from "../../dataFoundation/markdownSources";
 import { journalDateFromPath, journalPeriodFromPath } from "../../journalResolver";
 import { fileRevision } from "../../operationIdentity";
 import { isVaultPathExcluded } from "../../privacy";
@@ -38,11 +39,24 @@ export async function readJournalSignals(store: StoreHost, date: string): Promis
   const path = signalDocumentPath(store, date);
   const document = signalPathAllowed(store, path) ? await readDocument(store, path, date) : emptySignalDocument(date);
   if (path !== signalDocumentPath(store, date)) return [];
-  const local = (signalPathAllowed(store, path) ? [...document.晨, ...document.晚] : []).filter(signal =>
-    journalSourceFor(store, signal.sources[0].path, date.slice(0, 4))?.date === date);
-  if (!store.settings.externalVaults?.length) return local;
-  const { readExternalJournalSignals } = await import("../externalVault/journals");
-  return [...await readExternalJournalSignals(store, date).catch(() => []), ...local];
+  const year = date.slice(0, 4);
+  const external = store.settings.externalVaults?.length
+    ? await import("../externalVault/journals")
+      .then(({ readExternalJournalSignals }) => readExternalJournalSignals(store, date))
+      .catch(() => [])
+    : [];
+  const current = () => path === signalDocumentPath(store, date) && signalPathAllowed(store, path);
+  if (!current()) return external;
+  const verified = await Promise.all([...document.晨, ...document.晚].map(async item => {
+    const source = item.sources[0];
+    if (journalSourceFor(store, source.path, year)?.date !== date) return;
+    const raw = await readScopedMarkdown(store, source.path).catch(() => undefined);
+    if (raw !== undefined && fileRevision(raw) === source.sha256) return item;
+  }));
+  const local = current()
+    ? verified.filter((item): item is JournalSignal => !!item && journalSourceFor(store, item.sources[0].path, year)?.date === date)
+    : [];
+  return [...external, ...local];
 }
 
 export async function extractJournalSignal(
