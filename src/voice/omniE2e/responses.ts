@@ -11,7 +11,6 @@ interface OmniResponseHost {
   hasActiveVoiceRuntimeTurn(view: VoiceRealtimeView): boolean;
   armOmniResponseTimer(view: VoiceRealtimeView): void;
   failOmniE2eVoiceTurn(view: VoiceRealtimeView, message: string, response?: BailianRealtimeResponseEvent): void;
-  acceptsOmniRuntimeEvent(view: VoiceRealtimeView, response?: BailianRealtimeResponseEvent): boolean;
   base64ToPcm16(audio: string): Int16Array;
   ensureOmniPlayback(view: VoiceRealtimeView, owner: "native-e2e"): Promise<unknown>;
   finishOmniPlaybackWhenReady(view: VoiceRealtimeView): void;
@@ -37,12 +36,23 @@ type OmniModelTerminalReceipt = {
   promise: Promise<void>;
 };
 
+export function acceptsOmniRuntimeEvent(runtime: VoiceSessionController | undefined, response?: BailianRealtimeResponseEvent): boolean {
+  if (!runtime) return true;
+  const current = runtime.snapshot().currentTurn;
+  if (current?.route !== "e2e") return false;
+  return runtime.accepts({
+    generation: current.generation,
+    turnId: current.turnId,
+    ...(response?.responseId ? { responseId: response.responseId } : {})
+  });
+}
+
 export function createOmniResponseHandlers(host: OmniResponseHost) {
   const omniModelTerminals = new WeakMap<object, OmniModelTerminalReceipt>();
 
   function handleOmniE2eResponseText(view: VoiceRealtimeView, text: string, response?: BailianRealtimeResponseEvent): void {
     if (!host.hasActiveVoiceRuntimeTurn(view) || view.agentOmniE2eAssistantIndex < 0
-      || response && !host.acceptsOmniRuntimeEvent(view, response)) return;
+      || response && !acceptsOmniRuntimeEvent(view.agentVoiceRuntime, response)) return;
     const reply = projectProposalFailure(view) || text;
     if (!reply.trim()) return;
     host.armOmniResponseTimer(view);
@@ -85,7 +95,7 @@ export function createOmniResponseHandlers(host: OmniResponseHost) {
   ): void {
     if (!host.isOmniE2eRealtimeMode(view.controller.settings.realtimeVoice)) return;
     if (!host.hasActiveVoiceRuntimeTurn(view)) return;
-    if (!host.acceptsOmniRuntimeEvent(view, response)) return;
+    if (!acceptsOmniRuntimeEvent(view.agentVoiceRuntime, response)) return;
     if (projectProposalFailure(view)) return;
     if (!view.controller.settings.realtimeVoice.speakReplies) return;
     // With a separate TTS engine, wait for the model's final text and retain one playback owner.
@@ -122,7 +132,7 @@ export function createOmniResponseHandlers(host: OmniResponseHost) {
     view: VoiceRealtimeView,
     response: BailianRealtimeResponseEvent
   ): void {
-    if (!host.acceptsOmniRuntimeEvent(view, response)) return;
+    if (!acceptsOmniRuntimeEvent(view.agentVoiceRuntime, response)) return;
     const runtime = view.agentVoiceRuntime;
     if (!runtime) return;
     if (view.controller.settings.realtimeVoice.ttsEngine === "breeze-blue" && !view.agentRealtimeClient?.hasProtectedContextSources?.() && !runtime.snapshot().currentTurn?.nativeAudioStarted) return;
@@ -143,7 +153,7 @@ export function createOmniResponseHandlers(host: OmniResponseHost) {
   ): Promise<void> {
     if (!host.isOmniE2eRealtimeMode(view.controller.settings.realtimeVoice)) return;
     if (!host.hasActiveVoiceRuntimeTurn(view) || view.agentOmniE2eAssistantIndex < 0) return;
-    if (!host.acceptsOmniRuntimeEvent(view, response)) return;
+    if (!acceptsOmniRuntimeEvent(view.agentVoiceRuntime, response)) return;
     const runtime:VoiceSessionController|undefined=view.agentVoiceRuntime;
     const turn=runtime?.snapshot().currentTurn,client=view.agentRealtimeClient;
     const responseId=turn?.responseId,startGeneration=view.agentRealtimeStartGeneration;
@@ -180,7 +190,7 @@ export function createOmniResponseHandlers(host: OmniResponseHost) {
   ):Promise<void>{
     if(held&&!held.current())return;
     if(view.agentRealtimeClient?.hasProtectedContextSources?.() && !await host.checkOmniContextSources(view))return;
-    if((held&&!held.current()) || !host.hasActiveVoiceRuntimeTurn(view) || !host.acceptsOmniRuntimeEvent(view,response))return;
+    if ((held && !held.current()) || !host.hasActiveVoiceRuntimeTurn(view) || !acceptsOmniRuntimeEvent(view.agentVoiceRuntime, response)) return;
     host.clearOmniResponseTimer(view);
     const reply = (projectProposalFailure(view) || text || view.agentOmniE2eReply || "我听到了，但这次没有生成稳定的文字回复。").trim();
     view.agentVoiceCircuitBreaker?.recordSuccess?.();
@@ -238,7 +248,7 @@ export function createOmniResponseHandlers(host: OmniResponseHost) {
       || !current
       || current.route !== "e2e"
       || !host.hasActiveVoiceRuntimeTurn(view)
-      || (response && !host.acceptsOmniRuntimeEvent(view, response))
+      || (response && !acceptsOmniRuntimeEvent(view.agentVoiceRuntime, response))
     ) {
       return;
     }
@@ -285,7 +295,7 @@ export function createOmniResponseHandlers(host: OmniResponseHost) {
 
   /** A private Runtime receipt ends this connection without another model/TTS request. */
   async function settleCommittedOmniTool(view:VoiceRealtimeView,text:string,response:BailianRealtimeResponseEvent):Promise<void>{
-    if(view.viewClosed || !host.hasActiveVoiceRuntimeTurn(view) || !host.acceptsOmniRuntimeEvent(view,response))return;
+    if (view.viewClosed || !host.hasActiveVoiceRuntimeTurn(view) || !acceptsOmniRuntimeEvent(view.agentVoiceRuntime, response)) return;
     const runtime=view.agentVoiceRuntime,current=runtime?.snapshot().currentTurn;
     const sessionId=runtime?.snapshot().sessionId,viewGeneration=view.agentTextRequestGeneration,pipelineGeneration=view.agentVoicePipelineGeneration,startGeneration=view.agentRealtimeStartGeneration;
     const ownsReceipt=()=>!view.viewClosed && view.agentVoiceRuntime===runtime

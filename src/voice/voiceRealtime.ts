@@ -42,7 +42,7 @@ import { isExactVoiceApproval, voiceActionPrompt } from "./actionConfirmation";
 import { classifyPlaybackInput, explicitPlaybackPause, offlinePlaybackDecision } from "./playbackInput";
 
 import { executeOmniE2eTool } from "./omniE2e/tools";
-import { createOmniResponseHandlers } from "./omniE2e/responses";
+import { acceptsOmniRuntimeEvent, createOmniResponseHandlers } from "./omniE2e/responses";
 import { armOmniResponseTimer as armOmniTimer, clearOmniResponseTimer } from "./omniE2e/responseTimer";
 import { createOmniCallbacks, omniSessionOptions } from "./omniE2e/session";
 import { projectProposalFailure } from "./omniE2e/projectProposals";
@@ -1157,21 +1157,6 @@ function beginManagedVoiceTurn(
   }
 }
 
-function acceptsOmniRuntimeEvent(
-  view: VoiceRealtimeView,
-  response?: BailianRealtimeResponseEvent
-): boolean {
-  const runtime = view.agentVoiceRuntime;
-  if (!runtime) return true;
-  const current = runtime.snapshot().currentTurn;
-  if (current?.route !== "e2e") return false;
-  return runtime.accepts({
-    generation: current.generation,
-    turnId: current.turnId,
-    ...(response?.responseId ? { responseId: response.responseId } : {})
-  });
-}
-
 async function checkOmniContextSources(view: VoiceRealtimeView): Promise<boolean> {
   const client = view.agentRealtimeClient;
   if (!client?.hasProtectedContextSources?.()) return true;
@@ -1318,7 +1303,7 @@ function failOmniE2eVoiceTurn(
   errorCode = "realtime_response_failed"
 ): void {
   const isOmni = isOmniE2eRealtimeMode(view.controller.settings.realtimeVoice);
-  if (isOmni && response && !acceptsOmniRuntimeEvent(view, response)) return;
+  if (isOmni && response && !acceptsOmniRuntimeEvent(view.agentVoiceRuntime, response)) return;
   retireModelTerminal(view);
   clearVoiceRecoveryTimers(view);
   const runtime = view.agentVoiceRuntime;
@@ -2109,7 +2094,7 @@ const {
   handleOmniE2eResponseCreated, handleOmniE2eResponseText, handleOmniE2eAudioDelta, handleOmniE2eAudioDone, finishOmniE2eVoiceTurn,
   settleCommittedOmniTool, fallbackOmniResponseToBrain, currentOmniModelTerminal, retireModelTerminal
 } = createOmniResponseHandlers({
-  isOmniE2eRealtimeMode, hasActiveVoiceRuntimeTurn, armOmniResponseTimer, failOmniE2eVoiceTurn, acceptsOmniRuntimeEvent,
+  isOmniE2eRealtimeMode, hasActiveVoiceRuntimeTurn, armOmniResponseTimer, failOmniE2eVoiceTurn,
   base64ToPcm16, ensureOmniPlayback, finishOmniPlaybackWhenReady, captureVoicePresentationGuard, checkOmniContextSources,
   clearOmniResponseTimer, startSystemSpeechForActiveTurn, settleCompletedOmniE2eVoiceTurn: settleManagedVoiceTurn,
   startFallbackTtsForActiveTurn, updateManagedAssistantText, clearVoiceReconnectState, clearVoiceRecoveryTimers,
