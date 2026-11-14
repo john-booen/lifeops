@@ -10,10 +10,22 @@ export function canUseStreamingHotwords(endpoint: string): boolean {
   catch { return false; }
 }
 
+export function safeManualHotwords(settings: StoreHost["settings"], configured: string | undefined): string[] {
+  const credentials = configuredCredentials(settings);
+  const source = configured?.slice(0, 8000).split(/[,，\n]+/u)
+    .filter(word => safeHotword(word, credentials)).join("\n");
+  return asrHotwords(source);
+}
+
+function safeHotword(word: string, credentials: string[]): boolean {
+  const normalized = word.normalize("NFKC");
+  return redactSensitiveText(word, credentials) === word && redactSensitiveText(normalized, credentials) === normalized;
+}
+
 export async function collectSessionHotwords(store: StoreHost, configured: string | undefined, now = new Date()): Promise<string[]> {
   const policy = contextDataPolicy(store);
   const credentials = configuredCredentials(store.settings);
-  const manual = asrHotwords(configured);
+  const manual = safeManualHotwords(store.settings, configured);
   if (manual.length === 50) return manual;
   const [habits, tasks, trades] = await Promise.allSettled([readContextHabits(store), readContextTasks(store), readTradeStatsData(store)]);
   if (policy !== contextDataPolicy(store)) return manual;
@@ -30,6 +42,5 @@ export async function collectSessionHotwords(store: StoreHost, configured: strin
     ...(trades.status === "fulfilled" ? trades.value.trades.slice().sort((a, b) => b.openedAt.localeCompare(a.openedAt)).map(trade => trade.symbol) : []),
     ...keywords
   ];
-  return asrHotwords([...manual, ...automatic.filter(word => redactSensitiveText(word, credentials) === word
-    && redactSensitiveText(word.normalize("NFKC"), credentials) === word.normalize("NFKC"))].join("\n"));
+  return asrHotwords([...manual, ...automatic.filter(word => safeHotword(word, credentials))].join("\n"));
 }

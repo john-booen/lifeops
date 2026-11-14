@@ -2,8 +2,7 @@ import { attachVoiceWriteReceipts, renderWriteReceipts } from "../writeReceipts"
 import { randomUUID } from "node:crypto";
 import { realtimeProviderError, type RealtimeProviderRunEvent } from "./realtimeProviderRun";
 import { realtimeVoiceReadiness } from "../capabilityReadiness";
-import { asrHotwords } from "./realtimeAsrOptions";
-import { canUseStreamingHotwords } from "./sessionHotwords";
+import { canUseStreamingHotwords, safeManualHotwords } from "./sessionHotwords";
 import { Notice } from "obsidian";
 import {createOutputSliceYield,createOutputSliceBudget} from "./outputSliceYield";
 import {
@@ -245,8 +244,9 @@ export async function startBailianRealtimeRecording(view: VoiceRealtimeView): Pr
     const automaticHotwords = !!cascadeEndpoint && (realtimeVoice.asrEngine ?? "realtime") === "realtime"
       && canUseStreamingHotwords(realtimeVoice.endpoint);
     const words = cascadeEndpoint && (automaticHotwords || realtimeVoice.asrEngine === "streaming-hotwords")
-      ? await (view.controller.collectVoiceSessionHotwords?.(realtimeVoice.asrHotwords) ?? Promise.resolve(asrHotwords(realtimeVoice.asrHotwords)))
-        .catch(() => asrHotwords(realtimeVoice.asrHotwords))
+      ? await (view.controller.collectVoiceSessionHotwords?.(realtimeVoice.asrHotwords)
+        ?? Promise.resolve(safeManualHotwords(view.controller.settings, realtimeVoice.asrHotwords)))
+        .catch(() => safeManualHotwords(view.controller.settings, realtimeVoice.asrHotwords))
       : [];
     if (!startIsCurrent() || view.controller.settings.realtimeVoice !== realtimeVoice) {
       stream.getTracks().forEach(track => track.stop());

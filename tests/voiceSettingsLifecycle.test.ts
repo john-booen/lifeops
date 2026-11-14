@@ -242,7 +242,8 @@ describe("ordinary voice and text mode cycles", () => {
     const today = new Date().toLocaleDateString("sv-SE");
     await plugin.store.createHabit({ name: "虚构纸牌训练", frequencyUnit: "day", frequencyInterval: 1, targetCount: 1, startDate: today });
     await plugin.store.createTask({ title: "整理 EVALBOX 目录", date: today });
-    plugin.settings.realtimeVoice.asrHotwords = "虚构手填词";
+    const configured = "虚构手填词\n" + plugin.settings.realtimeVoice.apiKey;
+    plugin.settings.realtimeVoice.asrHotwords = configured;
     view.agentMode = "voice";
     await startBailianRealtimeRecording(view);
     const client = capture.connects.mock.contexts[0] as unknown as { settings: LifeOpsSettings["realtimeVoice"] };
@@ -250,7 +251,8 @@ describe("ordinary voice and text mode cycles", () => {
     const words = client.settings.asrHotwords!.split("\n");
     expect(words[0]).toBe("虚构手填词");
     expect(words).toEqual(expect.arrayContaining(["虚构纸牌训练", "EVALBOX"]));
-    expect(plugin.settings.realtimeVoice.asrHotwords).toBe("虚构手填词");
+    expect(words).not.toContain(plugin.settings.realtimeVoice.apiKey);
+    expect(plugin.settings.realtimeVoice.asrHotwords).toBe(configured);
     expect(getUserMedia).toHaveBeenCalledOnce();
   });
 
@@ -265,6 +267,17 @@ describe("ordinary voice and text mode cycles", () => {
     expect(capture.connects.mock.contexts[1]).not.toBe(capture.connects.mock.contexts[0]);
     expect(view.agentVoiceReady).toBe(true);
     expect(getUserMedia).toHaveBeenCalledOnce();
+  });
+
+  it("preserves credential filtering when collection of automatic hotwords fails", async () => {
+    const capture = captureFixture();
+    const credential = plugin.settings.realtimeVoice.apiKey;
+    plugin.settings.realtimeVoice.asrHotwords = "虚构词\n" + credential;
+    vi.spyOn(plugin, "collectVoiceSessionHotwords").mockRejectedValue(new Error("虚构索引异常"));
+    view.agentMode = "voice";
+    await startBailianRealtimeRecording(view);
+    const client = capture.connects.mock.contexts[0] as unknown as { settings: LifeOpsSettings["realtimeVoice"] };
+    expect(client.settings.asrHotwords).toBe("虚构词");
   });
 
   it.each(["cascade", "omni-e2e"] as const)("installs mode-specific realtime callbacks for %s", async mode => {
