@@ -67,6 +67,12 @@ describe("speech during assistant playback", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it.each(["停一下", "请先暂停。", "先别说！"])("accepts a plain playback pause locally (%s)", async text => {
+    const online = vi.spyOn(LifeOpsAi.prototype, "agentTurnStream").mockResolvedValue({ content: "ignore", toolCalls: [] });
+    await expect(classify(text)).resolves.toBe("accept");
+    expect(online).not.toHaveBeenCalled();
+  });
+
   it("discards a result after cancellation", async () => {
     const controller = new AbortController();
     const reason = new Error("synthetic cancellation");
@@ -74,7 +80,7 @@ describe("speech during assistant playback", () => {
       controller.abort(reason);
       return { content: "accept", toolCalls: [] };
     });
-    await expect(classify("停一下。", controller.signal)).resolves.toBeUndefined();
+    await expect(classify("今晚一起吃什么？", controller.signal)).resolves.toBeUndefined();
     expect(online.mock.calls[0]?.[2]?.signal?.reason).toBe(reason);
   });
 });

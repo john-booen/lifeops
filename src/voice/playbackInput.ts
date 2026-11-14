@@ -21,7 +21,7 @@ export async function classifyPlaybackInput(
   if (signal.aborted) return undefined;
   const value = transcript.trim();
   if (!value) return "ignore";
-  if (voiceTaskCountFollowup(value, [{ role: "user", content: previousQuestion }, { role: "assistant", content: "" }])) {
+  if (explicitPlaybackPause(value) || voiceTaskCountFollowup(value, [{ role: "user", content: previousQuestion }, { role: "assistant", content: "" }])) {
     return "accept";
   }
   const request = new AbortController();
@@ -53,8 +53,14 @@ export async function classifyPlaybackInput(
   return signal.aborted ? undefined : offlinePlaybackDecision(value, previousQuestion);
 }
 
+function explicitPlaybackPause(text: string): boolean {
+  const value = text.normalize("NFKC").replace(/\s+/gu, "");
+  return /^(?:请)?(?:先停一下|停一下|先暂停|暂停一下|先别说|别说了|停|暂停)(?:[。！!]*)$/u.test(value);
+}
+
 export function offlinePlaybackDecision(text: string, previousQuestion: string): PlaybackDecision {
   const value = text.normalize("NFKC").replace(/\s+/gu, "");
+  if (explicitPlaybackPause(value)) return "accept";
   if (/^(?:停一下|先停一下|暂停一下|先别说|别说了|继续说|接着说|撤销|停|暂停)(?=$|[\p{P}]|我(?:想问|要问)|帮我)/u.test(value)) return "accept";
   if (voiceTaskCountFollowup(value, [{ role: "user", content: previousQuestion }, { role: "assistant", content: "" }])) return "accept";
   if (isVoiceClearlyIncompleteTurn(value)) return "ignore";
