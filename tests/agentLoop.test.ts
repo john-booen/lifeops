@@ -729,6 +729,28 @@ describe("unified agent loop", () => {
     expect(streamed.join("")).toContain(answer);
   });
 
+  it("reports explicit weekly habit completion from the existing stats with the text model disabled", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(now);
+    try {
+      const habit = await store.createHabit({ name: "虚构一周跑步", frequencyUnit: "day", frequencyInterval: 1,
+        targetCount: 1, startDate: "2026-11-09" });
+      await store.recordHabitStatus(habit.id, "done", "2026-11-10");
+      host.settings.ai.provider = "off";
+      const loop = new AgentLoop(host);
+      const onVoiceText = vi.fn();
+      const result = await loop.run(input({ message: "这周习惯完成得怎么样？", source: "voice", onVoiceText }));
+      expect(result.text).toContain("2026-11-09 至 2026-11-12");
+      expect(result.text).toContain("虚构一周跑步有 1 次完成记录，完成率 25%");
+      expect(result.toolCalls).toEqual([{ name: "get_stats", ok: true }]);
+      expect(onVoiceText).toHaveBeenCalledExactlyOnceWith(result.text);
+      expect(requests).toEqual([]);
+      expect(await loop.run(input({ message: "上周的习惯完成情况" }))).toMatchObject({
+        text: expect.stringContaining("2026-11-02 至 2026-11-08")
+      });
+    } finally { vi.useRealTimers(); }
+  });
+
   it("expands advanced tools when the short-text model selects that capability", async () => {
     responses.push(reply("", [tool("load_more_tools", {})]), reply("已准备好查询项目。"));
     const result = await new AgentLoop(host).run(input({ message: "查我的项目" }));

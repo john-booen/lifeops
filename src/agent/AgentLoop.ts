@@ -5,7 +5,7 @@ import { formatDate } from "../date";
 import { deviceHealthAnswer, deviceHealthQuestion } from "../features/health/deviceHealthAnswer";
 import { formatQuizQuestions } from "../features/learning/quizTools";
 import { readingLinkEvidence } from "../features/reading/tools";
-import { habitDateEvidence } from "../features/stats/habitEvidence";
+import { formatWeeklyHabits, habitDateEvidence, weeklyHabitQuestion } from "../features/stats/habitEvidence";
 import { asksForRecentStatus, formatRecentStatus, recentStatusDomains } from "../features/stats/statusEvidence";
 import { backgroundStatsTool } from "../features/stats/tools";
 import { resolveStatsRange } from "../features/stats/stats";
@@ -222,19 +222,21 @@ export class AgentLoop {
         }
         const health = deviceHealthQuestion(input.message, date);
         const count = explicitTaskCount(input.message);
-        const period = health?.range ?? count ?? taskCompletionRateQuestion(input.message);
+        const habits = weeklyHabitQuestion(input.message);
+        const period = health?.range ?? count ?? habits ?? taskCompletionRateQuestion(input.message);
         if (period) {
           await waitForFactOperations(this.host.store, { signal: input.signal, assertCurrent: assertPolicy });
           const range = resolveStatsRange(period, input.now);
-          const calls = this.scopedCalls([{ name: "get_stats", arguments: { domain: health ? "health" : "tasks", range } }], state.id, 0);
+          const calls = this.scopedCalls([{ name: "get_stats", arguments: { domain: health ? "health" : habits ? "habits" : "tasks", range } }], state.id, 0);
           const [result] = await this.executeRegular(input, state, calls);
           assertProviderActive(input.signal);
           assertPolicy();
           const reply = !result?.success ? result?.output || "记录暂不可用。"
             : health ? deviceHealthAnswer(result.output, health.metric, health.aggregate)
             : count ? formatVoiceStats(result.output, { domain: "tasks", range: count, voiceAnswer: "completed_tasks" })
+            : habits ? formatWeeklyHabits(result.output)
             : formatTaskCompletionRate(result.output);
-          return this.localAnswer(input, state, reply || "这段时间的任务统计暂不可用。");
+          return this.localAnswer(input, state, reply || "这段时间的统计暂不可用。");
         }
       }
       if (!this.modelAvailable()) {
