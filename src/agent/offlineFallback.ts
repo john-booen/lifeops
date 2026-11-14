@@ -1,6 +1,7 @@
-import { dashboardContextData } from "../contextData";
+import { dashboardContextData, readContextHabits } from "../contextData";
 import { clockFromMatch, clockMatches } from "../clockText";
 import { formatDate, normalizeJournalDate } from "../date";
+import { isHealthHabitSource } from "../features/health/habitSources";
 import { newLocalOperationId } from "../operationIdentity";
 import { assertProviderActive } from "../providerRun";
 import type { StoreHost } from "../store/settingsSlice";
@@ -38,6 +39,18 @@ export function explicitSingleTimedTask(message: string, today: string): Record<
   if (!command || !/^(?:今天|明天|后天|\d{4}-\d{2}-\d{2})(?:\s*\d|\s*(?:凌晨|早上|上午|中午|下午|傍晚|晚上))/u.test(command[1])) return null;
   const task = offlineTask(command[1], today);
   return task?.time ? task : null;
+}
+
+export async function explicitRunningCheckin(message: string, today: string, store: StoreHost): Promise<Record<string, unknown> | null> {
+  const matched = /^(?:我)?(刚才|刚|今天|今日|昨天|昨日)\s*跑(?:步)?(?:完了?|了)\s*(\d{1,3}(?:\.\d{1,2})?)\s*公里[。！!]?$/u.exec(message.trim().normalize("NFKC"));
+  if (!matched) return null;
+  const date = normalizeJournalDate(matched[1].startsWith("刚") ? "今天" : matched[1], today);
+  const result = await readContextHabits(store).catch(() => undefined);
+  if (!date || !result?.available) return null;
+  const habits = result.database.habits.filter(habit => habit.name === "跑步" && habit.source !== "trades" && !isHealthHabitSource(habit.source)
+    && habit.startDate <= date
+    && (habit.target?.kind !== "number" || habit.target.unit === "公里"));
+  return habits.length === 1 ? { name: habits[0].id, date, value: Number(matched[2]), unit: "公里" } : null;
 }
 
 export async function offlineFallback(input: AgentTurnInput, store: StoreHost, runtime: AgentRuntime): Promise<AgentResponse | null> {

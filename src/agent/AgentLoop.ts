@@ -23,7 +23,7 @@ import { prepareToolBatch } from "../toolBatch";
 import type { AgentActionSuggestion, AgentConversationMessage, AgentResponse, AgentWriteReceipt, LifeOpsSettings, ProviderRunResult } from "../types";
 import { agentHistoryMessages, buildResidentContext, clipBytes, type ResidentContext } from "./context";
 import { recurringScheduleAnswer } from "./recurringSchedule";
-import { explicitSingleTimedTask } from "./offlineFallback";
+import { explicitRunningCheckin, explicitSingleTimedTask } from "./offlineFallback";
 import { memorySourcePolicy } from "../personalMemorySources";
 import { agentModelRole, settingsForAgentModel, type AgentModelRole } from "./models";
 import { extractTradingRules } from "../features/trading/ruleSources";
@@ -191,6 +191,15 @@ export class AgentLoop {
           assertProviderActive(input.signal);
           assertPolicy();
           return this.localAnswer(input, state, result?.output || "任务没有保存，请稍后再试。");
+        }
+        const run = await explicitRunningCheckin(message, formatDate(input.now), this.host.store);
+        if (run) {
+          const calls = this.scopedCalls([{ name: "complete_habit", arguments: run }], state.id, 0);
+          assertPolicy();
+          const [result] = await this.executeRegular(input, state, calls);
+          assertProviderActive(input.signal);
+          assertPolicy();
+          return this.localAnswer(input, state, result?.output || "打卡没有保存，请稍后再试。");
         }
       }
       if (!input.voiceBackground && (input.source === "text" || input.source === "voice")) {

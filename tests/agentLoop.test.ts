@@ -1274,6 +1274,22 @@ it("recalls an explicitly saved recurring appointment without relying on a newly
   expect(requests).toHaveLength(beforeRecall + 1);
 });
 
+it("records a literal running distance only for the configured manual habit with its exact name", async () => {
+  const date = formatDate(now);
+  const manual = await store.createHabit({ name: "跑步", frequencyUnit: "day", frequencyInterval: 1, targetCount: 1, startDate: date });
+  const other = await store.createHabit({ name: "虚构跑步训练", frequencyUnit: "day", frequencyInterval: 1, targetCount: 1 });
+  const loop = new AgentLoop(host);
+  const result = await loop.run(input({ message: "我刚跑完 5 公里。" }));
+  expect(result.receipts).toHaveLength(1);
+  expect((await store.readHabitDb()).checkins).toMatchObject([{ habitId: manual.id, date, value: 5, count: 1 }]);
+  expect(requests).toHaveLength(0);
+  await store.deleteHabit(manual.id);
+  responses.push(reply("请明确要打卡的虚构习惯。"));
+  expect((await loop.run(input({ message: "我刚跑完 5 公里。" }))).text).toContain("明确");
+  expect(requests).toHaveLength(1);
+  expect((await store.readHabitDb()).checkins.some(item => item.habitId === other.id)).toBe(false);
+});
+
 it("uses an explicit timed reminder locally and preserves its named person in the voice receipt", async () => {
   const loop = new AgentLoop(host);
   const title = "虚构人名叶宁给纸盒贴标签";
