@@ -409,6 +409,7 @@ export function handleCascadeCapture(view: VoiceRealtimeView, endpoint: ServerVo
   const playing = Boolean(view.agentSpeaking || view.agentVoiceSystemSpeechActive
     || view.agentAudioOutput?.snapshot?.()?.status === "playing");
   if (event.type === "started") {
+    cancelCascadeInterruption(view);
     if (playing) cascadePlaybackCaptures.add(endpoint);
     else cascadePlaybackCaptures.delete(endpoint);
     cascadePlaybackLevels.set(endpoint, 0);
