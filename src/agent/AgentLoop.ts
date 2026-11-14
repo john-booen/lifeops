@@ -7,7 +7,7 @@ import { habitDateEvidence } from "../features/stats/habitEvidence";
 import { asksForRecentStatus, formatRecentStatus, recentStatusDomains } from "../features/stats/statusEvidence";
 import { backgroundStatsTool } from "../features/stats/tools";
 import { resolveStatsRange } from "../features/stats/stats";
-import { formatHabitCompensationReply, formatTaskListReply, formatVoiceTaskPriorities, habitCompensationQuestion, voiceTaskPriorityTool } from "../features/tasks/planTools";
+import { formatHabitCompensationReply, formatTaskListReply, formatVoiceTaskPriorities, habitCompensationQuestion, repeatedTaskListPriority, voiceTaskPriorityTool } from "../features/tasks/planTools";
 import { planCapacityEvidence } from "../features/tasks/capacityEvidence";
 import { weekendClarification } from "../features/tasks/weekendClarification";
 import { waitForFactOperations } from "../dataFoundation/factOperation";
@@ -236,7 +236,8 @@ export class AgentLoop {
           state.text = this.savedOutput(state, state.confirmations.size ? "待确认事项请点击卡片后继续。" : "本轮处理已到上限，其余事项请下一条继续。");
           break;
         }
-        const calls = this.scopedCalls(response.toolCalls, state.id, round);
+        const priority = repeatedTaskListPriority(response.toolCalls, formatDate(input.now));
+        const calls = this.scopedCalls(priority ? [priority] : response.toolCalls, state.id, round);
         if (fastVoice) for (const call of calls) this.compactVoiceRead(call);
         if (requiredTool === "propose_task_plan") calls[0].arguments.capacityAware = true;
         if (required?.name === "advance_idea") calls[0].arguments = { id: required.ideaId };

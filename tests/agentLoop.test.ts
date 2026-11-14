@@ -435,15 +435,17 @@ describe("unified agent loop", () => {
     expect(requests).toHaveLength(1);
   });
 
-  it("reports the full remaining count and only the requested highest-priority tasks", async () => {
+  it.each([false, true])("reports the remaining count and highest priorities (repeated query: %s)", async repeated => {
     const date = formatDate(now);
     await store.createTask({ title: "虚构归档", date, quadrant: "not-important-not-urgent" });
     await store.createTask({ title: "虚构核对计划", date, quadrant: "important-not-urgent" });
     await store.createTask({ title: "虚构验收", date, quadrant: "important-urgent" });
-    responses.push(reply("", [tool("list_tasks", { date, order: "priority", limit: 2 })]));
+    responses.push(reply("", [tool("list_tasks", { date, order: "priority", limit: 2, directReply: true }),
+      ...(repeated ? [tool("list_tasks", { directReply: true }, "synthetic-count")] : [])]));
     const result = await new AgentLoop(host).run(input({ message: "今天还剩几项，只说最要紧的两件。" }));
     expect(requests).toHaveLength(1);
     expect(result.text).toBe("今天还有 3 项未完成任务。先做：虚构验收、虚构核对计划。");
+    expect(result.toolCalls).toEqual([{ name: "list_tasks", ok: true }]);
     expect((await store.readTaskDb({ readOnly: true })).tasks).toHaveLength(3);
   });
 

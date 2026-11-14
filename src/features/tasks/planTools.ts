@@ -1,5 +1,5 @@
 import { addDays, formatDate, normalizeJournalDate, todayString } from "../../date";
-import type { AiToolDefinition } from "../../ai";
+import type { AiToolCall, AiToolDefinition } from "../../ai";
 import { isVaultPathExcluded } from "../../privacy";
 import { taskScheduleLabel } from "../../taskSchedule";
 import type { LifeOpsToolDefinition, ToolExecutionContext } from "../../toolRegistry";
@@ -198,6 +198,22 @@ export function formatTaskListReply(output: string, today: string): string | und
   if (list.truncated) lines.push(`以上是前 ${list.tasks.length} 个。`);
   if (list.scope) lines.push(list.scope + "。");
   return lines.join("\n");
+}
+
+export function repeatedTaskListPriority(calls: readonly AiToolCall[], today: string): AiToolCall | undefined {
+  if (calls.length < 2) return;
+  const first = calls.find(call => call.name === "list_tasks" && call.arguments.order === "priority"
+    && call.arguments.directReply === true && typeof call.arguments.limit === "number"
+    && Number.isInteger(call.arguments.limit) && call.arguments.limit >= 1 && call.arguments.limit <= 30);
+  if (!first) return;
+  const date = (call: AiToolCall) => call.arguments.date === undefined ? today : typeof call.arguments.date === "string"
+    ? normalizeJournalDate(call.arguments.date, today) : "";
+  const selectedDate = date(first);
+  if (selectedDate && calls.every(call => call.name === "list_tasks" && call.arguments.directReply === true
+    && call.arguments.category === undefined && call.arguments.dueStatus === undefined && call.arguments.habitName === undefined
+    && (call.arguments.status === undefined || call.arguments.status === "active") && date(call) === selectedDate
+    && (call.arguments.order === undefined && call.arguments.limit === undefined
+      || call.arguments.order === "priority" && call.arguments.limit === first.arguments.limit))) return first;
 }
 
 export function voiceTaskPriorityTool(tool: AiToolDefinition): AiToolDefinition {
