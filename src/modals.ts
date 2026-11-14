@@ -1016,7 +1016,8 @@ export class HabitDetailModal extends Modal {
     status.createSpan({ text: habitStatusLabel(this.item.status) });
 
     const stats = contentEl.createDiv({ cls: "lifeops-habit-modal-grid" });
-    this.statItem(stats, `${this.item.periodLabel}进度`, `${this.item.periodDone}/${this.item.periodTarget} ${this.item.periodUnit ?? "次"}`);
+    const progress = this.item.healthUnrecorded ? "还没有健康记录" : `${this.item.periodDone}/${this.item.periodTarget} ${this.item.periodUnit ?? "次"}`;
+    this.statItem(stats, `${this.item.periodLabel}进度`, progress);
     this.statItem(stats, "累计完成", `${totalDone} ${habit.source === "trades" ? "笔" : "次"}`);
     this.statItem(stats, "本周未完成", `${this.item.weeklyFailures} 次`);
     this.statItem(stats, "7天完成", `${sevenDays.done}/${sevenDays.required}`);
@@ -1078,12 +1079,12 @@ export class HabitDetailModal extends Modal {
       return;
     }
     for (const checkin of sortedHistory.slice(0, 120)) {
-      const row = history.createDiv({ cls: `lifeops-habit-modal-row status-${checkin.status}` });
+      const measured = automaticHabitDayDisplay(habit, checkin);
+      const status = measured?.status ?? checkin.status;
+      const label = measured?.label ?? `${habitStatusLabel(checkin.status)}${checkin.count > 1 ? ` x${checkin.count}` : ""}`;
+      const row = history.createDiv({ cls: `lifeops-habit-modal-row status-${status}` });
       row.createSpan({ text: checkin.date, cls: "lifeops-habit-modal-date" });
-      row.createSpan({
-        text: `${habitStatusLabel(checkin.status)}${checkin.count > 1 ? ` x${checkin.count}` : ""}`,
-        cls: `lifeops-habit-modal-pill status-${checkin.status}`
-      });
+      row.createSpan({ text: label, cls: `lifeops-habit-modal-pill status-${status}` });
       row.createSpan({ text: checkin.note || formatDateTime(checkin.updatedAt), cls: "lifeops-habit-modal-note" });
     }
     if (sortedHistory.length > 120) {
