@@ -24,7 +24,7 @@ const questions = [
   { question: "帮我建一个明天下午三点见客户的任务", localReply: /见客户/u,
     scheduled: { title: "见客户", date: "2026-11-07", time: "15:00" } },
   { question: "今天日记的状态怎么样" },
-  { question: "这周习惯完成得怎么样" }
+  { question: "这周习惯完成得怎么样", localReply: /^2026-11-02 至 2026-11-06\n/u }
 ];
 const noRequestChars = { system: 0, tools: 0, context: 0, memory: 0, history: 0, user: 0, request: 0 };
 const chars = (value: string) => Array.from(value).length;
