@@ -1,7 +1,23 @@
-import { ideaDaysStalled, listIdeas, updateIdeaNote, type IdeaNote, type IdeaStatus } from "./notes";
+import { IDEA_STATES, ideaDaysStalled, ideaTitleKey, listIdeas, updateIdeaNote, type IdeaNote, type IdeaStatus } from "./notes";
 import type { StoreHost } from "../../store/settingsSlice";
 
 export const ideaIsActive = (idea: IdeaNote) => idea.status !== "parked" && idea.status !== "dropped";
+
+export function ideaStatusQuestion(message: string): string | undefined {
+  const match = /^(?:请问[，, ]*)?([^？?，,。；;\r\n]{1,80}?)(?:(?:这[个项]想法)\s*)?(?:(?:现在什么情况|目前进展如何|现在进展如何)[？?，,]\s*)?(?:多久没进展了?(?:[？?，,]\s*记录的下一步是什么)?|记录的下一步是什么)[。？?]?$/u.exec(message.trim());
+  return match?.[1].trim().replace(/^[「『“"]|[」』”"]$/gu, "").trim() || undefined;
+}
+
+export function formatIdeaStatus(output: string, title: string): string {
+  const list = JSON.parse(output) as { total: number; ideas: Array<Pick<IdeaNote, "title" | "status" | "nextAction"> & { daysStalled: number }> };
+  const matches = list.ideas.filter(idea => ideaTitleKey(idea.title) === ideaTitleKey(title));
+  if (list.total > list.ideas.length || matches.length > 1) return "暂时无法定位唯一的想法，请核对完整标题。";
+  if (!matches.length) return "没有查到这个标题的已登记想法。";
+  const [idea] = matches;
+  const age = idea.daysStalled === 0 ? "今天有进展记录。" : `已有 ${idea.daysStalled} 天没有进展。`;
+  const next = idea.nextAction ? `记录的下一步是${idea.nextAction}。` : "目前没有填写下一步。";
+  return `「${idea.title}」目前是${IDEA_STATES[idea.status]}状态。${age}${next}`;
+}
 
 export function ideaIsStalled(idea: IdeaNote, today: string): boolean {
   const threshold = idea.status === "seed" ? 14 : 7;

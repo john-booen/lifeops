@@ -1577,6 +1577,29 @@ it("blocks a model-proposed undo for a named voice deletion", async () => {
   expect((await new OperationLedger(store).readSettledOperations([original.callId])).verified.has(original.callId)).toBe(true);
 });
 
+it.each(["text", "voice"] as const)("reads the status, idle days and next step of an exact idea without proposing tasks (%s)", async source => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  let result: Awaited<ReturnType<InstanceType<typeof AgentLoop>["run"]>>;
+  try {
+    vi.setSystemTime(new Date(2026, 9, 28, 12));
+    const title = "虚构纸模目录";
+    const created = await runtime.executeAiToolCall(tool("upsert_idea", {
+      title, description: "用彩纸做目录", nextAction: "核对同类纸样"
+    }, "fictional-idea-probe"), "kimi");
+    expect(created.success).toBe(true);
+    vi.setSystemTime(now);
+    responses.push(reply("", [tool("list_ideas", { query: title, draftAdvance: true })]), reply("先给你安排几件事。"));
+    result = await new AgentLoop(host).run(input({ source, message: `${title}现在什么情况？多久没进展了，记录的下一步是什么？` }));
+  } finally { vi.useRealTimers(); }
+  expect(result.text).toContain("15 天");
+  expect(result.text).toContain("核对同类纸样");
+  expect(result.toolCalls).toEqual([{ name: "list_ideas", ok: true }]);
+  expect(result.confirmations).toEqual([]);
+  expect(result.receipts).toEqual([]);
+  expect(requests).toEqual([]);
+  expect((await store.readTaskDb()).tasks).toEqual([]);
+});
+
 it("answers standalone greetings and device date questions by voice without checking background jobs or loading personal records", async () => {
   const { VoiceJobManager } = await import("../src/voice/jobs");
   const jobs = new VoiceJobManager((_task, signal) => new Promise((_resolve, reject) => {

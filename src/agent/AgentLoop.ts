@@ -3,6 +3,7 @@ import type { AiChatResult, AiToolCall, AiToolDefinition, ChatMessage, LifeOpsAi
 import type { ToolCallResult } from "../agentRuntime";
 import { formatDate } from "../date";
 import { deviceHealthAnswer, deviceHealthQuestion } from "../features/health/deviceHealthAnswer";
+import { formatIdeaStatus, ideaStatusQuestion } from "../features/ideas/progress";
 import { formatQuizQuestions } from "../features/learning/quizTools";
 import { readingLinkEvidence } from "../features/reading/tools";
 import { formatWeeklyHabits, habitDateEvidence, weeklyHabitQuestion } from "../features/stats/habitEvidence";
@@ -237,6 +238,17 @@ export class AgentLoop {
             : habits ? formatWeeklyHabits(result.output)
             : formatTaskCompletionRate(result.output);
           return this.localAnswer(input, state, reply || "这段时间的统计暂不可用。");
+        }
+        const ideaTitle = ideaStatusQuestion(input.message);
+        if (ideaTitle) {
+          await waitForFactOperations(this.host.store, { signal: input.signal, assertCurrent: assertPolicy });
+          const [result] = await this.executeRegular(input, state, this.scopedCalls([
+            { name: "list_ideas", arguments: { query: ideaTitle } }
+          ], state.id, 0));
+          assertProviderActive(input.signal);
+          assertPolicy();
+          const reply = result?.success ? formatIdeaStatus(result.output, ideaTitle) : result?.output;
+          return this.localAnswer(input, state, reply || "想法进展暂不可读。");
         }
       }
       if (!this.modelAvailable()) {
