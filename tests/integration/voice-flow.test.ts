@@ -6,6 +6,7 @@ import { createFsApp } from "../helpers/fsApp";
 import { LifeOpsStore } from "../../src/store";
 import type { StoreHost } from "../../src/store/settingsSlice";
 import { AgentRuntime } from "../../src/agentRuntime";
+import { providerRunStart, ProviderRunFailure } from "../../src/providerRun";
 import { runConfirmedToolAction } from "../../src/toolRegistry";
 import {
   addEchoText,
@@ -1686,7 +1687,7 @@ describe("voice integration flow", () => {
     expect(bargeIn.snapshot().phase).toBe("idle");
   });
 
-  it("runs cascade through the shared runtime and accepts a new turn after interruption", async () => {
+  it.each(["interruption", "network"] as const)("runs cascade through the shared runtime and accepts a new turn after %s", async failure => {
     const runtime = new VoiceSessionController({ provider: "qwen-test" });
     runtime.connect();
     runtime.connected();
@@ -1703,6 +1704,10 @@ describe("voice integration flow", () => {
       callCount += 1;
       if (callCount === 1) {
         firstSignal = options.signal;
+        if (failure === "network") {
+          const run = providerRunStart({ provider: "fictional-text", model: "fictional-model" });
+          return Promise.reject(new ProviderRunFailure(run, "network"));
+        }
         return new Promise<{ reply: string; actions: never[] }>((_resolve, reject) => {
           options.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
         });
@@ -1788,18 +1793,25 @@ describe("voice integration flow", () => {
     await vi.waitFor(() => expect(submitAgentMessageStream).toHaveBeenCalledTimes(1));
 
     expect(createResponse).not.toHaveBeenCalled();
-    expect(firstSignal?.aborted).toBe(false);
-    expect(runtime.snapshot().currentTurn).toMatchObject({
-      route: "brain",
-      phase: "generating",
-      transcript: "第一轮请帮我分析今天的状态"
-    });
-
-    expect(interruptManagedVoiceTurn(view, "cascade barge-in")).toBe(true);
+    if (failure === "interruption") {
+      expect(firstSignal?.aborted).toBe(false);
+      expect(runtime.snapshot().currentTurn).toMatchObject({
+        route: "brain", phase: "generating", transcript: "第一轮请帮我分析今天的状态"
+      });
+      expect(interruptManagedVoiceTurn(view, "cascade barge-in")).toBe(true);
+    }
     await firstTurn;
-
     expect(firstSignal?.aborted).toBe(true);
-    expect(runtime.snapshot().currentTurn?.phase).toBe("interrupted");
+
+    if (failure === "network") {
+      const acknowledgement = "已收到这句语音，文字模型暂时连不上。可以稍后再问。";
+      expect(runtime.snapshot()).toMatchObject({ lastErrorCode: "text_model_network", currentTurn: { phase: "failed" } });
+      expect(view.agentReply).toBe(acknowledgement);
+      expect(view.agentMessages.at(-1)?.content).toBe(acknowledgement);
+      expect(view.transitionVoiceSession).toHaveBeenLastCalledWith("listening", "realtime response failed");
+    } else {
+      expect(runtime.snapshot().currentTurn?.phase).toBe("interrupted");
+    }
     expect(view.agentVoiceSendInFlight).toBe(false);
     expect(view.agentBusy).toBe(false);
 

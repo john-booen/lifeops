@@ -35,6 +35,7 @@ import { allowSpeakerBargeIn, isDistantPlaybackSpeech, isSpeakerEcho, recentPlay
   type CascadeCaptureEvent } from "./continuousInput";
 import { beginHeardSpeech, finishHeardSpeech, rememberHeardPhrase, takeInterruptedSpeech } from "./interruption";
 import { isVaultPathExcluded } from "../privacy";
+import { ProviderRunFailure } from "../providerRun";
 import { formatDate, todayString } from "../date";
 import type { StoreHost } from "../store/settingsSlice";
 import { backgroundVoiceQuestion, VoiceJobManager, voiceJobSpeech, type VoiceJob } from "./jobs";
@@ -1459,6 +1460,16 @@ async function sendRoutedLifeOpsVoiceTurn(
     });
   } catch (error) {
     if (!isCurrent() || turn?.abortController.signal.aborted) return;
+    if (cascade && error instanceof ProviderRunFailure && error.code === "network") {
+      const reply = "已收到这句语音，文字模型暂时连不上。可以稍后再问。";
+      const playbackId = runtime?.snapshot().currentTurn?.playbackId;
+      updateManagedAssistantText(view, reply);
+      failOmniE2eVoiceTurn(view, reply, undefined, "text_model_network");
+      if (playbackId) view.agentAudioOutput?.cancel?.(playbackId, "text_model_network");
+      view.agentTtsClient?.cancel?.();
+      view.agentTtsClient = null;
+      return;
+    }
     failOmniE2eVoiceTurn(
       view,
       error instanceof Error ? error.message : "LifeOps 文本主脑处理失败。"
@@ -1471,7 +1482,8 @@ async function sendRoutedLifeOpsVoiceTurn(
 function failOmniE2eVoiceTurn(
   view: VoiceRealtimeView,
   message: string,
-  response?: BailianRealtimeResponseEvent
+  response?: BailianRealtimeResponseEvent,
+  errorCode = "realtime_response_failed"
 ): void {
   const isOmni = isOmniE2eRealtimeMode(view.controller.settings.realtimeVoice);
   if (isOmni && response && !acceptsOmniRuntimeEvent(view, response)) return;
@@ -1481,7 +1493,7 @@ function failOmniE2eVoiceTurn(
   const current = runtime?.snapshot().currentTurn;
   if (current && current.phase !== "completed" && current.phase !== "interrupted" && current.phase !== "failed") {
     settleJobPlayback(view, current.turnId, false);
-    runtime.fail("realtime_response_failed");
+    runtime.fail(errorCode);
   }
   view.agentVoiceBargeIn?.reset?.("turn_failed");
   view.agentVoiceSendInFlight = false;
@@ -1490,7 +1502,7 @@ function failOmniE2eVoiceTurn(
   view.agentOmniPlaybackReady = null;
   view.setAgentBusy?.(false);
   view.agentSpeaking = false;
-  view.agentReply = `百炼实时语音错误：${message}`;
+  view.agentReply = errorCode === "text_model_network" ? message : `百炼实时语音错误：${message}`;
   if (view.agentRecording) {
     view.transitionVoiceSession?.("listening", "realtime response failed");
   } else {
