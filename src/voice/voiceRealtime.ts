@@ -46,7 +46,7 @@ import { acceptsOmniRuntimeEvent, createOmniResponseHandlers } from "./omniE2e/r
 import { armOmniResponseTimer as armOmniTimer, clearOmniResponseTimer } from "./omniE2e/responseTimer";
 import { createOmniCallbacks, omniSessionOptions } from "./omniE2e/session";
 import { projectProposalFailure } from "./omniE2e/projectProposals";
-import { checkContextSources, CONTEXT_CHANGED_MESSAGE } from "./omniE2e/contextSources";
+import { checkActiveOmniSources, CONTEXT_CHANGED_MESSAGE } from "./omniE2e/contextSources";
 import {
   canQueueAfterNativePlayback,
   handleOmniE2eBargeInEvent as applyOmniBargeInEvent,
@@ -1157,11 +1157,8 @@ function beginManagedVoiceTurn(
   }
 }
 
-async function checkOmniContextSources(view: VoiceRealtimeView): Promise<boolean> {
-  const client = view.agentRealtimeClient;
-  if (!client?.hasProtectedContextSources?.()) return true;
-  const presentationCurrent = captureVoicePresentationGuard(view);
-  return checkContextSources(client, () => view.agentRealtimeClient === client && presentationCurrent(),
+function checkOmniContextSources(view: VoiceRealtimeView): Promise<boolean> {
+  return checkActiveOmniSources(view, () => captureVoicePresentationGuard(view),
     () => failOmniToolContext(view, CONTEXT_CHANGED_MESSAGE));
 }
 

@@ -5,6 +5,17 @@ export const CONTEXT_CHANGED_MESSAGE = "语音资料刚刚变化，旧回复已�
 
 type ProtectedContextClient = Pick<BailianRealtimeClient, "assertContextSourcesCurrent" | "assertContextSourcesCurrentNow">;
 
+export async function checkActiveOmniSources(
+  view: { agentRealtimeClient?: BailianRealtimeClient | null },
+  capturePresentation: () => () => boolean,
+  onInvalid: () => void
+): Promise<boolean> {
+  const client = view.agentRealtimeClient;
+  if (!client?.hasProtectedContextSources?.()) return true;
+  const presentationCurrent = capturePresentation();
+  return checkContextSources(client, () => view.agentRealtimeClient === client && presentationCurrent(), onInvalid);
+}
+
 export async function checkContextSources(client: ProtectedContextClient, isCurrent: () => boolean, onInvalid: () => void): Promise<boolean> {
   try {
     await client.assertContextSourcesCurrent();
