@@ -1,5 +1,6 @@
 import type { ChatMessage } from "../../ai";
 import { ACCOUNTABILITY_BOUNDARY } from "../../accountability";
+import { HEALTH_METRICS, healthMetricKeys } from "../health/model";
 import type { SummaryData } from "./data";
 import type { SummaryLevel, SummaryPeriod } from "./periods";
 
@@ -31,16 +32,27 @@ export function validSummaryText(text: string, level: SummaryLevel): boolean {
 
 export function localSummaryText(period: SummaryPeriod, data: SummaryData): string {
   const { metrics } = data;
+  const health = data.stats.health;
   const display = (value: number | null, unit = "") => value === null ? "暂无可靠记录" : String(value) + unit;
+  const healthLines: string[] = [];
+  if (health?.recordedDays) {
+    healthLines.push(`健康记录覆盖 ${health.recordedDays} 天。`);
+    const labels = { sleepHours: "平均睡眠", steps: "累计步数", runningKm: "累计跑步", weightKg: "平均体重", restingHeartRate: "平均静息心率" };
+    for (const key of healthMetricKeys) {
+      const metric = health[key];
+      const value = key === "steps" || key === "runningKm" ? metric?.total : metric?.average;
+      if (metric?.recordedDays && typeof value === "number") {
+        healthLines.push(`${labels[key]} ${value} ${HEALTH_METRICS[key].unit}（${metric.recordedDays} 天）。`);
+      }
+    }
+    if (health.scope) healthLines.push("只统计允许读取的健康记录。");
+  }
   return [
     "截至 " + data.through + " 的记录",
     "",
     "- 完成任务 " + display(metrics.tasksCompleted, " 项") + "。计划任务完成率 " + display(metrics.taskCompletionPercent, "%") + "。",
     "- 精力 " + display(metrics.energy, " / 5") + "。交易净盈亏为 CNY " + display(metrics.tradePnlCny) + "，USD " + display(metrics.tradePnlUsd) + "。",
-    ...(data.stats.health?.recordedDays ? [`- 健康记录覆盖 ${data.stats.health.recordedDays} 天。` +
-      (data.stats.health.sleepHours?.recordedDays ? `平均睡眠 ${data.stats.health.sleepHours.average} 小时（${data.stats.health.sleepHours.recordedDays} 天）。` : "") +
-      (data.stats.health.steps?.recordedDays ? `累计 ${data.stats.health.steps.total} 步（${data.stats.health.steps.recordedDays} 天）。` : "") +
-      (data.stats.health.runningKm?.recordedDays ? `累计跑步 ${data.stats.health.runningKm.total} 公里（${data.stats.health.runningKm.recordedDays} 天）。` : "")] : []),
+    ...(healthLines.length ? ["- " + healthLines.join("")] : []),
     ...(period.level === "day" ? ["- 有 " + (data.daily?.signals.length ?? 0) + " 份可用日记信号。"]
       : ["- 有 " + data.summaries.length + " 份可用下级摘要。"])
   ].join("\n");

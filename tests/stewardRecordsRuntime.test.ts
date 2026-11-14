@@ -308,6 +308,20 @@ describe("steward record entry points on real temporary Vault files", () => {
     expect(notices).toEqual(["已撤销你选中的这一条操作。"]);
   });
 
+  it.each([
+    ["local_appendHealthEntry", "手动记录健康"],
+    ["manual_health_csv_batch", "导入健康 CSV"],
+    ["manual_health_screenshot", "截图记健康"],
+    ["manual_trade_screenshot_batch", "截图记交易"]
+  ])("names the recent operation %s without exposing its entries", async (name, title) => {
+    const path = store.path(store.settings.folders.health, "2026-11-14.md");
+    const id = "synthetic-import-label";
+    await runtime.executeLocalOperation(name, { entries: ["synthetic private details"] }, scope => scope.writeFile(path, "synthetic private bytes"), id);
+    const entry = (await plugin.getStewardOperations()).find(row => row.id === id);
+    expect(entry).toMatchObject({ title, canUndo: true });
+    expect(JSON.stringify(entry)).not.toContain("synthetic private");
+  });
+
   it("distinguishes same-second weekly drafts by their persisted target and keeps it after selected Undo", async () => {
     vi.spyOn(Date.prototype, "toISOString").mockReturnValue("2026-10-18T00:00:00.000Z");
     const a = store.path(store.settings.folders.aiReports, "周回顾", "2026-10-11-至-2026-10-17-aaaaaaaaaaaa.md");

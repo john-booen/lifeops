@@ -66,6 +66,8 @@ export async function getStewardOperations(this: MemoryHost): Promise<StewardOpe
       confirm_review_memory: "审查个人记忆", confirm_update_memory: "保存记忆", confirm_delete_task: "删除任务", confirm_delete_habit: "删除习惯",
       local_createTask: "新建任务", local_updateTask: "修改任务", local_completeTask: "完成任务", local_deleteTask: "删除任务",
       local_createHabit: "新建习惯", local_updateHabit: "修改习惯", local_recordHabit: "习惯打卡", local_deleteHabit: "删除习惯",
+      local_appendHealthEntry: "手动记录健康", manual_health_csv_batch: "导入健康 CSV",
+      manual_health_screenshot: "截图记健康", manual_trade_screenshot_batch: "截图记交易",
       local_openRecordNote: "准备文字记录", local_screen_idea_candidates: "筛查日记想法候选",
       generated_period_summary: "生成日、周或月摘要", scheduled_period_summary: "自动生成摘要",
       scheduled_summary_activation: "开始自动生成摘要",

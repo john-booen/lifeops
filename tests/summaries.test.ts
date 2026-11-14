@@ -106,6 +106,24 @@ it("catches up the previous day, fills the Sunday 21:30 report after the 23:30 d
   expect(await vault.bytes(path)).toBe(edited);
 });
 
+it("keeps confirmed health metrics and coverage in local daily and weekly summaries", async () => {
+  await store.appendHealthEntry({ date: "2026-11-14", steps: 0, weightKg: 68.5, restingHeartRate: 63 });
+  await store.appendHealthEntry({ date: "2026-11-15", sleepHours: 7.25, runningKm: 2.4, weightKg: 69.5 });
+  ask.mockResolvedValueOnce("too short").mockResolvedValueOnce("too short");
+  const day = await generatePeriodSummary(host, summaryPeriod("day", "2026-11-15"), now(15, 23, 30));
+  expect(day.generatedBy).toBe("local");
+  const daily = await saved("day", "2026-11-15");
+  expect(daily?.text).toContain("平均睡眠 7.25 小时（1 天）。累计跑步 2.4 公里（1 天）。平均体重 69.5 kg（1 天）。");
+  expect(daily?.text).not.toContain("静息心率");
+  ask.mockResolvedValueOnce("too short").mockResolvedValueOnce("too short");
+  const week = await generatePeriodSummary(host, summaryPeriod("week", "2026-11-15"), now(15, 23, 30));
+  expect(week.generatedBy).toBe("local");
+  const weekly = await saved("week", "2026-11-15");
+  expect(weekly?.text).toContain("健康记录覆盖 2 天。");
+  expect(weekly?.text).toContain("累计步数 0 步（1 天）。");
+  expect(weekly?.text).toContain("平均体重 69 kg（2 天）。平均静息心率 63 次/分（1 天）。");
+});
+
 it("catches up the previous day even when the first launch is after 23:30", async () => {
   await runScheduledSummaries(host, now(12, 23, 47));
   expect((await saved("day", "2026-11-11"))?.properties.complete).toBe(true);
