@@ -39,8 +39,8 @@ import type { VaultQueryRead } from "./vaultQueryRead";
 
 import { type RealtimeToolOutput } from "./voice/realtimeToolOutput";
 
-import { parseHealthCsv } from "./csv";
 import { openHealthScreenshot, type HealthScreenshotHost } from "./features/health/modal";
+import { openHealthCsvImport } from "./features/health/csvImportModal";
 import { recognizeHealthScreenshot } from "./features/health/screenshot";
 import { recordHealthEntries } from "./features/health/store";
 import type { ScreenshotImage } from "./features/screenshots/image";
@@ -58,7 +58,7 @@ import { LifeOpsEventBus } from "./lifeOpsEventBus";
 import { resolvePlatformCapabilities } from "./platformCapabilities";
 import { restrictCredentialFilePermissions } from "./credentialSecurity";
 import { setProviderEgressSink } from "./privacy";
-import { CsvImportModal, HealthEntryModal, QuickCaptureModal } from "./modals";
+import { HealthEntryModal, QuickCaptureModal } from "./modals";
 import { openTradeForm, type TradeFormHost } from "./features/trading/service";
 import { openTradeBackfill, type TradeBackfillHost } from "./features/trading/backfillModal";
 import { openTradeCsvImport, type TradeCsvHost } from "./features/trading/csvImportModal";
@@ -353,7 +353,7 @@ export default class LifeOpsPlugin extends Plugin {
     });
     this.addCommand({
       id: "import-health-csv",
-      name: "Import health CSV",
+      name: "导入健康 CSV",
       callback: () => this.openHealthCsvImport()
     });
     if (Platform.isDesktopApp) this.addCommand({ id: "import-health-screenshot", name: "截图记健康", callback: () => this.openHealthScreenshot() });
@@ -1318,13 +1318,7 @@ export default class LifeOpsPlugin extends Plugin {
   }
 
   private openHealthCsvImport(): void {
-    new CsvImportModal(this.app, async (value) => {
-      const entries = parseHealthCsv(value);
-      let saved = 0;
-      await this.saveLocalOperation("manual_health_csv_batch", { entries }, async store => { saved = await recordHealthEntries(store, entries); });
-      await this.refreshViews();
-      new Notice(`LifeOps 已导入 ${saved} 条健康记录`);
-    }).open();
+    openHealthCsvImport({ app: this.app, register: cleanup => this.register(cleanup), ...this.localOperationHost() });
   }
 
   private async injectStyles(issues?: ReleaseLoadIssue[]): Promise<void> {
