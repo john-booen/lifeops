@@ -22,6 +22,11 @@ export function healthMetricValue(key: HealthMetric, value: unknown): number | u
   return rounded;
 }
 
+export function healthRating(value: number | undefined, label: "疲劳" | "精力"): number | undefined {
+  if (value !== undefined && (!Number.isFinite(value) || value < 1 || value > 10)) throw Error(`${label}请填写 1 到 10。`);
+  return value;
+}
+
 export function healthDay(date: string, values: Partial<Record<HealthMetric, unknown>>): HealthDay {
   if (!/^\d{4}-\d{2}-\d{2}$/u.test(date) || normalizeJournalDate(date) !== date) throw Error("请选择有效的健康记录日期。");
   const entry: HealthDay = { date };

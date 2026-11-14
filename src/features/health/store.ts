@@ -5,7 +5,7 @@ import { isGuardedOperationScope } from "../../dataFoundation/factOperation";
 import { readScopedMarkdown } from "../../dataFoundation/markdownSources";
 import type { StoreHost } from "../../store/settingsSlice";
 import type { HealthEntry } from "../../types";
-import { healthDay, healthMetricKeys, inspectHealthMarkdown, type HealthDay } from "./model";
+import { healthDay, healthMetricKeys, healthRating, inspectHealthMarkdown, type HealthDay } from "./model";
 
 export function healthNotePath(store: StoreHost, date: string): string {
   return store.path(store.settings.folders.health, `${date}.md`);
@@ -51,14 +51,12 @@ export async function recordHealthEntries(store: StoreHost, entries: readonly He
   let saved = 0;
   for (const input of entries) {
     const { date, ...metrics } = healthDay(input.date, input);
-    for (const [value, label] of [[input.fatigue, "疲劳"], [input.energy, "精力"]] as const) {
-      if (value !== undefined && (!Number.isFinite(value) || value < 1 || value > 10)) throw Error(`${label}请填写 1 到 10。`);
-    }
+    const fatigue = healthRating(input.fatigue, "疲劳"), energy = healthRating(input.energy, "精力");
     if (!healthPathAllowed(store, date)) throw Error("健康记录目录已排除。");
     const { day: existing, canAppend } = await checkHealthNote(store, date);
     const changed = Object.fromEntries(healthMetricKeys.flatMap(key =>
       metrics[key] !== undefined && metrics[key] !== existing[key] ? [[key, metrics[key]]] : []));
-    const extras = { exercise: input.exercise?.trim() || undefined, fatigue: input.fatigue, energy: input.energy, note: input.note?.trim() || undefined };
+    const extras = { exercise: input.exercise?.trim() || undefined, fatigue, energy, note: input.note?.trim() || undefined };
     if (!Object.keys(changed).length && Object.values(extras).every(value => value === undefined)) continue;
     if (!canAppend) throw Error("健康笔记里有未闭合的属性、注释或代码块，请核对后再保存。");
     await store.appendHealthEntry({ date, ...changed, ...extras });

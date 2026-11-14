@@ -79,6 +79,13 @@ describe("parseHealthCsv", () => {
     expect(() => parseHealthCsv(`日期,睡眠小时\n2026-05-25,7\n${row}`)).toThrow(error);
   });
 
+  it("rejects an out-of-range rating before preview and omits rows with no supported values", () => {
+    expect(() => parseHealthCsv("date,steps,疲劳\n2026-05-25,8000,11")).toThrow(/第 1 条健康记录.*疲劳.*1 到 10/);
+    expect(parseHealthCsv("date,steps,精力\n2026-05-25,,\n2026-05-26,0,1")).toEqual([
+      expect.objectContaining({ date: "2026-05-26", steps: 0, energy: 1 })
+    ]);
+  });
+
   it("rejects unquoted comma-separated thousands that would shift values", () => {
     expect(() => parseHealthCsv("日期,步数\n2026-05-25,8,000")).toThrow(/第 1 条健康记录的列数/);
   });

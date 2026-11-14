@@ -1,5 +1,5 @@
 import type { HealthEntry } from "./types";
-import { healthDay } from "./features/health/model";
+import { healthDay, healthMetricKeys, healthRating } from "./features/health/model";
 
 const HEALTH_COLUMN_NAMES = {
   date: ["date", "日期", "day"],
@@ -52,13 +52,16 @@ export function parseHealthCsv(text: string): HealthEntry[] {
         runningKm: numberFrom(read("runningKm"), "跑步距离", /\s*(?:公里|千米|km)$/iu),
         restingHeartRate: numberFrom(read("restingHeartRate"), "静息心率", /\s*(?:次\/分|bpm)$/iu)
       });
-      return [{
+      const record: HealthEntry = {
         ...entry,
         exercise: read("exercise") || "",
-        fatigue: numberFrom(read("fatigue"), "疲劳"),
-        energy: numberFrom(read("energy"), "精力"),
+        fatigue: healthRating(numberFrom(read("fatigue"), "疲劳"), "疲劳"),
+        energy: healthRating(numberFrom(read("energy"), "精力"), "精力"),
         note: read("note") || ""
-      }];
+      };
+      if (!healthMetricKeys.some(key => record[key] !== undefined) && record.fatigue === undefined
+        && record.energy === undefined && !record.exercise && !record.note) return [];
+      return [record];
     } catch (error) {
       throw Error(`第 ${index + 1} 条健康记录：${error instanceof Error ? error.message : "无法读取。"}`);
     }
