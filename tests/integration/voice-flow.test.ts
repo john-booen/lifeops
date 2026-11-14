@@ -32,7 +32,7 @@ import * as playbackInput from "../../src/voice/playbackInput";
 import type { BreezeResidentWorker } from "../../src/voice/breezeResident";
 import type { AgentSubmissionOptions } from "../../src/types";
 import { createVoiceWorklet } from "../eval/voiceWorklet";
-import { recordSpeakerPhrase, ServerVoiceEndpoint } from "../../src/voice/continuousInput";
+import { recordSpeakerPhrase, resetSpeakerEcho, ServerVoiceEndpoint } from "../../src/voice/continuousInput";
 import { beginHeardSpeech, rememberHeardPhrase } from "../../src/voice/interruption";
 
 const TEST_REALTIME_SETTINGS = {
@@ -2184,6 +2184,32 @@ describe("voice integration flow", () => {
     }
     expect(measurements).toHaveLength(20);
     expect(Math.max(...measurements)).toBeLessThanOrEqual(300);
+  });
+
+  it("filters distant interruption audio while allowing normal nearby speech during playback", () => {
+    const view = {
+      controller: { settings: { ...DEFAULT_SETTINGS, ai: { ...DEFAULT_SETTINGS.ai, dataDisclosureAccepted: false } } },
+      agentMode: "voice", agentRecording: true, agentVoiceReady: true, agentSpeaking: false,
+      handleVoiceSpeechStarted: vi.fn(), handleVoiceSpeechStopped: vi.fn(), markVoiceTrace: vi.fn(),
+      clearVoiceNoTranscriptTimer: vi.fn(), clearVoiceLocalEndpointTimer: vi.fn(),
+      updateRealtimeTranscript: vi.fn(), sendVoiceTurnIfReady: vi.fn()
+    };
+    const sample = (amplitude: number) => Float32Array.from({ length: 640 }, (_, i) => amplitude * Math.sin(i * Math.PI / 16));
+    resetSpeakerEcho(view, true);
+    observeLocalVoiceEnergy(view, sample(0.15));
+    view.agentSpeaking = true;
+    const endpoint = new ServerVoiceEndpoint();
+    function hear(itemId: string, amplitude: number, text: string) {
+      handleCascadeCapture(view, endpoint, { type: "started", itemId });
+      for (let i = 0; i < 8; i++) observeLocalVoiceEnergy(view, sample(amplitude));
+      handleCascadeCapture(view, endpoint, { type: "stopped", itemId });
+      handleCascadeCapture(view, endpoint, { type: "final", itemId, text });
+    }
+    hear("far", 0.025, "等一下");
+    expect(view.sendVoiceTurnIfReady).not.toHaveBeenCalled();
+    hear("near", 0.13, "停一下");
+    expect(view.updateRealtimeTranscript).toHaveBeenCalledExactlyOnceWith("停一下", true, true);
+    expect(view.sendVoiceTurnIfReady).toHaveBeenCalledOnce();
   });
 
   it("filters incidental speech during playback without text model disclosure", () => {

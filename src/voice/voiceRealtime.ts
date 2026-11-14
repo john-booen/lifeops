@@ -40,7 +40,7 @@ import { agentConversationAlreadyAppended, bindAgentHistoryResponse, retainAgent
 import {disposeRealtimeToolOutput,type RealtimeToolOutput} from "./realtimeToolOutput";
 import { markVoiceLatency, markVoiceLatencyCapture, resetVoiceLatencyCapture } from "./latency";
 import { BreezeResidentTtsClient, closeSessionBreeze, sessionBreeze, VoiceSpeechParts, warmSessionBreeze } from "./breezeSpeech";
-import { allowSpeakerBargeIn, isSpeakerEcho, recordSpeakerPhrase, resetSpeakerEcho, ServerVoiceEndpoint, speakerMicVoice,
+import { allowSpeakerBargeIn, isDistantPlaybackSpeech, isSpeakerEcho, recentPlaybackLevel, recordSpeakerPhrase, resetSpeakerEcho, ServerVoiceEndpoint, speakerMicVoice,
   type CascadeCaptureEvent } from "./continuousInput";
 import { beginHeardSpeech, finishHeardSpeech, rememberHeardPhrase, takeInterruptedSpeech } from "./interruption";
 import { isVaultPathExcluded } from "../privacy";
@@ -66,6 +66,7 @@ const ordinaryMainResponses = new WeakMap<VoiceSessionController, {
 const cancelledVoiceInputs = new WeakMap<object, {text: string; client: BailianRealtimeClient}>();
 const activeCascadeCapture = new WeakMap<object, ServerVoiceEndpoint>();
 const freshCascadeTranscripts = new WeakMap<object, string>();
+const cascadePlaybackLevels = new WeakMap<ServerVoiceEndpoint, number>();
 const cascadePlaybackCaptures = new WeakSet<ServerVoiceEndpoint>();
 const pendingCascadeInterruptions = new WeakMap<object, AbortController>();
 const voiceConfirmations = new WeakMap<object, { turnId: string; action: AgentActionSuggestion; played: boolean }>();
@@ -468,6 +469,7 @@ export function handleCascadeCapture(view: VoiceRealtimeView, endpoint: ServerVo
   if (event.type === "started") {
     if (playing) cascadePlaybackCaptures.add(endpoint);
     else cascadePlaybackCaptures.delete(endpoint);
+    cascadePlaybackLevels.set(endpoint, 0);
     freshCascadeTranscripts.delete(view);
     resetVoiceLatencyCapture(view);
     clearCascadePreview(view);
@@ -478,6 +480,7 @@ export function handleCascadeCapture(view: VoiceRealtimeView, endpoint: ServerVo
     view.markVoiceTrace("firstTranscript");
     view.updateRealtimeTranscript(event.text, false, false, true);
   } else if (event.type === "stopped") {
+    if (!cascadePlaybackLevels.get(endpoint)) cascadePlaybackLevels.set(endpoint, recentPlaybackLevel(view));
     markVoiceLatencyCapture(view, "t0");
     view.handleVoiceSpeechStopped("server-vad", false);
   } else if (event.type === "final") {
@@ -490,7 +493,9 @@ export function handleCascadeCapture(view: VoiceRealtimeView, endpoint: ServerVo
   if (capture.ready === undefined) return;
   clearCascadePreview(view);
   const overlapsPlayback = playing || cascadePlaybackCaptures.has(endpoint);
-  if (!capture.ready.trim() || isSpeakerEcho(view, capture.ready) || overlapsPlayback && isVoiceBackchannelOnly(capture.ready)) {
+  const playbackLevel = cascadePlaybackLevels.get(endpoint) || recentPlaybackLevel(view);
+  if (!capture.ready.trim() || isSpeakerEcho(view, capture.ready)
+    || overlapsPlayback && (isVoiceBackchannelOnly(capture.ready) || isDistantPlaybackSpeech(view, playbackLevel))) {
     maybeAnnounceVoiceJob(view);
     return;
   }
@@ -1005,8 +1010,13 @@ export function observeLocalVoiceEnergy(view: VoiceRealtimeView, input: Float32A
   if (isOmniE2eRealtimeMode(view.controller.settings.realtimeVoice)) return;
   const now = performance.now();
   const rms = audioRms(input);
-  const playing = Boolean(view.agentSpeaking || view.agentVoiceSystemSpeechActive);
+  const playing = Boolean(view.agentSpeaking || view.agentVoiceSystemSpeechActive
+    || view.agentAudioOutput?.snapshot?.()?.status === "playing");
   const speaking = speakerMicVoice(view, rms, playing, now);
+  const endpoint = activeCascadeCapture.get(view);
+  if (playing && endpoint?.awaitingTranscript) {
+    cascadePlaybackLevels.set(endpoint, Math.max(cascadePlaybackLevels.get(endpoint) ?? 0, rms));
+  }
   if (speaking) {
     if (!view.agentVoiceLocalSpeechActive) {
       view.agentVoiceLocalSpeechActive = true;

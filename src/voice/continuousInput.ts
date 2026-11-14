@@ -39,10 +39,15 @@ export class ServerVoiceEndpoint {
 interface SpeakerEcho {
   useLevelGate: boolean;
   nearSpeechAt: number;
+  speechLevel: number;
+  playbackPeak: number;
+  playbackPeakAt: number;
   phrases: Array<{ text: string; expires: number }>;
 }
 const speakerEcho = new WeakMap<object, SpeakerEcho>();
-const newEcho = (useLevelGate = false): SpeakerEcho => ({ useLevelGate, nearSpeechAt: -Infinity, phrases: [] });
+const newEcho = (useLevelGate = false): SpeakerEcho => ({ useLevelGate, nearSpeechAt: -Infinity, speechLevel: 0,
+  playbackPeak: 0, playbackPeakAt: -Infinity, phrases: [] });
+const DISTANT_SPEECH_RATIO = 10 ** (-12 / 20);
 const normalize = (text: string) => text.normalize("NFKC").toLocaleLowerCase().replace(/[\p{P}\p{Z}\s]/gu, "").slice(0, 180);
 
 export function resetSpeakerEcho(owner: object, browserEchoCancellation?: boolean): void {
@@ -70,8 +75,30 @@ export function isSpeakerEcho(owner: object, transcript: string, now = performan
 export function speakerMicVoice(owner: object, rms: number, playing: boolean, now = performance.now()): boolean {
   const state = speakerEcho.get(owner);
   const speaking = rms > (playing && state?.useLevelGate ? SPEAKER_ECHO_LEVEL : 0.012);
-  if (state && speaking && playing) state.nearSpeechAt = now;
+  if (state) {
+    if (playing) {
+      if (speaking) state.nearSpeechAt = now;
+      if (now - state.playbackPeakAt > 1000 || rms >= state.playbackPeak) {
+        state.playbackPeak = rms;
+        state.playbackPeakAt = now;
+      }
+    } else if (speaking) {
+      state.speechLevel = state.speechLevel ? state.speechLevel * 0.85 + rms * 0.15 : rms;
+      state.playbackPeak = 0;
+      state.playbackPeakAt = -Infinity;
+    }
+  }
   return speaking;
+}
+
+export function recentPlaybackLevel(owner: object, now = performance.now()): number {
+  const state = speakerEcho.get(owner);
+  return state && now - state.playbackPeakAt <= 1000 ? state.playbackPeak : 0;
+}
+
+export function isDistantPlaybackSpeech(owner: object, level: number): boolean {
+  const usual = speakerEcho.get(owner)?.speechLevel ?? 0;
+  return usual > 0 && level > 0 && level <= usual * DISTANT_SPEECH_RATIO;
 }
 
 export function allowSpeakerBargeIn(owner: object, playing: boolean, now = performance.now()): boolean {
