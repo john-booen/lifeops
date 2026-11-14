@@ -1,6 +1,19 @@
 import type { HealthEntry } from "./types";
 import { healthDay } from "./features/health/model";
 
+const HEALTH_COLUMN_NAMES = {
+  date: ["date", "日期", "day"],
+  sleepHours: ["sleepHours", "睡眠小时", "sleep", "睡眠"],
+  weightKg: ["weightKg", "体重", "weight"],
+  steps: ["steps", "步数"],
+  runningKm: ["runningKm", "跑步距离"],
+  restingHeartRate: ["restingHeartRate", "静息心率"],
+  exercise: ["exercise", "运动"],
+  fatigue: ["fatigue", "疲劳"],
+  energy: ["energy", "精力"],
+  note: ["note", "备注"]
+} as const;
+
 export function parseCsv(text: string, strict = false): Record<string, string>[] {
   const rows = parseCsvGrid(text, strict);
   if (rows.length === 0) return [];
@@ -18,22 +31,33 @@ export function parseCsv(text: string, strict = false): Record<string, string>[]
 
 export function parseHealthCsv(text: string): HealthEntry[] {
   const rows = parseCsv(text, true);
+  const headings = rows[0] ?? {};
+  const columns = new Map<keyof typeof HEALTH_COLUMN_NAMES, string>();
+  for (const [field, names] of Object.entries(HEALTH_COLUMN_NAMES)) {
+    const provided = names.filter(name => Object.hasOwn(headings, name));
+    if (provided.length > 1) throw Error(`表头中的「${provided.join("、")}」指向同一个字段，请保留一列。`);
+    if (provided.length) columns.set(field as keyof typeof HEALTH_COLUMN_NAMES, provided[0]);
+  }
   return rows.flatMap((row, index) => {
     if (Object.values(row).every(value => !value)) return [];
     try {
-      const entry = healthDay(row.date || row["日期"] || row.day || "", {
-        sleepHours: numberFrom(row.sleepHours || row["睡眠小时"] || row.sleep || row["睡眠"], "睡眠小时", /\s*(?:小时|hrs?|h)$/iu),
-        weightKg: numberFrom(row.weightKg || row["体重"] || row.weight, "体重", /\s*(?:公斤|千克|kg)$/iu),
-        steps: numberFrom(row.steps || row["步数"], "步数", /\s*(?:步|steps?)$/iu),
-        runningKm: numberFrom(row.runningKm || row["跑步距离"], "跑步距离", /\s*(?:公里|千米|km)$/iu),
-        restingHeartRate: numberFrom(row.restingHeartRate || row["静息心率"], "静息心率", /\s*(?:次\/分|bpm)$/iu)
+      const read = (field: keyof typeof HEALTH_COLUMN_NAMES): string | undefined => {
+        const name = columns.get(field);
+        return name ? row[name] : undefined;
+      };
+      const entry = healthDay(read("date") || "", {
+        sleepHours: numberFrom(read("sleepHours"), "睡眠小时", /\s*(?:小时|hrs?|h)$/iu),
+        weightKg: numberFrom(read("weightKg"), "体重", /\s*(?:公斤|千克|kg)$/iu),
+        steps: numberFrom(read("steps"), "步数", /\s*(?:步|steps?)$/iu),
+        runningKm: numberFrom(read("runningKm"), "跑步距离", /\s*(?:公里|千米|km)$/iu),
+        restingHeartRate: numberFrom(read("restingHeartRate"), "静息心率", /\s*(?:次\/分|bpm)$/iu)
       });
       return [{
         ...entry,
-        exercise: row.exercise || row["运动"] || "",
-        fatigue: numberFrom(row.fatigue || row["疲劳"], "疲劳"),
-        energy: numberFrom(row.energy || row["精力"], "精力"),
-        note: row.note || row["备注"] || ""
+        exercise: read("exercise") || "",
+        fatigue: numberFrom(read("fatigue"), "疲劳"),
+        energy: numberFrom(read("energy"), "精力"),
+        note: read("note") || ""
       }];
     } catch (error) {
       throw Error(`第 ${index + 1} 条健康记录：${error instanceof Error ? error.message : "无法读取。"}`);

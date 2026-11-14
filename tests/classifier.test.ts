@@ -53,6 +53,8 @@ describe("parseHealthCsv", () => {
   it("stops on blank or duplicate column headings instead of discarding a measurement", () => {
     expect(() => parseHealthCsv("日期,步数,步数\n2026-05-25,9000,1000")).toThrow("重复列名");
     expect(() => parseHealthCsv("日期,,步数\n2026-05-25,9000,1000")).toThrow("空白");
+    expect(() => parseHealthCsv("日期,steps,步数\n2026-05-25,9000,1000")).toThrow("steps、步数");
+    expect(() => parseHealthCsv("date,日期,sleepHours\n2026-05-25,2026-05-24,7.5")).toThrow("date、日期");
   });
 
   it("parses bilingual health fields", () => {
