@@ -327,7 +327,7 @@ export default class LifeOpsPlugin extends Plugin {
       callback: () => this.openHealthCsvImport()
     });
     this.addCommand({ id: "import-trade-csv", name: "导入交易 CSV", callback: () => openTradeCsvImport(this as unknown as TradeCsvHost) });
-    this.addCommand({ id: "import-trade-screenshot", name: "截图记交易", callback: () => openTradeScreenshotImport(this as unknown as TradeScreenshotHost) });
+    this.addCommand({ id: "import-trade-screenshot", name: "截图记交易", callback: () => this.openTradeScreenshotImport() });
     this.addCommand({ id: "backfill-trades", name: "回填历史交易", callback: () => openTradeBackfill(this as unknown as TradeBackfillHost) });
     this.addCommand({
       id: "record-health-entry",
@@ -808,6 +808,10 @@ export default class LifeOpsPlugin extends Plugin {
   async collectVoiceSessionHotwords(configured: string | undefined): Promise<string[]> {
     const { collectSessionHotwords } = await import("./voice/sessionHotwords");
     return collectSessionHotwords(this.store as unknown as StoreHost, configured);
+  }
+
+  openTradeScreenshotImport(image?: File): void {
+    openTradeScreenshotImport(this as unknown as TradeScreenshotHost, image);
   }
 
   async buildVoiceSessionContextBlock(): Promise<string> {

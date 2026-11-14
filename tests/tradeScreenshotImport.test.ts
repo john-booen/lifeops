@@ -30,6 +30,23 @@ const cases = {
     openClockShown: true, openedZone: "+00:00", qty: 0.5, qtyUnit: "coin", entry: 50, exit: null, displayedPnl: null, currency: "USD" }
 };
 type CaseName = keyof typeof cases;
+
+it.each([
+  ["2026-10-12T09:30:00Z", "us-stock", "USD", "-04:00", "America/New_York"],
+  ["2026-12-12T09:30:00", "us-stock", "USD", "-05:00", "America/New_York"],
+  ["2026-10-12T09:30", "a-share", "CNY", "+08:00", "Asia/Shanghai"],
+  ["2026-10-12T09:30", "futures", "CNY", "+08:00", "Asia/Shanghai"]
+])("infers the local exchange zone for %s (%s)", (openedAt, market, currency, offset, inferredTimeZone) => {
+  const data = { ...cases["equity-match"], openedAt, market, currency, openedZone: null, closedAt: undefined };
+  const [row] = previewTradeScreenshot([data], "a".repeat(64), []).rows;
+  expect(row).toMatchObject({ kind: "ready", inferredTimeZone,
+    draft: { openedAt: expect.stringMatching(new RegExp(offset.replace("+", "\\+") + "$")), notes: expect.stringContaining("按市场推定") } });
+});
+
+it("asks for an explicit offset when a US local time occurs twice", () => {
+  const data = { ...cases["equity-match"], openedAt: "2026-11-01T01:30", openedZone: null, closedAt: undefined };
+  expect(previewTradeScreenshot([data], "a".repeat(64), []).rows[0]).toMatchObject({ kind: "invalid", reason: expect.stringContaining("夏令时") });
+});
 const readFixture = async (name: CaseName) => readTradeScreenshot(await readFile(join("tests/fixtures/trade-screenshots", name + ".png")));
 const settings = () => {
   const selected = structuredClone(DEFAULT_SETTINGS);

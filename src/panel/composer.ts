@@ -153,6 +153,7 @@ export interface LifeOpsViewController {
   openHabitCheckinModal(habit: HabitDefinition, defaults?: { status?: HabitCheckinStatus; date?: string; note?: string }): void;
   openHealthEntryModal(): void;
   openTradeEntryModal(): void;
+  openTradeScreenshotImport?(image: File): void;
   openCalendarNoteModal(date: string): void;
   recordHabit(habit: HabitDefinition): Promise<void>;
   recordHabitStatus(habitId: string, status: HabitCheckinStatus, date?: string, note?: string): Promise<void>;
@@ -411,6 +412,15 @@ const composerPanel = {
       input.rows = this.agentWorkspaceOpen ? 2 : this.agentMode === "text" ? 2 : 1;
       input.oninput = () => {
         this.agentInput = input.value;
+      };
+      input.onpaste = (event) => {
+        if (!this.controller.openTradeScreenshotImport) return;
+        const images = [...(event.clipboardData?.items ?? [])].filter(item => item.kind === "file"
+          && (item.type === "image/png" || item.type === "image/jpeg"));
+        const image = images.length === 1 ? images[0].getAsFile() : null;
+        if (!image) return;
+        event.preventDefault();
+        this.controller.openTradeScreenshotImport(image);
       };
       input.onkeydown = (event) => {
         if (event.isComposing || event.keyCode === 229) return;

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { recordRevision } from "../../operationIdentity";
 import type { LocalOperationHost } from "../serviceHost";
+import { normalizeJournalDate } from "../../date";
 import { tradeDeduplication } from "./dedup";
 import { tradeTime } from "./inputs";
 import { readTradeDatabase, recordTradeDrafts } from "./persistence";
@@ -53,7 +54,7 @@ export function parseTradeScreenshotRows(content: string): ModelRow[] {
 
 export type ScreenshotPreviewRow = { line: number; kind: "invalid"; reason: string }
   | { line: number; kind: "ready" | "duplicate"; draft: TradeDraft; computedPnl?: number; screenshotPnl?: number;
-      mismatch: boolean; multiplier: number };
+      mismatch: boolean; multiplier: number; inferredTimeZone?: string };
 export interface TradeScreenshotPreview {
   rows: ScreenshotPreviewRow[];
   ready: number;
@@ -69,22 +70,41 @@ const finiteField = (row: ModelRow, field: ScreenshotFields): number | undefined
 
 function explicitOffset(value: unknown): string | undefined {
   if (typeof value !== "string") return;
-  const zone = value.toUpperCase().trim();
+  const zone = value.toUpperCase().trim().replace("−", "-");
   if (zone === "Z" || zone === "UTC" || zone === "GMT") return "+00:00";
   const match = /^(?:UTC|GMT)?([+-])((?:0\d|1[0-4])):?([0-5]\d)$/u.exec(zone);
   if (match) return `${match[1]}${match[2]}:${match[3]}`;
 }
 
-function screenshotTimestamp(value: unknown, printedZone: unknown): string {
+const marketTimeZones: Partial<Record<TradeMarket, string>> = { 美股: "America/New_York", A股: "Asia/Shanghai" };
+
+function offsetForLocalClock(date: string, time: string, timeZone: string): string {
+  const normalized = time.length === 5 ? time + ":00" : time;
+  const utc = new Date(date + "T" + normalized + "Z");
+  if (Number.isNaN(utc.getTime()) || normalizeJournalDate(date) !== date) throw Error("截图中的日期或时刻无效。");
+  const format = new Intl.DateTimeFormat("sv-SE", { timeZone, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23", timeZoneName: "longOffset" });
+  const offsets = [...new Set([-24, 0, 24].map(hours => explicitOffset(format.formatToParts(new Date(+utc + hours * 3600000))
+    .find(part => part.type === "timeZoneName")?.value)).filter((value): value is string => !!value))];
+  const matches = offsets.filter(offset => format.format(new Date(date + "T" + normalized + offset)).startsWith(date + " " + normalized));
+  if (matches.length !== 1) throw Error("该时刻遇到夏令时切换，请提供截图中的明确时区。");
+  return matches[0];
+}
+
+function screenshotTimestamp(value: unknown, printedZone: unknown, marketZone?: string): { timestamp: string; inferred?: string } {
   const text = typeof value === "string" ? value : "";
   const clock = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2})?)(?:\s*(Z|(?:UTC|GMT)?[+-]\d{2}:?\d{2}|UTC|GMT))?$/iu.exec(text);
-  const zone = explicitOffset(printedZone);
-  if (!clock || !zone || clock[3] && explicitOffset(clock[3]) !== zone) {
-    throw Error("缺少截图上明确显示的日期、时刻或时区。");
+  if (!clock) throw Error("缺少截图上明确显示的日期或时刻。");
+  const printed = explicitOffset(printedZone);
+  if (printedZone && !printed || printed && clock[3] && explicitOffset(clock[3]) !== printed) {
+    throw Error("截图上显示的时区无效或互相冲突。");
   }
+  const explicit = printed;
+  if (!explicit && !marketZone) throw Error("无法从交易市场推定时区，请提供明确时区。");
+  const zone = explicit || offsetForLocalClock(clock[1], clock[2], marketZone!);
   const timestamp = `${clock[1]}T${clock[2]}${zone}`;
   if (!isTradeTimestamp(timestamp)) throw Error("截图中的日期或时区无效。");
-  return timestamp;
+  return { timestamp, ...(!explicit ? { inferred: marketZone } : {}) };
 }
 
 function screenshotDraft(row: ModelRow, digest: string, multipliers?: Record<string, number>) {
@@ -94,10 +114,12 @@ function screenshotDraft(row: ModelRow, digest: string, multipliers?: Record<str
     throw Error("缺少可核对的品种、市场、持仓方向或币种。");
   }
   const dateOnly = typeof row.openedAt === "string" && /^\d{4}-\d{2}-\d{2}$/u.test(row.openedAt) && row.openClockShown === false;
-  const openedAt = dateOnly ? row.openedAt : screenshotTimestamp(row.openedAt, row.openedZone);
-  const closedAt = row.closedAt === undefined ? undefined : screenshotTimestamp(row.closedAt, row.closedZone);
+  const marketZone = marketTimeZones[market] ?? (market === "期货" && row.currency === "CNY" ? "Asia/Shanghai" : undefined);
+  const open = dateOnly ? { timestamp: row.openedAt as string } : screenshotTimestamp(row.openedAt, row.openedZone, marketZone);
+  const close = row.closedAt === undefined ? undefined : screenshotTimestamp(row.closedAt, row.closedZone, marketZone);
+  const inferredTimeZone = open.inferred || close?.inferred;
   const draft: TradeDraft = {
-    ...tradeTime(openedAt), closedAt, market, direction: row.direction,
+    ...tradeTime(open.timestamp), closedAt: close?.timestamp, market, direction: row.direction,
     symbol: row.symbol.toUpperCase(), currency: row.currency, qty: finiteField(row, "qty"),
     qtyUnit: typeof row.qtyUnit === "string" && /^[a-z][a-z -]{0,19}$/iu.test(row.qtyUnit) ? row.qtyUnit : undefined,
     entry: finiteField(row, "entry"), exit: finiteField(row, "exit"), fees: finiteField(row, "fees"),
@@ -113,7 +135,8 @@ function screenshotDraft(row: ModelRow, digest: string, multipliers?: Record<str
     if (computedPnl === undefined) draft.notes = reported + "。交易字段不足，盈亏暂未入账。";
     else if (mismatch) draft.notes = reported + "。按本地重算值入账。";
   }
-  return { draft, computedPnl, screenshotPnl, mismatch, multiplier };
+  if (inferredTimeZone) draft.notes = [draft.notes, "截图时区按市场推定为 " + inferredTimeZone + "。"].filter(Boolean).join(" ");
+  return { draft, computedPnl, screenshotPnl, mismatch, multiplier, inferredTimeZone };
 }
 
 export function previewTradeScreenshot(rows: readonly ModelRow[], digest: string, existing: readonly Trade[],

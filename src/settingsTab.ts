@@ -734,7 +734,7 @@ export class LifeOpsSettingTab extends PluginSettingTab {
       }));
     });
     new Setting(parent).setName("允许发送手动选中的交易截图")
-      .setDesc("点击「发送并识别」才会将图片交给此服务。更改服务、模型、地址或密钥后需要重新确认。")
+      .setDesc("在 LifeOps 聊天框粘贴图片会立即识别。通过文件选择器选图后，点击「发送并识别」才发送。更改服务、模型、地址或密钥后需要重新确认。")
       .addToggle(toggle => {
         uncheck = () => { toggle.setValue(false); };
         toggle.setValue(vision.tradeScreenshotDisclosureAccepted === true).onChange(async allowed => {

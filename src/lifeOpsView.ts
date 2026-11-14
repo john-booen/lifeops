@@ -163,6 +163,7 @@ export interface LifeOpsViewController extends StewardRecordsController {
   openHabitCheckinModal(habit: HabitDefinition, defaults?: { status?: HabitCheckinStatus; date?: string; note?: string }): void;
   openHealthEntryModal(): void;
   openTradeEntryModal(): void;
+  openTradeScreenshotImport?(image: File): void;
   openCalendarNoteModal(date: string): void;
   recordHabit(habit: HabitDefinition): Promise<void>;
   recordHabitStatus(habitId: string, status: HabitCheckinStatus, date?: string, note?: string): Promise<void>;

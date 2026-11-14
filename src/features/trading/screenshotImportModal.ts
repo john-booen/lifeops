@@ -11,7 +11,7 @@ import { confirmTradeScreenshot, previewTradeScreenshot, readTradeScreenshot, TR
   type parseTradeScreenshotRows, type TradeScreenshot, type TradeScreenshotPreview } from "./screenshotImport";
 import { assertTradeScreenshotReady } from "./screenshotVision";
 
-async function assertSelectedFileAllowed(store: StoreHost, file: File): Promise<void> {
+async function assertSelectedFileAllowed(store: StoreHost, file: File, fromClipboard: boolean): Promise<void> {
   let selected = (file as File & { path?: string }).path;
   if (!selected) {
     try {
@@ -19,6 +19,7 @@ async function assertSelectedFileAllowed(store: StoreHost, file: File): Promise<
       selected = electron.webUtils?.getPathForFile(file);
     } catch { /* Older Electron exposes File.path instead. */ }
   }
+  if (!selected && fromClipboard) return;
   const vault = (store.app.vault.adapter as { getBasePath?: () => string }).getBasePath?.();
   if (!selected || !isAbsolute(selected) || !vault || !isAbsolute(vault)) throw Error("无法核对这张图片的位置，请重新从文件选择器选取。");
   const [root, target] = await Promise.all([realpath(vault), realpath(selected)])
@@ -39,8 +40,8 @@ export interface TradeScreenshotHost extends LocalOperationHost {
   recognizeTradeScreenshot(image: TradeScreenshot, signal: AbortSignal): Promise<ReturnType<typeof parseTradeScreenshotRows>>;
 }
 
-export function openTradeScreenshotImport(host: TradeScreenshotHost): void {
-  const modal = new TradeScreenshotImportModal(host);
+export function openTradeScreenshotImport(host: TradeScreenshotHost, clipboardImage?: File): void {
+  const modal = new TradeScreenshotImportModal(host, clipboardImage);
   host.register(() => modal.close());
   modal.open();
 }
@@ -50,7 +51,7 @@ class TradeScreenshotImportModal extends Modal {
   private request?: AbortController;
   private openGeneration = 0;
 
-  constructor(private readonly host: TradeScreenshotHost) { super(host.app); }
+  constructor(private readonly host: TradeScreenshotHost, private clipboardImage?: File) { super(host.app); }
 
   onOpen(): void { this.choose(); }
   onClose(): void {
@@ -58,6 +59,7 @@ class TradeScreenshotImportModal extends Modal {
     this.request?.abort("trade screenshot closed");
     this.request = undefined;
     this.selection = undefined;
+    this.clipboardImage = undefined;
     this.contentEl.empty();
   }
 
@@ -65,18 +67,18 @@ class TradeScreenshotImportModal extends Modal {
     const generation = ++this.openGeneration;
     this.request?.abort("trade screenshot replaced");
     this.request = undefined;
-    this.selection = undefined;
+    this.selection = this.clipboardImage;
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("lifeops-form-modal");
     contentEl.createEl("h2", { text: "截图记交易" });
-    contentEl.createEl("p", { text: "只发送你选中的这张图片。建议先裁掉账号、姓名和无关内容。确认前不会入账，图片不会存入库。" });
+    contentEl.createEl("p", { text: "所选原图会发送给已配置的视觉服务。请在确认卡逐笔核对后保存。" });
     try { assertTradeScreenshotReady(this.host.settings); }
     catch (error) { contentEl.createEl("p", { text: (error as Error).message }); return; }
     const picker = contentEl.createEl("input", { attr: { type: "file", accept: "image/png,image/jpeg", "aria-label": "选择交易截图" } });
-    const status = contentEl.createEl("p", { attr: { role: "status" } });
+    const status = contentEl.createEl("p", { text: this.selection ? "已粘贴 1 张图片。" : "", attr: { role: "status" } });
     new Setting(contentEl).addButton(button => {
-      button.setButtonText("发送并识别").setCta().setDisabled(true).onClick(async () => {
+      const recognize = async () => {
         const selected = this.selection, store = this.host.store;
         if (!selected || generation !== this.openGeneration || this.request) return;
         const request = this.request = new AbortController();
@@ -91,7 +93,7 @@ class TradeScreenshotImportModal extends Modal {
         try {
           assertTradeScreenshotReady(this.host.settings);
           if (selected.size > TRADE_SCREENSHOT_MAX_BYTES) throw Error("截图请裁到 4 MB 以内。");
-          await assertSelectedFileAllowed(store, selected);
+          await assertSelectedFileAllowed(store, selected, selected === this.clipboardImage);
           current();
           const image = readTradeScreenshot(await selected.arrayBuffer());
           current();
@@ -101,6 +103,7 @@ class TradeScreenshotImportModal extends Modal {
             this.host.settings.tradingContractMultipliers);
           current();
           this.selection = undefined;
+          this.clipboardImage = undefined;
           this.confirm(rows, image.digest, preview, current);
         } catch (error) {
           if (!request.signal.aborted && this.openGeneration === generation) {
@@ -109,12 +112,15 @@ class TradeScreenshotImportModal extends Modal {
             button.setDisabled(false);
           }
         } finally { if (this.request === request) this.request = undefined; }
-      });
+      };
+      button.setButtonText("发送并识别").setCta().setDisabled(!this.selection).onClick(recognize);
       picker.onchange = () => {
+        this.clipboardImage = undefined;
         this.selection = picker.files?.[0];
         button.setDisabled(!this.selection);
-        status.setText(this.selection ? "已选 1 张图片。确认已裁去无关信息后再发送。" : "");
+        status.setText(this.selection ? "已选 1 张图片。" : "");
       };
+      if (this.clipboardImage) void recognize();
     });
   }
 
@@ -138,6 +144,7 @@ class TradeScreenshotImportModal extends Modal {
         draft.symbol, draft.market, draft.direction === "long" ? "多" : "空", `开仓 ${time}`, draft.closedAt && `平仓 ${draft.closedAt.replace("T", " ")}`,
         `数量 ${draft.qty ?? "未知"}${draft.qtyUnit ? " " + draft.qtyUnit : ""}`, `${draft.entry ?? "?"} → ${draft.exit ?? "?"}`,
         `费用 ${draft.fees ?? "未显示，重算按 0"}`, `乘数 ${multiplier}`].filter(Boolean).join(" · ") });
+      if (row.inferredTimeZone) item.createEl("p", { text: "时区按市场推定 · " + row.inferredTimeZone, cls: "lifeops-warning" });
       if (row.kind === "ready") {
         const select = item.createEl("input", { attr: { type: "checkbox", "aria-label": `保存第 ${row.line} 笔 ${draft.symbol}` } });
         select.onchange = () => updateButton();
@@ -151,7 +158,7 @@ class TradeScreenshotImportModal extends Modal {
     }
     const feedback = contentEl.createEl("p", { attr: { role: "status" } });
     new Setting(contentEl)
-      .addButton(button => button.setButtonText("重选截图").onClick(() => this.choose()))
+      .addButton(button => button.setButtonText("重选截图").onClick(() => { this.clipboardImage = undefined; this.choose(); }))
       .addButton(button => {
         updateButton = () => { const count = picked().length; button.setButtonText(`确认保存 ${count} 笔`).setDisabled(!count); };
         updateButton();
