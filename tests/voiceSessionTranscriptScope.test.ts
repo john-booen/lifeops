@@ -102,6 +102,22 @@ it('a delayed manual stop cannot close or clear the replacement voice session af
  await vi.advanceTimersByTimeAsync(3000);expect(view.agentVoiceReady).toBe(true);
  expect(view.agentVoiceRuntime.snapshot().sessionPhase).toBe('listening');expect(fetchGuard).not.toHaveBeenCalled();
 },20000);
+it('keeps tentative ASR text in the composer on a manual stop without sending it', async () => {
+  Object.assign(plugin.settings.ai, { provider: 'qwen', apiKey: 'synthetic-only', model: 'qwen3.8-flash', dataDisclosureAccepted: true });
+  plugin.settings.realtimeVoice.mode = 'cascade';
+  plugin.settings.realtimeVoice.autoSendOnStop = true;
+  await start();
+  const draft = '明天三点虚构样本';
+  view.updateRealtimeTranscript(draft, false, false, true);
+  expect(view.agentInput).toBe(draft);
+  const stopped = view.stopBailianRealtimeRecording(false);
+  await vi.advanceTimersByTimeAsync(260);
+  await stopped;
+  expect(view.agentInput).toBe(draft);
+  expect(view.agentReply).toContain('未完成的听写留在输入框');
+  expect(view.agentMessages).toHaveLength(0);
+  expect(fetchGuard).not.toHaveBeenCalled();
+}, 20000);
 it('a manual stop that resumes after rendering cannot stop a newer voice runtime',async()=>{
  Object.assign(plugin.settings.ai,{provider:'qwen',apiKey:'synthetic-only',model:'qwen3.8-flash',dataDisclosureAccepted:true});
  plugin.settings.realtimeVoice.mode='cascade';await start();

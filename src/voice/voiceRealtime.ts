@@ -539,23 +539,16 @@ export async function stopBailianRealtimeRecording(view: VoiceRealtimeView, sile
     realtimeClient?.close();
     return;
   }
-  const shouldAutoSend = Boolean(
-    !silent
-    && text
-    && view.agentVoiceConversation
-    && view.controller.settings.realtimeVoice.autoSendOnStop
-  );
+  const partial = Boolean(view.agentVoiceActivePartial?.trim());
+  const shouldAutoSend = Boolean(text && !partial && view.agentVoiceConversation
+    && view.controller.settings.realtimeVoice.autoSendOnStop);
   realtimeClient?.close();
   view.agentRealtimeClient = null;
   cleanupRealtimeAudio(view);
-  if (!silent) {
-    view.agentReply = text
-      ? view.agentVoiceConversation
-        ? "语音已停止，正在发送给管家..."
-        : "语音已停止，文字已留在输入框。"
-      : "语音已停止，但还没有识别到文字。";
-    await view.render();
-  }
+  view.agentReply = shouldAutoSend ? "语音已停止，正在发送给管家..."
+    : partial ? "语音已停止，未完成的听写留在输入框，请核对后发送。"
+    : text ? "语音已停止，文字已留在输入框。" : "语音已停止，但还没有识别到文字。";
+  await view.render();
   if (!stopIsCurrent()) return;
   if (shouldAutoSend) {
     await sendManagedVoiceTurn(view, "manual cascade stop");
