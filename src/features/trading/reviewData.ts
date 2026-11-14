@@ -68,6 +68,19 @@ function reviewPolicy(store: StoreHost): string {
   return recordRevision([store.settings.folders, store.settings.privacy, store.settings.tradingSourceFolders]);
 }
 
+export function formatRecordedTradeDiscipline(output: string): string | undefined {
+  const { evidence, rules, filtered } = JSON.parse(output) as Pick<TradeReviewData, "evidence" | "rules" | "filtered">;
+  if (!Array.isArray(evidence) || !Array.isArray(rules)) return;
+  for (const trade of evidence) {
+    const rule = rules.find(item => item.modelId === trade.modelId && item.versionId === trade.versionId
+      && trade.ruleViolations.includes(item.ruleId));
+    if (!rule) continue;
+    const { label, date } = trade;
+    const scope = filtered ? "在可读取的记录里，" : "";
+    return `${scope}${date} 的 ${label}有一条已记录的违规。对应的是「${rule.modelName}」中的「${rule.text.replace(/[。！？.!?]+$/u, "")}」。下次在 LifeOps 的交易备注记下这条规则是否触发和当时的处理，再用该笔回执核对。`;
+  }
+}
+
 export function tradeReviewPromptData(review: TradeReviewData, focus?: "rules"): string {
   if (focus === "rules") {
     const evidence = review.evidence.filter(trade => trade.ruleViolations.length).map(trade => ({

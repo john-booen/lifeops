@@ -352,6 +352,10 @@ export class AgentLoop {
           } else if (!input.voiceBackground && call.name === "get_stats"
             && call.arguments.domain === "health" && call.arguments.directReply === "device_sleep") {
             reply = deviceSleepAnswer(single.output);
+          } else if (!input.voiceBackground && call.name === "inspect_trade_review" && call.arguments.focus === "rules"
+            && /(?:交易系统|交易纪律)[^。！？!?]*提一条改进建议/u.test(input.message) && /(?:哪笔|哪一笔)[^。！？!?]*哪条规则/u.test(input.message)) {
+            const { formatRecordedTradeDiscipline } = await import("../features/trading/reviewData");
+            reply = formatRecordedTradeDiscipline(single.output);
           } else if (round === 0 && fastVoice && call.name === "get_stats") reply = formatVoiceStats(single.output, call.arguments);
           else if (round === 0 && fastVoice && call.name === "plan_today") reply = formatVoiceTaskPriorities(single.output, call.arguments);
           else if (round === 0 && call.name === "list_tasks" && call.arguments.category === undefined

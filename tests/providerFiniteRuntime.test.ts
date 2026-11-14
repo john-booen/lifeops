@@ -428,6 +428,18 @@ it("keeps a slow idea plan long enough to return its confirmation card", async (
   expect((await store.readTaskDb()).tasks).toEqual([]);
 });
 
+it("links a recorded trade violation to its exact model version and rule", async () => {
+  const { formatRecordedTradeDiscipline } = await import("../src/features/trading/reviewData");
+  const evidence = [{ date: "2026-11-12", label: "FICT-A 多单", modelId: "model", versionId: "v1", ruleViolations: ["stop"] }];
+  const rules = [
+    { modelId: "model", versionId: "v2", modelName: "虚构新版", ruleId: "stop", text: "虚构新版规则" },
+    { modelId: "model", versionId: "v1", modelName: "虚构第一版", ruleId: "stop", text: "触及预设止损价立即退出。" }
+  ];
+  const reply = formatRecordedTradeDiscipline(JSON.stringify({ evidence, rules, filtered: false }));
+  expect(reply).toBe("2026-11-12 的 FICT-A 多单有一条已记录的违规。对应的是「虚构第一版」中的「触及预设止损价立即退出」。下次在 LifeOps 的交易备注记下这条规则是否触发和当时的处理，再用该笔回执核对。");
+  expect(formatRecordedTradeDiscipline(JSON.stringify({ evidence, rules: rules.slice(0, 1) }))).toBeUndefined();
+});
+
 it("uses the same trade numbers for a spoken review, saves a separate report and creates a task only when clicked", async () => {
   const { recordTradeDrafts, readTradeDatabase } = await import("../src/features/trading/persistence");
   const { addTradeReviewTask } = await import("../src/features/trading/reviewUi");
