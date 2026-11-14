@@ -45,9 +45,12 @@ async function saveAndUndo(tool = false) {
 }
 
 describe("extended ledger undo", () => {
-  it.each(["settled", "intent-only", "ledger-finished", "cancel-after-ledger"] as const)("preserves the large original ledger and settles %s with an old-readable journal", async stage => {
+  it.each([
+    ["settled", 1_550_000], ["intent-only", 1_550_000], ["intent-only", 2_620_000],
+    ["ledger-finished", 1_550_000], ["cancel-after-ledger", 1_550_000]
+  ] as const)("preserves the large original ledger and settles %s (%i repeats) with an old-readable journal", async (stage, repetitions) => {
     const ledgerPath = new OperationLedger(store).filePath, walPath = factRecoveryPath(store);
-    const preserved = "虚构 🙂\r\n".repeat(1_550_000);
+    const preserved = "虚构 🙂\r\n".repeat(repetitions);
     await vault.seed(ledgerPath, JSON.stringify({ version: 1, records: [], preservedHistoricalExtension: preserved }));
     const paths = await saveFixture();
     const originalLedger = await vault.bytes(ledgerPath), writes = vault.process.bind(vault);

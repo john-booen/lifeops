@@ -2,7 +2,9 @@ import { gzipSync, gunzipSync, inflateRawSync } from "node:zlib";
 import type { RecoveryDocument } from "./factOperation";
 
 export const MAX_RECOVERY_BYTES = 16 * 1024 * 1024;
-export const MAX_LEDGER_RECOVERY_BYTES = 32 * 1024 * 1024;
+// A ledger-only allowance for the single exact base. The durable envelope
+// and all independently decoded business snapshots still use MAX_RECOVERY_BYTES.
+export const MAX_LEDGER_RECOVERY_BYTES = 40 * 1024 * 1024;
 const COMPRESSION_THRESHOLD = 64 * 1024;
 const fields = ["before", "after", "previous"] as const;
 interface EncodedSnapshot { encoding: "gzip-base64-v1"; utf8Bytes: number; data: string }
