@@ -5,8 +5,8 @@ import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import type { App } from "obsidian";
 import { DEFAULT_SETTINGS } from "../src/defaults";
 import { AgentRuntime } from "../src/agentRuntime";
-import { OperationLedger, planLedgerRevertV1 } from "../src/dataFoundation/operationLedger";
-import { factRecoveryPath, fileRevision, hasPendingFactOperation, inspectFactRecovery, recoverFactOperation } from "../src/dataFoundation/factOperation";
+import { OperationLedger, planLedgerRevertV1, type OperationLedgerRecord } from "../src/dataFoundation/operationLedger";
+import { factRecoveryPath, fileRevision, hasInterruptedFactOperation, hasPendingFactOperation, inspectFactRecovery, recoverFactOperation, runFactOperation } from "../src/dataFoundation/factOperation";
 import { encodeFactRecovery, MAX_RECOVERY_BYTES } from "../src/dataFoundation/recoveryEncoding";
 import { ledgerUndoAfter } from "../src/dataFoundation/ledgerUndoRecovery";
 import type { StoreHost } from "../src/store/settingsSlice";
@@ -43,6 +43,85 @@ async function saveAndUndo(tool = false) {
   expect(document.entries.map(e => e.path).sort()).toEqual([...paths].sort());
   return { paths, walPath, ledgerPath, wire, document };
 }
+
+describe("extended ledger undo", () => {
+  it.each(["settled", "intent-only", "ledger-finished", "cancel-after-ledger"] as const)("preserves the large original ledger and settles %s with an old-readable journal", async stage => {
+    const ledgerPath = new OperationLedger(store).filePath, walPath = factRecoveryPath(store);
+    const preserved = "虚构 🙂\r\n".repeat(1_550_000);
+    await vault.seed(ledgerPath, JSON.stringify({ version: 1, records: [], preservedHistoricalExtension: preserved }));
+    const paths = await saveFixture();
+    const originalLedger = await vault.bytes(ledgerPath), writes = vault.process.bind(vault);
+    expect(Buffer.byteLength(originalLedger)).toBeGreaterThan(MAX_RECOVERY_BYTES);
+    let pendingRaw: string | undefined;
+    vault.process = (file, update) => writes(file, current => {
+      const next = update(current);
+      if (file.path === walPath) {
+        const wire = JSON.parse(next);
+        if (wire.version === 4 && wire.entries.length === paths.length) pendingRaw = next;
+      }
+      return next;
+    });
+    await expect(runtime.undoOperation(operationId)).resolves.toBe(true);
+    vault.process = writes;
+    expect(pendingRaw).toBeDefined();
+    const pending = JSON.parse(pendingRaw!);
+    expect(pending.status).toBe("pending");
+    expect(pending.ledgerUndo.kind).toBe("ledger-revert-v2");
+    expect(Buffer.byteLength(pendingRaw!)).toBeLessThan(MAX_RECOVERY_BYTES);
+    if (stage === "settled") {
+      const finalWire = { ...pending, status: "committed" };
+      expect(() => inspectFactRecovery(fresh(), JSON.stringify(finalWire))).toThrow();
+      const oversized = structuredClone(pending);
+      oversized.ledgerUndo.before.utf8Bytes = 64 * 1024 * 1024;
+      expect(() => inspectFactRecovery(fresh(), JSON.stringify(oversized))).toThrow();
+    }
+    if (stage !== "settled") {
+      if (stage === "intent-only") {
+        await vault.seed(ledgerPath, originalLedger);
+        for (const path of paths) await vault.seed(path, saved);
+      }
+      if (stage === "cancel-after-ledger") pending.rollbackRequired = true;
+      await vault.seed(walPath, JSON.stringify(pending));
+      const reopened = fresh();
+      expect(await hasPendingFactOperation(reopened)).toBe(true);
+      expect(await hasInterruptedFactOperation(reopened)).toBe(true);
+      const work = vi.fn(async () => undefined);
+      await expect(runFactOperation(reopened, { operationId: "fictional-before-recovery" }, work, async () => {})).rejects.toThrow("检查并恢复未完成操作");
+      expect(work).not.toHaveBeenCalled();
+      expect(await recoverFactOperation(reopened)).toBe(stage === "ledger-finished" ? "kept" : "restored");
+    }
+    const rolledBack = stage === "intent-only" || stage === "cancel-after-ledger";
+    const settledRaw = await vault.bytes(walPath), terminal = JSON.parse(settledRaw);
+    expect(terminal.version).toBe(1);
+    expect(terminal.status).toBe(rolledBack ? "rolled_back" : "committed");
+    expect(terminal.ledgerUndo).toBeUndefined();
+    expect(inspectFactRecovery(fresh(), settledRaw).entries.map(entry => entry.path).sort()).toEqual([...paths].sort());
+    for (const path of paths) expect(await vault.bytes(path)).toBe(rolledBack ? saved : original);
+    const audit = JSON.parse(await vault.bytes(ledgerPath));
+    expect(audit.preservedHistoricalExtension === preserved).toBe(true);
+    expect(audit.records.find((record: OperationLedgerRecord) => record.operationId === operationId)?.status).toBe(rolledBack ? "verified" : "reverted");
+    expect(await hasPendingFactOperation(fresh())).toBe(false);
+  }, 30_000);
+
+  it("settles a refused undo-tool commit and preserves the original snapshots and failed claim", async () => {
+    const ledgerPath = new OperationLedger(store).filePath, walPath = factRecoveryPath(store);
+    await vault.seed(ledgerPath, JSON.stringify({ version: 1, records: [], preservedHistoricalExtension: "纯虚构记录".repeat(1_120_000) }));
+    const paths = await saveFixture();
+    const before = JSON.parse(await vault.bytes(ledgerPath));
+    const checks = vi.fn(async () => undefined).mockRejectedValueOnce(new Error("虚构提交取消"));
+    const result = await runtime.executeToolCall({ toolName: "undo_latest_operation", arguments: {}, source: "system",
+      confirmedByUser: true, callId: toolId }, { assertCurrent: () => undefined, assertBeforeCommit: checks });
+    expect(result.success).toBe(false);
+    expect(result.output).toContain("虚构提交取消");
+    expect(checks).toHaveBeenCalledOnce();
+    for (const path of paths) expect(await vault.bytes(path)).toBe(saved);
+    const audit = JSON.parse(await vault.bytes(ledgerPath)), terminal = JSON.parse(await vault.bytes(walPath));
+    expect(audit.records[0]).toEqual(before.records[0]);
+    expect(audit.records.find((record: OperationLedgerRecord) => record.operationId === toolId)?.status).toBe("failed");
+    expect(terminal).toMatchObject({ version: 1, status: "rolled_back", rollbackRequired: true, rollbackComplete: true });
+    expect(await recoverFactOperation(fresh())).toBe("none");
+  }, 30_000);
+});
 
 describe("independent ledger undo recovery base", () => {
   it.each([false, true])("normally undoes a ledger above half the limit with tool=%s, preserving history and exact original text", async tool => {

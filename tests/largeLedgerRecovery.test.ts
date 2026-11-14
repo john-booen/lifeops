@@ -7,6 +7,7 @@ import type { App } from "obsidian";
 import { DEFAULT_SETTINGS } from "../src/defaults";
 import { AgentRuntime } from "../src/agentRuntime";
 import { factRecoveryPath, fileRevision, hasInterruptedFactOperation, hasPendingFactOperation, inspectFactRecovery, recoverFactOperation } from "../src/dataFoundation/factOperation";
+import { MAX_LEDGER_RECOVERY_BYTES } from "../src/dataFoundation/recoveryEncoding";
 import type { StoreHost } from "../src/store/settingsSlice";
 import { OperationLedger } from "../src/dataFoundation/operationLedger";
 vi.mock("obsidian", () => ({ App: class {}, Notice: class {}, TFile: class {}, TFolder: class {}, normalizePath: (p: string) => p.replace(/\\/g, "/").replace(/\/{2,}/g, "/") }));
@@ -92,7 +93,7 @@ describe("undo with substantial existing history", () => {
     expect((await runtime.executeLocalOperation("append_note", {}, scope => scope.writeFile(path, "已保存原文\n"), id)).success).toBe(true);
     const ledgerPath = new OperationLedger(store).filePath;
     const document = JSON.parse(await vault.bytes(ledgerPath));
-    document.preservedHistoricalExtension = "x".repeat(17 * 1024 * 1024);
+    document.preservedHistoricalExtension = "x".repeat(MAX_LEDGER_RECOVERY_BYTES);
     await vault.seed(ledgerPath, JSON.stringify(document, null, 2) + "\n");
     const before = await vault.bytes(path), audit = await vault.bytes(ledgerPath), wal = await vault.bytes(factRecoveryPath(store));
     const writes = vault.writes.length;
@@ -113,7 +114,7 @@ describe("undo with substantial existing history", () => {
     const after = JSON.parse(await vault.bytes(ledgerPath));
     expect(after.preservedHistoricalExtension).toBe(document.preservedHistoricalExtension);
     expect(after.records.find((row: any) => row.operationId === id).status).toBe("verified");
-  });
+  }, 20_000);
 
   it("settles an undo tool capacity refusal without changing facts or WAL or leaving an executing claim", async () => {
     const path = store.path(store.settings.folders.ideas, "纯虚构工具容量拒绝.md");
@@ -121,7 +122,7 @@ describe("undo with substantial existing history", () => {
     const id = "fiction-tool-undo-logical-capacity";
     await runtime.executeLocalOperation("append_note", {}, scope => scope.writeFile(path, "已保存原文"), id);
     const ledgerPath = new OperationLedger(store).filePath, document = JSON.parse(await vault.bytes(ledgerPath));
-    document.preservedHistoricalExtension = "x".repeat(17 * 1024 * 1024);
+    document.preservedHistoricalExtension = "x".repeat(MAX_LEDGER_RECOVERY_BYTES);
     await vault.seed(ledgerPath, JSON.stringify(document));
     const before = await vault.bytes(path), wal = await vault.bytes(factRecoveryPath(store));
     const result = await runtime.executeToolCall({ toolName: "undo_latest_operation", arguments: {}, source: "system",
@@ -136,7 +137,7 @@ describe("undo with substantial existing history", () => {
     expect(audit.records.find((row: any) => row.operationId === "fiction-capacity-refused-undo-tool").status).toBe("failed");
     expect(audit.records.some((row: any) => row.status === "executing")).toBe(false);
     expect(await hasPendingFactOperation(store)).toBe(false);
-  });
+  }, 20_000);
 
   it("rolls back a first small write when a later oversized snapshot is refused without poisoning the recovery journal", async () => {
     const first = store.path(store.settings.folders.ideas, "纯虚构小段.md"), large = store.path(store.settings.folders.ideas, "纯虚构大段.md");

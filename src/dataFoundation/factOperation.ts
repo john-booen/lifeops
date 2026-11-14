@@ -43,7 +43,7 @@ export interface RecoveryDocument extends FactOperationIdentity {
   undoToolClaim?: OperationLedgerRecord;
   /** Durable rollback completion precedes releasing the exact temporary claim. */
   rollbackComplete?: boolean;
-  /** v3 wire only: exact ledger base plus a frozen deterministic transition. */
+  /** Exact ledger base plus a frozen deterministic transition. */
   ledgerUndo?: LedgerUndoRecovery;
 }
 type SharedFactState = { locks: WeakMap<object, Promise<unknown>>; activeWrites: WeakMap<object, FactOperationIdentity> };
@@ -267,14 +267,14 @@ export async function preflightFactOperationChanges(store: StoreHost, changes: G
   validateRecovery(store, planned);
   const budget = (value: RecoveryDocument) => {
     encodeFactRecovery(value);
-    encodeFactRecovery({ ...value, status: "committed" });
+    encodeSettledFactRecovery({ ...value, status: "committed" });
     encodeFactRecovery({ ...value, status: "pending", rollbackRequired: true,
       ...(value.undoToolOperationId ? { rollbackComplete: true } : {}) });
     const rollbackPlan = structuredClone(value);
     for (const entry of rollbackPlan.entries) {
       if (entry.before === null && entry.after !== null) retainForDeletion(store, entry, entry.after);
     }
-    encodeFactRecovery({ ...rollbackPlan, status: "rolled_back", rollbackRequired: true,
+    encodeSettledFactRecovery({ ...rollbackPlan, status: "rolled_back", rollbackRequired: true,
       ...(value.undoToolOperationId ? { rollbackComplete: true } : {}) });
   };
   try { budget(planned); return; }
@@ -293,16 +293,29 @@ export async function preflightFactOperationChanges(store: StoreHost, changes: G
     beforeHash: ledger.beforeHash, afterHash: ledger.afterHash, timestamp: record.revertedAt,
     ...(toolResult ? { toolResult: structuredClone(toolResult) } : {}) };
   const candidate = { ...planned, entries: planned.entries.filter(entry => entry.path !== ledgerPath), ledgerUndo: delta };
-  try {
-    if (ledgerUndoAfter(delta, planned) !== ledger.after) conflict();
-    validateRecovery(store, candidate);
-    budget(candidate);
+  for (const kind of ["ledger-revert-v1", "ledger-revert-v2"] as const) {
+    delta.kind = kind;
+    try {
+      if (ledgerUndoAfter(delta, planned) !== ledger.after) conflict();
+      budget(candidate);
+    } catch (error) {
+      if (error instanceof RecoveryCapacityError) continue;
+      throw error;
+    }
+    // The plan becomes durable only when the first guarded write begins.
+    document.ledgerUndo = delta;
+    return;
   }
-  catch (error) { if (error instanceof RecoveryCapacityError) throw new UndoCapacityError(); throw error; }
-  // The plan is installed only after all reads, validation and budgets pass.
-  document.ledgerUndo = delta;
+  throw new UndoCapacityError();
 }
 function hasRecoveryChanges(document: RecoveryDocument): boolean { return !!(document.entries.length || document.ledgerUndo); }
+function encodeSettledFactRecovery(document: RecoveryDocument): string {
+  if (document.ledgerUndo?.kind !== "ledger-revert-v2") return encodeFactRecovery(document);
+  // The ledger base is needed until the transaction settles. Leave the
+  // business snapshots and an old-readable terminal status on disk.
+  const { ledgerUndo: _ledgerUndo, ...settled } = document;
+  return encodeFactRecovery(settled);
+}
 async function locked<T>(store: StoreHost, work: () => Promise<T>): Promise<T> {
   const key = store.app.vault;
   const prior = locks.get(key) ?? Promise.resolve();
@@ -479,7 +492,7 @@ async function runFactOperationOnce<T>(
       const previous = inspectFactRecovery(store, journalRaw);
       if (previous.status === "pending") {
         canCompactLedger = false;
-        if (previous.rollbackRequired || !await auditFinished(store, previous)) {
+          if (previous.ledgerUndo?.kind === "ledger-revert-v2" || previous.rollbackRequired || !await auditFinished(store, previous)) {
           throw new Error("上次保存被中断。请先使用“检查并恢复未完成操作”，恢复后再继续保存。");
         }
       }
@@ -499,9 +512,13 @@ async function runFactOperationOnce<T>(
       if (!validUndoToolClaim(identity, claim)) conflict();
       document.undoToolClaim = structuredClone(claim);
     }
-    const persist = async () => {
-      const next = encodeFactRecovery(document);
-      await replaceRaw(store, journalPath, journalRaw, next);
+    const persist = async (settled = false, assertStable?: () => void) => {
+      const next = settled ? encodeSettledFactRecovery(document) : encodeFactRecovery(document);
+      try { await replaceRaw(store, journalPath, journalRaw, next, undefined, assertStable); }
+      catch (error) {
+        if (!settled || document.ledgerUndo?.kind !== "ledger-revert-v2"
+          || await readRaw(store, journalPath).catch(() => undefined) !== next) throw error;
+      }
       journalRaw = next;
     };
     const reads = new Map<string, string | null>();
@@ -624,12 +641,22 @@ async function runFactOperationOnce<T>(
       await finalize(result, undo);
       await assertWrittenFiles(store, document);
       current();
-      document.status = "committed";
-      if (hasRecoveryChanges(document)) await persist();
+      const extendedUndo = document.ledgerUndo?.kind === "ledger-revert-v2" ? document.ledgerUndo : undefined;
+      if (!extendedUndo) {
+        document.status = "committed";
+        if (hasRecoveryChanges(document)) await persist();
+      }
       current();
       if (options.assertBeforeCommit) await beforeCommit();
       await assertWrittenFiles(store, document);
       current();
+      if (extendedUndo) {
+        document.status = "committed";
+        const expected = new Map(document.entries.map(entry => [entry.path, entry.after] as const));
+        expected.set(extendedUndo.path, ledgerUndoAfter(extendedUndo, document));
+        const assertStable = checkRecoveryFilesAtWrite(store, expected);
+        await persist(true, () => { assertStable?.(); current(); });
+      }
       options.onCommitted?.({journalCommitted:true});
       return result;
     } catch (error) {
@@ -678,7 +705,7 @@ async function runFactOperationOnce<T>(
         await rollback(store, document, persist);
         await finishUndoToolRollback(store, document, persist);
         document.status = "rolled_back";
-        await persist();
+        await persist(true);
       }
       throw error;
     }
@@ -714,9 +741,9 @@ export async function recoverFactOperation(store: StoreHost,
       guard?.();
     };
     await current();
-    const persist = async () => {
+    const persist = async (settled = false) => {
       if (finished && document.ledgerUndo || options.assertBeforeRecoveryWrite) await current(); else guard?.();
-      const next = encodeFactRecovery(document);
+      const next = settled ? encodeSettledFactRecovery(document) : encodeFactRecovery(document);
       const kept = finished && document.ledgerUndo
         ? new Map([...document.entries.map(entry => [entry.path, entry.after] as const),
           [document.ledgerUndo.path, ledgerUndoAfter(document.ledgerUndo, document)] as const])
@@ -736,7 +763,7 @@ export async function recoverFactOperation(store: StoreHost,
       }
     }
     document.status = finished ? "committed" : "rolled_back";
-    await persist();
+    await persist(true);
     return finished ? "kept" : "restored";
   });
 }
@@ -745,7 +772,8 @@ export async function hasInterruptedFactOperation(store: StoreHost): Promise<boo
   const path = factRecoveryPath(store), raw = await readRaw(store, path);
   if (raw === null) return false;
   const document = inspectFactRecovery(store, raw);
-  return document.status === "pending" && (Boolean(document.rollbackRequired) || !await auditFinished(store, document));
+  return document.status === "pending"
+    && (document.ledgerUndo?.kind === "ledger-revert-v2" || Boolean(document.rollbackRequired) || !await auditFinished(store, document));
 }
 
 /** Public fact readers must wait for the final WAL boundary even when the

@@ -68,7 +68,7 @@ export function jsonDataContract(
     [path(folders.aiReports, "摘要", "调度.json")]: object([], 1),
     [path(folders.aiReports, "System", PHONE_INBOX_STATE)]: { ...object(["records"], 1), validate: validPhoneInboxDocument },
     [path(folders.aiReports, "Operations", "operation-ledger.json")]: { ...object(["records"], 1), optionalHashes: ["revertedOperationHashes"] },
-    [path(folders.aiReports, "Operations", "write-recovery.json")]: { ...object(["entries"]), versions: [1, 2, 3] },
+    [path(folders.aiReports, "Operations", "write-recovery.json")]: { ...object(["entries"]), versions: [1, 2, 3, 4] },
     [path(folders.aiReports, "Jobs", "project-job.json")]: { ...object([]), versions: [1, 2], validate: validateProjectJobDocument },
     [path(folders.aiReports, "Vision", "visual-state.json")]: object([]),
     [path(folders.aiReports, "Desktop", "desktop-state.json")]: object([])
