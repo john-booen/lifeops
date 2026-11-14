@@ -9,6 +9,15 @@ import type { AgentResponse } from "../types";
 import type { AgentRuntime } from "../agentRuntime";
 import type { AgentTurnInput } from "./AgentLoop";
 
+export function explicitSingleTimedTask(message: string, today: string): Record<string, unknown> | null {
+  const text = message.trim().replace(/[。！!]$/u, "");
+  if (/[，,。；;？！!?\r\n]|(?:如果|要是|的话|然后|同时|另外|另外还|或者|再帮我|先查|每周|每天|重复)/u.test(text)) return null;
+  const command = /^(?:请(?:帮我)?|帮我)?\s*(?:创建|新建|加|建)(?:一[条项个])?\s*(.+?)的(?:任务|待办)$/u.exec(text);
+  if (!command || !/^(?:今天|明天|后天|\d{4}-\d{2}-\d{2})(?:\s*\d|\s*(?:凌晨|早上|上午|中午|下午|傍晚|晚上))/u.test(command[1])) return null;
+  const task = offlineTask(command[1], today);
+  return task?.time ? task : null;
+}
+
 export async function offlineFallback(input: AgentTurnInput, store: StoreHost, runtime: AgentRuntime): Promise<AgentResponse | null> {
   const message = input.message.trim().replace(/[。！？?!]$/, "");
   if (!message || /[\r\n；;？?]/.test(message)) return null;

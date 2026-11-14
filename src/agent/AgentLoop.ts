@@ -23,6 +23,7 @@ import { prepareToolBatch } from "../toolBatch";
 import type { AgentActionSuggestion, AgentConversationMessage, AgentResponse, AgentWriteReceipt, LifeOpsSettings, ProviderRunResult } from "../types";
 import { agentHistoryMessages, buildResidentContext, clipBytes, type ResidentContext } from "./context";
 import { recurringScheduleAnswer } from "./recurringSchedule";
+import { explicitSingleTimedTask } from "./offlineFallback";
 import { memorySourcePolicy } from "../personalMemorySources";
 import { agentModelRole, settingsForAgentModel, type AgentModelRole } from "./models";
 import { extractTradingRules } from "../features/trading/ruleSources";
@@ -92,6 +93,7 @@ const MAX_TOOL_ROUNDS = 4;
 const PLAIN_GREETING = /^(你好|您好|早安|早上好|中午好|下午好|晚上好|嗨)[。！？!?，,.]*$/u;
 const BRIEF_GREETING = /^(你好|您好|早安|早上好|中午好|下午好|晚上好|嗨)[。！？!?，,. ]+(?:请)?(?:简短回答一句|简单回一句)[。！？!?]*$/u;
 const TODAY_DATE = /^(?:请问[，, ]*)?(?:今天(?:是)?(?:几月几[日号]|几号|什么日期)|(?:今天的|今日)日期(?:是什么)?)[。！？!?，,. ]*(?:只说日期[。！？!?]*)?$/u;
+const DELETE_WITHOUT_TARGET = /^(?:请|帮我|请帮我)?\s*(?:删除|删掉|删了|删一下)(?:一下)?[。！？!?\s]*$/u;
 const TODAY_UNFINISHED_TASK_QUESTIONS = [
   /^我?今天还?有(?:哪些|什么)(?:任务|待办)还?(?:没做完?|没(?:有)?完成|未完成)$/u,
   /^我?今天(?:还?有)?(?:哪些|什么)(?:没做完?|没(?:有)?完成|未完成)的(?:任务|待办)$/u,
@@ -164,6 +166,9 @@ export class AgentLoop {
     try {
       assertProviderActive(input.signal);
       if (input.phoneInbox) return await this.runPhoneInbox(input, state, input.phoneInbox);
+      if (!input.voiceBackground && (input.source === "text" || input.source === "voice") && DELETE_WITHOUT_TARGET.test(input.message.trim())) {
+        return this.localAnswer(input, state, "你想删除哪一条？请说出任务、习惯或记录的名称。");
+      }
       if (!input.voiceBackground && isLocalUndoCommand(input.message)) {
         state.voiceUndoAllowed = true;
         const calls = this.scopedCalls([{ name: "undo_latest_operation", arguments: {} }], state.id, 0);
@@ -178,6 +183,14 @@ export class AgentLoop {
         if (greeting) return this.localAnswer(input, state, `${greeting}！`);
         if (TODAY_DATE.test(message) && Number.isFinite(input.now.getTime())) {
           return this.localAnswer(input, state, `${input.now.getFullYear()}年${input.now.getMonth() + 1}月${input.now.getDate()}日。`);
+        }
+        const task = explicitSingleTimedTask(message, formatDate(input.now));
+        if (task) {
+          const calls = this.scopedCalls([{ name: "create_task", arguments: task }], state.id, 0);
+          const [result] = await this.executeRegular(input, state, calls);
+          assertProviderActive(input.signal);
+          assertPolicy();
+          return this.localAnswer(input, state, result?.output || "任务没有保存，请稍后再试。");
         }
       }
       if (!this.modelAvailable()) {
@@ -694,6 +707,8 @@ export class AgentLoop {
 
   private async verifyVoiceUndo(input: AgentTurnInput, state: TurnState): Promise<boolean> {
     if (state.voiceUndoAllowed !== undefined) return state.voiceUndoAllowed;
+    if (/^(?:请(?:帮我)?|帮我)?\s*(?:删除|删掉|删了|删一下)/u.test(input.message.trim())
+      && !/(?:撤销|撤回|收回|恢复)/u.test(input.message)) return false;
     state.voiceUndoAllowed = await this.classifyUndo(input, state, "只判断本轮话语是否明确要求撤回已经完成的写入。要求撤销已保存的操作时，填 undo_latest_operation 和 latest。删除记录、停止后台任务、取消未执行的操作或意图不明确时，填 ordinary 和 unknown。");
     return state.voiceUndoAllowed;
   }

@@ -673,7 +673,7 @@ describe("unified agent loop", () => {
     expect((await store.readPersonalMemories()).records.map(record => record.content)).not.toContain(preference);
   });
 
-  it("does not undo an older idea when the voice model chooses undo for a deletion request", async () => {
+  it("clarifies a bare voice deletion and preserves an older idea without using the model", async () => {
     const idea = await runtime.executeAiToolCall(tool("upsert_idea", {
       title: "虚构旧想法", description: "用彩纸制作地图。"
     }, "older-voice-idea"), "kimi");
@@ -683,16 +683,11 @@ describe("unified agent loop", () => {
     expect(idea).toMatchObject({ success: true });
     expect(task).toMatchObject({ success: true });
     expect(await runtime.undoOperation("new-voice-task")).toBe(true);
-    responses.push(
-      reply("", [tool("undo_latest_operation", {})]),
-      reply("", [tool("choose_voice_job_control", { intent: "ordinary", target: "unknown" })]),
-      reply("刚才的待办已经撤销。你想删除哪一条？")
-    );
-
     const result = await new AgentLoop(host).run(input({ source: "voice", message: "删除。" }));
 
     expect(result.text).toContain("你想删除哪一条");
-    expect(result.toolCalls).toContainEqual({ name: "undo_latest_operation", ok: false });
+    expect(result.toolCalls).toEqual([]);
+    expect(requests).toEqual([]);
     expect((await new OperationLedger(store).latestReversible())?.operationId).toBe("older-voice-idea");
   });
 
@@ -1229,6 +1224,29 @@ it("recalls an explicitly saved recurring appointment without relying on a newly
   responses.push(reply("我需要查当日的虚构待办。"));
   expect((await loop.run(input({ message: "我下周五晚上有哪些安排？" }))).text).toBe("我需要查当日的虚构待办。");
   expect(requests).toHaveLength(beforeRecall + 1);
+});
+
+it("locally creates an explicitly requested single timed task and keeps conditional requests on the normal path", async () => {
+  const loop = new AgentLoop(host);
+  const saved = await loop.run(input({ message: "帮我建明天下午三点整理虚构图册的任务。" }));
+  expect(saved.toolCalls).toEqual([{ name: "create_task", ok: true }]);
+  expect(saved.receipts).toHaveLength(1);
+  expect((await store.readTaskDb()).tasks).toMatchObject([{ title: "整理虚构图册", date: "2026-11-13", time: "15:00" }]);
+  expect(requests).toHaveLength(0);
+  responses.push(reply("请核对前提。"));
+  expect((await loop.run(input({ message: "帮我建明天下午三点见面，然后去取件的任务。" }))).text).toBe("请核对前提。");
+  expect(requests).toHaveLength(1);
+  expect((await store.readTaskDb()).tasks).toHaveLength(1);
+});
+
+it("blocks a model-proposed undo for a named voice deletion", async () => {
+  const original = await runtime.executeAiToolCall(tool("upsert_idea", { title: "虚构蓝色图册想法", description: "核对虚构目录" }), "kimi");
+  expect(original.success).toBe(true);
+  responses.push(reply("", [tool("undo_latest_operation", {})]), reply("请核对要删除的想法。"));
+  const loop = new AgentLoop(host);
+  const result = await loop.run(input({ source: "voice", message: "删除虚构蓝色图册想法。" }));
+  expect(result.toolCalls).toContainEqual({ name: "undo_latest_operation", ok: false });
+  expect((await new OperationLedger(store).readSettledOperations([original.callId])).verified.has(original.callId)).toBe(true);
 });
 
 it("answers standalone greetings and device date questions by voice without checking background jobs or loading personal records", async () => {
