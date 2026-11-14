@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ACCOUNTABILITY_BOUNDARY } from "../../accountability";
 import type { AiToolCall } from "../../ai";
-import type { BailianRealtimeOptions } from "../../bailianRealtime";
+import type { BailianRealtimeOptions, BailianRealtimeResponseEvent } from "../../bailianRealtime";
 import type { RealtimeVoiceSettings } from "../../types";
 
 export function buildOmniSessionUpdate(settings: RealtimeVoiceSettings, options: BailianRealtimeOptions,
@@ -103,4 +103,71 @@ function stringValue(value: unknown): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object";
+}
+
+export function normalizeSampleRate(sampleRate: number): number {
+  return Number.isFinite(sampleRate) && sampleRate > 0 ? Math.round(sampleRate) : 24000;
+}
+
+export function extractResponseAudioTranscriptDelta(event: Record<string, unknown>): string {
+  const type = String(event.type ?? "");
+  if (!type.startsWith("response.") || !type.includes("audio_transcript") || !type.endsWith(".delta")) return "";
+  return stringValue(event.delta) || stringValue(event.transcript_delta) || stringValue(event.text);
+}
+
+export function extractResponseAudioTranscriptDone(event: Record<string, unknown>): string {
+  const type = String(event.type ?? "");
+  if (type.startsWith("response.") && type.includes("audio_transcript") && (type.endsWith(".done") || type.endsWith(".completed"))) {
+    return stringValue(event.transcript) || stringValue(event.text);
+  }
+  if (type !== "response.output_item.done" && type !== "response.content_part.done") return "";
+  const item = isRecord(event.item) ? event.item : {};
+  const part = isRecord(event.part) ? event.part : {};
+  return transcriptFromContent(part) || transcriptFromContent(item);
+}
+
+export function responseEventId(event: Record<string, unknown>): string {
+  const direct = stringValue(event.response_id) || stringValue(event.responseId);
+  if (direct) return direct;
+  const response = isRecord(event.response) ? event.response : {};
+  return stringValue(response.id);
+}
+
+export function responseLifecycleEvent(
+  event: Record<string, unknown>,
+  fallbackResponseId = ""
+): BailianRealtimeResponseEvent {
+  const response = isRecord(event.response) ? event.response : {};
+  return {
+    eventType: stringValue(event.type),
+    responseId: responseEventId(event) || fallbackResponseId,
+    status: stringValue(event.status) || stringValue(response.status)
+  };
+}
+
+export function isSuccessfulResponseStatus(status: string): boolean {
+  return !status || status === "completed" || status === "succeeded" || status === "success";
+}
+
+export function responseFailureMessage(event: Record<string, unknown>, status: string): string {
+  const response = isRecord(event.response) ? event.response : {};
+  const eventError = isRecord(event.error) ? event.error : {};
+  const responseError = isRecord(response.error) ? response.error : {};
+  const statusDetails = isRecord(response.status_details) ? response.status_details : {};
+  const detailsError = isRecord(statusDetails.error) ? statusDetails.error : {};
+  return stringValue(eventError.message)
+    || stringValue(responseError.message)
+    || stringValue(detailsError.message)
+    || `百炼 Realtime 响应未完成（${status || "unknown"}）。`;
+}
+
+function transcriptFromContent(value: Record<string, unknown>): string {
+  const direct = stringValue(value.transcript) || stringValue(value.text);
+  if (direct) return direct;
+  const content = value.content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((entry) => isRecord(entry) ? stringValue(entry.transcript) || stringValue(entry.text) : "")
+    .filter(Boolean)
+    .join("");
 }
