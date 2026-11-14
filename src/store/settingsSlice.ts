@@ -565,9 +565,7 @@ async getDashboardStats(this: StoreHost, date: string = todayString()): Promise<
     const dashboard = await this.getTaskDashboard(date);
     const health = await this.readPath(this.path(this.settings.folders.health, `${date}.md`));
     const todayTrade = await this.readPath(this.tradingReviewPath(date));
-    const weeklyFailures = await this.getWeeklyFailures(date);
-    const habitDb = await this.readHabitDb();
-    const habits = habitDb.habits;
+    const habits = dashboard.habits;
     return {
       date,
       morningNotePath,
@@ -576,12 +574,10 @@ async getDashboardStats(this: StoreHost, date: string = todayString()): Promise<
       eveningNoteExists: Boolean(this.getFile(eveningNotePath)),
       todoOpen: dashboard.today.length,
       doneCount: dashboard.completedToday.length,
-      habitDone: habits.filter(habit => {
-        const period = habitPeriodProgress(habit, habitDb.checkins, date);
-        return period.done >= period.target;
-      }).length,
+      habitDone: habits.filter(item => item.periodDone >= item.periodTarget).length,
       habitTotal: habits.length,
-      weeklyFailures,
+      weeklyFailures: Object.fromEntries(habits.filter(item => !item.periodUnavailable)
+        .map(item => [item.habit.name, item.weeklyFailures])),
       punishmentOpen: await this.hasOpenPunishment(),
       healthEntries: countMatches(health, /^## (?:\d{4}-\d{2}-\d{2}|手动记录)/gm),
       tradeEntries: countMatches(todayTrade, /交易：<\/span>|^\d+\./gm),
@@ -1649,15 +1645,16 @@ export function habitPeriodProgress(habit: HabitDefinition, checkins: HabitCheck
   return { done: checkin?.count ?? 0, target: habit.targetCount, label: "今日" };
 }
 
-export function weeklyHabitFailures(habit: HabitDefinition, checkins: HabitCheckin[], date: string): number {
+export function weeklyHabitFailures(habit: HabitDefinition, checkins: HabitCheckin[], date: string, requireCoverage = false): number {
   const days = weekDates(date).filter((day) => day >= habit.startDate && isHabitRequiredOn(habit, day));
   if (days.length === 0) return 0;
 
-  const manualMisses = checkins.filter((item) => item.habitId === habit.id && days.includes(item.date) && item.status === "missed").length;
-  if (!isHabitWeekClosed(date)) return manualMisses;
+  const records = checkins.filter(item => item.habitId === habit.id && days.includes(item.date));
+  const manualMisses = records.filter(item => item.status === "missed").length;
+  if (!isHabitWeekClosed(date) || requireCoverage && days.some(day => !records.some(item => item.date === day))) return manualMisses;
 
-  const done = checkins
-    .filter((item) => item.habitId === habit.id && days.includes(item.date) && item.status === "done")
+  const done = records
+    .filter(item => item.status === "done")
     .reduce((sum, item) => sum + Math.max(1, item.count || 1), 0);
   return Math.max(manualMisses, Math.max(0, habit.targetCount - done));
 }

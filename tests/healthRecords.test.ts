@@ -22,7 +22,7 @@ const { readScreenshotImage } = await import("../src/features/screenshots/image"
 const { recognizeHealthScreenshot } = await import("../src/features/health/screenshot");
 const { getTodayCard } = await import("../src/features/today/service");
 const { readHabitContextWithEvidence } = await import("../src/store/agentSlice");
-const { addDays } = await import("../src/date");
+const { addDays, startOfWeek } = await import("../src/date");
 
 let root: string, store: StoreHost, runtime: InstanceType<typeof AgentRuntime>;
 let date: string, previous: string;
@@ -78,6 +78,7 @@ it("links opted-in habits to daily snapshots without stacking data or overriding
   const { checkins: actual } = await store.readHabitDb();
   const dashboard = await store.getTaskDashboard();
   expect(dashboard.habits.find(row => row.habit.id === habit.id)?.periodDone).toBe(3.4);
+  expect(await store.getDashboardStats()).toMatchObject({ habitDone: 1, habitTotal: 1 });
   expect((await readHabitContextWithEvidence(store, date)).text).toContain("3.4/3 公里");
   const { checkins: projection, partial } = await projectHealthHabitProgress(store, await store.readHabitDb());
   expect(partial).toBe(false);
@@ -94,6 +95,23 @@ it("links opted-in habits to daily snapshots without stacking data or overriding
   expect((await readHabitContextWithEvidence(store, date)).text).toContain("只统计可读的健康记录");
   const partialDashboard = await store.getTaskDashboard(date);
   expect((await getTodayCard(store, partialDashboard)).habits.find(row => row.id === habit.id)?.healthCoveragePartial).toBe(true);
+});
+
+it("does not turn gaps in a device habit into failures or count a below-goal reading in its streak", async () => {
+  const start = addDays(startOfWeek(date), -7);
+  const habit = await store.createHabit({ name: "虚构设备跑步", source: "health:runningKm", frequencyUnit: "day",
+    frequencyInterval: 1, targetCount: 1, startDate: start, target: { kind: "number", unit: "公里", perDay: 3 } });
+  const manuallyTracked = await store.createHabit({ name: "虚构手动跑步", frequencyUnit: "day",
+    frequencyInterval: 1, targetCount: 1, startDate: start, target: { kind: "number", unit: "公里", perDay: 3 } });
+  await store.appendHealthEntry({ date: start, runningKm: 1.2 });
+  await store.recordHabitStatus(habit.id, "missed", addDays(start, 1));
+  await store.appendHealthEntry({ date: previous, runningKm: 1.2 });
+  await store.appendHealthEntry({ date, runningKm: 3.4 });
+  const earlier = await store.getDashboardStats(addDays(start, 2));
+  expect(earlier.weeklyFailures[habit.name]).toBe(2);
+  expect(earlier.weeklyFailures[manuallyTracked.name]).toBe(3);
+  const today = await store.getTaskDashboard(date);
+  expect(today.habits.find(row => row.habit.id === habit.id)).toMatchObject({ streak: 1, status: "done" });
 });
 
 it("keeps field-looking lines entered as free text out of numerical records", async () => {

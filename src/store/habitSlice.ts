@@ -255,22 +255,26 @@ async getWeeklyFailures(this: StoreHost, date: string, database?: HabitDatabase)
 
     const habitDb = progress ? { ...raw, checkins: progress.checkins } : raw;
     for (const habit of habits) {
+      const deviceBased = isHealthHabitSource(habit.source);
       if (habit.target?.kind === "number") {
         const days = weekDates(date).filter(day => day <= date && isHabitRequiredOn(habit, day));
         const entries = new Map(habitDb.checkins.filter(item => item.habitId === habit.id).map(item => [item.date, item]));
         const { perDay, perWeek } = habit.target;
         if (perDay) failures[habit.name] += days.filter(day => {
           const checkin = entries.get(day);
-          return checkin?.status === "missed" || isPastHabitDay(day) && checkin?.status !== "leave" && habitRecordedAmount(habit, checkin) < perDay;
+          return checkin?.status === "missed" || isPastHabitDay(day)
+            && (!deviceBased || checkin !== undefined)
+            && checkin?.status !== "leave" && habitRecordedAmount(habit, checkin) < perDay;
         }).length;
         if (perWeek && days.length && date >= weekDates(date)[6] && isHabitWeekClosed(date)
+          && (!deviceBased || days.every(day => entries.has(day)))
           && days.some(day => entries.get(day)?.status !== "leave")
           && weekDates(date).filter(day => day >= habit.startDate && day <= date)
             .reduce((sum, day) => sum + habitRecordedAmount(habit, entries.get(day)), 0) < perWeek) failures[habit.name]++;
         continue;
       }
       if (habit.frequencyUnit === "week") {
-        failures[habit.name] = weeklyHabitFailures(habit, habitDb.checkins, date);
+        failures[habit.name] = weeklyHabitFailures(habit, habitDb.checkins, date, deviceBased);
         continue;
       }
 
@@ -278,7 +282,7 @@ async getWeeklyFailures(this: StoreHost, date: string, database?: HabitDatabase)
         if (day > date) continue;
         if (!isHabitRequiredOn(habit, day)) continue;
         const checkin = habitDb.checkins.find((item) => item.habitId === habit.id && item.date === day);
-        if (checkin?.status === "missed" || (!checkin && isPastHabitDay(day))) {
+        if (checkin?.status === "missed" || (!deviceBased && !checkin && isPastHabitDay(day))) {
           failures[habit.name] += 1;
         }
       }
@@ -301,6 +305,9 @@ async buildHabitDashboard(this: StoreHost, checkins: HabitCheckin[], date: strin
       const periodFailures = weeklyFailures[habit.name] ?? 0;
       const weekly = period.label === "本周";
       const auto = habit.source === "trades", unavailable = auto && tradeUnavailable;
+      const dailyTarget = (auto || isHealthHabitSource(habit.source)) && habit.target?.kind === "number"
+        ? habit.target.perDay : undefined;
+      const streakEntries = dailyTarget ? checkins.filter(entry => habitRecordedAmount(habit, entry) >= dailyTarget) : checkins;
       const status = habit.target?.kind === "number"
         ? checkin?.status === "leave" || checkin?.status === "missed" ? checkin.status : period.done >= period.target ? "done" : "pending"
         : checkin?.status ?? (weekly && period.done >= period.target ? "done" : weekly && periodFailures > 0 ? "missed" : "pending");
@@ -308,7 +315,7 @@ async buildHabitDashboard(this: StoreHost, checkins: HabitCheckin[], date: strin
         habit,
         checkin,
         status,
-        streak: this.countHabitStreak(auto ? checkins.filter(entry => habitRecordedAmount(habit, entry) >= period.target) : checkins, habit.id, date),
+        streak: this.countHabitStreak(streakEntries, habit.id, date),
         weeklyFailures: periodFailures,
         totalDone: checkins
           .filter((item) => item.habitId === habit.id && item.status === "done")
