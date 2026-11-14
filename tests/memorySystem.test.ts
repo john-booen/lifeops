@@ -42,15 +42,18 @@ describe("memory trend evidence", () => {
     expect(trends).toHaveProperty("taskEvidenceStatus", "available");
   });
 
-  it("marks missing, invalid, date-only, and future completion times as incomplete evidence", async () => {
+  it("counts an explicit completion date and marks missing, invalid and future evidence as incomplete", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 8, 16, 10));
     const trends = await getUserTrends(trendStore([
       { id: "missing", status: "completed" }, { id: "invalid", status: "completed", completedAt: "yesterday" },
       { id: "date-only", status: "completed", completedAt: "2026-09-16" },
+      { id: "invalid-date", status: "completed", completedAt: "2026-02-30" },
+      { id: "future-date", status: "completed", completedAt: "2026-09-17" },
       { id: "future", status: "completed", completedAt: new Date(2026, 8, 17, 10).toISOString() }
     ]));
-    expect(trends.completionSignals).toBe(0);
+    expect(trends.completionEvidence).toMatchObject([{ taskId: "date-only", completedAt: "2026-09-16", localDate: "2026-09-16" }]);
+    expect(trends.completionSignals).toBe(1);
     expect(trends).toHaveProperty("taskEvidenceStatus", "partial");
   });
 

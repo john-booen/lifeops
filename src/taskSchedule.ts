@@ -1,4 +1,4 @@
-import { normalizeJournalDate } from "./date";
+import { formatDate, normalizeJournalDate } from "./date";
 import type { LifeOpsTask } from "./types";
 
 type Schedule = Pick<LifeOpsTask, "date" | "endDate" | "time" | "startTime" | "endTime" | "estimateMin">;
@@ -16,6 +16,17 @@ export function isTaskOverdue(task: Pick<LifeOpsTask, "dueDate" | "date" | "endD
   const deadline = taskDeadlineDate(task);
   return Boolean(deadline && deadline < date);
 }
+
+/** A date supplied by the user has no clock. A timestamp follows the device's local day. */
+export function taskCompletionPoint(completedAt: string): { date: string; timestamp?: number } | undefined {
+  if (/^\d{4}-\d{2}-\d{2}$/u.test(completedAt)) {
+    return normalizeJournalDate(completedAt) === completedAt ? { date: completedAt } : undefined;
+  }
+  const timestamp = new Date(completedAt);
+  return Number.isFinite(timestamp.getTime()) ? { date: formatDate(timestamp), timestamp: timestamp.getTime() } : undefined;
+}
+
+export const taskCompletionDay = (completedAt: string) => taskCompletionPoint(completedAt)?.date ?? "";
 
 export function timeMinutes(value: string | undefined): number | undefined {
   if (!value || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value)) return undefined;

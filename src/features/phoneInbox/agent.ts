@@ -29,7 +29,7 @@ export function phoneInboxCall(call: AiToolCall, inbox: PhoneInboxTurn): AiToolC
     if (!date) throw Error("记录日期需要核对。");
     args[field] = date;
   }
-  if (call.name === "complete_habit" || call.name === "append_journal_entry") args.date ||= inbox.date;
+  if (call.name === "complete_task" || call.name === "complete_habit" || call.name === "append_journal_entry") args.date ||= inbox.date;
   if (call.name === "upsert_idea") {
     delete args.mergeId;
     delete args.nextAction;

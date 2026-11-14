@@ -1,5 +1,5 @@
 import { addDays, datesBetween, formatDate, normalizeJournalDate, startOfWeek } from "../../date";
-import { isTaskOnDate, isTaskOverdue } from "../../taskSchedule";
+import { isTaskOnDate, isTaskOverdue, taskCompletionPoint } from "../../taskSchedule";
 import type { HabitCheckin, HabitDefinition, LifeOpsTask } from "../../types";
 import { JOURNAL_SIGNAL_FIELDS, type SignalValues } from "../journal/signals";
 import { habitMeasurementUnit, habitRecordedAmount, isHabitRequiredOn, numericHabitGoalProgress } from "../habits/targets";
@@ -134,18 +134,21 @@ function ideaStats(ideas: NonNullable<StatsData["ideas"]>, range: DayRange, grou
 }
 
 export function taskCompletionEvents(tasks: readonly LifeOpsTask[], range: DayRange, now: Date): Completion[] {
+  const today = formatDate(now);
   return tasks.flatMap(task => {
     const recorded = new Set((task.completionLog ?? []).map(event => event.completedAt));
     if (task.status === "completed" && task.completedAt) recorded.add(task.completedAt);
     const createdAt = Date.parse(task.createdAt);
     return [...recorded].flatMap(value => {
-      if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}.*(?:Z|[+-]\d{2}:\d{2})$/.test(value)) return [];
-      const stamp = Date.parse(value);
-      if (!Number.isFinite(stamp) || stamp > now.getTime() || Number(value.slice(11, 13)) > 23
-        || !normalizeJournalDate(value.slice(0, 10), range.to)) return [];
-      const date = formatDate(new Date(stamp));
-      if (!inRange(date, range)) return [];
-      return [{ task, date, elapsedMin: Number.isFinite(createdAt) && createdAt <= stamp ? (stamp - createdAt) / 60_000 : null }];
+      const point = taskCompletionPoint(value);
+      if (!point || point.date > today || !inRange(point.date, range)) return [];
+      const { date, timestamp } = point;
+      if (timestamp !== undefined && (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}.*(?:Z|[+-]\d{2}:\d{2})$/.test(value)
+        || timestamp > now.getTime() || Number(value.slice(11, 13)) > 23
+        || !normalizeJournalDate(value.slice(0, 10), range.to))) return [];
+      const elapsedMin = timestamp !== undefined && Number.isFinite(createdAt) && createdAt <= timestamp
+        ? (timestamp - createdAt) / 60_000 : null;
+      return [{ task, date, elapsedMin }];
     });
   });
 }

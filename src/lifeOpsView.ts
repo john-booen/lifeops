@@ -4,6 +4,7 @@ import { BailianRealtimeClient } from "./bailianRealtime";
 import { BailianRealtimeTtsClient } from "./bailianTtsRealtime";
 import type { AiToolCall } from "./ai";
 import { addDays, todayString, weekDates } from "./date";
+import { taskCompletionDay } from "./taskSchedule";
 import {
   addEchoText,
   clearEchoMemories,
@@ -878,7 +879,7 @@ function calendarTasksForDate(board: TaskDashboardData, date: string): LifeOpsTa
   const tasks = new Map<string, LifeOpsTask>();
   for (const task of board.tasks) {
     const isActiveMatch = task.status === "active" && (isTaskOnDateLocal(task, date) || task.dueDate === date);
-    const isCompletedMatch = task.status === "completed" && (formatDate(new Date(task.completedAt)) === date || isTaskOnDateLocal(task, date));
+    const isCompletedMatch = task.status === "completed" && (taskCompletionDay(task.completedAt) === date || isTaskOnDateLocal(task, date));
     if (isActiveMatch || isCompletedMatch) {
       tasks.set(task.id, task);
     }

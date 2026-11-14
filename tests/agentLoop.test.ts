@@ -1545,6 +1545,57 @@ it("answers the device date with the text model disabled and preserves multi-par
 describe("phone inbox", () => {
   const phoneDate = "2026-01-09";
 
+  it("counts a delayed phone task completion on its captured day and supports undo", async () => {
+    const { PhoneInbox } = await import("../src/features/phoneInbox/service");
+    const { PHONE_INBOX_PATH } = await import("../src/features/phoneInbox/model");
+    const { LifeOpsEventBus } = await import("../src/lifeOpsEventBus");
+    const { activityNotePath } = await import("../src/activityRecords");
+    const { readStats } = await import("../src/features/stats/tools");
+    const { summarizeTaskFacts } = await import("../src/contextInjection");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 0, 8, 10));
+    try {
+      const task = await store.createTask({ title: "虚构检查蓝色样盒", date: phoneDate });
+      const other = await store.createTask({ title: "虚构检查黄色样盒", date: "2026-01-10" });
+      const syncedAt = new Date(2026, 0, 12, 18);
+      vi.setSystemTime(syncedAt);
+      const source = `[${phoneDate} 16:20] 蓝色样盒检查完了\n[2026-01-11 18:20] 昨天检查完黄色样盒\n`;
+      await store.ensureFile(PHONE_INBOX_PATH, source);
+      responses.push(
+        reply("", [tool("complete_task", { taskIdOrTitle: task.id })]),
+        reply("", [tool("complete_task", { taskIdOrTitle: other.id, date: "昨天" })])
+      );
+      const inbox = new PhoneInbox({
+        store: () => store, enabled: () => true,
+        submit: async (message, phoneInbox, signal) => {
+          const result = await new AgentLoop(host).run(input({ message, phoneInbox, signal, now: syncedAt, source: "system" }));
+          return { reply: result.text, receipts: result.receipts, actions: result.confirmations, toolCalls: result.toolCalls };
+        },
+        confirm: async () => undefined, undo: id => runtime.undoOperation(id), notify: () => undefined
+      }, new LifeOpsEventBus());
+      try {
+        await inbox.scan();
+        const [second, first] = await inbox.list();
+        expect(first).toMatchObject({ status: "saved", message: expect.stringContaining(phoneDate) });
+        expect(second).toMatchObject({ status: "saved", message: expect.stringContaining("2026-01-10") });
+        const completed = await store.getTask(task.id);
+        expect(completed).toMatchObject({ status: "completed", completedAt: phoneDate, updatedAt: syncedAt.toISOString(),
+          completionLog: [{ completedAt: phoneDate, note: "" }] });
+        expect((await store.getTaskDashboard(phoneDate)).completedToday.map(row => row.id)).toEqual([task.id]);
+        expect((await store.getTaskDashboard("2026-01-12")).completedToday).toEqual([]);
+        const history = await readStats(store, { domain: "tasks", range: { from: phoneDate, to: phoneDate } }, syncedAt);
+        expect(JSON.parse(history.output)).toMatchObject({ completedCount: 1, averageCompletionMin: null });
+        expect(summarizeTaskFacts([completed], syncedAt, []).completionEvidence).toMatchObject([{ localDate: phoneDate }]);
+        expect(await store.readPath(activityNotePath(store, "tasks", phoneDate))).toContain(task.title);
+        await inbox.resolve(first.id, "undo");
+        expect((await store.getTask(task.id)).status).toBe("active");
+        expect((await store.getTask(other.id)).status).toBe("completed");
+        expect((await store.getTaskDashboard(phoneDate)).completedToday).toEqual([]);
+        expect(await store.readPath(PHONE_INBOX_PATH)).toBe(source);
+      } finally { inbox.stop(); }
+    } finally { vi.useRealTimers(); }
+  });
+
   it("runs five offline-captured lines once, preserves raw input, and supports approval and targeted undo", async () => {
     const { PhoneInbox, summarizePhoneInbox } = await import("../src/features/phoneInbox/service");
     const { PHONE_INBOX_PATH } = await import("../src/features/phoneInbox/model");

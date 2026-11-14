@@ -4,7 +4,7 @@ import { personalMemoryReadSnapshot } from "./personalMemory";
 import { createPersonalMemoryContextFilter } from "./personalMemoryContext";
 import { readPersonalMemoryWithSources } from "./personalMemorySources";
 import type { StoreHost } from "./store/settingsSlice";
-import { isTaskOverdue } from "./taskSchedule";
+import { isTaskOverdue, taskCompletionPoint } from "./taskSchedule";
 import type { TimeContext } from "./timeContext";
 import { getTimeContext } from "./timeContext";
 import type { LifeOpsTask, TaskDashboardData } from "./types";
@@ -136,15 +136,15 @@ export function formatContextForInstructions(context: InjectedContext): string {
   if (facts) {
     if (facts.sourcePaths.length) lines.push(`- 任务状态来源：${facts.sourcePaths.join("、")}；读取时间：${facts.observedAt}。`);
     if (facts.allowedSourcesOnly) lines.push("- 本轮仅统计允许提供的任务记录，不能代表被排除的事项或完整总数。");
-    lines.push(`- 今日已核实完成（${context.time.date}）：${facts.completionEvidence.filter(item => item.localDate === context.time.date).length} 个。只统计有效完成时间落在本地今日的已完成任务；回答的首句、清单和结尾必须与此一致。`);
+    lines.push(`- 今日已核实完成（${context.time.date}）：${facts.completionEvidence.filter(item => item.localDate === context.time.date).length} 个。只统计有效完成日期落在本地今日的已完成任务；回答的首句、清单和结尾必须与此一致。`);
     const completed = facts.completionEvidence.slice(0, 5);
-    lines.push(`- 近7个本地日有完成时间的任务（${facts.completionWindowStart} 至 ${facts.completionWindowEnd}）：${facts.completionEvidence.length} 个。`);
+    lines.push(`- 近7个本地日有完成日期的任务（${facts.completionWindowStart} 至 ${facts.completionWindowEnd}）：${facts.completionEvidence.length} 个。`);
     for (const task of completed) {
-      lines.push(`  - ${task.title} [task:${task.taskId}]；完成时间=${task.completedAt}；本地日期=${task.localDate}`);
+      lines.push(`  - ${task.title} [task:${task.taskId}]；完成${task.completedAt.length === 10 ? "日期" : "时间"}=${task.completedAt}；本地日期=${task.localDate}`);
     }
     if (facts.completionEvidence.length > completed.length) lines.push(`- 上面仅展示最新 ${completed.length} 条完成依据，不是完整清单；不要用展示条数替代总数。`);
     if (facts.incompleteCompletionCount) {
-      lines.push(`- ${facts.incompleteCompletionCount} 个已标记完成的任务，完成时间缺失或无效，未计入近期完成数；这不是全部历史完成数。`);
+      lines.push(`- ${facts.incompleteCompletionCount} 个已标记完成的任务，完成日期缺失或无效，未计入近期完成数；这不是全部历史完成数。`);
     }
   } else {
     lines.push("- 完成记录：缺少可核实的任务状态与完成时间，未知。用户表达和 AI 回复不作为完成依据。");
@@ -171,19 +171,19 @@ export function summarizeTaskFacts(tasks: LifeOpsTask[], now: Date, sourcePaths:
   for (const task of distinct) {
     if (task.status !== "completed") continue;
     const completedAt = task.completedAt || "";
-    const timestamp = Date.parse(completedAt);
-    if (!task.id || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/.test(completedAt)
-      || !Number.isFinite(timestamp) || timestamp > now.getTime()
-      || new Date(`${completedAt.slice(0, 10)}T00:00:00Z`).toISOString().slice(0, 10) !== completedAt.slice(0, 10)
-      || Number(completedAt.slice(11, 13)) > 23) {
+    const point = taskCompletionPoint(completedAt);
+    const invalidTime = point?.timestamp !== undefined && (
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/.test(completedAt)
+      || point.timestamp > now.getTime() || Number(completedAt.slice(11, 13)) > 23
+      || new Date(`${completedAt.slice(0, 10)}T00:00:00Z`).toISOString().slice(0, 10) !== completedAt.slice(0, 10));
+    if (!task.id || !point || point.date > date || invalidTime) {
       incompleteCompletionCount += 1;
       continue;
     }
-    const localDate = formatDate(new Date(timestamp));
-    if (localDate < start || localDate > date) continue;
-    completionEvidence.push({ taskId: task.id, title: task.title, completedAt, localDate });
+    if (point.date < start) continue;
+    completionEvidence.push({ taskId: task.id, title: task.title, completedAt, localDate: point.date });
   }
-  completionEvidence.sort((a, b) => Date.parse(b.completedAt) - Date.parse(a.completedAt));
+  completionEvidence.sort((a, b) => b.localDate.localeCompare(a.localDate) || Date.parse(b.completedAt) - Date.parse(a.completedAt));
   return {
     observedAt: now.toISOString(), sourcePaths, activeTasks: active.length,
     overdueTasks: active.filter(task => isTaskOverdue(task, date)).length,

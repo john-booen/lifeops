@@ -16,6 +16,7 @@ import { automaticHabitProgress } from "../features/habits/tradeProgress";
 import { isHealthHabitSource } from "../features/health/habitSources";
 import { advanceCompensationDebt } from "../features/habits/compensationDebt";
 import { isVaultPathExcluded } from "../privacy";
+import { taskCompletionDay } from "../taskSchedule";
 
 type StoreConstructor = { prototype: object };
 
@@ -29,8 +30,8 @@ function shiftedPlanEndDate(task: LifeOpsTask, newDate: string): string {
 
 export interface TaskSliceApi {
   createTask(input: LifeOpsTaskInput): Promise<LifeOpsTask>;
-  completeTask(taskId: string, note?: string): Promise<void>;
-  completeTaskAndLog(taskId: string, date?: string, note?: string): Promise<void>;
+  completeTask(taskId: string, note?: string, completionDate?: string): Promise<void>;
+  completeTaskAndLog(taskId: string, date?: string, note?: string, completionDate?: string): Promise<void>;
   abandonTask(taskId: string): Promise<void>;
   moveTaskToQuadrant(taskId: string, quadrant: LifeOpsTaskQuadrant): Promise<void>;
   postponeTask(taskId: string, days: number): Promise<void>;
@@ -62,35 +63,40 @@ async createTask(this: StoreHost, input: LifeOpsTaskInput): Promise<LifeOpsTask>
     return task;
   },
 
-async completeTask(this: StoreHost, taskId: string, note: string = ""): Promise<void> {
+async completeTask(this: StoreHost, taskId: string, note: string = "", completionDate?: string): Promise<void> {
+    const now = new Date(), today = formatDate(now);
+    if (completionDate !== undefined && (!completionDate || normalizeJournalDate(completionDate) !== completionDate || completionDate > today)) {
+      throw Error("完成日期须为有效的今天或过去日期。");
+    }
+    const day = completionDate ?? today, updatedAt = now.toISOString();
+    const completedAt = completionDate ?? updatedAt;
     const db = await this.readTaskDb();
     const index = db.tasks.findIndex(task => task.id === taskId);
     if (index < 0 || db.tasks[index].status !== "active") throw new Error("未找到可完成的进行中任务");
-    const now = new Date(), completedAt = now.toISOString();
     if (db.tasks[index].habitPunishment?.rule) {
       const excluded = this.settings.privacy?.excludedVaultPrefixes;
       const habits = isVaultPathExcluded(this.habitDbPath(), excluded) ? [] : (await this.readHabitDb()).habits;
-      db.tasks = advanceCompensationDebt(db.tasks, habits, formatDate(now), this.settings.habitCompensation);
+      db.tasks = advanceCompensationDebt(db.tasks, habits, day, this.settings.habitCompensation);
     }
     const task = db.tasks[index];
     if (task.ideaId) {
       const { completeLinkedIdeaTask } = await import("../features/ideas/progress");
-      await completeLinkedIdeaTask(this, task.ideaId, formatDate(now));
+      await completeLinkedIdeaTask(this, task.ideaId, day);
     }
     if (task.category === "learning" && (task.learningTrackId || task.sourceNotePath)) {
       const { recordLearningTask } = await import("../features/learning/store");
-      await recordLearningTask(this, task, formatDate(now), note);
+      await recordLearningTask(this, task, day, note);
     }
-    db.tasks[index] = { ...task, status: "completed", completedAt, updatedAt: completedAt,
+    db.tasks[index] = { ...task, status: "completed", completedAt, updatedAt,
       completionLog: [...task.completionLog, { completedAt, note: note.trim() }] };
     await this.writeTaskDb(db);
-    await this.createNextRepeatedTask(task, completedAt);
+    await this.createNextRepeatedTask(task, updatedAt);
   },
 
-async completeTaskAndLog(this: StoreHost, taskId: string, date: string = todayString(), note: string = ""): Promise<void> {
+async completeTaskAndLog(this: StoreHost, taskId: string, date: string = todayString(), note: string = "", completionDate?: string): Promise<void> {
     const task = await this.getTask(taskId);
     const completionNote = note.trim();
-    await this.completeTask(taskId, completionNote);
+    await this.completeTask(taskId, completionNote, completionDate);
     await this.appendActivity("tasks", date, "已完成", `- [x] ${task.title}${completionNote ? `：${completionNote}` : ""}`);
   },
 
@@ -298,7 +304,7 @@ async getTaskDashboard(this: StoreHost, date: string = todayString(), options: {
       tomorrow: allActive.filter((task) => isTaskOnDate(task, tomorrow)),
       nextSevenDays: allActive.filter((task) => task.date && task.date > date && task.date <= nextSeven),
       overdue: allActive.filter((task) => isTaskOverdue(task, date)),
-      completedToday: tasks.filter((task) => task.status === "completed" && formatDate(new Date(task.completedAt)) === date),
+      completedToday: tasks.filter((task) => task.status === "completed" && taskCompletionDay(task.completedAt) === date),
       noDate: allActive.filter((task) => !task.date),
       allActive,
       quadrants,

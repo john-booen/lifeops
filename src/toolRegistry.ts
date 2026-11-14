@@ -11,7 +11,7 @@ import { createdTaskForUndo, rebaseTaskRecordUndo } from "./dataFoundation/taskR
 import type { FactOperationOptions, GuardedFileChange } from "./dataFoundation/factOperation";
 import { addDays, normalizeJournalDate, todayString } from "./date";
 import { isVaultPathExcluded } from "./privacy";
-import { taskScheduleLabel, validateTaskSchedule } from "./taskSchedule";
+import { taskCompletionDay, taskScheduleLabel, validateTaskSchedule } from "./taskSchedule";
 import { createPersonalMemory, findMemorySuppression, personalMemorySourceAssessment, personalMemoryReadSnapshot, reviewPersonalMemoryRecord, upsertPersonalMemoryRecord, type PersonalMemoryKind } from "./personalMemory";
 import type { StoreHost } from "./store/settingsSlice";
 import type { AgentActionSuggestion, HabitDefinition, HabitInput, LifeOpsTask } from "./types";
@@ -339,12 +339,16 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
       type: "object",
       properties: {
         taskIdOrTitle: { type: "string", description: "准确ID或唯一标题片段；同名用ID，非进行中任务不重复完成。" },
-        note: { type: "string", description: "完成备注，可省略。" }
+        note: { type: "string", description: "完成备注，可省略。" },
+        date: { type: "string", description: "用户明确给出的完成日期，可以是相对日期。没有日期就省略。" }
       },
       required: ["taskIdOrTitle"]
     },
     execute: async (args, context) => {
       const ref = toolArgString(args, "taskIdOrTitle");
+      const today = todayString();
+      const date = args.date === undefined ? today : typeof args.date === "string" ? normalizeJournalDate(args.date, today) : "";
+      if (!date || date > today) return toolError("完成日期须为有效的今天或过去日期。");
       const resolution = await resolveTaskByReference(context.store, ref);
       if (resolution.kind === "not_found") return toolError(`我想标记完成，但没在任务库里定位到：${ref || "未提供任务名"}。`);
       if (resolution.kind === "ambiguous") {
@@ -354,14 +358,14 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
       if (task.status !== "active") {
         return toolError(`任务“${task.title}”${task.status === "completed" ? "已完成" : "已放弃"}，这次没有重复完成，也没有改动其它任务。`);
       }
-      await context.store.completeTaskAndLog(task.id, todayString(), toolArgString(args, "note"));
+      await context.store.completeTaskAndLog(task.id, date, toolArgString(args, "note"), args.date === undefined ? undefined : date);
       const verified = (await context.store.readTaskDb()).tasks.find((item) => item.id === task.id);
-      if (!verified || verified.status !== "completed") {
-        return toolError(`任务完成写入后校验失败，没有确认状态已经变为 completed：${task.title}。`);
+      if (!verified || verified.status !== "completed" || args.date !== undefined && taskCompletionDay(verified.completedAt) !== date) {
+        return toolError(`未能从任务库核对「${task.title}」的完成记录。`);
       }
       await context.refreshViews();
       return toolReply(
-        `已标记完成：${verified.title}。已从任务库读回校验。`,
+        `已标记完成：${verified.title}${args.date === undefined ? "" : `（${date}）`}。已从任务库读回校验。`,
         [],
         { kind: "restore_task", task: structuredClone(task) as unknown as Record<string, unknown> }
       );

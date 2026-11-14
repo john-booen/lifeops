@@ -6,7 +6,7 @@ import type { AiToolCall } from "../ai";
 import { addDays, formatLocalTime, todayString, weekDates } from "../date";
 import { automaticHabitDayDisplay, isHabitRequiredOn as isHabitRequiredOnDate, numericHabitWindow } from "../features/habits/targets";
 import { compensationDueLabel, formatCompensationMoney, summarizeCompensationDebt } from "../features/habits/compensationDebt";
-import { isTaskOverdue, taskDayInterval, taskScheduleLabel, taskTimeGroup, taskTimelineStart, type TaskTimeGroup } from "../taskSchedule";
+import { isTaskOverdue, taskCompletionDay, taskDayInterval, taskScheduleLabel, taskTimeGroup, taskTimelineStart, type TaskTimeGroup } from "../taskSchedule";
 import {
   addEchoText,
   clearEchoMemories,
@@ -1708,7 +1708,7 @@ function calendarTasksForDate(board: TaskDashboardData, date: string): LifeOpsTa
   const tasks = new Map<string, LifeOpsTask>();
   for (const task of board.tasks) {
     const isActiveMatch = task.status === "active" && (isTaskOnDateLocal(task, date) || task.dueDate === date);
-    const isCompletedMatch = task.status === "completed" && (formatDate(new Date(task.completedAt)) === date || isTaskOnDateLocal(task, date));
+    const isCompletedMatch = task.status === "completed" && (taskCompletionDay(task.completedAt) === date || isTaskOnDateLocal(task, date));
     if (isActiveMatch || isCompletedMatch) {
       tasks.set(task.id, task);
     }

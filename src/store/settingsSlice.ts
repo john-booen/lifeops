@@ -216,8 +216,8 @@ export interface StoreHost extends ProjectSliceApi, TradingSliceApi {
   readGatewayMessages(): Promise<Array<{ source: string; content: string }>>;
   resetGatewayInbox(): Promise<void>;
   createTask(input: LifeOpsTaskInput): Promise<LifeOpsTask>;
-  completeTask(taskId: string, note?: string): Promise<void>;
-  completeTaskAndLog(taskId: string, date?: string, note?: string): Promise<void>;
+  completeTask(taskId: string, note?: string, completionDate?: string): Promise<void>;
+  completeTaskAndLog(taskId: string, date?: string, note?: string, completionDate?: string): Promise<void>;
   abandonTask(taskId: string): Promise<void>;
   moveTaskToQuadrant(taskId: string, quadrant: LifeOpsTaskQuadrant): Promise<void>;
   postponeTask(taskId: string, days: number): Promise<void>;

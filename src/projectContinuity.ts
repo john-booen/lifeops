@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { isSafeOperationId, recordRevision } from "./operationIdentity";
+import { taskCompletionPoint } from "./taskSchedule";
 import type { LifeOpsTask, LifeOpsTaskInput } from "./types";
 
 export const PROJECT_STATES = ["suggested", "agreed", "started", "completed", "cancelled"] as const;
@@ -118,7 +119,9 @@ export function projectTaskEvidence(task: LifeOpsTask): ProjectTaskEvidence {
   return evidence;
 }
 function validCompletionTime(value: unknown): value is string {
-  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(value)
+  if (typeof value !== "string") return false;
+  if (/^\d{4}-\d{2}-\d{2}$/u.test(value)) return !!taskCompletionPoint(value);
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(value)
     && Number.isFinite(Date.parse(value)) && new Date(`${value.slice(0, 10)}T12:00:00Z`).toISOString().slice(0, 10) === value.slice(0, 10);
 }
 export function validProjectTaskEvidence(value: unknown): value is ProjectTaskEvidence {
@@ -132,7 +135,7 @@ export function validProjectTaskEvidence(value: unknown): value is ProjectTaskEv
 export function projectTaskEvidenceLines(evidence: ProjectTaskEvidence, current?: LifeOpsTask, linked = true): string[] {
   const label = (status: LifeOpsTask["status"]) => status === "completed" ? "已完成（任务库记录）" : status === "abandoned" ? "已取消（任务库记录）" : "待办（任务库记录）";
   return [`当时原任务：${evidence.title}；${label(evidence.status)}`,
-    ...(evidence.status === "completed" ? [`当时完成时间：${evidence.completedAt || "未有效记录，不能推断"}`] : []),
+    ...(evidence.status === "completed" ? [`当时完成${evidence.completedAt.length === 10 ? "日期" : "时间"}：${evidence.completedAt || "未有效记录，不能推断"}`] : []),
     ...(evidence.sourceNotePath ? [`当时任务原文来源：${evidence.sourceNotePath}`] : []),
     !linked ? "当前已解除任务关联；当时记录只作历史，请重新核对。"
       : !current ? "当前原任务不可用；当时记录只作历史，不能推断当前完成。"

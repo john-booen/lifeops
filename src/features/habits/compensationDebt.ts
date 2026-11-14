@@ -1,4 +1,5 @@
-import { addDays, formatDate, normalizeJournalDate } from "../../date";
+import { addDays, normalizeJournalDate } from "../../date";
+import { taskCompletionDay } from "../../taskSchedule";
 import type { ExerciseCompensationUnit, HabitCompensationSettings, HabitDefinition, HabitPunishmentTask, LifeOpsTask, PunishmentRule } from "../../types";
 import { EXERCISE_DAY_CAP, EXERCISE_SINGLE_CAP } from "./targets";
 
@@ -92,7 +93,7 @@ function exerciseBudgets(tasks: readonly LifeOpsTask[], habits: ReadonlyMap<stri
     const penalty = task.habitPunishment;
     const rule = penalty?.rule;
     if (!penalty || rule?.kind !== "extra_exercise" || !Object.hasOwn(limits, rule.unit)) continue;
-    const doneToday = task.status === "completed" && task.completedAt && formatDate(new Date(task.completedAt)) === day;
+    const doneToday = task.status === "completed" && taskCompletionDay(task.completedAt) === day;
     if (task.status !== "active" && !doneToday) continue;
     const byHabit = limits[rule.unit];
     const limit = exerciseDailyLimit(penalty, rule, habits.get(penalty.habitId), settings);
