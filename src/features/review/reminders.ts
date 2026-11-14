@@ -129,14 +129,15 @@ export async function runStewardReminders(host: ReviewHost, now = new Date()): P
   if (!runtime || !host.settings.proactive.enabled || host.proactiveCycleRunning) return;
   const generation = host.proactiveLifecycle.generation;
   const ownerStore = host.store;
-  const dataPolicy = contextDataPolicy(ownerStore as unknown as StoreHost);
+  const store = ownerStore as unknown as StoreHost;
+  const dataPolicy = contextDataPolicy(store);
+  const active = () => !host.unloaded && host.settings.proactive.enabled && host.proactiveLifecycle.isCurrent(generation);
+  const ownsCycle = () => active() && host.store === ownerStore && contextDataPolicy(store) === dataPolicy;
   const current = () => {
-    if (host.unloaded || host.store !== ownerStore || contextDataPolicy(ownerStore as unknown as StoreHost) !== dataPolicy
-      || !host.proactiveLifecycle.isCurrent(generation)) throw Error("主动提醒已停止。");
+    if (!ownsCycle()) throw Error("主动提醒已停止。");
   };
   host.proactiveCycleRunning = true;
   try {
-    const store = host.store as unknown as StoreHost;
     const prior = await store.readProactivePolicyState();
     const firstOpen = firstOpenOnDay(prior.firstOpen, runtime.openedAt, now);
     const candidates = await collectStewardCandidates(store, { ...prior, firstOpen }, now, host.settings.proactive.tone, runtime.overload);
@@ -174,7 +175,8 @@ export async function runStewardReminders(host: ReviewHost, now = new Date()): P
     }
     if (delivered.length) await host.refreshViews().catch(() => undefined);
   } catch {
-    if (!host.unloaded && host.proactiveLifecycle.isCurrent(generation)) console.warn("LifeOps 主动提醒暂时无法保存，下次会重试。");
+    if (ownsCycle()) console.warn("LifeOps 主动提醒暂时无法保存，下次会重试。");
+    else if (active()) host.proactiveLifecycle.schedule(0);
   } finally { host.proactiveCycleRunning = false; }
 }
 

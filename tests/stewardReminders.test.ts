@@ -190,6 +190,34 @@ it("does not persist a pending reminder if its lifecycle was disabled during dat
   expect((await store.readProactivePolicyState()).deliveries).toEqual([]);
 });
 
+it("rechecks reminders after setup replaces the active store during a save", async () => {
+  const point = now(15, 8);
+  const replacement = new LifeOpsStore(host.app, host.settings);
+  const save = host.saveLocalOperation.bind(host);
+  const pending = vi.spyOn(host, "saveLocalOperation").mockImplementationOnce((name, args, execute, options) =>
+    save(name, args, async scope => {
+      await execute(scope);
+      host.store = replacement;
+    }, options));
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  startStewardReminders(host, point);
+  try {
+    await runStewardReminders(host, point);
+    expect(pending).toHaveBeenCalledOnce();
+    expect(delivered).toEqual([]);
+    expect((await store.readProactivePolicyState()).deliveries).toEqual([]);
+    expect(await store.readProactiveCandidates(10)).toEqual([]);
+    expect(warn).not.toHaveBeenCalled();
+    expect(host.proactiveLifecycle.schedule).toHaveBeenCalledTimes(2);
+    await runStewardReminders(host, point);
+    await runStewardReminders(host, point);
+    expect(delivered.map(item => item.kind)).toEqual(["daily_brief"]);
+    expect((await store.readProactivePolicyState()).deliveries).toHaveLength(1);
+  } finally {
+    warn.mockRestore();
+  }
+});
+
 it("caps all steward channels at six reminders and keeps automated writes out of conversational undo", async () => {
   const point = now(15, 21);
   let state = emptyProactivePolicyState();
