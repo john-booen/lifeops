@@ -4,7 +4,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: 插件版本与操作系统
+      label: LifeOps 版本、Obsidian 版本与操作系统
+      placeholder: 例如 LifeOps 0.5.9 / Obsidian 1.15.1 / macOS
     validations:
       required: true
   - type: textarea
