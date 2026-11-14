@@ -228,10 +228,7 @@ it("keeps verified days when one health note cannot be safely read", async () =>
     sleepHours: { average: 7.5, recordedDays: 1 } });
 });
 
-it("keeps an existing health note byte-for-byte at the start of an appended entry", async () => {
-  const path = healthNotePath(store, date);
-  const prior = `\uFEFF## ${date}\r\n- 步数：850\r\n旧备注保留两个空格  \r\n\r\n`;
-  await store.writeFile(path, prior);
+function simulateNormalizedObsidianText(path: string) {
   const disk = store.app.vault as unknown as ReturnType<typeof createFsApp>["vault"];
   const originalRead = disk.read.bind(disk);
   vi.spyOn(disk, "read").mockImplementation(async file => {
@@ -239,12 +236,38 @@ it("keeps an existing health note byte-for-byte at the start of an appended entr
     return file.path === path ? text.replace(/^\uFEFF/u, "").replaceAll("\r\n", "\n") : text;
   });
   Object.assign(disk, { readBinary: (file: { path: string }) => disk.adapter.readBinary(file.path) });
+  return disk;
+}
+
+it("keeps an existing health note byte-for-byte at the start of an appended entry", async () => {
+  const path = healthNotePath(store, date);
+  const prior = `\uFEFF## ${date}\r\n- 步数：850\r\n旧备注保留两个空格  \r\n\r\n`;
+  await store.writeFile(path, prior);
+  const disk = simulateNormalizedObsidianText(path);
   const entries = [{ date, steps: 0 }];
   const result = await runtime.executeLocalOperation("manual_health_csv_batch", { entries }, scope => recordHealthEntries(scope, entries));
   expect(result.success).toBe(true);
   expect((await disk.bytes(path)).startsWith(prior)).toBe(true);
   expect(await readHealthDay(store, date)).toEqual({ date, steps: 0 });
   await runtime.undoOperation(result.callId);
+  expect(await disk.bytes(path)).toBe(prior);
+});
+
+it("keeps both prior and newly quoted evening diary bytes when the desktop text reader normalizes line endings", async () => {
+  const path = store.dailyNotePath(date, "晚");
+  const prior = "\uFEFF# 虚构日记\r\n\r\n## 原话\r\n\r\n~~~\r\n旧原话两个空格  \r\n~~~\r\n";
+  const original = "第一行虚构原话。\r\n第二行留两个空格  ";
+  await store.writeFile(path, prior);
+  const disk = simulateNormalizedObsidianText(path);
+  const id = "synthetic-journal-exact-original";
+  const result = await runtime.executeAiToolCall({
+    id, name: "append_journal_entry", arguments: { date, period: "晚", content: "虚构整理稿。" }
+  }, "kimi", original);
+  expect(result.success, result.output).toBe(true);
+  const after = await disk.bytes(path);
+  expect(after.startsWith(prior)).toBe(true);
+  expect(after).toContain("~~~\n" + original + "\n~~~");
+  expect(await runtime.undoOperation(id)).toBe(true);
   expect(await disk.bytes(path)).toBe(prior);
 });
 

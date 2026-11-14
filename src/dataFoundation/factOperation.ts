@@ -9,6 +9,7 @@ import { assertSafeOperationId, fileRevision, UndoRecoveryRequiredError } from "
 import { decodeFactRecovery, encodeFactRecovery, MAX_RECOVERY_BYTES, RecoveryCapacityError } from "./recoveryEncoding";
 import { ledgerUndoAfter, type LedgerUndoRecovery } from "./ledgerUndoRecovery";
 import { signalDateFromDocumentPath } from "../features/journal/signals";
+import { journalDateFromPath } from "../journalResolver";
 
 export interface GuardedFileChange {
   path: string;
@@ -129,10 +130,11 @@ function validatePath(store: StoreHost, path: string, identity: FactOperationIde
 }
 function needsExactMarkdown(store: StoreHost, path: string): boolean {
   if (!path.endsWith(".md")) return false;
-  const { ideas, health } = store.settings.folders;
+  const { ideas, health, dailyRoot } = store.settings.folders;
   const retained = store.path(store.settings.folders.aiReports, "Operations", "Retained");
   return (Boolean(ideas) && path.startsWith(ideas + "/") && !path.startsWith(ideas + "/每日记录/"))
     || (Boolean(health) && path.startsWith(health + "/"))
+    || (Boolean(dailyRoot) && !!journalDateFromPath(path, dailyRoot))
     || path.startsWith(retained + "/");
 }
 async function readVaultText(store: StoreHost, file: TFile, vault = store.app.vault): Promise<string> {
