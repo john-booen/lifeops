@@ -18,6 +18,7 @@ import {
 import { normalizeRealtimeAsrLanguage } from "./voice/realtimeAsrOptions";
 import { ProtectedOmniResponses } from "./voice/omniE2e/protectedResponses";
 import { OmniResponseText } from "./voice/omniE2e/responseText";
+import { OmniInitialInstructions, RealtimeConnectionContextError } from "./voice/omniE2e/initialInstructions";
 
 export const UNCONFIRMED_VOICE_CANCEL_MESSAGE = "语音取消未获确认，旧连接已停止；重新连接后请重说刚才一句。";
 
@@ -89,23 +90,8 @@ export interface BailianRealtimeOptions {
   sourceValidationRequired?: boolean;
 }
 
-class RealtimeConnectionContextError extends Error {
-  constructor() { super("首次语音资料或权限已变化，已停止连接；请重新开始语音。"); this.name = "RealtimeConnectionContextError"; }
-}
-
 export class BailianConnectionTimeoutError extends Error {
   constructor() { super("百炼 Realtime 连接超时。"); }
-}
-
-interface InitialInstructionsSlot {
-  readonly snapshot: RealtimeInstructionsSnapshot;
-  readonly instructions: string;
-  readonly baseInstructions: string;
-  readonly expiresAt?: number;
-  readonly nonce: string;
-  readonly wireInstructions: string;
-  sent: boolean;
-  checkingAck: boolean;
 }
 
 export class BailianRealtimeClient {
@@ -119,9 +105,7 @@ export class BailianRealtimeClient {
     handleStale: ({event, generation}, connection) => this.settleStaleProtectedResponse(event, generation, connection),
     fail: message => this.failToolContext(message)
   });
-  private initialSnapshot: RealtimeInstructionsSnapshot | undefined;
-  private initialSlot: InitialInstructionsSlot | undefined;
-  private initialConsumed = false;
+  private readonly initialInstructions: OmniInitialInstructions;
   private routedInitialReady?:{resolve():void;reject(error:unknown):void};
   private connectionRun: RealtimeProviderRun | undefined;
   private responseRun: RealtimeProviderRun | undefined;
@@ -174,7 +158,25 @@ export class BailianRealtimeClient {
     if (!this.isOmniE2e() && settings.asrEngine === "streaming-hotwords") {
       this.streamingAsr = new BailianStreamingAsr(settings, callbacks, options.providerContext);
     }
-    this.initialSnapshot = options.initialInstructions;
+    this.initialInstructions = new OmniInitialInstructions(options.initialInstructions, {
+      connection: () => this.intentionalClose ? null : this.socket,
+      accepted: event => {
+        window.clearTimeout(this.connectionAckTimer);
+        const model = providerIdentifier(realtimeReportedModel(event));
+        if (model) this.reportedModel = model;
+        this.connectionRun?.finish("success", undefined, model);
+        this.initialInstructions.release();
+        this.flushQueuedResponseCreate();
+        this.routedInitialReady?.resolve();
+      },
+      failed: code => {
+        this.connectionRun?.finish("failed", code);
+        if (this.failRoutedRestore()) return;
+        this.close();
+        try { this.callbacks.onInitialContextError?.("首次语音资料未获当前确认，已停止连接；请重新开始语音。"); }
+        catch { /* The closed session cannot retry a callback. */ }
+      }
+    });
     const keys = new Set([settings.apiKey.trim()]);
     this.auditCredentials = () => {
       keys.add(this.settings.apiKey.trim());
@@ -196,9 +198,9 @@ export class BailianRealtimeClient {
     assertCredentialStorageAccepted(this.settings.plaintextCredentialStorageAccepted === true, apiKey);
     if (this.socket) this.close();
     this.resetConnectionState();
-    this.captureInitialInstructions();
+    this.initialInstructions.capture(this.isOmniE2e(), Boolean(this.options.initialInstructions));
     } catch (error) {
-      this.releaseInitialInstructions();
+      this.initialInstructions.release();
       if (this.options.initialInstructions && this.socket) this.close();
       connectionRun.finish("failed", "configuration");
       throw error;
@@ -209,7 +211,7 @@ export class BailianRealtimeClient {
 
     let sessionBody: string;
     try { sessionBody = JSON.stringify(this.buildSessionUpdatePayload()); }
-    catch (error) { this.releaseInitialInstructions(); connectionRun.finish("failed", "configuration"); throw error; }
+    catch (error) { this.initialInstructions.release(); connectionRun.finish("failed", "configuration"); throw error; }
     void recordProviderEgress({
       capability: "voice",
       provider: "bailian-realtime",
@@ -232,7 +234,7 @@ export class BailianRealtimeClient {
 
       const timeout = window.setTimeout(() => {
         connectionRun.finish("failed", "timeout");
-        reject(opening && this.initialSlot ? new RealtimeConnectionContextError() : new BailianConnectionTimeoutError());
+        reject(opening && this.initialInstructions.slot ? new RealtimeConnectionContextError() : new BailianConnectionTimeoutError());
         if (this.socket === socket) this.close();
       }, 12_000);
       this.cancelConnecting = () => {
@@ -248,13 +250,13 @@ export class BailianRealtimeClient {
           reject(new Error("百炼 Realtime 连接已关闭。"));
           return;
         }
-        const openingSlot = this.initialSlot;
+        const openingSlot = this.initialInstructions.slot;
         const finishOpen = () => {
           if (this.connectionRun !== connectionRun || this.socket !== socket || this.intentionalClose
-            || this.initialSlot !== openingSlot || this.options.initialInstructions && this.isOmniE2e() && !openingSlot) {
+            || this.initialInstructions.slot !== openingSlot || this.options.initialInstructions && this.isOmniE2e() && !openingSlot) {
             throw new RealtimeConnectionContextError();
           }
-          this.assertInitialInstructions();
+          this.initialInstructions.assertCurrent();
           window.clearTimeout(timeout);
           this.cancelConnecting = undefined;
           if (this.isOmniE2e() && this.options.prepareInstructions) {
@@ -266,10 +268,10 @@ export class BailianRealtimeClient {
                 purpose: "realtime_context_update", requestBytes: bytes, sourceCount: 0}, this.auditCredentials()); }
             });
           }
-          const slot = this.initialSlot;
+          const slot = this.initialInstructions.slot;
           this.connectionAckTimer = window.setTimeout(() => {
             if (this.socket !== socket || this.intentionalClose) return;
-            if (slot && this.initialSlot === slot) this.failInitialInstructions(slot, socket, "timeout");
+            if (slot && this.initialInstructions.slot === slot) this.initialInstructions.fail(slot, socket, "timeout");
             else {
               connectionRun.finish("failed", "timeout");
               if (!this.isOmniE2e()) {
@@ -290,7 +292,7 @@ export class BailianRealtimeClient {
           if (this.connectionRun === connectionRun && this.socket === socket) this.close();
         };
         try {
-          this.assertInitialInstructions();
+          this.initialInstructions.assertCurrent();
           if (openingSlot?.snapshot.assertSourcesCurrent) void openingSlot.snapshot.assertSourcesCurrent().then(finishOpen, failOpen).catch(failOpen);
           else finishOpen();
         } catch (error) { failOpen(error); }
@@ -307,7 +309,7 @@ export class BailianRealtimeClient {
         if(this.failRoutedRestore()){reject(new Error("保存后的语音连接恢复失败。"));return;}
         if(this.hasProtectedContextSources()){this.failToolContext();reject(new Error("语音查询连接已停止。"));return;}
         this.finishProviderFailures(error);
-        window.clearTimeout(this.connectionAckTimer); this.releaseInitialInstructions();
+        window.clearTimeout(this.connectionAckTimer); this.initialInstructions.release();
         this.instructionsBoundary?.cancel();
         this.invalidatePendingResponseWork();
         const message = redactSensitiveText(error instanceof Error ? error.message : "百炼 Realtime WebSocket 错误。", [apiKey]);
@@ -323,7 +325,7 @@ export class BailianRealtimeClient {
         if(this.failRoutedRestore()){reject(new Error("保存后的语音连接恢复失败。"));return;}
         if(this.hasProtectedContextSources()){this.failToolContext();reject(new Error("语音查询连接已停止。"));return;}
         this.finishProviderFailures(reason.toString("utf8") || `连接关闭：${code}`);
-        window.clearTimeout(this.connectionAckTimer); this.releaseInitialInstructions();
+        window.clearTimeout(this.connectionAckTimer); this.initialInstructions.release();
         this.instructionsBoundary?.cancel();
         this.invalidatePendingResponseWork();
         this.clearResponseCancelTimer();
@@ -340,7 +342,7 @@ export class BailianRealtimeClient {
         }
       });
     }).catch(error => {
-      if (this.connectionRun === connectionRun) this.releaseInitialInstructions();
+      if (this.connectionRun === connectionRun) this.initialInstructions.release();
       const failure = realtimeProviderError(error);
       connectionRun.finish("failed", failure.code, undefined, failure.httpStatus);
       throw error;
@@ -375,7 +377,7 @@ export class BailianRealtimeClient {
 
   createResponse(): void {
     if (!this.isOmniE2e()) return;
-    if (this.initialSlot || this.activeResponseId || this.responseRequestPending || this.responseCancelPending || this.toolResponseContinuation) {
+    if (this.initialInstructions.slot || this.activeResponseId || this.responseRequestPending || this.responseCancelPending || this.toolResponseContinuation) {
       this.queuedResponseCreate = true;
       return;
     }
@@ -422,7 +424,7 @@ export class BailianRealtimeClient {
         if(!suspended())throw Error("语音保存交接已经结束。");
         const snapshot=await this.options.prepareInstructions!();
         if(!suspended()){snapshot.dispose?.();throw Error("语音保存交接已经结束。");}
-        this.initialSnapshot=snapshot;this.initialConsumed=false;this.routedInitialReady=ready;
+        this.initialInstructions.replace(snapshot);this.routedInitialReady=ready;
         const connecting=this.connect();ownedSocket=this.socket;
         await connecting;await accepted;
         if(!live||!current()||this.socket!==ownedSocket||this.intentionalClose)throw Error("新的语音资料连接已经结束。");
@@ -467,7 +469,7 @@ export class BailianRealtimeClient {
   close(): void {
     if (this.streamingAsr) return this.streamingAsr.close();
     this.routedInitialReady?.reject(Error("语音资料连接已经结束。"));
-    this.releaseInitialInstructions();
+    this.initialInstructions.release();
     this.instructionsBoundary?.cancel();
     this.instructionsBoundary = undefined;
     window.clearTimeout(this.connectionAckTimer);
@@ -504,82 +506,15 @@ export class BailianRealtimeClient {
     return url.toString();
   }
 
-  private captureInitialInstructions(): void {
-    if (!this.isOmniE2e()) { this.releaseInitialInstructions(); return; }
-    const snapshot = this.initialSnapshot;
-    if (!snapshot) { if (this.options.initialInstructions) throw new RealtimeConnectionContextError(); return; }
-    if (this.initialConsumed) throw new RealtimeConnectionContextError();
-    this.initialConsumed = true;
-    const {instructions, baseInstructions, expiresAt} = snapshot, nonce = randomUUID();
-    this.initialSlot = { snapshot, instructions, baseInstructions, expiresAt, nonce, sent: false, checkingAck: false,
-      wireInstructions: `${instructions}\n\n[内部上下文版本：${nonce}；此标记只用于协议确认，不得朗读或作为用户资料。]` };
-    this.assertInitialInstructions();
-  }
-
-  private assertInitialInstructions(): void {
-    const slot = this.initialSlot; if (!slot) return;
-    const source = slot.snapshot;
-    try {
-      if (typeof slot.instructions !== "string" || typeof slot.baseInstructions !== "string"
-        || source.instructions !== slot.instructions || source.baseInstructions !== slot.baseInstructions || source.expiresAt !== slot.expiresAt
-        || slot.expiresAt !== undefined && (!Number.isFinite(slot.expiresAt) || slot.expiresAt <= Date.now())) throw new RealtimeConnectionContextError();
-      source.assertCurrent();
-    } catch { throw new RealtimeConnectionContextError(); }
-  }
-
-  private releaseInitialInstructions(): void {
-    const snapshot = this.initialSnapshot;
-    this.initialSnapshot = undefined; this.initialSlot = undefined;
-    try { snapshot?.dispose(); } catch { /* Disposal never retries or reuses a source. */ }
-  }
-
-  private failInitialInstructions(slot: InitialInstructionsSlot, socket: WebSocket, code: ProviderErrorCode): void {
-    if (this.initialSlot !== slot || this.socket !== socket || this.intentionalClose) return;
-    this.connectionRun?.finish("failed", code);
-    if(this.failRoutedRestore())return;
-    this.close();
-    try { this.callbacks.onInitialContextError?.("首次语音资料未获当前确认，已停止连接；请重新开始语音。"); } catch { /* The closed session cannot retry a callback. */ }
-  }
-
-  private acceptInitialInstructionsEvent(event: Record<string, unknown>): boolean {
-    const slot = this.initialSlot, socket = this.socket;
-    if (!slot || !socket || this.intentionalClose) return false;
-    if (event.type === "error") {
-      const error = event.error as Record<string, unknown> | undefined;
-      if (event.response_id || event.response || error?.event_id !== undefined && error.event_id !== slot.nonce) return true;
-      this.failInitialInstructions(slot, socket, realtimeProviderError(error).code); return true;
-    }
-    if (event.type !== "session.updated") return false;
-    const session = event.session as Record<string, unknown> | undefined;
-    if (!slot.sent || session?.instructions !== slot.wireInstructions || slot.checkingAck) return true;
-    slot.checkingAck = true;
-    const complete = () => {
-      if (this.initialSlot !== slot || this.socket !== socket || this.intentionalClose) return;
-      this.assertInitialInstructions();
-      window.clearTimeout(this.connectionAckTimer);
-      const model = providerIdentifier(realtimeReportedModel(event)); if (model) this.reportedModel = model;
-      this.connectionRun?.finish("success", undefined, model);
-      this.releaseInitialInstructions(); this.flushQueuedResponseCreate();
-      this.routedInitialReady?.resolve();
-    };
-    const fail = () => this.failInitialInstructions(slot, socket, "invalid_response");
-    try {
-      this.assertInitialInstructions();
-      if (slot.snapshot.assertSourcesCurrent) void slot.snapshot.assertSourcesCurrent().then(complete, fail).catch(fail);
-      else complete();
-    } catch { fail(); }
-    return true;
-  }
-
   private sendSessionUpdate(): void {
-    this.assertInitialInstructions();
+    this.initialInstructions.assertCurrent();
     this.send(this.buildSessionUpdatePayload());
   }
 
   private buildSessionUpdatePayload(): Record<string, unknown> {
     const language = normalizeRealtimeAsrLanguage(this.settings.language);
     if (this.isOmniE2e()) {
-      return buildOmniSessionUpdate(this.settings, this.options, this.initialSlot, language);
+      return buildOmniSessionUpdate(this.settings, this.options, this.initialInstructions.slot, language);
     }
     return {
       type: "session.update",
@@ -681,7 +616,7 @@ export class BailianRealtimeClient {
   private handleEvent(event:Record<string,unknown>):void{
 
     const type = String(event.type ?? "");
-    if (this.acceptInitialInstructionsEvent(event)) return;
+    if (this.initialInstructions.accept(event)) return;
     if (this.instructionsBoundary?.acceptSessionEvent(event)) return;
     const asrItemId = inputItemId(event) || (type === "input_audio_buffer.speech_started"
       || (this.unboundAsrRun && !this.unboundAsrRun.settled) ? "" : this.currentSpeechItemId);
@@ -1016,7 +951,7 @@ export class BailianRealtimeClient {
 
   private requestResponse(toolContinuation?: BailianRealtimeResponseEvent["toolContinuation"], retryOfResponseId?: string): void {
     if (this.intentionalClose || this.socket?.readyState !== WebSocket.OPEN) return;
-    if (this.initialSlot) { this.queuedResponseCreate = true; return; }
+    if (this.initialInstructions.slot) { this.queuedResponseCreate = true; return; }
     if (!this.responseRun || this.responseRun.settled) this.responseRun = this.newProviderRun("voice_response");
     // Response model identity belongs to this attempt. A failed attempt's model
     // and later model-less events must not overwrite the successful response.
@@ -1171,7 +1106,7 @@ export class BailianRealtimeClient {
   }
 
   private flushQueuedResponseCreate(): void {
-    if (!this.queuedResponseCreate || this.initialSlot || this.activeResponseId || this.responseRequestPending || this.responseCancelPending || this.toolResponseContinuation) {
+    if (!this.queuedResponseCreate || this.initialInstructions.slot || this.activeResponseId || this.responseRequestPending || this.responseCancelPending || this.toolResponseContinuation) {
       return;
     }
     this.queuedResponseCreate = false;

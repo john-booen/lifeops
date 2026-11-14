@@ -58,7 +58,7 @@ afterEach(async () => {
   view?.stopVoiceStandby(); if (view) await view.stopBailianRealtimeRecording(true); if (mainCompletion) await mainCompletion.catch(() => {}); await tick(200); setProviderEgressSink(null); vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); if (dir) fs.rmSync(dir, { recursive: true, force: true });
 });
 async function tick(ms: number) { if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(ms); else await new Promise((r) => setTimeout(r, ms)); }
-async function start() { await view.ensureVoiceStandby(); await vi.waitFor(() => expect(Boolean(view.agentRealtimeClient?.initialSlot)).toBe(false)); await tick(3000); expect(view.agentVoiceRuntime.snapshot().sessionPhase).toBe('listening'); return { client: view.agentRealtimeClient, socket: wire.sockets[0] }; }
+async function start() { await view.ensureVoiceStandby(); await vi.waitFor(() => expect(Boolean(view.agentRealtimeClient?.initialInstructions?.slot)).toBe(false)); await tick(3000); expect(view.agentVoiceRuntime.snapshot().sessionPhase).toBe('listening'); return { client: view.agentRealtimeClient, socket: wire.sockets[0] }; }
 async function transcript(socket: any, text: string) {
   const item_id = 'asr_' + ++counter;
   socket.message({ type: 'input_audio_buffer.speech_started', item_id, audio_start_ms: 100 });
