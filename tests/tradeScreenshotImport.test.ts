@@ -142,6 +142,22 @@ it("normalizes a printed unicode minus and rejects offsets beyond fourteen hours
     kind: "invalid", reason: expect.stringContaining("时区无效")
   });
 });
+
+it.each([
+  ["GMT+8", "UTC+08:00", "+08:00"],
+  ["UTC−4", "GMT-04:00", "-04:00"],
+  ["GMT+5:30", "UTC+05:30", "+05:30"]
+])("uses an explicitly printed short UTC offset %s on a foreign-market screenshot", (suffix, printed, expected) => {
+  const openedAt = "2026-10-14T11:15:00 " + suffix;
+  const row = { ...cases["forex-missing-zone"], openedAt, openedZone: printed };
+  const [preview] = previewTradeScreenshot([row], "a".repeat(64), []).rows;
+  expect(preview).toMatchObject({ kind: "ready", inferredTimeZone: undefined,
+    draft: { openedAt: "2026-10-14T11:15:00" + expected } });
+  expect(previewTradeScreenshot([{ ...row, openedZone: suffix }], "a".repeat(64), []).rows[0])
+    .toMatchObject({ kind: "ready", draft: { openedAt: "2026-10-14T11:15:00" + expected } });
+  expect(previewTradeScreenshot([{ ...row, openedZone: "UTC" }], "a".repeat(64), []).rows[0])
+    .toMatchObject({ kind: "invalid", reason: expect.stringContaining("时区") });
+});
 const readFixture = async (name: CaseName) => readTradeScreenshot(await readFile(join("tests/fixtures/trade-screenshots", name + ".png")));
 const settings = () => {
   const selected = structuredClone(DEFAULT_SETTINGS);
