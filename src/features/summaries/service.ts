@@ -20,9 +20,9 @@ export interface SummaryHost extends LocalOperationHost {
 type SummaryResult = { path: string; status: "saved" | "existing" | "unavailable"; generatedBy?: SummaryKind };
 type PendingSummary = { store: StoreHost; signal?: AbortSignal; operation: Promise<SummaryResult> };
 const pending = new WeakMap<SummaryHost, Map<string, PendingSummary>>();
-const scheduleRuns = new WeakMap<SummaryHost, { phase: string; running: boolean; retryAt: number }>();
+const scheduleRuns = new WeakMap<StoreHost, { phase: string; running: boolean; retryAt: number }>();
 const scheduledHosts = new WeakSet<SummaryHost>();
-const scheduleStarts = new WeakMap<SummaryHost, Promise<string>>();
+const scheduleStarts = new WeakMap<StoreHost, Promise<string>>();
 
 const timeOfDay = (now: Date) => now.getHours() * 60 + now.getMinutes();
 const dateCutoff = (period: SummaryPeriod, now: Date) => {
@@ -127,16 +127,17 @@ async function generateSummary(host: SummaryHost, store: StoreHost, period: Summ
 }
 
 export async function runScheduledSummaries(host: SummaryHost, now = new Date(), activeFrom?: string): Promise<void> {
-  if (host.unloaded || !providerReady(host.store.settings)) return;
+  const store = host.store;
+  if (host.unloaded || !providerReady(store.settings)) return;
   const minutes = timeOfDay(now);
   const phase = formatDate(now) + (minutes >= 23 * 60 + 30 ? "/night" : now.getDay() === 0 && minutes >= 21 * 60 + 30 ? "/week" : "/day");
-  const prior = scheduleRuns.get(host);
+  const prior = scheduleRuns.get(store);
   if (prior?.running || prior?.phase === phase && prior.retryAt > now.getTime()) return;
   const state = { phase, running: true, retryAt: Number.POSITIVE_INFINITY };
-  scheduleRuns.set(host, state);
+  scheduleRuns.set(store, state);
   try {
     for (const period of scheduledSummaryPeriods(now)) {
-      if (host.unloaded) return;
+      if (host.unloaded || host.store !== store) return;
       const due = period.level === "month" ? addDays(period.to, 1) : period.to;
       if (activeFrom && due < activeFrom) continue;
       try { await generatePeriodSummary(host, period, now, undefined, true); }
@@ -175,11 +176,14 @@ export function startSummarySchedule(host: SummaryHost, now = new Date()): Promi
 }
 
 export async function tickSummarySchedule(host: SummaryHost, now = new Date()): Promise<void> {
-  if (!scheduledHosts.has(host) || host.unloaded || !providerReady(host.store.settings)) return;
-  let start = scheduleStarts.get(host);
-  if (!start) { start = summaryActivationDay(host, now); scheduleStarts.set(host, start); }
-  try { await runScheduledSummaries(host, now, await start); }
-  catch { if (scheduleStarts.get(host) === start) scheduleStarts.delete(host); }
+  const store = host.store;
+  if (!scheduledHosts.has(host) || host.unloaded || !providerReady(store.settings)) return;
+  let start = scheduleStarts.get(store);
+  if (!start) { start = summaryActivationDay(host, now); scheduleStarts.set(store, start); }
+  try {
+    const activeFrom = await start;
+    if (host.store === store) await runScheduledSummaries(host, now, activeFrom);
+  } catch { if (scheduleStarts.get(store) === start) scheduleStarts.delete(store); }
 }
 
 export async function openPeriodSummary(host: SummaryHost, level: SummaryLevel, signal?: AbortSignal): Promise<void> {

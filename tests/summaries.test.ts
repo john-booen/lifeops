@@ -195,6 +195,20 @@ it("starts automatic summaries at installation and leaves earlier history for co
   expect(ask).toHaveBeenCalledOnce();
 });
 
+it("starts the same scheduling phase in a replacement store using its own activation date", async () => {
+  await startSummarySchedule(host, now(12, 23, 30));
+  expect((await saved("day", "2026-11-12"))?.properties.complete).toBe(true);
+  const replacement = new LifeOpsStore(host.app, structuredClone(store.settings)) as unknown as StoreHost;
+  replacement.settings.folders.aiReports = store.path(store.settings.folders.aiReports, "虚构新摘要库");
+  host.store = replacement;
+  await tickSummarySchedule(host, now(12, 23, 31));
+  const path = replacement.path(replacement.settings.folders.aiReports, "摘要", "调度.json");
+  expect(await replacement.readJson(path, null)).toEqual({ version: 1, from: "2026-11-12" });
+  const scope = await readSummaryScope(replacement);
+  expect((await readSummary(replacement, summaryPeriod("day", "2026-11-12"), scope.hash))?.properties.complete).toBe(true);
+  expect(await readSummary(replacement, summaryPeriod("day", "2026-11-11"), scope.hash)).toBeUndefined();
+});
+
 it("leaves a note untouched when the user edits it while a replacement is generating", async () => {
   const date = "2026-11-12", period = summaryPeriod("day", date);
   const { path } = await generatePeriodSummary(host, period, now(12, 15));
