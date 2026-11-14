@@ -47,6 +47,7 @@ import { armOmniResponseTimer as armOmniTimer, clearOmniResponseTimer } from "./
 import { createOmniCallbacks, omniSessionOptions } from "./omniE2e/session";
 import { projectProposalFailure } from "./omniE2e/projectProposals";
 import {
+  handleOmniE2eBargeInEvent as applyOmniBargeInEvent,
   handleOmniE2eSpeechStarted as suspectOmniInterruption,
   handleOmniE2eSpeechStopped,
   observeOmniE2eBargeInTranscript as observeOmniInterruption
@@ -1106,48 +1107,8 @@ export function observeOmniE2eBargeInTranscript(view: VoiceRealtimeView, text: s
   observeOmniInterruption(view, text, shouldQueueOmniPostPlaybackInput(view));
 }
 
-export function handleOmniE2eBargeInEvent(
-  view: VoiceRealtimeView,
-  event: VoiceBargeInEvent
-): void {
-  const runtime = view.agentVoiceRuntime;
-  if (!runtime) return;
-  if (!runtime.accepts({
-    generation: event.identity.generation,
-    turnId: event.identity.turnId,
-    ...(event.identity.playbackId ? { playbackId: event.identity.playbackId } : {})
-  })) {
-    return;
-  }
-
-  if (event.type === "suspected") {
-    if (event.identity.playbackId) {
-      view.agentAudioOutput?.duck?.(event.identity.playbackId, 0.18, 80);
-    }
-    view.clearVoiceAutoSendTimer?.();
-    view.appendVoiceMetric?.("voice_speech_started", {
-      reason: "barge_in_suspected"
-    });
-    return;
-  }
-
-  if (event.type === "false-alarm" || event.type === "reset") {
-    if (event.identity.playbackId) {
-      view.agentAudioOutput?.restore?.(event.identity.playbackId, 120);
-    }
-    if (event.type === "false-alarm") {
-      view.appendVoiceMetric?.("voice_speech_stopped", {
-        reason: "barge_in_false_alarm"
-      });
-    }
-    return;
-  }
-
-  view.appendVoiceMetric?.("voice_speech_started", {
-    reason: `barge_in_confirmed:${event.reason}`
-  });
-  interruptManagedVoiceTurn(view, `barge-in confirmed: ${event.reason}`);
-  view.agentVoiceBargeIn?.reset?.("barge_in_applied");
+export function handleOmniE2eBargeInEvent(view: VoiceRealtimeView, event: VoiceBargeInEvent): void {
+  applyOmniBargeInEvent(view, event, reason => interruptManagedVoiceTurn(view, reason));
 }
 
 function beginOmniRuntimeTurn(

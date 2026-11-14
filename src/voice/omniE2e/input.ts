@@ -1,5 +1,6 @@
 import { detectVoiceControlEvent, shouldInterruptAssistantForTranscript } from "../../voiceSession";
-import type { VoiceBargeInController } from "../voiceBargeIn";
+import type { AudioOutputActor } from "../audioOutput";
+import type { VoiceBargeInController, VoiceBargeInEvent } from "../voiceBargeIn";
 import type { VoiceSessionController } from "../voiceRuntime";
 
 interface OmniInputView {
@@ -50,4 +51,55 @@ export function observeOmniE2eBargeInTranscript(
       controlEvent: controlIntent
     })
   });
+}
+
+interface OmniBargeInView extends OmniInputView {
+  agentAudioOutput?: Pick<AudioOutputActor, "duck" | "restore">;
+  clearVoiceAutoSendTimer?(): void;
+  appendVoiceMetric?(event: "voice_speech_started" | "voice_speech_stopped", detail: { reason: string }): void;
+}
+
+export function handleOmniE2eBargeInEvent(
+  view: OmniBargeInView,
+  event: VoiceBargeInEvent,
+  interruptTurn: (reason: string) => void
+): void {
+  const runtime = view.agentVoiceRuntime;
+  if (!runtime) return;
+  if (!runtime.accepts({
+    generation: event.identity.generation,
+    turnId: event.identity.turnId,
+    ...(event.identity.playbackId ? { playbackId: event.identity.playbackId } : {})
+  })) {
+    return;
+  }
+
+  if (event.type === "suspected") {
+    if (event.identity.playbackId) {
+      view.agentAudioOutput?.duck?.(event.identity.playbackId, 0.18, 80);
+    }
+    view.clearVoiceAutoSendTimer?.();
+    view.appendVoiceMetric?.("voice_speech_started", {
+      reason: "barge_in_suspected"
+    });
+    return;
+  }
+
+  if (event.type === "false-alarm" || event.type === "reset") {
+    if (event.identity.playbackId) {
+      view.agentAudioOutput?.restore?.(event.identity.playbackId, 120);
+    }
+    if (event.type === "false-alarm") {
+      view.appendVoiceMetric?.("voice_speech_stopped", {
+        reason: "barge_in_false_alarm"
+      });
+    }
+    return;
+  }
+
+  view.appendVoiceMetric?.("voice_speech_started", {
+    reason: `barge_in_confirmed:${event.reason}`
+  });
+  interruptTurn(`barge-in confirmed: ${event.reason}`);
+  view.agentVoiceBargeIn?.reset?.("barge_in_applied");
 }
