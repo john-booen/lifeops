@@ -45,8 +45,8 @@ export function localSummaryText(period: SummaryPeriod, data: SummaryData): stri
         healthLines.push(`${labels[key]} ${value} ${HEALTH_METRICS[key].unit}（${metric.recordedDays} 天）。`);
       }
     }
-    if (health.scope) healthLines.push("只统计允许读取的健康记录。");
   }
+  if (health?.scope) healthLines.push(health.recordedDays ? "只统计允许读取的健康记录。" : "这个时段暂无可读的健康记录。");
   return [
     "截至 " + data.through + " 的记录",
     "",

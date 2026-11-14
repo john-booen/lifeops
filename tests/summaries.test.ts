@@ -124,6 +124,18 @@ it("keeps confirmed health metrics and coverage in local daily and weekly summar
   expect(weekly?.text).toContain("平均体重 69 kg（2 天）。平均静息心率 63 次/分（1 天）。");
 });
 
+it("states that health coverage is unavailable when all records in the period are excluded", async () => {
+  const date = "2026-11-15";
+  await store.appendHealthEntry({ date, sleepHours: 7.25 });
+  store.settings.privacy = { ...store.settings.privacy, excludedVaultPrefixes: [store.path(store.settings.folders.health, date + ".md")] };
+  ask.mockResolvedValueOnce("too short").mockResolvedValueOnce("too short");
+  const report = await generatePeriodSummary(host, summaryPeriod("day", date), now(15, 23, 30));
+  expect(report.generatedBy).toBe("local");
+  const note = await saved("day", date);
+  expect(note?.text).toContain("这个时段暂无可读的健康记录。");
+  expect(note?.text).not.toContain("7.25");
+});
+
 it("catches up the previous day even when the first launch is after 23:30", async () => {
   await runScheduledSummaries(host, now(12, 23, 47));
   expect((await saved("day", "2026-11-11"))?.properties.complete).toBe(true);
