@@ -1,6 +1,7 @@
 import { hasPendingFactOperation } from "../../dataFoundation/factOperation";
 import { readScopedMarkdown } from "../../dataFoundation/markdownSources";
 import { OperationLedger } from "../../dataFoundation/operationLedger";
+import { configuredCredentials, redactSensitiveText } from "../../credentialSecurity";
 import { todayString } from "../../date";
 import type { LifeOpsEventBus } from "../../lifeOpsEventBus";
 import { newLocalOperationId } from "../../operationIdentity";
@@ -143,6 +144,7 @@ export class PhoneInbox {
     const invalid = !line.date ? "请核对日期和时间。可把更正后的记录追加为新行。"
       : !line.text.trim() ? "这一行没有记录内容。"
       : line.text.length > 2000 ? "这行超过 2000 字，请分成几条再追加。"
+      : hasCredential(store, line.text) ? "这一行疑似含密钥。请去掉密钥后另追加一行。"
       : "";
     if (invalid) {
       row.status = "review";
@@ -216,7 +218,10 @@ export class PhoneInbox {
     return {
       date: line.date,
       operationId,
-      assertCurrent: () => this.assertCurrent(store),
+      assertCurrent: () => {
+        this.assertCurrent(store);
+        if (hasCredential(store, line.text)) throw Error("这一行疑似含密钥。请去掉密钥后另追加一行。");
+      },
       assertLineCurrent: async () => {
         const current = await this.findLine(store, line.id);
         if (line.terminated && !current.terminated) throw Error("这一行已回到编辑状态，请等它写完。");
@@ -269,6 +274,12 @@ export class PhoneInbox {
     this.running = result.catch(() => undefined);
     return result;
   }
+}
+
+function hasCredential(store: StoreHost, text: string): boolean {
+  const normalized = text.normalize("NFKC");
+  const values = configuredCredentials(store.settings);
+  return redactSensitiveText(text, values) !== text || redactSensitiveText(normalized, values) !== normalized;
 }
 
 export function summarizePhoneInbox(records: PhoneInboxRecord[]): string {

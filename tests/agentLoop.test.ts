@@ -1489,6 +1489,30 @@ it("recovers a committed phone write whose receipt was interrupted without sendi
   } finally { put.mockRestore(); inbox.stop(); }
 });
 
+it("keeps phone lines containing credentials local while processing clean lines", async () => {
+  const { PhoneInbox } = await import("../src/features/phoneInbox/service");
+  const { PHONE_INBOX_PATH, PHONE_INBOX_STATE } = await import("../src/features/phoneInbox/model");
+  const { LifeOpsEventBus } = await import("../src/lifeOpsEventBus");
+  const submit = vi.fn(async (_text: string) => ({ reply: "请核对。", actions: [] }));
+  const inbox = new PhoneInbox({ store: () => store, enabled: () => true, submit,
+    confirm: async () => {}, undo: async () => true, notify: () => {} }, new LifeOpsEventBus());
+  const oldKey = store.settings.ai.apiKey;
+  const credential = "fictional-config-only-123";
+  const syntheticToken = ["sk", "fixture", "test", "ABC123456"].join("-");
+  store.settings.ai.apiKey = credential;
+  const original = [credential, "请记虚构密钥 " + syntheticToken, "虚构样品准备好了", ""].join("\n");
+  try {
+    await store.ensureFile(PHONE_INBOX_PATH, original);
+    await inbox.scan();
+    expect(submit.mock.calls.map(([text]) => text)).toEqual(["虚构样品准备好了"]);
+    expect((await inbox.list()).slice(1).every(row => row.status === "review" && row.message.includes("疑似含密钥"))).toBe(true);
+    expect(await store.readPath(PHONE_INBOX_PATH)).toBe(original);
+    const receipt = await store.readPath(store.path(store.settings.folders.aiReports, "System", PHONE_INBOX_STATE));
+    expect(receipt).not.toContain(credential);
+    expect(receipt).not.toContain(syntheticToken);
+  } finally { inbox.stop(); store.settings.ai.apiKey = oldKey; }
+});
+
 it("reads an already confirmed phone action from the ledger after the original line is moved away", async () => {
   const { PhoneInbox } = await import("../src/features/phoneInbox/service");
   const { PHONE_INBOX_PATH, PHONE_INBOX_STATE } = await import("../src/features/phoneInbox/model");
