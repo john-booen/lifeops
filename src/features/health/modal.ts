@@ -44,8 +44,11 @@ class HealthScreenshotModal extends Modal {
         const selected = picker.files?.[0];
         if (!selected || picker.disabled || this.request.signal.aborted) return;
         const store = this.host.store;
+        const folder = store.settings.folders.health;
         const current = () => {
-          if (this.request.signal.aborted || store !== this.host.store) throw Error("本次识别已结束，请重新选图。");
+          if (this.request.signal.aborted || store !== this.host.store || folder !== store.settings.folders.health) {
+            throw Error("识别窗口或健康记录目录已变化，请关闭后重新选图。");
+          }
         };
         button.setDisabled(true);
         picker.disabled = true;
@@ -99,6 +102,7 @@ class HealthScreenshotModal extends Modal {
         const entries = combineHealthScreenshotDays(selected);
         let saved = 0;
         await this.host.saveLocalOperation("manual_health_screenshot", { digest, entries }, async store => {
+          current();
           saved = await recordHealthEntries(store, entries);
         }, { assertCurrent: current });
         await this.host.refreshViews().catch(() => undefined);

@@ -1,9 +1,11 @@
 import type { App } from "obsidian";
 import { beforeEach, expect, it, vi } from "vitest";
 import type { FactOperationOptions } from "../src/dataFoundation/factOperation";
+import { DEFAULT_SETTINGS } from "../src/defaults";
 import type { StoreHost } from "../src/store/settingsSlice";
 
 const notices = vi.hoisted(() => [] as string[]);
+const windowState = vi.hoisted(() => ({ content: undefined as unknown }));
 vi.mock("obsidian", () => {
   class Element {
     children: Element[] = [];
@@ -11,10 +13,14 @@ vi.mock("obsidian", () => {
     textContent = "";
     value = "";
     disabled = false;
+    checked = false;
+    validity = { badInput: false };
+    get valueAsNumber() { return Number(this.value); }
     onclick?: () => Promise<void>;
     constructor(readonly tag: string) {}
     empty() { this.children = []; }
     addClass() {}
+    setText(text: string) { this.textContent = text; }
     createEl(tag: string, options?: { text?: string }) {
       const child = new Element(tag);
       child.textContent = options?.text ?? "";
@@ -26,7 +32,23 @@ vi.mock("obsidian", () => {
     Modal: class {
       contentEl = new Element("div");
       setTitle() {}
+      open() { windowState.content = this.contentEl; (this as unknown as { onOpen(): void }).onOpen(); }
       close() { (this as unknown as { onClose(): void }).onClose(); }
+    },
+    Setting: class {
+      constructor(private readonly host: Element) {}
+      addButton(configure: (button: unknown) => void) {
+        const buttonEl = this.host.createEl("button");
+        const button = {
+          buttonEl,
+          setButtonText(text: string) { buttonEl.textContent = text; return button; },
+          setDisabled(disabled: boolean) { buttonEl.disabled = disabled; return button; },
+          setCta() { return button; },
+          onClick(action: () => Promise<void>) { buttonEl.onclick = action; return button; }
+        };
+        configure(button);
+        return this;
+      }
     },
     Notice: class { constructor(message: string) { notices.push(message); } },
     normalizePath: (path: string) => path
@@ -34,7 +56,9 @@ vi.mock("obsidian", () => {
 });
 
 const { HealthCsvImportModal } = await import("../src/features/health/csvImportModal");
-type Element = { tag: string; value: string; textContent: string; onclick(): Promise<void>; children: Element[] };
+const { openHealthScreenshot } = await import("../src/features/health/modal");
+type Element = { tag: string; value: string; textContent: string; onclick(): Promise<void>; onchange(): void; children: Element[];
+  files?: Array<{ path: string; size: number; arrayBuffer(): Promise<ArrayBuffer> }> };
 const valid = "date,sleepHours,steps\n2026-05-25,7.5,8000";
 
 function fixture() {
@@ -45,7 +69,7 @@ function fixture() {
     path: (...parts: string[]) => parts.join("/"),
     getFile: (path: string) => write.mock.calls.length ? { path } : null,
     readPath: async () => "- 睡眠小时：7.5\n- 步数：8000",
-    app: { vault: { adapter: { read: async () => "- 睡眠小时：7.5\n- 步数：8000" } } },
+    app: { vault: { adapter: { getBasePath: () => process.cwd(), read: async () => "- 睡眠小时：7.5\n- 步数：8000" } } },
     appendHealthEntry: write
   } as unknown as StoreHost;
   let activeStore = store;
@@ -117,4 +141,30 @@ it("rechecks the destination inside the queued confirmation", async () => {
   expect(save).toHaveBeenCalledOnce();
   expect(write).not.toHaveBeenCalled();
   expect(notices.at(-1)).toContain("重新核对");
+});
+
+it.each([false, true])("binds the health screenshot to the destination during preview and save (queued: %s)", async queued => {
+  const { store, save, write } = fixture();
+  const settings = structuredClone(DEFAULT_SETTINGS);
+  settings.privacy!.plaintextCredentialStorageAccepted = true;
+  settings.vision = { ...settings.vision, provider: "openai-compatible", endpoint: "https://fiction.invalid/v1/chat/completions",
+    apiKey: "fixture-health-token", model: "fixture-health-model", healthScreenshotDisclosureAccepted: true };
+  openHealthScreenshot({ app: {} as App, store, settings, register: vi.fn(), refreshViews: async () => {}, saveLocalOperation: save,
+    recognizeHealthScreenshot: async () => [{ date: "2026-05-25", steps: 8000 }] });
+  const content = windowState.content as Element;
+  const field = content.children.find(el => el.tag === "input")!;
+  const png = Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10);
+  field.files = [{ path: import.meta.filename, size: png.length, arrayBuffer: async () => png.buffer }];
+  field.onchange();
+  await content.children.find(el => el.textContent === "发送并识别")!.onclick();
+  const confirm = content.children.find(el => el.textContent === "确认并保存")!;
+  const switchFolder = () => { store.settings.folders.health = "虚构扫描期间新目录"; };
+  if (queued) {
+    const original = save.getMockImplementation()!;
+    save.mockImplementationOnce(async (...args) => { switchFolder(); await original(...args); });
+  } else switchFolder();
+  await confirm.onclick();
+  expect(save).toHaveBeenCalledTimes(queued ? 1 : 0);
+  expect(write).not.toHaveBeenCalled();
+  expect(content.children.some(el => el.textContent.includes("重新选图"))).toBe(true);
 });
