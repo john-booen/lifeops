@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { AgentRuntime } from "../src/agentRuntime";
 import type { StoreHost } from "../src/store/settingsSlice";
+import { appendEveningEntry } from "../src/features/journal/entry";
 
 class RuntimeStore {
   readonly settings = { folders: { aiReports: "LifeOps/Output/AI" } };
@@ -29,14 +30,15 @@ class RuntimeStore {
     return this.textFiles.get(filePath) ?? "";
   }
 
-  async appendDaily(date: string, heading: string, line: string, period: "早" | "晚"): Promise<void> {
+  async appendDaily(date: string, heading: string, line: string, period: "早" | "晚", original?: string): Promise<void> {
     if (this.failNextAppend) {
       this.failNextAppend = false;
       throw new Error("simulated write failure");
     }
     const path = this.dailyNotePath(date, period);
     const current = this.textFiles.get(path) ?? `# ${date}${period}\n`;
-    this.textFiles.set(path, `${current.trimEnd()}\n\n## ${heading}\n\n${line}\n`);
+    this.textFiles.set(path, period === "晚" && original !== undefined ? appendEveningEntry(current, heading, line, original)
+      : `${current.trimEnd()}\n\n## ${heading}\n\n${line}\n`);
     this.appendCount += 1;
   }
 }

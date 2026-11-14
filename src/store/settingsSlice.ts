@@ -1,5 +1,6 @@
 import { activityNotePath, ACTIVITY_LABELS, type ActivityDomain } from "../activityRecords";
 import { ACCOUNTABILITY_TEMPLATE } from "../accountability";
+import { appendEveningEntry } from "../features/journal/entry";
 import { App, Notice, TFile, TFolder, normalizePath } from "obsidian";
 import { contextSourceHash, isContextSourcePath, recordContextSource, type ContextSourceRecorder } from "../sourceReferences";
 import type { FactOperationIdentity, FactOperationOptions } from "../dataFoundation/factOperation";
@@ -298,7 +299,7 @@ export interface StoreHost extends ProjectSliceApi, TradingSliceApi {
   writeFile(filePath: string, content: string): Promise<void>;
   writeTaskMirror(tasks: LifeOpsTask[]): Promise<void>;
   writeHabitMirror(habits: HabitDefinition[], checkins: HabitCheckin[]): Promise<void>;
-  appendDaily(date: string, heading: string, line: string, period?: "早" | "晚"): Promise<void>;
+  appendDaily(date: string, heading: string, line: string, period?: "早" | "晚", original?: string): Promise<void>;
   appendActivity(domain: ActivityDomain, date: string, heading: string, line: string): Promise<void>;
   appendInbox(input: ClassifiedInput): Promise<void>;
   appendMonthlyIdea(input: ClassifiedInput): Promise<void>;
@@ -622,8 +623,12 @@ async writeFile(this: StoreHost, filePath: string, content: string): Promise<voi
     await this.app.vault.modify(file, content);
   },
 
-async appendDaily(this: StoreHost, date: string, heading: string, line: string, period: "早" | "晚" = "早"): Promise<void> {
+async appendDaily(this: StoreHost, date: string, heading: string, line: string, period: "早" | "晚" = "早", original?: string): Promise<void> {
     const file = await this.ensureDailyNote(date, period);
+    if (period === "晚" && original !== undefined) {
+      await this.app.vault.process(file, text => appendEveningEntry(text, heading, line, original));
+      return;
+    }
     await this.app.vault.process(file, (text) => heading === "日记" && !/^## 日记\s*$/m.test(text)
       ? `${text.trimEnd()}\n\n${line.trim()}\n`
       : insertUnderHeading(text, heading, line));
