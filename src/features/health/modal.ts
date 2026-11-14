@@ -83,6 +83,7 @@ class HealthScreenshotModal extends Modal {
     const fields = rows.map((row, index) => this.renderEntry(row, index));
     const status = contentEl.createEl("p", { attr: { role: "status" } });
     new Setting(contentEl).addButton(button => button.setButtonText("确认并保存").setCta().onClick(async () => {
+      if (button.buttonEl.disabled) return;
       button.setDisabled(true);
       try {
         current();
@@ -96,9 +97,9 @@ class HealthScreenshotModal extends Modal {
         await this.host.saveLocalOperation("manual_health_screenshot", { digest, entries }, async store => {
           saved = await recordHealthEntries(store, entries);
         }, { assertCurrent: current });
-        await this.host.refreshViews();
+        await this.host.refreshViews().catch(() => undefined);
         new Notice(saved ? `已核对并保存 ${saved} 天的健康记录。可在「最近操作」撤销。` : "所选记录与已有数据一致。");
-        this.close();
+        if (!this.request.signal.aborted) this.close();
       } catch (error) {
         if (!this.request.signal.aborted) {
           status.setText((error as Error).message || "健康记录未读回，请核对最近操作。");

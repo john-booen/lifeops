@@ -50,6 +50,9 @@ export async function recordHealthEntries(store: StoreHost, entries: readonly He
   let saved = 0;
   for (const input of entries) {
     const { date, ...metrics } = healthDay(input.date, input);
+    for (const [value, label] of [[input.fatigue, "疲劳"], [input.energy, "精力"]] as const) {
+      if (value !== undefined && (!Number.isFinite(value) || value < 1 || value > 10)) throw Error(`${label}请填写 1 到 10。`);
+    }
     if (!healthPathAllowed(store, date)) throw Error("健康记录目录已排除。");
     const { day: existing, canAppend } = await checkHealthNote(store, date);
     const changed = Object.fromEntries(healthMetricKeys.flatMap(key =>

@@ -372,8 +372,16 @@ export class HealthEntryModal extends Modal {
 
     new Setting(contentEl).addButton((button) => {
       button.setButtonText("保存健康记录").setCta().onClick(async () => {
-        await this.onSubmit(this.value);
-        this.close();
+        if (button.buttonEl.disabled) return;
+        button.setDisabled(true);
+        try {
+          await this.onSubmit({ ...this.value });
+          this.close();
+        } catch (error) {
+          new Notice(error instanceof Error ? error.message : "健康记录暂时没有保存。");
+        } finally {
+          button.setDisabled(false);
+        }
       });
     });
   }
@@ -804,8 +812,7 @@ function formatDateTime(value: string): string {
 function parseOptionalNumber(value: string): number | undefined {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
-  const parsed = Number(trimmed);
-  return Number.isFinite(parsed) ? parsed : undefined;
+  return /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/u.test(trimmed) ? Number(trimmed) : NaN;
 }
 
 export class HabitModal extends Modal {

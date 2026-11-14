@@ -774,9 +774,12 @@ export default class LifeOpsPlugin extends Plugin {
   openHealthEntryModal(): void {
     new HealthEntryModal(this.app, async (entry) => {
       const data = { ...entry, date: entry.date || todayString() };
-      await this.saveLocalOperation("local_appendHealthEntry", { arguments: [data] }, store => recordHealthEntries(store, [data]));
-      await this.refreshViews();
-      new Notice("LifeOps 已保存健康记录");
+      let saved = 0;
+      await this.saveLocalOperation("local_appendHealthEntry", { arguments: [data] }, async store => {
+        saved = await recordHealthEntries(store, [data]);
+      });
+      await this.refreshViews().catch(() => undefined);
+      new Notice(saved ? "LifeOps 已保存健康记录" : "没有需要更新的健康记录。");
     }).open();
   }
 

@@ -141,6 +141,21 @@ it("keeps field-looking lines entered as free text out of numerical records", as
   expect(await store.readPath(healthNotePath(store, date))).toContain("  - 跑步距离：120 公里");
 });
 
+it("does not save or report a health entry with a malformed subjective score", async () => {
+  const path = healthNotePath(store, date);
+  await store.appendHealthEntry({ date, steps: 750 });
+  const before = await store.readPath(path);
+  for (const [entries, label] of [
+    [[{ date, runningKm: 4.5, energy: NaN }], "精力"],
+    [[{ date, runningKm: 4.5, fatigue: 12 }], "疲劳"]
+  ] as const) {
+    const saved = await runtime.executeLocalOperation("local_appendHealthEntry", { entries }, scope => recordHealthEntries(scope, entries));
+    expect(saved.success).toBe(false);
+    expect(saved.output).toContain(label);
+    expect(await store.readPath(path)).toBe(before);
+  }
+});
+
 it("does not count metrics in properties, comments or code samples in an existing health note", async () => {
   const note = ["---", "- 体重：45 kg", "---", "## 手填", "- 步数：850", "~~~markdown", "- 步数：41234", "~~~",
     "<!--", "- 静息心率：69 次/分", "-->", "%%", "- 跑步距离：4 公里", "%%", "- 睡眠小时：7"].join("\r\n");
