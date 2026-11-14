@@ -59,10 +59,12 @@ class TradeScreenshotImportModal extends Modal {
         const selected = this.selection, store = this.host.store;
         if (!selected || generation !== this.openGeneration || this.request) return;
         const request = this.request = new AbortController();
+        const folder = store.settings.folders.tradingReviews;
         const current = () => {
           if (request.signal.aborted || this.openGeneration !== generation || this.host.store !== store) {
             throw Error("截图确认已失效，请重新选择。");
           }
+          if (folder !== store.settings.folders.tradingReviews) throw Error("交易记录目录已变化，请重选截图。");
         };
         button.setDisabled(true);
         picker.disabled = true;
@@ -174,7 +176,7 @@ class TradeScreenshotImportModal extends Modal {
             new Notice(`已保存并核对 ${count} 笔交易。可以使用撤销。`);
           } catch (error) {
             confirming = false;
-            try { current(); } catch { return; }
+            if (!feedback.isConnected) return;
             feedback.setText(error instanceof Error ? error.message : "没有保存，请重新核对。");
             for (const input of choices.values()) input.disabled = false;
             updateButton();

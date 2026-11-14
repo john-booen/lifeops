@@ -243,6 +243,38 @@ it("rebuilds a stale trade confirmation from recognized rows with fresh amounts 
   } finally { ui.root.empty(); await rm(root, { recursive: true, force: true }); }
 });
 
+it.each([false, true])("requires a fresh trade screenshot preview after its destination changes (queued: %s)", async queued => {
+  const root = await mkdtemp(join(tmpdir(), "lifeops-trade-screenshot-destination-"));
+  const store = new LifeOpsStore(createFsApp(root), settings()) as unknown as StoreHost;
+  const original = store.settings.folders.tradingReviews;
+  const switchFolder = () => { store.settings.folders.tradingReviews = "虚构交易记录新目录"; };
+  const { bytes } = await readFixture("equity-match");
+  const image = new File([new Uint8Array(bytes)], "fictional.png", { type: "image/png" });
+  const runtime = new AgentRuntime({ store, refreshViews: async () => {} });
+  const save = vi.fn<LocalOperationHost["saveLocalOperation"]>(async (name, args, operation, options) => {
+    if (queued) switchFolder();
+    const result = await runtime.executeLocalOperation(name, args, operation, undefined, options);
+    if (!result.success) throw Error(result.output);
+  });
+  const button = (label: string) => ui.elements().find(el => el.tag === "button" && el.textContent === label)!;
+  try {
+    await store.initializeVault();
+    openTradeScreenshotImport({ app: store.app, store, settings: store.settings, register: () => {}, saveLocalOperation: save,
+      refreshViews: async () => {}, recognizeTradeScreenshot: async () => [cases["equity-match"]] }, image);
+    await vi.waitFor(() => expect(button("确认保存 0 笔")).toBeDefined());
+    const choice = ui.elements().find(el => el.tag === "input")!;
+    choice.checked = true;
+    choice.onchange!();
+    if (!queued) switchFolder();
+    await button("确认保存 1 笔").onClick!();
+    expect(save).toHaveBeenCalledTimes(queued ? 1 : 0);
+    expect((await readTradeDatabase(store)).trades).toEqual([]);
+    expect(ui.elements().some(el => el.textContent.includes("目录已变化"))).toBe(true);
+    store.settings.folders.tradingReviews = original;
+    expect((await readTradeDatabase(store)).trades).toEqual([]);
+  } finally { ui.root.empty(); await rm(root, { recursive: true, force: true }); }
+});
+
 it.each([
   ["equity-match", { kind: "ready", computedPnl: 97.5, screenshotPnl: 97.5, mismatch: false }],
   ["futures-mismatch", { kind: "ready", computedPnl: 97, screenshotPnl: 94, mismatch: true }],
