@@ -2032,6 +2032,37 @@ describe("voice integration flow", () => {
     expect(view.sendVoiceTurnIfReady).toHaveBeenCalledOnce();
   });
 
+  it("compares low playback echo and independently louder repetition with the same transcript", () => {
+    const view = {
+      controller: { settings: { ...DEFAULT_SETTINGS, ai: { ...DEFAULT_SETTINGS.ai, dataDisclosureAccepted: false } } },
+      agentMode: "voice", agentVoiceReady: true, agentSpeaking: false, agentVoiceTrace: {}, agentVoiceLocalSpeechActive: true,
+      handleVoiceSpeechStarted: vi.fn(), handleVoiceSpeechStopped: vi.fn(), markVoiceTrace: vi.fn(),
+      clearVoiceLocalEndpointTimer: vi.fn(),
+      updateRealtimeTranscript: vi.fn(), sendVoiceTurnIfReady: vi.fn(async () => undefined)
+    };
+    const waveform = (amplitude: number) => Float32Array.from({ length: 640 }, (_, i) => amplitude * Math.sin(i * Math.PI / 16));
+    const endpoint = new ServerVoiceEndpoint(), spoken = "今天还有两个任务没有完成。";
+    resetSpeakerEcho(view, true);
+    observeLocalVoiceEnergy(view, waveform(0.13));
+    recordSpeakerPhrase(view, spoken);
+    const captured = (id: string, gain: number) => {
+      handleCascadeCapture(view, endpoint, { type: "started", itemId: id });
+      for (let frame = 0; frame < 8; frame++) observeLocalVoiceEnergy(view, waveform(gain));
+      handleCascadeCapture(view, endpoint, { type: "stopped", itemId: id });
+      handleCascadeCapture(view, endpoint, { type: "final", itemId: id, text: spoken });
+    };
+    view.agentSpeaking = true;
+    captured("speaker-bleed", 0.02);
+    expect(view.sendVoiceTurnIfReady).not.toHaveBeenCalled();
+    view.agentSpeaking = false;
+    captured("near-repetition", 0.13);
+    expect(view.sendVoiceTurnIfReady).not.toHaveBeenCalled();
+    handleCascadeCapture(view, endpoint, { type: "started", itemId: "new-question" });
+    handleCascadeCapture(view, endpoint, { type: "stopped", itemId: "new-question" });
+    handleCascadeCapture(view, endpoint, { type: "final", itemId: "new-question", text: "明天有哪些待办？" });
+    expect(view.sendVoiceTurnIfReady).toHaveBeenCalledOnce();
+  });
+
   it("keeps a pending cascade receipt through a speech onset and preview, then accepts a final correction", () => {
     const runtime = new VoiceSessionController();
     runtime.connect();
