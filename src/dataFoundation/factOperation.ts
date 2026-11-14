@@ -256,11 +256,13 @@ export async function assertOperationClaimAllowed(store: StoreHost): Promise<voi
   const raw = await readRaw(store, factRecoveryPath(store));
   if (activeFactOperation(store)?.auditStatus === "reverted") throw new UndoRecoveryRequiredError();
   if (raw === null) return;
-  // Only examine the envelope here. The recovery owner validates every byte.
+  // Do not expand large snapshots to check an operation claim. The
+  // recovery owner validates the full document when it applies the journal.
   const journal = JSON.parse(raw);
-  if (journal.status === "pending" && journal.auditStatus === "reverted") {
-    throw new UndoRecoveryRequiredError();
-  }
+  if (journal.status !== "pending" || journal.auditStatus !== "reverted") return;
+  const ledgerPath = new OperationLedger(store).filePath;
+  const ledgerInEntries = Array.isArray(journal.entries) && journal.entries.some((entry: { path?: string } | null) => entry?.path === ledgerPath);
+  if (journal.ledgerUndo || ledgerInEntries && (journal.rollbackRequired || !await auditFinished(store, journal))) throw new UndoRecoveryRequiredError();
 }
 
 export class UndoRecoveryRequiredError extends Error {
