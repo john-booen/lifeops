@@ -457,6 +457,7 @@ export class AgentLoop {
     }
     if (tools.some(tool => tool.name === "get_stats")) {
       guidance.push("评价或批评这周表现，先用 get_stats(domain=habits,range=this_week) 查达标次数和漏做日期。");
+      guidance.push("只问具体时段的任务完成率、完成数或计划数，先用 get_stats(domain=tasks) 查指定时段的指标。");
       guidance.push("设备睡眠时长、步数、体重等用 get_stats(domain=health)。只问某时段的设备睡眠时长可加 directReply=device_sleep。日记里的主观睡眠、情绪或精力用 get_stats(domain=journal)。只问睡得怎么样时先查同一时段的健康记录，按需要补充日记感受并标明来源。最近三天用 range=last_3d。要找原因、原话或具体事件时，再查同一范围的日记。");
     }
     if (evidenceCalls.length) {
@@ -476,7 +477,7 @@ export class AgentLoop {
     }
     if (input.voiceBackground) guidance.push("这是只读的后台分析。核对所需资料后直接回答原问题，避免添加无关建议。");
     if (tools.some(tool => tool.name === "get_summaries")) {
-      guidance.push("问上周、上月的整体表现或复盘，先用 get_summaries，分别传 level=week 和 range=last_week，或 level=month 和 range=last_month。包括问做得怎么样或要一条改进。缺项再用 get_stats 补查。");
+      guidance.push("问上周、上月的整体表现或复盘，先用 get_summaries，分别传 level=week 和 range=last_week，或 level=month 和 range=last_month。包括问做得怎么样或要一条改进。只问某个统计数字时用 get_stats。");
     }
     if (input.voiceBackground && tools.some(tool => tool.name === "get_stats" || tool.name === "get_summaries")) {
       guidance.push("日期和范围以用户原话为准。上周用 last_week，上月或上个月用 last_month，按当前日期由工具计算。用户明确指定绝对日期或其他区间时按原意查询。");
