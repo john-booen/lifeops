@@ -1,3 +1,4 @@
+import { textAiReadiness } from "../../capabilityReadiness";
 import { hasPendingFactOperation } from "../../dataFoundation/factOperation";
 import { readScopedMarkdown } from "../../dataFoundation/markdownSources";
 import { OperationLedger } from "../../dataFoundation/operationLedger";
@@ -50,7 +51,7 @@ export class PhoneInbox {
   }
 
   get autoProcessingReady(): boolean {
-    return this.enabled && canSubmitPhoneInbox(this.host.store());
+    return this.enabled && textAiReadiness(this.host.store().settings).ready;
   }
 
   schedule(delay = 650): void {
@@ -120,13 +121,13 @@ export class PhoneInbox {
       const lines = (await this.lines(store, includeUnterminated)).flatMap(line => {
         if (known.has(line.id)) return [];
         const invalid = phoneInboxReviewReason(store, line);
-        return invalid || canSubmitPhoneInbox(store) ? [{ line, invalid }] : [];
+        return invalid || textAiReadiness(store.settings).ready ? [{ line, invalid }] : [];
       });
       const added: PhoneInboxRecord[] = [];
       let pausedBySave = false;
       for (const { line, invalid } of lines.slice(0, MAX_BATCH_LINES)) {
         if (!this.enabled || store !== this.host.store()) break;
-        if (!invalid && !canSubmitPhoneInbox(store)) continue;
+        if (!invalid && !textAiReadiness(store.settings).ready) continue;
         if (await hasPendingFactOperation(store)) {
           pausedBySave = true;
           this.schedule(10_000);
@@ -310,11 +311,6 @@ export class PhoneInbox {
     this.running = result.catch(() => undefined);
     return result;
   }
-}
-
-function canSubmitPhoneInbox(store: StoreHost): boolean {
-  const ai = store.settings.ai;
-  return Boolean(ai.provider !== "off" && ai.dataDisclosureAccepted && ai.endpoint && ai.model);
 }
 
 function phoneInboxReviewReason(store: StoreHost, line: PhoneInboxLine): string {

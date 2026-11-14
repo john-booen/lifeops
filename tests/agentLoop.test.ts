@@ -1914,6 +1914,36 @@ it("keeps phone lines containing credentials local while processing clean lines"
   } finally { inbox.stop(); store.settings.ai.apiKey = oldKey; }
 });
 
+it("leaves clean phone rows waiting when the configured key lacks storage consent", async () => {
+  const { PhoneInbox } = await import("../src/features/phoneInbox/service");
+  const { PHONE_INBOX_PATH } = await import("../src/features/phoneInbox/model");
+  const { LifeOpsEventBus } = await import("../src/lifeOpsEventBus");
+  const consent = store.settings.privacy!.plaintextCredentialStorageAccepted;
+  const oldKey = store.settings.ai.apiKey;
+  store.settings.ai.apiKey = "fictional-local-key";
+  store.settings.privacy!.plaintextCredentialStorageAccepted = false;
+  const submit = vi.fn(async () => ({ reply: "虚构回执。", actions: [] }));
+  const inbox = new PhoneInbox({ store: () => store, enabled: () => true, submit,
+    confirm: async () => {}, undo: async () => true, notify: () => {} }, new LifeOpsEventBus());
+  const source = "虚构完整记录\n[2026-01-09 25:30] 虚构异常时刻\n";
+  try {
+    await store.ensureFile(PHONE_INBOX_PATH, source);
+    expect(inbox.autoProcessingReady).toBe(false);
+    await inbox.scan();
+    expect(submit).not.toHaveBeenCalled();
+    expect(await inbox.snapshot()).toMatchObject({ pending: 1, receipts: [{ status: "review" }] });
+    store.settings.privacy!.plaintextCredentialStorageAccepted = true;
+    expect(inbox.autoProcessingReady).toBe(true);
+    await inbox.scan();
+    expect(submit).toHaveBeenCalledOnce();
+    expect(await store.readPath(PHONE_INBOX_PATH)).toBe(source);
+  } finally {
+    inbox.stop();
+    store.settings.ai.apiKey = oldKey;
+    store.settings.privacy!.plaintextCredentialStorageAccepted = consent;
+  }
+});
+
 it("aborts the current phone submission when the inbox is disabled and keeps the input for review", async () => {
   const { PhoneInbox } = await import("../src/features/phoneInbox/service");
   const { PHONE_INBOX_PATH } = await import("../src/features/phoneInbox/model");
