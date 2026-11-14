@@ -1415,7 +1415,10 @@ describe("phone inbox", () => {
       const notes = ["[2026-01-09 25:30] 明天取件", "[2026-02-30 12:00] 明天取餐", "[2026-01-09 15:00]",
         "[2026-01-09 9:00] 明天交虚构色卡", "[2026-01-09 09:00 明天交虚构草图", "[2026-1-9] 明天画虚构地图",
         "［２０２６－０１－０９ ０９：００］明天买虚构便签", ""].join("\n");
-      await store.ensureFile(PHONE_INBOX_PATH, notes);
+      const cleanLine = "虚构排队记录仍需文字模型\n";
+      const ai = store.settings.ai;
+      store.settings.ai = { ...ai, provider: "off" };
+      await store.ensureFile(PHONE_INBOX_PATH, notes + cleanLine);
       await inbox.scan();
       expect(submit).not.toHaveBeenCalled();
       expect((await inbox.list()).map(row => [row.status, row.message])).toEqual([
@@ -1424,7 +1427,10 @@ describe("phone inbox", () => {
         ["review", expect.stringContaining("核对日期和时间")],
         ["review", expect.stringContaining("核对日期和时间")]
       ]);
-      expect(await store.readPath(PHONE_INBOX_PATH)).toBe(notes);
+      expect(await store.readPath(PHONE_INBOX_PATH)).toBe(notes + cleanLine);
+      store.settings.ai = ai;
+      await inbox.scan();
+      expect(submit).toHaveBeenCalledExactlyOnceWith(cleanLine.trim(), expect.anything(), expect.any(AbortSignal));
     } finally { inbox.stop(); }
   });
 });

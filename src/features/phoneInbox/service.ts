@@ -98,14 +98,17 @@ export class PhoneInbox {
       const doc = await this.read(store);
       if (await this.restoreReceipts(store, doc.records)) await this.write(store, doc);
       if (!store.getFile(PHONE_INBOX_PATH)) return;
-      const ai = store.settings.ai;
-      if (ai.provider === "off" || !ai.dataDisclosureAccepted || !ai.endpoint || !ai.model) return;
       const known = new Set(doc.records.map(row => row.id));
-      const lines = (await this.lines(store, includeUnterminated)).filter(line => !known.has(line.id));
+      const lines = (await this.lines(store, includeUnterminated)).flatMap(line => {
+        if (known.has(line.id)) return [];
+        const invalid = phoneInboxReviewReason(store, line);
+        return invalid || canSubmitPhoneInbox(store) ? [{ line, invalid }] : [];
+      });
       const added: PhoneInboxRecord[] = [];
-      for (const line of lines.slice(0, MAX_BATCH_LINES)) {
+      for (const { line, invalid } of lines.slice(0, MAX_BATCH_LINES)) {
         if (!this.enabled || store !== this.host.store()) break;
-        added.push(await this.process(store, doc, line));
+        if (!invalid && !canSubmitPhoneInbox(store)) continue;
+        added.push(await this.process(store, doc, line, invalid));
       }
       if (added.length) this.host.notify(summarizePhoneInbox(added));
       if (added.length === MAX_BATCH_LINES && lines.length > added.length) this.schedule();
@@ -142,14 +145,9 @@ export class PhoneInbox {
     });
   }
 
-  private async process(store: StoreHost, doc: PhoneInboxDocument, line: PhoneInboxLine): Promise<PhoneInboxRecord> {
+  private async process(store: StoreHost, doc: PhoneInboxDocument, line: PhoneInboxLine, invalid: string): Promise<PhoneInboxRecord> {
     const row: PhoneInboxRecord = { id: line.id, line: line.line, status: "processing", message: "上次处理未读回回执，请核对最近操作。" };
     doc.records.push(row);
-    const invalid = !line.date ? "请核对日期和时间。可把更正后的记录追加为新行。"
-      : !line.text.trim() ? "这一行没有记录内容。"
-      : line.text.length > 2000 ? "这行超过 2000 字，请分成几条再追加。"
-      : hasCredential(store, line.text) ? "这一行疑似含密钥。请去掉密钥后另追加一行。"
-      : "";
     if (invalid) {
       row.status = "review";
       row.message = invalid;
@@ -287,6 +285,18 @@ export class PhoneInbox {
     this.running = result.catch(() => undefined);
     return result;
   }
+}
+
+function canSubmitPhoneInbox(store: StoreHost): boolean {
+  const ai = store.settings.ai;
+  return Boolean(ai.provider !== "off" && ai.dataDisclosureAccepted && ai.endpoint && ai.model);
+}
+
+function phoneInboxReviewReason(store: StoreHost, line: PhoneInboxLine): string {
+  if (!line.date) return "请核对日期和时间。可把更正后的记录追加为新行。";
+  if (!line.text.trim()) return "这一行没有记录内容。";
+  if (line.text.length > 2000) return "这行超过 2000 字，请分成几条再追加。";
+  return hasCredential(store, line.text) ? "这一行疑似含密钥。请去掉密钥后另追加一行。" : "";
 }
 
 function hasCredential(store: StoreHost, text: string): boolean {
