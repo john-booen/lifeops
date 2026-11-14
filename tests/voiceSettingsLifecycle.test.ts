@@ -267,6 +267,23 @@ describe("ordinary voice and text mode cycles", () => {
     expect(getUserMedia).toHaveBeenCalledOnce();
   });
 
+  it.each(["cascade", "omni-e2e"] as const)("installs mode-specific realtime callbacks for %s", async mode => {
+    const capture = captureFixture();
+    Object.assign(plugin.settings.realtimeVoice, { provider: "qwen-omni-realtime", mode, asrEngine: "realtime-only" });
+    view.agentMode = "voice";
+    await startBailianRealtimeRecording(view);
+    const client = capture.connects.mock.contexts[0] as unknown as {
+      callbacks: import("../src/bailianRealtime").BailianRealtimeCallbacks;
+      options: import("../src/bailianRealtime").BailianRealtimeOptions;
+    };
+    expect(typeof client.callbacks.onCascadeCapture === "function").toBe(mode === "cascade");
+    for (const name of ["onTranscriptDone", "onAudioDelta", "onResponseDone", "onToolCall", "onModelRetry"] as const) {
+      expect(typeof client.callbacks[name] === "function").toBe(mode === "omni-e2e");
+    }
+    expect(typeof client.options.instructions === "string").toBe(mode === "omni-e2e");
+    expect(typeof client.callbacks.onInitialContextError).toBe("function");
+  });
+
   it.each([true, false])("retries a cascade startup timeout once on the same microphone (recovers: %s)", async recovers => {
     const capture = captureFixture();
     Object.assign(plugin.settings.realtimeVoice, { provider: "qwen-omni-realtime", mode: "cascade" });

@@ -17,12 +17,10 @@ import { createTtsClient } from "../breezeLocalTts";
 import { agentToolsForRealtime } from "../toolRegistry";
 import {
   addEchoText,
-  detectVoiceControlEvent,
   finalizeTurn,
   isAlreadySent,
   isVoiceBackchannelOnly,
-  isVoiceHoldOnlyTurn,
-  shouldInterruptAssistantForTranscript
+  isVoiceHoldOnlyTurn
 } from "../voiceSession";
 import { normalizeVoiceTriggerText, voiceTriggerEnabled, voiceTriggerLabel, voiceTriggerTimeoutSec } from "./voiceTrigger";
 import type { AudioOutputEvent } from "./audioOutput";
@@ -49,10 +47,16 @@ import { executeOmniE2eTool } from "./omniE2e/tools";
 import { createOmniResponseHandlers } from "./omniE2e/responses";
 import { buildOmniE2eInstructions } from "./omniE2e/instructions";
 import { projectProposalFailure } from "./omniE2e/projectProposals";
+import {
+  handleOmniE2eSpeechStarted as suspectOmniInterruption,
+  handleOmniE2eSpeechStopped,
+  observeOmniE2eBargeInTranscript as observeOmniInterruption
+} from "./omniE2e/input";
 import type { AiToolCall } from "../ai";
 import type { RealtimeToolOutput } from "./realtimeToolOutput";
 
 export { buildOmniE2eInstructions } from "./omniE2e/instructions";
+export { handleOmniE2eSpeechStopped };
 
 type VoiceRealtimeView = any;
 const FALLBACK_TTS_FIRST_AUDIO_TIMEOUT_MS = 5_000;
@@ -250,58 +254,54 @@ export async function startBailianRealtimeRecording(view: VoiceRealtimeView): Pr
     }
     const useHotwords = automaticHotwords && words.length > 0 || realtimeVoice.asrEngine === "streaming-hotwords";
     const asr = useHotwords ? { ...realtimeVoice, asrEngine: "streaming-hotwords" as const, asrHotwords: words.join("\n") } : realtimeVoice;
-    const createClient = (voice: RealtimeVoiceSettings): BailianRealtimeClient => {
-      const connection: BailianRealtimeClient = new BailianRealtimeClient(voice, { ...guardRealtimeCallbacks({
-      onCascadeCapture: event => { if (cascadeEndpoint) handleCascadeCapture(view, cascadeEndpoint, event); },
-      onOpen: () => {
-        view.agentReply = "百炼实时语音已连接，正在预热；等提示变成“语音常驻监听中”再开始说。";
-        view.refreshAgentSurfaceState();
-      },
+    const modeCallbacks: BailianRealtimeCallbacks = cascadeEndpoint ? {
+      onCascadeCapture: event => handleCascadeCapture(view, cascadeEndpoint, event)
+    } : {
       onTranscriptDelta: (text) => {
-        if (!view.agentVoiceReady || cascadeEndpoint) return;
+        if (!view.agentVoiceReady) return;
         view.markVoiceTrace("firstTranscript");
         observeOmniE2eBargeInTranscript(view, text);
         view.updateRealtimeTranscript(text);
       },
       onTranscriptDone: (text) => {
-        if (!view.agentVoiceReady || cascadeEndpoint) return;
+        if (!view.agentVoiceReady) return;
         view.markVoiceTrace("transcriptDone");
         observeOmniE2eBargeInTranscript(view, text);
         view.updateRealtimeTranscript(text, true);
         void sendOmniE2eVoiceTurn(view, "semantic_vad transcript completed");
       },
-      onSpeechStarted: () => {
-        if (view.agentVoiceSystemSpeechActive || cascadeEndpoint) return;
-        if (hasActiveVoiceRuntimeTurn(view)) {
-          handleOmniE2eSpeechStarted(view);
-        }
-      },
+      onSpeechStarted: () => handleOmniE2eSpeechStarted(view),
       onSpeechStopped: () => {
-        if (cascadeEndpoint) return;
         handleOmniE2eSpeechStopped(view);
         view.handleVoiceSpeechStopped("server-vad", false);
       },
-      onSpeechRejected: () => {
-        if (!cascadeEndpoint) handleOmniE2eSpeechStopped(view);
+      onSpeechRejected: () => handleOmniE2eSpeechStopped(view),
+      onResponseCreated: response => handleOmniE2eResponseCreated(view, response),
+      onResponseTextDelta: (text, response) => updateManagedAssistantText(view, text, response),
+      onAudioDelta: (base64Audio, sampleRate, response) => handleOmniE2eAudioDelta(view, base64Audio, sampleRate, response),
+      onResponseAudioDone: response => handleOmniE2eAudioDone(view, response),
+      onResponseDone: (text, response) => { void finishOmniE2eVoiceTurn(view, text, response); },
+      onResponseFailed: (message, response) => { void fallbackOmniResponseToBrain(view, message, response); },
+      onToolCall: toolCall => executeOmniE2eToolCall(view, toolCall, true),
+      onToolContextError: message => failOmniToolContext(view, message),
+      onToolCommitted: (text, response) => { void settleCommittedOmniTool(view, text, response); },
+      onToolSessionRetired: () => {
+        if (view.agentRecording && view.agentRealtimeClient) void stopBailianRealtimeRecording(view, true);
       },
-      onResponseCreated: (response) => {
-        handleOmniE2eResponseCreated(view, response);
+      onModelRetry: () => {
+        void view.controller.appendQualityLog({
+          inputSource: "voice",
+          errorCode: "qwen_omni_model_retry"
+        }).catch(() => undefined);
+      }
+    };
+    const createClient = (voice: RealtimeVoiceSettings): BailianRealtimeClient => {
+      const connection: BailianRealtimeClient = new BailianRealtimeClient(voice, { ...guardRealtimeCallbacks({
+      onOpen: () => {
+        view.agentReply = "百炼实时语音已连接，正在预热；等提示变成“语音常驻监听中”再开始说。";
+        view.refreshAgentSurfaceState();
       },
-      onResponseTextDelta: (text, response) => {
-        updateManagedAssistantText(view, text, response);
-      },
-      onAudioDelta: (base64Audio, sampleRate, response) => {
-        handleOmniE2eAudioDelta(view, base64Audio, sampleRate, response);
-      },
-      onResponseAudioDone: (response) => {
-        handleOmniE2eAudioDone(view, response);
-      },
-      onResponseDone: (text, response) => {
-        void finishOmniE2eVoiceTurn(view, text, response);
-      },
-      onResponseFailed: (message, response) => {
-        void fallbackOmniResponseToBrain(view, message, response);
-      },
+      ...modeCallbacks,
       onDisconnected: ({ code, reason }) => {
         handleRealtimeDisconnect(view, code, reason);
       },
@@ -317,25 +317,14 @@ export async function startBailianRealtimeRecording(view: VoiceRealtimeView): Pr
           view.agentReply = message; view.refreshAgentSurfaceState();
         }).catch(() => undefined);
       },
-      ...(!cascadeEndpoint ? {
-        onToolCall: (toolCall: AiToolCall) => executeOmniE2eToolCall(view, toolCall, true),
-        onToolContextError: (message: string) => failOmniToolContext(view, message),
-        onToolCommitted: (text: string, response: BailianRealtimeResponseEvent) => { void settleCommittedOmniTool(view, text, response); },
-        onToolSessionRetired: () => {
-          if (view.agentRecording && view.agentRealtimeClient) void stopBailianRealtimeRecording(view, true);
-        }
-      } : {}),
-      onModelRetry: () => {
-        void view.controller.appendQualityLog({
-          inputSource: "voice",
-          errorCode: "qwen_omni_model_retry"
-        }).catch(() => undefined);
-      },
-      onError: (message) => {
-        if (hasActiveVoiceRuntimeTurn(view)) {
+      onError: message => {
+        if (!cascadeEndpoint && hasActiveVoiceRuntimeTurn(view)) {
           void fallbackOmniResponseToBrain(view, message);
-        } else {
+        } else if (!hasActiveVoiceRuntimeTurn(view)) {
           failOmniE2eVoiceTurn(view, message);
+        } else {
+          new Notice(`百炼实时语音错误：${message}`);
+          return;
         }
         new Notice(view.agentReply);
       }
@@ -343,8 +332,9 @@ export async function startBailianRealtimeRecording(view: VoiceRealtimeView): Pr
       onProviderRun: event => recordVoiceProviderRun(view, providerRuntime, event)
     }, {
       mode: realtimeVoice.mode ?? "cascade",
-      ...(!cascadeEndpoint ? { instructions: buildOmniE2eInstructions(injectedContextBlock), tools: agentToolsForRealtime() } : {}),
-      maxModelRetries: 5,
+      ...(!cascadeEndpoint ? {
+        instructions: buildOmniE2eInstructions(injectedContextBlock), tools: agentToolsForRealtime(), maxModelRetries: 5
+      } : {}),
       providerContext: () => {
         const snapshot = providerRuntime?.snapshot();
         return snapshot ? { sessionId: snapshot.sessionId, generation: snapshot.generation,
@@ -1147,47 +1137,11 @@ function markVoiceRuntimeConnected(view: VoiceRealtimeView): void {
 }
 
 export function handleOmniE2eSpeechStarted(view: VoiceRealtimeView): void {
-  if (view.agentVoiceSystemSpeechActive || shouldQueueOmniPostPlaybackInput(view)) return;
-  if (!hasActiveVoiceRuntimeTurn(view)) return;
-  const runtime = view.agentVoiceRuntime;
-  const current = runtime?.snapshot().currentTurn;
-  if (
-    !runtime
-    || !current
-    || current.phase === "completed"
-    || current.phase === "interrupted"
-    || current.phase === "failed"
-  ) {
-    return;
-  }
-  view.agentVoiceBargeIn?.suspect?.({
-    generation: current.generation,
-    turnId: current.turnId,
-    playbackId: current.playbackId
-  });
+  if (!view.agentVoiceSystemSpeechActive) suspectOmniInterruption(view, shouldQueueOmniPostPlaybackInput(view));
 }
 
-export function handleOmniE2eSpeechStopped(view: VoiceRealtimeView): void {
-  view.agentVoiceBargeIn?.speechStopped?.();
-}
-
-export function observeOmniE2eBargeInTranscript(
-  view: VoiceRealtimeView,
-  text: string
-): void {
-  if (view.agentVoiceBargeIn?.snapshot?.().phase !== "suspected") return;
-  const transcript = (view.voiceDisplayInput?.(text) || text).replace(/\s+/g, " ").trim();
-  if (!transcript) return;
-  const controlIntent = Boolean(detectVoiceControlEvent(transcript));
-  if (!controlIntent && shouldQueueOmniPostPlaybackInput(view)) return;
-  view.agentVoiceBargeIn.observeTranscript(transcript, {
-    controlIntent,
-    meaningful: shouldInterruptAssistantForTranscript({
-      assistantSpeaking: true,
-      transcript,
-      controlEvent: controlIntent
-    })
-  });
+export function observeOmniE2eBargeInTranscript(view: VoiceRealtimeView, text: string): void {
+  observeOmniInterruption(view, text, shouldQueueOmniPostPlaybackInput(view));
 }
 
 export function handleOmniE2eBargeInEvent(
