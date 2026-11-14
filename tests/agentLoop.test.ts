@@ -1183,7 +1183,7 @@ describe("phone inbox", () => {
   const phoneDate = "2026-01-09";
 
   it("runs five offline-captured lines once, preserves raw input, and supports approval and targeted undo", async () => {
-    const { PhoneInbox } = await import("../src/features/phoneInbox/service");
+    const { PhoneInbox, summarizePhoneInbox } = await import("../src/features/phoneInbox/service");
     const { PHONE_INBOX_PATH } = await import("../src/features/phoneInbox/model");
     const { LifeOpsEventBus } = await import("../src/lifeOpsEventBus");
     const staleTask = await runtime.executeAiToolCall(tool("create_task", { title: "撤掉旧样品" }, "inbox-stale"), "kimi");
@@ -1243,6 +1243,7 @@ describe("phone inbox", () => {
         expect(rows[4].operationId).toBeDefined();
         await runtime.undoOperation(rows[4].operationId!);
         expect((await reopened.list()).find(row => row.id === rows[4].id)?.undone).toBe(true);
+        expect(summarizePhoneInbox(await reopened.list())).toContain("已撤销 2 条");
         expect((await store.readTaskDb()).tasks.map(task => task.title)).toEqual(["撤掉旧样品"]);
         expect(await store.readPath(PHONE_INBOX_PATH)).toBe(original);
       } finally { reopened.stop(); }

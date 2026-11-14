@@ -236,14 +236,18 @@ export class PhoneInbox {
 export function summarizePhoneInbox(records: PhoneInboxRecord[]): string {
   const saved = new Map<string, number>();
   for (const row of records) {
-    if (row.status !== "saved" || row.undone || !row.tool) continue;
-    const label = phoneInboxLabels[row.tool];
+    if (row.status !== "saved" || row.undone) continue;
+    const label = row.tool ? phoneInboxLabels[row.tool] : "已保存";
     saved.set(label, (saved.get(label) ?? 0) + 1);
   }
   const confirmed = records.filter(row => row.status === "confirm").length;
   const review = records.filter(row => row.status === "review" || row.status === "processing").length;
+  const undone = records.filter(row => row.undone).length;
+  const dismissed = records.filter(row => row.status === "dismissed").length;
   const details = [...saved].map(([label, count]) => `${label} ${count} 项`);
   if (confirmed) details.push(`待确认 ${confirmed} 条`);
   if (review) details.push(`待核对 ${review} 条`);
+  if (undone) details.push(`已撤销 ${undone} 条`);
+  if (dismissed) details.push(`已归档 ${dismissed} 条`);
   return `手机随手记已处理 ${records.length} 条${details.length ? " · " + details.join(" · ") : ""}`;
 }
