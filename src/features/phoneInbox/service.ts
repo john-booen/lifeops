@@ -11,7 +11,8 @@ import type { StoreHost } from "../../store/settingsSlice";
 import type { AgentActionSuggestion, AgentResponse } from "../../types";
 import {
   PHONE_INBOX_PATH, PHONE_INBOX_STATE, isPhoneInboxAction, isPhoneInboxTool, parsePhoneInbox, phoneInboxLabels,
-  validPhoneInboxDocument, type PhoneInboxDocument, type PhoneInboxLine, type PhoneInboxReceipt, type PhoneInboxRecord, type PhoneInboxTurn
+  validPhoneInboxDocument, type PhoneInboxDocument, type PhoneInboxLine, type PhoneInboxReceipt, type PhoneInboxRecord,
+  type PhoneInboxSnapshot, type PhoneInboxTurn
 } from "./model";
 
 const EMPTY_NOTE = "# 手机随手记\n";
@@ -70,17 +71,30 @@ export class PhoneInbox {
   }
 
   async list(): Promise<PhoneInboxReceipt[]> {
-    if (!this.enabled) return [];
+    return (await this.snapshot()).receipts;
+  }
+
+  async snapshot(): Promise<PhoneInboxSnapshot> {
+    if (!this.enabled) return { receipts: [], source: "unreadable", pending: 0, unfinished: 0 };
     const store = this.host.store();
     const doc = await this.read(store);
-    const lines = store.getFile(PHONE_INBOX_PATH) ? await this.lines(store, true).catch(() => []) : [];
-    const positions = new Map(lines.map(({ id, line }) => [id, line]));
+    const exists = !!store.getFile(PHONE_INBOX_PATH);
+    const lines = exists ? await this.lines(store, true).catch(() => undefined) : undefined;
+    const positions = new Map(lines?.map(({ id, line }) => [id, line]));
     await this.restoreReceipts(store, doc.records);
     this.assertCurrent(store);
-    return doc.records.slice().reverse().map(row => {
+    const receipts = doc.records.slice().reverse().map(row => {
       const line = positions.get(row.id);
       return { ...row, ...(line === undefined ? { sourceUnavailable: true as const } : { line }) };
     });
+    const known = new Set(receipts.map(row => row.id));
+    let pending = 0, unfinished = 0;
+    for (const row of lines ?? []) {
+      if (known.has(row.id)) continue;
+      if (row.terminated) pending++;
+      else unfinished++;
+    }
+    return { receipts, source: lines ? "available" : exists ? "unreadable" : "missing", pending, unfinished };
   }
 
   async createFile(): Promise<void> {

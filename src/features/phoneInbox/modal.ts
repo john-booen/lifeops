@@ -35,11 +35,14 @@ export class PhoneInboxModal extends Modal {
       finally { status.setText(""); }
     });
     try {
-      const rows = await this.inbox.list();
+      const { receipts, source, pending, unfinished } = await this.inbox.snapshot();
       if (generation !== this.generation) return;
-      host.createEl("p", { text: rows.length ? summarizePhoneInbox(rows) : "暂无回执。" });
+      if (source === "unreadable") host.createEl("p", { text: "当前无法读取收件箱原文，已有回执仍可查看。" });
+      if (pending) host.createEl("p", { text: `${pending} 条完整记录待检查。` });
+      if (unfinished) host.createEl("p", { text: "最后一行还没有换行。写完后换行，或确认内容完整后点「检查新记录」。" });
+      host.createEl("p", { text: receipts.length ? summarizePhoneInbox(receipts) : "暂无回执。" });
       const list = host.createEl("ol");
-      for (const row of rows) this.renderRow(list, row);
+      for (const row of receipts) this.renderRow(list, row);
     } catch {
       if (generation === this.generation) host.createEl("p", { text: "回执暂时无法安全读取。" });
     }

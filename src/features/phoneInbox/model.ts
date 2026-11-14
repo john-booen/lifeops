@@ -45,6 +45,13 @@ export interface PhoneInboxDocument {
 
 export type PhoneInboxReceipt = PhoneInboxRecord & { sourceUnavailable?: true };
 
+export interface PhoneInboxSnapshot {
+  receipts: PhoneInboxReceipt[];
+  source: "available" | "missing" | "unreadable";
+  pending: number;
+  unfinished: number;
+}
+
 export const phoneInboxLabels: Record<PhoneInboxTool, string> = {
   create_task: "新建任务", reschedule_task: "改期任务", complete_task: "完成任务",
   complete_habit: "习惯打卡", upsert_idea: "登记想法", append_journal_entry: "追加日记",

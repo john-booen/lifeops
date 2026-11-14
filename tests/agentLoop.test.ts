@@ -1639,14 +1639,19 @@ it("waits for a complete phone inbox line while mobile sync updates an unfinishe
   const inbox = new PhoneInbox({ store: () => store, enabled: () => true, submit: saved,
     confirm: async () => {}, undo: async () => true, notify: () => {} }, events);
   try {
+    expect(await inbox.snapshot()).toEqual({ source: "missing", receipts: [], pending: 0, unfinished: 0 });
     const note = await store.ensureFile(PHONE_INBOX_PATH, "# 手机随手记\n明天去");
     await inbox.scan();
     expect(saved).not.toHaveBeenCalled();
+    expect(await inbox.snapshot()).toEqual({ source: "available", receipts: [], pending: 0, unfinished: 1 });
     await store.app.vault.modify(note, "# 手机随手记\n明天去拿蓝纸\n另一个未完");
+    expect(await inbox.snapshot()).toMatchObject({ pending: 1, unfinished: 1 });
     await inbox.scan();
     expect(saved.mock.calls.map(args => args[0])).toEqual(["明天去拿蓝纸"]);
+    expect(await inbox.snapshot()).toMatchObject({ pending: 0, unfinished: 1 });
     await inbox.scan(true);
     expect(saved.mock.calls.map(args => args[0])).toEqual(["明天去拿蓝纸", "另一个未完"]);
+    expect(await inbox.snapshot()).toMatchObject({ pending: 0, unfinished: 0 });
     await store.app.vault.modify(note, "# 手机随手记\n明天去拿蓝纸\n另一个未完\n");
     await inbox.scan();
     expect(saved).toHaveBeenCalledTimes(2);
@@ -1657,6 +1662,23 @@ it("waits for a complete phone inbox line while mobile sync updates an unfinishe
     expect(moved).toMatchObject({ line: 3 });
     expect(moved.sourceUnavailable).toBeUndefined();
     expect(saved).toHaveBeenCalledTimes(2);
+  } finally { inbox.stop(); }
+});
+
+it("keeps phone inbox receipts visible when the source is unreadable", async () => {
+  const { PhoneInbox } = await import("../src/features/phoneInbox/service");
+  const { PHONE_INBOX_PATH } = await import("../src/features/phoneInbox/model");
+  const { LifeOpsEventBus } = await import("../src/lifeOpsEventBus");
+  const inbox = new PhoneInbox({ store: () => store, enabled: () => true,
+    submit: async () => ({ reply: "虚构待核对。", actions: [] }),
+    confirm: async () => undefined, undo: async () => true, notify: () => undefined }, new LifeOpsEventBus());
+  try {
+    const note = await store.ensureFile(PHONE_INBOX_PATH, "虚构随手记。\n");
+    await inbox.scan();
+    await store.app.vault.modify(note, "虚构长行。\n".repeat(40_000));
+    const snapshot = await inbox.snapshot();
+    expect(snapshot).toMatchObject({ source: "unreadable", pending: 0, unfinished: 0,
+      receipts: [{ status: "review", message: "虚构待核对。", sourceUnavailable: true }] });
   } finally { inbox.stop(); }
 });
 
