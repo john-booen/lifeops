@@ -483,6 +483,38 @@ describe("unified agent loop", () => {
     expect(requests).toHaveLength(0);
   });
 
+  it("reports precise market win rates with read-only tool results without a model rewrite", async () => {
+    const date = formatDate(now);
+    const stats = { domain: "trades", groupBy: "market", range: { from: date, to: date }, groups: [
+      { key: "美股", byCurrency: { USD: { count: 8, winPercent: 57.14, winCount: 4, lossCount: 3 } } },
+      { key: "外汇", byCurrency: { USD: { count: 4, winPercent: 66.67, winCount: 2, lossCount: 1 } } }
+    ] };
+    host.executeTools = async calls => calls.map(call => ({ callId: call.id!, success: true,
+      output: call.name === "get_stats" ? JSON.stringify(stats) : "其他虚构交易说明", actions: [] }));
+    responses.push(reply("", [tool("get_stats", { domain: "trades", range: "this_month", groupBy: "market" }),
+      tool("inspect_trade_review", { period: "month" }, "additional-read")]));
+    const result = await new AgentLoop(host).run(input({ message: "这个月各有记录的市场分别是什么胜率？" }));
+    expect(result.text).toContain("美股：57.14%（盈利 4 笔，亏损 3 笔）");
+    expect(result.text).toContain("外汇：66.67%（盈利 2 笔，亏损 1 笔）");
+    expect(requests).toHaveLength(1);
+  });
+
+  it("reports the recorded rule version when the model also asks for trading statistics", async () => {
+    const evidence = [{ date: "2026-11-12", label: "虚构合约多单", modelId: "model", versionId: "v1", ruleViolations: ["stop"] }];
+    const rules = [
+      { modelId: "model", versionId: "v2", modelName: "虚构新版", ruleId: "stop", text: "虚构新版规则" },
+      { modelId: "model", versionId: "v1", modelName: "虚构第一版", ruleId: "stop", text: "虚构旧版止损规则" }
+    ];
+    host.executeTools = async calls => calls.map(call => ({ callId: call.id!, success: true,
+      output: call.name === "inspect_trade_review" ? JSON.stringify({ evidence, rules }) : "其他虚构统计", actions: [] }));
+    responses.push(reply("", [tool("get_stats", { domain: "trades", range: "this_month" }),
+      tool("inspect_trade_review", { period: "month" }, "additional-read")]));
+    const result = await new AgentLoop(host).run(input({ message: "给交易纪律提一条改进建议，说清楚哪笔违反哪条规则。" }));
+    expect(result.text).toContain("虚构合约多单");
+    expect(result.text).toContain("「虚构第一版」中的「虚构旧版止损规则」");
+    expect(requests).toHaveLength(1);
+  });
+
   it("reports the completion rate from the actual period without choosing a summary", async () => {
     const date = formatDate(now);
     await store.createTask({ title: "虚构本月计划", date });

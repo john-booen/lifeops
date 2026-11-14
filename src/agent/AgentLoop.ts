@@ -302,6 +302,10 @@ export class AgentLoop {
       const quickTools = [...tools.filter(tool => (fastVoice ? VOICE_QUICK_TOOLS : QUICK_TOOLS).has(tool.name)),
         ...(fastVoice ? input.voiceJobs?.quickTools() ?? [] : []), LOAD_TOOLS];
       let nextTool: { name: "propose_task_plan"; retry?: true } | { name: "advance_idea"; ideaId: string } | undefined;
+      const asksTradeDiscipline = !input.voiceBackground
+        && /(?:交易系统|交易纪律)[^。！？!?]*提一条改进建议/u.test(input.message) && /(?:哪笔|哪一笔)[^。！？!?]*哪条规则/u.test(input.message);
+      const asksMarketWinRates = !input.voiceBackground && /(?:各[^。！？!?]*市场|市场[^。！？!?]*分别)[^。！？!?]*胜率/u.test(input.message)
+        && !/盈亏|回撤|收益率|最大亏损/u.test(input.message);
       for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
         assertPolicy();
         const final = round === MAX_TOOL_ROUNDS || state.confirmations.size > 0;
@@ -365,6 +369,17 @@ export class AgentLoop {
           const list = JSON.parse(matched.output) as { total: number; ideas: { id: string }[] };
           if (list.total === 1 && typeof list.ideas[0]?.id === "string") nextTool = { name: "advance_idea", ideaId: list.ideas[0].id };
         }
+        const tradeAnswerCall = calls.find(call => asksTradeDiscipline && call.name === "inspect_trade_review"
+          || asksMarketWinRates && call.name === "get_stats" && call.arguments.domain === "trades" && call.arguments.groupBy === "market");
+        const tradeAnswerResult = tradeAnswerCall && results.find(result => result.callId === tradeAnswerCall.id && result.success);
+        if (tradeAnswerResult && !state.receipts.size && !state.confirmations.size) {
+          const reply = tradeAnswerCall.name === "inspect_trade_review"
+            ? (await import("../features/trading/reviewData")).formatRecordedTradeDiscipline(tradeAnswerResult.output)
+            : (await import("../features/stats/trades")).formatMarketWinRates(tradeAnswerResult.output);
+          assertProviderActive(input.signal);
+          assertPolicy();
+          if (reply) return this.localAnswer(input, state, reply);
+        }
         const [call] = calls;
         const single = calls.length === 1 && results[0]?.success ? results[0] : undefined;
         if (single) {
@@ -382,10 +397,6 @@ export class AgentLoop {
           } else if (!input.voiceBackground && call.name === "get_stats"
             && call.arguments.domain === "health" && call.arguments.directReply === "device_sleep") {
             reply = deviceSleepAnswer(single.output);
-          } else if (!input.voiceBackground && call.name === "inspect_trade_review" && call.arguments.focus === "rules"
-            && /(?:交易系统|交易纪律)[^。！？!?]*提一条改进建议/u.test(input.message) && /(?:哪笔|哪一笔)[^。！？!?]*哪条规则/u.test(input.message)) {
-            const { formatRecordedTradeDiscipline } = await import("../features/trading/reviewData");
-            reply = formatRecordedTradeDiscipline(single.output);
           } else if (round === 0 && fastVoice && call.name === "get_stats") reply = formatVoiceStats(single.output, call.arguments);
           else if (round === 0 && fastVoice && call.name === "plan_today") reply = formatVoiceTaskPriorities(single.output, call.arguments);
           else if (round === 0 && call.name === "list_tasks" && call.arguments.category === undefined

@@ -111,6 +111,24 @@ export function tradeStats(trades: readonly Trade[], range: { from: string; to: 
       cnyPerUsd, rateLabel: `1 USD = ${cnyPerUsd} CNY`, unknownPnlCount: filtered.length - known } } : {}) };
 }
 
+export function formatMarketWinRates(output: string): string | undefined {
+  const data = JSON.parse(output) as { domain: string; groupBy: string; range: { from: string; to: string }; scope?: string;
+    groups?: Array<{ key: string; byCurrency: Record<TradeCurrency, Pick<ReturnType<typeof currencyStats>, "count" | "winPercent" | "winCount" | "lossCount">> }> };
+  if (data.domain !== "trades" || data.groupBy !== "market" || !Array.isArray(data.groups)) return;
+  const lines = data.groups.map(({ key, byCurrency }) => {
+    const present = currencies.filter(currency => byCurrency[currency]?.count > 0);
+    const results = present.map(currency => {
+      const { winPercent, winCount, lossCount } = byCurrency[currency];
+      const result = winPercent === null ? "暂无可计算胜率" : `${winPercent}%（盈利 ${winCount} 笔，亏损 ${lossCount} 笔）`;
+      return present.length > 1 ? `${currencyNames[currency]} ${result}` : result;
+    });
+    return `${key}：${results.join("，")}`;
+  });
+  const { from, to } = data.range;
+  return [`${from} 至 ${to}，胜率按盈利笔数除以盈利与亏损笔数，持平不计。`,
+    ...(lines.length ? lines : ["这段时间暂无交易记录。"]), ...(data.scope ? ["只统计允许读取的记录。"] : [])].join("\n");
+}
+
 interface ModelPnlGroup {
   key: string;
   label?: string;
