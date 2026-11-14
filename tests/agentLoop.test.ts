@@ -676,6 +676,9 @@ describe("unified agent loop", () => {
     const loop = new AgentLoop(host);
     const questions = [
       ["今天手表记录的步数是多少步？", "有 1 天设备步数记录，记录值 0 步。"],
+      ["昨天手表记录的步数是多少步？", "有 1 天设备步数记录，记录值 1234 步。"],
+      ["十一月十一日的设备体重是多少公斤？", "有 1 天设备体重记录，记录值 71.5 公斤。"],
+      ["2026-11-11设备记录的静息心率是多少次/分？", "有 1 天设备静息心率记录，记录值 61 次/分。"],
       ["最近三天设备记录的步数合计多少步？", "有 2 天设备步数记录，合计 1234 步。"],
       ["过去三天设备记录的跑步距离一共是多少公里？", "有 2 天设备跑步距离记录，合计 3.5 公里。"],
       ["最近三天手表记录的体重平均是多少公斤？", "有 2 天设备体重记录，平均 71 公斤。"],
@@ -694,6 +697,21 @@ describe("unified agent loop", () => {
     const mixed = await loop.run(input({ message: "今天设备记录的步数是多少，为什么走得少？" }));
     expect(mixed.text).toBe("虚构综合分析。");
     expect(requests).toHaveLength(1);
+  });
+
+  it("uses the wake-up day for last night's device sleep and leaves future measurements unanswered locally", async () => {
+    const date = formatDate(now), yesterday = addDays(date, -1), tomorrow = addDays(date, 1);
+    await store.appendHealthEntry({ date, sleepHours: 8 });
+    await store.appendHealthEntry({ date: yesterday, sleepHours: 5 });
+    await store.appendHealthEntry({ date: tomorrow, steps: 4321 });
+    const loop = new AgentLoop(host);
+    expect((await loop.run(input({ message: "昨夜设备记录的睡眠时长是多少小时？" }))).text).toContain(date + " 有 1 天设备睡眠记录，平均 8 小时");
+    expect((await loop.run(input({ message: "昨天设备记录的睡眠时长是多少小时？" }))).text).toContain(yesterday + " 有 1 天设备睡眠记录，平均 5 小时");
+    expect(requests).toHaveLength(0);
+    responses.push(reply("虚构未来日期问题。"));
+    const future = await loop.run(input({ message: "明天设备记录的步数是多少步？" }));
+    expect(future.text).toBe("虚构未来日期问题。");
+    expect(future.toolCalls).toEqual([]);
   });
 
   it.each(["get_stats", "query_vault"])("adds verified habit dates only from the stats tool (%s)", async name => {

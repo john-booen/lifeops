@@ -1,3 +1,4 @@
+import { normalizeJournalDate, todayString } from "../../date";
 import type { StatsRange } from "../stats/stats";
 import { HEALTH_METRICS, type HealthMetric } from "./model";
 
@@ -6,29 +7,32 @@ const deviceMetrics: Record<string, HealthMetric> = {
   睡眠时长: "sleepHours", 步数: "steps", 跑步距离: "runningKm", 体重: "weightKg", 静息心率: "restingHeartRate"
 };
 
-export function deviceHealthQuestion(message: string): HealthReading | undefined {
-  const text = message.trim().replace(/(?:只报天数和小时[。！!]?|[。？！?!])$/u, "").replace(/[。？！?!]$/u, "").trim();
-  const match = /^(今天|今日|昨晚|这周|本周|上周|这月|本月|这个月|上个月|最近三天|过去三天|最近七天|过去七天)(?:里|的)?(?:手表|设备)(?:记录了?)?的?(睡眠时长|步数|跑步距离|体重|静息心率)(平均|合计|总共|一共)?(?:是)?(?:多少(?:个)?(小时|步|公里|千克|公斤|次\/分)?|(多久))$/u.exec(text);
+export function deviceHealthQuestion(message: string, today = todayString()): HealthReading | undefined {
+  const text = message.trim().normalize("NFKC").replace(/(?:只报天数和小时[。！!]?|[。？！?!])$/u, "").replace(/[。？！?!]$/u, "").trim();
+  const match = /^([\p{L}\d-]{2,18}?)(?:里|的)?(?:手表|设备)(?:记录了?)?的?(睡眠时长|步数|跑步距离|体重|静息心率)(平均|合计|总共|一共)?(?:是)?(?:多少(?:个)?(小时|步|公里|千克|公斤|次\/分)?|(多久))$/u.exec(text);
   if (!match) return;
   const [,period,label,summary,unit,duration] = match;
-  const metric = deviceMetrics[label], range = metricPeriod(period);
+  const metric = deviceMetrics[label], range = metricPeriod(period, today);
+  if (!range) return;
   const aggregate = summary && summary !== "平均" ? "total" : "average";
   const activity = metric === "steps" || metric === "runningKm";
   const expectedUnit = metric === "weightKg" ? ["千克", "公斤"] : [HEALTH_METRICS[metric].unit];
   if (unit && !expectedUnit.includes(unit) || duration && metric !== "sleepHours"
-    || period === "昨晚" && metric !== "sleepHours" || aggregate === "total" && !activity
-    || metric !== "sleepHours" && range !== "today" && !summary) return;
+    || /^(?:昨晚|昨夜)$/u.test(period) && metric !== "sleepHours" || aggregate === "total" && !activity
+    || metric !== "sleepHours" && range !== "today" && typeof range === "string" && !summary) return;
   return { metric, range, aggregate };
 }
 
-function metricPeriod(period: string): StatsRange {
-  if (period === "昨晚" || period === "今天" || period === "今日") return "today";
+function metricPeriod(period: string, today: string): StatsRange | undefined {
+  if (period === "昨晚" || period === "昨夜" || period === "今天" || period === "今日") return "today";
   if (period === "这周" || period === "本周") return "this_week";
   if (period === "上周") return "last_week";
   if (period === "上个月") return "last_month";
-  if (period.endsWith("三天")) return "last_3d";
-  if (period.endsWith("七天")) return "last_7d";
-  return "this_month";
+  if (["最近三天", "过去三天"].includes(period)) return "last_3d";
+  if (["最近七天", "过去七天"].includes(period)) return "last_7d";
+  if (["这月", "本月", "这个月"].includes(period)) return "this_month";
+  const date = normalizeJournalDate(period, today);
+  if (date && date <= today) return { from: date, to: date };
 }
 
 export function deviceHealthAnswer(output: string, metric: HealthMetric, aggregate: HealthReading["aggregate"] = "average"): string {

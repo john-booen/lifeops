@@ -220,7 +220,7 @@ export class AgentLoop {
           const reply = result?.success ? workload ? formatTodayCapacity(result.output) : formatTaskPriorities(result.output, 3, true) : result?.output;
           return this.localAnswer(input, state, reply || "今天的任务记录暂不可用，请稍后再试。");
         }
-        const health = deviceHealthQuestion(input.message);
+        const health = deviceHealthQuestion(input.message, date);
         const count = explicitTaskCount(input.message);
         const period = health?.range ?? count ?? taskCompletionRateQuestion(input.message);
         if (period) {
