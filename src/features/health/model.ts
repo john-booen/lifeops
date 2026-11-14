@@ -56,10 +56,21 @@ export function healthRows(content: string): HealthDay[] {
   });
 }
 
-export function readHealthMarkdown(date: string, text: string): HealthDay {
+export function inspectHealthMarkdown(date: string, text: string): { day: HealthDay; canAppend: boolean } {
   const result: HealthDay = { date };
+  const lines = text.replace(/^\uFEFF/u, "").split(/\r\n|\r|\n/u);
+  let frontmatter = lines[0]?.trimEnd() === "---";
+  let comment = false;
   let fence: string | undefined;
-  for (const line of text.replace(/^\uFEFF/u, "").split(/\r\n|\r|\n/u)) {
+  for (const [index, line] of lines.entries()) {
+    if (frontmatter) {
+      if (index > 0 && /^(?:---|\.\.\.)[ \t]*$/u.test(line)) frontmatter = false;
+      continue;
+    }
+    if (comment || !fence && /^\s*<!--/u.test(line)) {
+      comment = !line.includes("-->");
+      continue;
+    }
     const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(line);
     if (marker) {
       const [, run, rest] = marker;
@@ -79,7 +90,7 @@ export function readHealthMarkdown(date: string, text: string): HealthDay {
       if (value !== undefined) result[key] = value;
     }
   }
-  return result;
+  return { day: result, canAppend: !frontmatter && !comment && !fence };
 }
 
 export function healthStats(days: readonly HealthDay[]) {

@@ -5,7 +5,7 @@ import { isGuardedOperationScope } from "../../dataFoundation/factOperation";
 import { readScopedMarkdown } from "../../dataFoundation/markdownSources";
 import type { StoreHost } from "../../store/settingsSlice";
 import type { HealthEntry } from "../../types";
-import { healthDay, healthMetricKeys, readHealthMarkdown, type HealthDay } from "./model";
+import { healthDay, healthMetricKeys, inspectHealthMarkdown, type HealthDay } from "./model";
 
 export function healthNotePath(store: StoreHost, date: string): string {
   return store.path(store.settings.folders.health, `${date}.md`);
@@ -16,10 +16,15 @@ export function healthPathAllowed(store: StoreHost, date: string): boolean {
 }
 
 export async function readHealthDay(store: StoreHost, date: string): Promise<HealthDay> {
+  return (await checkHealthNote(store, date)).day;
+}
+
+async function checkHealthNote(store: StoreHost, date: string) {
   const path = healthNotePath(store, date);
-  if (!healthPathAllowed(store, date) || !store.getFile(path)) return { date };
+  if (!healthPathAllowed(store, date)) return { day: { date }, canAppend: false };
+  if (!store.getFile(path)) return { day: { date }, canAppend: true };
   const text = isGuardedOperationScope(store) ? await store.readPath(path) : await readScopedMarkdown(store, path);
-  return healthPathAllowed(store, date) ? readHealthMarkdown(date, text) : { date };
+  return healthPathAllowed(store, date) ? inspectHealthMarkdown(date, text) : { day: { date }, canAppend: false };
 }
 
 export async function readHealthRange(store: StoreHost, from: string, to: string): Promise<{ days: HealthDay[]; partial: boolean }> {
@@ -46,11 +51,12 @@ export async function recordHealthEntries(store: StoreHost, entries: readonly He
   for (const input of entries) {
     const { date, ...metrics } = healthDay(input.date, input);
     if (!healthPathAllowed(store, date)) throw Error("健康记录目录已排除。");
-    const existing = await readHealthDay(store, date);
+    const { day: existing, canAppend } = await checkHealthNote(store, date);
     const changed = Object.fromEntries(healthMetricKeys.flatMap(key =>
       metrics[key] !== undefined && metrics[key] !== existing[key] ? [[key, metrics[key]]] : []));
     const extras = { exercise: input.exercise?.trim() || undefined, fatigue: input.fatigue, energy: input.energy, note: input.note?.trim() || undefined };
     if (!Object.keys(changed).length && Object.values(extras).every(value => value === undefined)) continue;
+    if (!canAppend) throw Error("健康笔记里有未闭合的属性、注释或代码块，请核对后再保存。");
     await store.appendHealthEntry({ date, ...changed, ...extras });
     const checked = await readHealthDay(store, date);
     if (healthMetricKeys.some(key => Object.hasOwn(changed, key) && checked[key] !== metrics[key])) throw Error("健康记录未能读回核对。");

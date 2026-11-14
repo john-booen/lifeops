@@ -98,10 +98,25 @@ it("keeps field-looking lines entered as free text out of numerical records", as
   expect(await store.readPath(healthNotePath(store, date))).toContain("  - 跑步距离：120 公里");
 });
 
-it("does not count sample values in Markdown code fences in an existing health note", async () => {
-  const note = "## 手填\r\n- 步数：850\r\n~~~markdown\r\n- 步数：41234\r\n~~~\r\n- 睡眠小时：7";
+it("does not count metrics in properties, comments or code samples in an existing health note", async () => {
+  const note = ["---", "- 体重：45 kg", "---", "## 手填", "- 步数：850", "~~~markdown", "- 步数：41234", "~~~",
+    "<!--", "- 静息心率：69 次/分", "-->", "- 睡眠小时：7"].join("\r\n");
   await store.writeFile(healthNotePath(store, date), note);
   expect(await readHealthDay(store, date)).toEqual({ date, steps: 850, sleepHours: 7 });
+});
+
+it("preserves the prior health notes when a batch would append inside an unfinished block", async () => {
+  const original = "## 手填\n- 步数：850\n<!--\n虚构备注没写完\n";
+  const path = healthNotePath(store, date);
+  const earlierPath = healthNotePath(store, previous);
+  await store.writeFile(path, original);
+  expect(await readHealthDay(store, date)).toEqual({ date, steps: 850 });
+  const entries = [{ date: previous, steps: 720 }, { date, note: "虚构运动备注" }];
+  const saved = await runtime.executeLocalOperation("manual_health_csv_batch", { entries }, scope => recordHealthEntries(scope, entries));
+  expect(saved.success).toBe(false);
+  expect(saved.output).toContain("未闭合的属性、注释或代码块");
+  expect(await store.readPath(path)).toBe(original);
+  expect(store.getFile(earlierPath)).toBeNull();
 });
 
 it("keeps verified days when one health note cannot be safely read", async () => {
