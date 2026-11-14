@@ -239,11 +239,21 @@ export class OperationLedger {
     return null;
   }
 
-  async revertedOperations(operationIds: readonly string[]): Promise<Set<string>> {
+  async readSettledOperations(operationIds: readonly string[]): Promise<{
+    reverted: Set<string>;
+    verified: Map<string, { toolName: string; output: string }>;
+  }> {
     const document = await this.readDocument();
     const hashes = new Set(document.revertedOperationHashes ?? []);
-    const reverted = new Set(document.records.filter(record => record.status === "reverted").map(record => record.operationId));
-    return new Set(operationIds.filter(id => reverted.has(id) || hashes.has(operationIdHash(id))));
+    const requested = new Set(operationIds);
+    const reverted = new Set(operationIds.filter(id => hashes.has(operationIdHash(id))));
+    const verified = new Map<string, { toolName: string; output: string }>();
+    for (const { operationId, toolName, status, result } of document.records) {
+      if (!requested.has(operationId)) continue;
+      if (status === "reverted") reverted.add(operationId);
+      if (status === "verified" && result?.success && result.undo) verified.set(operationId, { toolName, output: result.output });
+    }
+    return { reverted, verified };
   }
 
   async revert(

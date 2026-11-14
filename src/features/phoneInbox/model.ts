@@ -20,6 +20,7 @@ export interface PhoneInboxLine {
 
 export interface PhoneInboxTurn {
   date: string;
+  operationId?: string;
   assertCurrent: () => void;
   assertLineCurrent: () => Promise<void>;
 }
@@ -32,6 +33,7 @@ export interface PhoneInboxRecord {
   tool?: PhoneInboxTool;
   action?: AgentActionSuggestion;
   operationId?: string;
+  pendingOperationId?: string;
   undone?: boolean;
 }
 
@@ -96,6 +98,10 @@ export function isPhoneInboxAction(value: unknown): value is AgentActionSuggesti
     && typeof action.title === "string" && typeof action.description === "string" && typeof action.content === "string";
 }
 
+export function phoneInboxOperationId(value: unknown): value is string {
+  return typeof value === "string" && /^local:agent-turn:[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}:phone$/u.test(value);
+}
+
 export function validPhoneInboxDocument(value: unknown): value is PhoneInboxDocument {
   if (!value || typeof value !== "object") return false;
   const { version, records } = value as PhoneInboxDocument;
@@ -107,6 +113,8 @@ export function validPhoneInboxDocument(value: unknown): value is PhoneInboxDocu
       || !["processing", "saved", "review", "confirm", "dismissed"].includes(row.status)
       || row.tool !== undefined && !isPhoneInboxTool(row.tool)
       || row.operationId !== undefined && !isSafeOperationId(row.operationId)
+      || row.pendingOperationId !== undefined && (!phoneInboxOperationId(row.pendingOperationId)
+        || row.status !== "processing" && row.status !== "review")
       || row.status === "confirm" && !isPhoneInboxAction(row.action)
       || row.action !== undefined && (row.status !== "confirm" || !isPhoneInboxAction(row.action))
       || row.undone !== undefined && (typeof row.undone !== "boolean" || !row.operationId)) return false;

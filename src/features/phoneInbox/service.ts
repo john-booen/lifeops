@@ -3,6 +3,7 @@ import { readScopedMarkdown } from "../../dataFoundation/markdownSources";
 import { OperationLedger } from "../../dataFoundation/operationLedger";
 import { todayString } from "../../date";
 import type { LifeOpsEventBus } from "../../lifeOpsEventBus";
+import { newLocalOperationId } from "../../operationIdentity";
 import { isVaultPathExcluded } from "../../privacy";
 import type { StoreHost } from "../../store/settingsSlice";
 import type { AgentActionSuggestion, AgentResponse } from "../../types";
@@ -63,21 +64,13 @@ export class PhoneInbox {
     if (!this.enabled) return [];
     const store = this.host.store();
     const doc = await this.read(store);
-    const ledger = new OperationLedger(store);
-    const operationIds = doc.records.flatMap(row => row.operationId && !row.undone ? [row.operationId] : []);
-    const [positions, reverted] = await Promise.all([
-      store.getFile(PHONE_INBOX_PATH)
-        ? this.lines(store, true).then(lines => new Map(lines.map(({ id, line }) => [id, line])), () => undefined)
-        : undefined,
-      operationIds.length && !isVaultPathExcluded(ledger.filePath, store.settings.privacy?.excludedVaultPrefixes)
-        ? ledger.revertedOperations(operationIds).catch(() => new Set<string>())
-        : new Set<string>()
-    ]);
+    const lines = store.getFile(PHONE_INBOX_PATH) ? await this.lines(store, true).catch(() => []) : [];
+    const positions = new Map(lines.map(({ id, line }) => [id, line]));
+    await this.restoreReceipts(store, doc.records);
     this.assertCurrent(store);
     return doc.records.slice().reverse().map(row => {
-      const line = positions?.get(row.id);
-      return { ...row, ...(line === undefined ? { sourceUnavailable: true as const } : { line }),
-        ...(row.operationId && reverted.has(row.operationId) ? { undone: true } : {}) };
+      const line = positions.get(row.id);
+      return { ...row, ...(line === undefined ? { sourceUnavailable: true as const } : { line }) };
     });
   }
 
@@ -92,15 +85,16 @@ export class PhoneInbox {
     return this.serialize(async () => {
       if (!this.enabled) return;
       const store = this.host.store();
-      if (!store.getFile(PHONE_INBOX_PATH)) return;
       if (await hasPendingFactOperation(store)) {
         this.schedule(10_000);
         if (includeUnterminated) throw new PhoneInboxBusyError();
         return;
       }
+      const doc = await this.read(store);
+      if (await this.restoreReceipts(store, doc.records)) await this.write(store, doc);
+      if (!store.getFile(PHONE_INBOX_PATH)) return;
       const ai = store.settings.ai;
       if (ai.provider === "off" || !ai.dataDisclosureAccepted || !ai.endpoint || !ai.model) return;
-      const doc = await this.read(store);
       const known = new Set(doc.records.map(row => row.id));
       const lines = (await this.lines(store, includeUnterminated)).filter(line => !known.has(line.id));
       const added: PhoneInboxRecord[] = [];
@@ -120,12 +114,16 @@ export class PhoneInbox {
       const doc = await this.read(store);
       const row = doc.records.find(record => record.id === id);
       if (!row) throw Error("找不到这条手机记录。");
+      const changed = await this.restoreReceipts(store, [row]);
+      if (changed) await this.write(store, doc);
+      if (changed && decision === "confirm" && row.status === "saved") return;
       if (decision === "undo" && row.operationId && !row.undone) {
         if (!await this.host.undo(row.operationId)) throw Error("撤销暂时未完成。");
         row.undone = true;
       } else if (decision === "dismiss" && (row.status === "confirm" || row.status === "review" || row.status === "processing")) {
         row.status = "dismissed";
         delete row.action;
+        delete row.pendingOperationId;
       } else if (decision === "confirm" && row.status === "confirm" && row.action) {
         const line = await this.findLine(store, id);
         const turn = this.turn(store, line);
@@ -142,7 +140,6 @@ export class PhoneInbox {
   private async process(store: StoreHost, doc: PhoneInboxDocument, line: PhoneInboxLine): Promise<PhoneInboxRecord> {
     const row: PhoneInboxRecord = { id: line.id, line: line.line, status: "processing", message: "上次处理未读回回执，请核对最近操作。" };
     doc.records.push(row);
-    await this.write(store, doc);
     const invalid = !line.date ? "请核对日期和时间。可把更正后的记录追加为新行。"
       : !line.text.trim() ? "这一行没有记录内容。"
       : line.text.length > 2000 ? "这行超过 2000 字，请分成几条再追加。"
@@ -153,8 +150,10 @@ export class PhoneInbox {
       await this.write(store, doc);
       return row;
     }
+    row.pendingOperationId = `${newLocalOperationId("agent-turn")}:phone`;
+    await this.write(store, doc);
     try {
-      const response = await this.host.submit(line.text, this.turn(store, line), this.controller.signal);
+      const response = await this.host.submit(line.text, this.turn(store, line, row.pendingOperationId), this.controller.signal);
       const call = response.toolCalls?.find(item => isPhoneInboxTool(item.name));
       if (call?.ok && isPhoneInboxTool(call.name)) row.tool = call.name;
       const receipt = response.receipts?.[0];
@@ -162,9 +161,11 @@ export class PhoneInbox {
       if (receipt) {
         row.operationId = receipt.operationId;
         row.status = "saved";
+        delete row.pendingOperationId;
       } else if (isPhoneInboxAction(action)) {
         row.action = action;
         row.status = "confirm";
+        delete row.pendingOperationId;
       } else {
         row.status = "review";
       }
@@ -178,9 +179,43 @@ export class PhoneInbox {
     return row;
   }
 
-  private turn(store: StoreHost, line: PhoneInboxLine): PhoneInboxTurn {
+  private async restoreReceipts(store: StoreHost, records: PhoneInboxRecord[]): Promise<boolean> {
+    const candidates = records.flatMap(row => {
+      const id = row.operationId ?? row.pendingOperationId ?? (row.action && `confirmed:${row.action.id}`);
+      return id && !row.undone ? [{ row, id }] : [];
+    });
+    if (!candidates.length) return false;
+    const ledger = new OperationLedger(store);
+    const allowed = () => !isVaultPathExcluded(ledger.filePath, store.settings.privacy?.excludedVaultPrefixes);
+    if (!allowed()) return false;
+    try {
+      if (await hasPendingFactOperation(store)) return false;
+      const { reverted, verified } = await ledger.readSettledOperations(candidates.map(({ id }) => id));
+      if (await hasPendingFactOperation(store) || !allowed()) return false;
+      this.assertCurrent(store);
+      let changed = false;
+      for (const { row, id } of candidates) {
+        const receipt = verified.get(id);
+        const tool = receipt?.toolName;
+        if (!row.operationId && (reverted.has(id) || receipt && (row.action ? tool === `confirm_${row.action.type}` : isPhoneInboxTool(tool)))) {
+          row.operationId = id;
+          row.status = "saved";
+          row.message = receipt?.output.slice(0, 2000) || "已从最近操作核对回执。";
+          if (isPhoneInboxTool(tool)) row.tool = tool;
+          delete row.pendingOperationId;
+          delete row.action;
+          changed = true;
+        }
+        if (row.operationId && reverted.has(id)) { row.undone = true; changed = true; }
+      }
+      return changed;
+    } catch { return false; }
+  }
+
+  private turn(store: StoreHost, line: PhoneInboxLine, operationId?: string): PhoneInboxTurn {
     return {
       date: line.date,
+      operationId,
       assertCurrent: () => this.assertCurrent(store),
       assertLineCurrent: async () => {
         const current = await this.findLine(store, line.id);

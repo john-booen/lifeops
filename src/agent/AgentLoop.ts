@@ -12,7 +12,7 @@ import { formatHabitCompensationReply, formatTaskListReply, formatVoiceTaskPrior
 import { planCapacityEvidence } from "../features/tasks/capacityEvidence";
 import { weekendClarification } from "../features/tasks/weekendClarification";
 import { phoneInboxCall, phoneInboxRequest, phoneInboxToolDefinitions } from "../features/phoneInbox/agent";
-import type { PhoneInboxTurn } from "../features/phoneInbox/model";
+import { phoneInboxOperationId, type PhoneInboxTurn } from "../features/phoneInbox/model";
 import { waitForFactOperations } from "../dataFoundation/factOperation";
 import { ensureToolCallId, newLocalOperationId } from "../operationIdentity";
 import { providerDisclosureRequired } from "../privacy";
@@ -387,7 +387,9 @@ export class AgentLoop {
       return this.result(state);
     }
     await inbox.assertLineCurrent();
-    const calls = this.scopedCalls([phoneInboxCall(response.toolCalls[0], inbox)], state.id, 0);
+    const call = phoneInboxCall(response.toolCalls[0], inbox);
+    const calls = this.scopedCalls([call], state.id, 0);
+    if (phoneInboxOperationId(inbox.operationId)) calls[0].id = inbox.operationId;
     const [result] = await this.executeRegular(input, state, calls);
     state.text = result?.output ?? "处理结果需要核对，尚无保存回执。";
     return this.result(state);
