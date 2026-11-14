@@ -1274,6 +1274,20 @@ it("recalls an explicitly saved recurring appointment without relying on a newly
   expect(requests).toHaveLength(beforeRecall + 1);
 });
 
+it("uses an explicit timed reminder locally and preserves its named person in the voice receipt", async () => {
+  const loop = new AgentLoop(host);
+  const title = "虚构人名叶宁给纸盒贴标签";
+  const result = await loop.run(input({ source: "voice", message: `明天下午3:15提醒${title}。` }));
+  expect(result.receipts).toHaveLength(1);
+  expect(result.voiceSpeech).toContain(title);
+  expect(result.voiceSpeech).toContain("15:15");
+  expect((await store.readTaskDb()).tasks).toMatchObject([{ title, date: addDays(formatDate(now), 1), time: "15:15" }]);
+  expect(requests).toHaveLength(0);
+  responses.push(reply("这是复合的虚构提醒。"));
+  expect((await loop.run(input({ source: "voice", message: "明天下午三点提醒叶宁下午四点检查纸盒。" }))).text)
+    .toBe("这是复合的虚构提醒。");
+});
+
 it("locally creates an explicitly requested single timed task and keeps conditional requests on the normal path", async () => {
   const loop = new AgentLoop(host);
   const saved = await loop.run(input({ message: "帮我建明天下午三点整理虚构图册的任务。" }));

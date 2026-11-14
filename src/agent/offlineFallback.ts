@@ -23,6 +23,17 @@ export function explicitSingleTimedTask(message: string, today: string): Record<
     return null;
   }
   if (/[，,]/u.test(text)) return null;
+  const reminder = /^(?:请(?:帮我)?|帮我)?\s*(今天|今日|明天|后天|大后天|(?:这|本|下)周[一二三四五六日天1-7]|\d{4}-\d{2}-\d{2})\s*([^，,]+?)提醒(?:我)?(.+)$/u.exec(text);
+  if (reminder) {
+    const [, day, clockText, rawTitle] = reminder;
+    const date = normalizeJournalDate(day, today);
+    const clock = parseTaskClock(clockText);
+    const title = rawTitle.trim();
+    if (title && date && clock?.time && !clock.titleText.trim() && clockMatches(title).length === 0) {
+      return { title, date, time: clock.time };
+    }
+    return null;
+  }
   const command = /^(?:请(?:帮我)?|帮我)?\s*(?:创建|新建|加|建)(?:一[条项个])?\s*(.+?)的(?:任务|待办)$/u.exec(text);
   if (!command || !/^(?:今天|明天|后天|\d{4}-\d{2}-\d{2})(?:\s*\d|\s*(?:凌晨|早上|上午|中午|下午|傍晚|晚上))/u.test(command[1])) return null;
   const task = offlineTask(command[1], today);
