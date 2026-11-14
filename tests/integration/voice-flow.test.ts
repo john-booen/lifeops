@@ -500,6 +500,9 @@ describe("voice integration flow", () => {
       onSpeechStopped: vi.fn(),
       onTranscriptDelta: vi.fn(),
       onTranscriptDone: vi.fn(),
+      onResponseCreated: vi.fn(),
+      onResponseDone: vi.fn(),
+      onAudioDelta: vi.fn(),
       onTransportError: vi.fn(),
       onError: vi.fn()
     };
@@ -538,7 +541,13 @@ describe("voice integration flow", () => {
     expect(callbacks.onTransportError).toHaveBeenCalledWith("transport dropped");
     expect(callbacks.onError).not.toHaveBeenCalled();
 
-    socket.emit("message", JSON.stringify({ type: "response.audio.delta", delta: "base64-audio-not-transcript" }));
+    socket.emit("message", JSON.stringify({ type: "response.created", response: { id: "unsolicited-model" } }));
+    socket.emit("message", JSON.stringify({ type: "response.audio.delta", response_id: "unsolicited-model", delta: "AQACAA==" }));
+    socket.emit("message", JSON.stringify({ type: "response.done", response: { id: "unsolicited-model", status: "completed" } }));
+    socket.emit("message", JSON.stringify({ type: "error", response_id: "unsolicited-model", error: { message: "虚构模型回合失败" } }));
+    expect(callbacks.onResponseCreated).not.toHaveBeenCalled();
+    expect(callbacks.onAudioDelta).not.toHaveBeenCalled();
+    expect(callbacks.onResponseDone).not.toHaveBeenCalled();
     expect(callbacks.onTranscriptDelta).not.toHaveBeenCalled();
     socket.emit("message", JSON.stringify({
       type: "input_audio_buffer.speech_started",

@@ -631,6 +631,8 @@ export class BailianRealtimeClient {
       window.clearTimeout(this.connectionAckTimer);
       this.connectionRun?.finish("success", undefined, reportedModel);
     }
+    // Cascade listens only for ASR. It has no owner for unsolicited model responses.
+    if (!this.isOmniE2e() && (type.startsWith("response.") || type === "error" && responseEventId(event))) return;
     if ((type === "error" || type.endsWith(".failed")) && responseEventId(event)
       && !this.shouldAcceptResponseEvent(event)) return;
     if(this.hasProtectedContextSources() && (type.endsWith(".failed") || type==="error")){
