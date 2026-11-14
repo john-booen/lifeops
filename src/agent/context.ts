@@ -94,6 +94,7 @@ function habitLines(board?: TaskDashboardData): string[] {
   if (!board || dashboardContextData(board)?.habits.available === false) return ["今日习惯未知，请查询。"];
   return ["今日习惯", ...board.habits.map(item => {
     const progress = item.periodUnavailable ? "交易记录暂不可用，进度未知"
+      : item.healthUnrecorded ? `${item.periodLabel} 还没有健康记录`
       : `${item.status} ${item.periodLabel} ${item.periodDone}/${item.periodTarget}${item.periodUnit ?? "次"}`;
     return `- ${clipBytes(oneLine(item.habit.name), 30)} ${progress}`;
   })];

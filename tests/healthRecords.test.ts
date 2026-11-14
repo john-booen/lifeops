@@ -107,15 +107,18 @@ it("links opted-in habits to daily snapshots without stacking data or overriding
 it("shows missing device readings separately from a recorded zero in today's card and agent context", async () => {
   const habit = await store.createHabit({ name: "虚构设备计步", source: "health:steps", frequencyUnit: "day",
     frequencyInterval: 1, targetCount: 1, startDate: previous, target: { kind: "number", unit: "步", perDay: 3000 } });
+  const { buildResidentContext } = await import("../src/agent/context");
   const before = await getTodayCard(store, await store.getTaskDashboard(date));
   expect(before.habits.find(row => row.id === habit.id)?.healthUnrecorded).toBe(true);
   expect((await readHabitContextWithEvidence(store, date)).text).toContain("今日还没有健康记录");
+  expect((await buildResidentContext(store, "虚构计步", new Date(), "voice")).text).toContain("今日 还没有健康记录");
   await store.appendHealthEntry({ date, steps: 0 });
   const after = await getTodayCard(store, await store.getTaskDashboard(date));
   const checked = after.habits.find(row => row.id === habit.id);
   expect(checked).toMatchObject({ done: 0, target: 3000, unit: "步" });
   expect(checked?.healthUnrecorded).toBeUndefined();
   expect((await readHabitContextWithEvidence(store, date)).text).toContain("今日 0/3000 步");
+  expect((await buildResidentContext(store, "虚构计步", new Date(), "voice")).text).toContain("今日 0/3000步");
 });
 
 it("does not turn gaps in a device habit into failures or count a below-goal reading in its streak", async () => {
