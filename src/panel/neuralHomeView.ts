@@ -15,6 +15,7 @@ export interface NeuralHomeOptions extends StewardTodayOptions {
   todayCard?: TodayCardData;
   onAddJournalPlan?(plan: JournalPlanChoice): Promise<void>;
   onReviewIdeas?(): void;
+  onCorrectYesterdayHabit?(taskId: string): Promise<void>;
 }
 
 export function mountNeuralHomeView(container: HTMLElement, initial: NeuralHomeOptions) {
@@ -158,7 +159,7 @@ export function mountNeuralHomeView(container: HTMLElement, initial: NeuralHomeO
     if (nextToday !== todaySignature) {
       todaySignature = nextToday;
       if (options.todayCard) renderTodayCard(today, options.todayCard, plan =>
-        options.onAddJournalPlan?.(plan) ?? Promise.reject(Error("暂时无法添加日记计划。")), options.onReviewIdeas);
+        options.onAddJournalPlan?.(plan) ?? Promise.reject(Error("暂时无法添加日记计划。")), options.onReviewIdeas, options.onCorrectYesterdayHabit);
       else today.replaceChildren();
     }
     date.textContent = options.board.date;

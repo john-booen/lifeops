@@ -1,8 +1,8 @@
 import { acknowledgeAccountability, hasPendingAccountability } from "../accountability";
 import { randomUUID } from "node:crypto";
-import { addDays, formatDate, todayString, weekDates } from "../date";
+import { addDays, datesBetween, formatDate, parseLocalDate, todayString, weekDates } from "../date";
 import { isContextDataProjection } from "../contextData";
-import { planHabitPunishments } from "../features/habits/punishments";
+import { firstUncheckedHabitDay, planHabitPunishments } from "../features/habits/punishments";
 import { advanceCompensationDebt } from "../features/habits/compensationDebt";
 import { assertTradeHabitSource, tradeHabitProgress } from "../features/habits/tradeProgress";
 import { habitMeasurementUnit, habitRecordedAmount, numericHabitPeriods, validateHabitPunishment, validateHabitTarget } from "../features/habits/targets";
@@ -125,6 +125,7 @@ async deleteHabit(this: StoreHost, habitId: string): Promise<void> {
     }
     db.habits = nextHabits;
     db.checkins = db.checkins.filter((checkin) => checkin.habitId !== habitId);
+    if (db.habitPunishmentCheckedThrough) delete db.habitPunishmentCheckedThrough[habitId];
     await this.writeHabitDb(db);
     await this.writeHabitMirror(db.habits, db.checkins);
   },
@@ -207,20 +208,33 @@ async checkPunishments(this: StoreHost, now: Date = new Date(), acknowledgeLegac
       if (file) await this.app.vault.process(file, acknowledgeAccountability);
     }
     const excluded = this.settings.privacy?.excludedVaultPrefixes;
-    if (now.getHours() < 21 || [this.habitDbPath(), this.taskDbPath()].some(path => isVaultPathExcluded(path, excluded))) return;
+    if ([this.habitDbPath(), this.taskDbPath()].some(path => isVaultPathExcluded(path, excluded))) return;
     const db = await this.readHabitDb();
     const date = formatDate(now);
-    if (db.lastPunishmentDate === date) return;
+    const through = now.getHours() >= 21 ? date : addDays(date, -1);
     const tasks = await this.readTaskDb({ readOnly: true });
     const progress = await tradeHabitProgress(this, db, true);
-    const eligible = progress.unavailable ? db.habits.filter(habit => habit.source !== "trades") : db.habits;
-    const generated = planHabitPunishments(eligible, progress.checkins, tasks.tasks, now);
-    const existing = tasks.tasks;
-    const added = generated.map(task => buildTaskFromInput(task, now, () => `task-${now.getTime()}-${randomUUID()}`));
-    const next = advanceCompensationDebt([...existing, ...added], db.habits, date, this.settings.habitCompensation);
-    if (!added.length && next.every((task, index) => task === existing[index])) return;
-    await this.writeTaskDb({ ...tasks, tasks: next });
-    if (!progress.unavailable) await this.writeHabitDb({ ...db, lastPunishmentDate: date });
+    const eligible = db.habits.filter(habit => habit.punishment?.enabled && !(progress.unavailable && habit.source === "trades"));
+    const checked: Record<string, string> = Object.assign(Object.create(null), db.habitPunishmentCheckedThrough);
+    const windows = eligible.map(habit => ({ habit, from: firstUncheckedHabitDay(db, habit, date) }));
+    const nextTasks = tasks.tasks.slice();
+    for (const day of datesBetween(addDays(date, -7), through)) {
+      const due = windows.filter(({ habit, from }) => day >= from
+        || day === date && habit.source === "trades" && checked[habit.id] === day);
+      if (!due.length) continue;
+      const judged = parseLocalDate(day);
+      judged.setHours(21);
+      const generated = planHabitPunishments(due.map(({ habit }) => habit), progress.checkins, nextTasks, judged);
+      for (const task of generated) nextTasks.push(buildTaskFromInput(task, now, () => `task-${now.getTime()}-${randomUUID()}`));
+      for (const { habit } of due) checked[habit.id] = day;
+    }
+    const next = advanceCompensationDebt(nextTasks, db.habits, date, this.settings.habitCompensation);
+    if (next.length !== tasks.tasks.length || next.some((task, index) => task !== tasks.tasks[index])) {
+      await this.writeTaskDb({ ...tasks, tasks: next });
+    }
+    if (Object.entries(checked).some(([habitId, day]) => db.habitPunishmentCheckedThrough?.[habitId] !== day)) {
+      await this.writeHabitDb({ ...db, lastPunishmentDate: through, habitPunishmentCheckedThrough: checked });
+    }
   },
 
 async acceptPunishments(this: StoreHost): Promise<void> {

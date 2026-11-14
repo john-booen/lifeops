@@ -200,6 +200,7 @@ export interface LifeOpsViewController extends StewardRecordsController {
   getTaskDashboard(): Promise<TaskDashboardData>;
   getTodayCard?(board: TaskDashboardData): Promise<TodayCardData>;
   addJournalPlanTask?(plan: JournalPlanChoice): Promise<void>;
+  correctYesterdayHabit?(taskId: string): Promise<void>;
   mountIdeaPanel?(container: HTMLElement): () => Promise<void>;
   mountLearningPanel?(container: HTMLElement): () => Promise<void>;
   openIdeaCandidates?(): void;
@@ -489,6 +490,7 @@ export class LifeOpsView extends ItemView {
       if (this.stewardPage === "today") {
         const homeOptions: NeuralHomeOptions = {
           stats, board, todayCard, onAddJournalPlan: this.controller.addJournalPlanTask?.bind(this.controller),
+          onCorrectYesterdayHabit: this.controller.correctYesterdayHabit?.bind(this.controller),
           onReviewIdeas: this.controller.openIdeaCandidates?.bind(this.controller),
           onOpenTasks: filter => {
             this.mode = "tasks"; this.taskFilter = filter as TaskFilter;

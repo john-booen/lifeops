@@ -1,7 +1,8 @@
 import type { JournalPlanChoice, TodayCardData } from "../features/today/model";
 
 export function renderTodayCard(
-  host: HTMLElement, data: TodayCardData, onAddPlan: (plan: JournalPlanChoice) => Promise<void>, onReviewIdeas?: () => void
+  host: HTMLElement, data: TodayCardData, onAddPlan: (plan: JournalPlanChoice) => Promise<void>, onReviewIdeas?: () => void,
+  onCorrectYesterday?: (taskId: string) => Promise<void>
 ): void {
   const document = host.ownerDocument;
   const wasOpen = host.querySelector<HTMLDetailsElement>(".lh-today-state")?.open ?? false;
@@ -53,6 +54,25 @@ export function renderTodayCard(
     add(habits, "p", "lh-today-overload", [penalty.title, penalty.due, penalty.dueDate && `${penalty.dueDate} 到期`].filter(Boolean).join(" · "));
     if (penalty.daysLate && penalty.due) add(habits, "p", "lh-caption", `这项已经拖了 ${penalty.daysLate} 天，今天把它安排上。`);
     if (penalty.evidence) add(habits, "p", "lh-caption", penalty.evidence);
+    if (penalty.canCorrectYesterday && onCorrectYesterday) {
+      const button = add(habits, "button", "lh-button", "昨晚其实做了");
+      button.type = "button";
+      button.setAttribute("aria-label", "昨晚其实做了 · " + penalty.title);
+      const message = add(habits, "p", "lh-today-plan-message");
+      message.setAttribute("role", "status");
+      button.onclick = async () => {
+        if (button.disabled || !button.isConnected) return;
+        button.disabled = true;
+        message.textContent = "";
+        try {
+          await onCorrectYesterday(penalty.id);
+        } catch (error) {
+          message.textContent = error instanceof Error ? error.message : "暂时无法补记，请重试。";
+        } finally {
+          button.disabled = false;
+        }
+      };
+    }
   }
 
   const plans = add(card, "section", "lh-today-plans");

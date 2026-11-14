@@ -1,4 +1,4 @@
-import { formatDate, normalizeJournalDate } from "../../date";
+import { addDays, formatDate, normalizeJournalDate } from "../../date";
 import { fileRevision } from "../../operationIdentity";
 import type { LifeOpsTask, TaskDashboardData } from "../../types";
 import { currentSignalValues, type JournalSignal, type SignalField, type SignalSource } from "../journal/signals";
@@ -71,8 +71,11 @@ export function buildTodayCard(board: TaskDashboardData, signals: readonly Journ
     penalties: board.tasks.filter(task => task.status === "active" && task.category === "punishment" && task.habitPunishment)
       .map(task => {
         const penalty = task.habitPunishment!;
+        const habit = board.habits.find(item => item.habit.id === penalty.habitId)?.habit;
         return { id: task.id, title: task.title, dueDate: task.dueDate, evidence: penalty.evidence,
-          due: compensationDueLabel(penalty), daysLate: compensationDaysLate(penalty, today) };
+          due: compensationDueLabel(penalty), daysLate: compensationDaysLate(penalty, today),
+          canCorrectYesterday: !!habit && habit.source !== "trades" && penalty.period === "day"
+            && penalty.judgedDate === addDays(today, -1) };
       }),
     plans: journalPlanChoices(signals).map(plan => ({ plan, added: !!existingJournalPlanTask(board.tasks, plan) }))
   };

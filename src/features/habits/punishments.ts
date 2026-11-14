@@ -1,10 +1,19 @@
-import { addDays, formatDate, weekDates } from "../../date";
+import { addDays, formatDate, normalizeJournalDate, weekDates } from "../../date";
+import type { HabitDatabase } from "../../store/settingsSlice";
 import type { HabitCheckin, HabitDefinition, LifeOpsTask, LifeOpsTaskInput } from "../../types";
 import { initialCompensationDebt } from "./compensationDebt";
 import { habitRecordedAmount, isHabitRequiredOn, numericHabitPeriods, validateHabitPunishment } from "./targets";
 
 type Period = "day" | "week";
 interface HabitGoal { period: Period; goal: number }
+
+export function firstUncheckedHabitDay(database: HabitDatabase, habit: HabitDefinition, today: string): string {
+  const previous = (Object.hasOwn(database.habitPunishmentCheckedThrough ?? {}, habit.id)
+    ? database.habitPunishmentCheckedThrough?.[habit.id] : undefined)
+    ?? (database.habitPunishmentCheckedThrough === undefined ? database.lastPunishmentDate : undefined);
+  const afterPrevious = typeof previous === "string" && normalizeJournalDate(previous) === previous ? addDays(previous, 1) : "";
+  return [addDays(today, -7), habit.startDate, afterPrevious].sort().at(-1)!;
+}
 
 function outcome(habit: HabitDefinition, checkins: HabitCheckin[], date: string, { period, goal }: HabitGoal) {
   const allDays = (period === "day" ? [date] : weekDates(date)).filter(day => day >= habit.startDate && day <= date);
@@ -14,6 +23,11 @@ function outcome(habit: HabitDefinition, checkins: HabitCheckin[], date: string,
   const entries = checkins.filter(item => item.habitId === habit.id && measuredDays.includes(item.date));
   const amount = entries.reduce((sum, item) => sum + habitRecordedAmount(habit, item), 0);
   return { amount, failed: amount < goal && !days.every(day => entries.some(item => item.date === day && item.status === "leave")) };
+}
+
+export function habitDayGoalMet(habit: HabitDefinition, checkins: HabitCheckin[], date: string): boolean {
+  const goal = habit.target?.kind === "number" ? habit.target.perDay : habit.targetCount;
+  return goal !== undefined && habitRecordedAmount(habit, checkins.find(item => item.habitId === habit.id && item.date === date)) >= goal;
 }
 
 function recentMisses(habit: HabitDefinition, checkins: HabitCheckin[], date: string, goal: HabitGoal): string[] {

@@ -23,7 +23,7 @@ const { LifeOpsStore } = await import("../src/store");
 const { AgentRuntime } = await import("../src/agentRuntime");
 const { DiskVault } = await import("./helpers/diskVault");
 const { planHabitPunishments } = await import("../src/features/habits/punishments");
-const { runScheduledPunishmentCheck } = await import("../src/features/habits/service");
+const { correctYesterdayHabit, runScheduledPunishmentCheck } = await import("../src/features/habits/service");
 
 const sunday = new Date(2026, 10, 15, 21, 0);
 const date = formatDate(sunday);
@@ -262,6 +262,47 @@ describe("habit changes through the real store and operation ledger", () => {
     expect(await list()).toMatchObject({ count: 0 });
     await runtime.undoOperation(done.receipt!.operationId);
     expect(await list()).toMatchObject({ count: 1 });
+  });
+
+  it("checks missed days at morning startup and corrects only yesterday's selected debt", async () => {
+    const first = await store.createHabit({ name: "虚构两次检查", frequencyUnit: "day", frequencyInterval: 1, targetCount: 2,
+      startDate: date, punishment: config(reflection) });
+    const other = await store.createHabit({ name: "虚构另一习惯", frequencyUnit: "day", frequencyInterval: 1, targetCount: 1,
+      startDate: date, punishment: config(money) });
+    const morning = new Date(2026, 10, 16, 8);
+    vi.setSystemTime(morning);
+    lifecycle = new HabitPunishmentLifecycle((now, current) => runScheduledPunishmentCheck(host, store, now, current));
+    lifecycle.start();
+    await vi.waitFor(() => expect(host.refreshViews).toHaveBeenCalledOnce());
+    const tasks = (await store.readTaskDb()).tasks;
+    expect(tasks).toHaveLength(2);
+    expect(tasks.map(task => task.habitPunishment?.judgedDate)).toEqual([date, date]);
+    expect((await store.readHabitDb()).habitPunishmentCheckedThrough).toEqual({ [first.id]: date, [other.id]: date });
+    const selected = tasks.find(task => task.habitPunishment?.habitId === first.id)!;
+    const card = buildTodayCard(await store.getTaskDashboard(formatDate(morning)), [], morning);
+    expect(card.penalties.every(penalty => penalty.canCorrectYesterday)).toBe(true);
+    await correctYesterdayHabit(host, selected.id);
+    expect((await store.readHabitDb()).checkins).toMatchObject([{ habitId: first.id, date, status: "done", count: 2 }]);
+    const active = () => store.readTaskDb().then(db => db.tasks.filter(task => task.status === "active"));
+    expect(await active()).toMatchObject([{ habitPunishment: { habitId: other.id } }]);
+    await runScheduledPunishmentCheck(host, store, morning, () => {});
+    expect(await active()).toHaveLength(1);
+    const undone = await runtime.executeAiToolCall({ name: "undo_latest_operation", arguments: {} }, "kimi");
+    expect(undone.success, undone.output).toBe(true);
+    expect((await store.readHabitDb()).checkins).toEqual([]);
+    expect(await active()).toHaveLength(2);
+  });
+
+  it("limits catch-up to seven past days and reuses the prior check date for an existing database", async () => {
+    const old = addDays(date, -14);
+    const target = await store.createHabit({ name: "虚构跨夜习惯", frequencyUnit: "day", frequencyInterval: 1,
+      targetCount: 1, startDate: old, punishment: config(reflection) });
+    await store.writeHabitDb({ ...(await store.readHabitDb()), lastPunishmentDate: old });
+    const morning = new Date(2026, 10, 15, 8);
+    vi.setSystemTime(morning);
+    await runScheduledPunishmentCheck(host, store, morning, () => {});
+    expect((await store.readTaskDb()).tasks).toMatchObject([{ habitPunishment: { habitId: target.id, judgedDate: addDays(date, -7) } }]);
+    expect((await store.readHabitDb()).habitPunishmentCheckedThrough).toEqual({ [target.id]: addDays(date, -1) });
   });
 
   it("accrues money and words for three days, records payment once, and restores the debt on undo", async () => {

@@ -82,6 +82,7 @@ export interface HabitDatabase {
   habits: HabitDefinition[];
   checkins: HabitCheckin[];
   lastPunishmentDate?: string;
+  habitPunishmentCheckedThrough?: Record<string, string>;
 }
 
 export interface VaultIndexEntry {

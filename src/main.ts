@@ -1213,6 +1213,10 @@ export default class LifeOpsPlugin extends Plugin {
     return todayService.getTodayCard(this.store as unknown as StoreHost, board);
   }
 
+  correctYesterdayHabit(taskId: string): Promise<void> {
+    return habitService.confirmYesterdayHabit.call({ app: this.app, ...this.localOperationHost() }, this.store as unknown as StoreHost, taskId);
+  }
+
   addJournalPlanTask(plan: JournalPlanChoice): Promise<void> {
     return todayService.addJournalPlanTask(this.localOperationHost(), this.store as unknown as StoreHost, plan);
   }
