@@ -91,9 +91,12 @@ function screenshotTimestamp(value: unknown, printedZone: unknown, marketZone?: 
 
 function screenshotOpening(row: ModelRow, marketZone?: string): Pick<TradeDraft, "openedAt" | "openedAtPrecision"> & { inferred?: string } {
   const date = row.openedAt;
-  if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/u.test(date) || row.openClockShown !== false) {
+  if (row.openClockShown !== false) {
     const open = screenshotTimestamp(date, row.openedZone, marketZone);
     return { ...tradeTime(open.timestamp), inferred: open.inferred };
+  }
+  if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/u.test(date)) {
+    throw Error("识别结果对开仓时间的描述互相冲突，请重新识别。");
   }
   const printed = explicitOffset(row.openedZone);
   if (row.openedZone && !printed) throw Error("截图上显示的时区无效。");

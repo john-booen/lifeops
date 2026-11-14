@@ -122,6 +122,13 @@ it("asks for an explicit offset when a US local time occurs twice", () => {
   expect(previewTradeScreenshot([data], "a".repeat(64), []).rows[0]).toMatchObject({ kind: "invalid", reason: expect.stringContaining("夏令时") });
 });
 
+it("does not turn a conflicting screenshot reading into a precise opening time", () => {
+  const input = { ...cases["equity-match"], openClockShown: false };
+  expect(previewTradeScreenshot([input], "a".repeat(64), []).rows[0]).toMatchObject({
+    kind: "invalid", reason: expect.stringContaining("开仓时间的描述互相冲突")
+  });
+});
+
 it.each(["2026-11-12T24:00", "2026-11-12T09:60", "2026-02-30T09:30"])("rejects invalid printed market-local dates and clocks (%s)", openedAt => {
   const row = { ...cases["equity-match"], openedAt, openedZone: null, closedAt: undefined };
   expect(previewTradeScreenshot([row], "a".repeat(64), []).rows[0]).toMatchObject({ kind: "invalid", reason: expect.stringContaining("日期或时刻") });
