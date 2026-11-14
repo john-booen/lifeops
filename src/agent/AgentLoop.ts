@@ -97,6 +97,7 @@ const QUICK_TOOLS = new Set([
 ]);
 const VOICE_QUICK_TOOLS = new Set([
   "list_tasks", "plan_today", "get_stats", "get_summaries", "learning_progress", "query_vault",
+  "start_quiz",
   "create_task", "reschedule_task", "complete_task", "delete_task", "complete_habit", "delete_habit",
   "append_journal_entry", "record_trade", "undo_latest_operation"
 ]);
@@ -408,6 +409,9 @@ export class AgentLoop {
     }
     if (tools.some(tool => tool.name === "list_tasks")) {
       guidance.push("要求把逾期和今天到期的未完成任务分开时，用 list_tasks 的 dueStatus=overdue_and_today。如另要建议，设 directReply=false。问今天还剩几项和最要紧的 N 项（含今晚未完成提醒）时，用 list_tasks 的 order=priority、limit=N、directReply=true，省略 dueStatus，不用 plan_today。只问今天该先做什么、想知道排序理由或精力影响，用 plan_today，不用 list_tasks。");
+    }
+    if (input.source === "voice" && tools.some(tool => tool.name === "start_quiz")) {
+      guidance.push("用户明确要测验或出题时，先调用 start_quiz，按用户指定的学科和题数出题。不要按日记状态更改题数。");
     }
     if (tools.some(tool => tool.name === "get_stats")) {
       guidance.push("评价或批评这周表现，先用 get_stats(domain=habits,range=this_week) 查达标次数和漏做日期。");
