@@ -14,6 +14,7 @@ let version: string;
 const packageBytes = "synthetic program";
 const oldProgram = "synthetic old program";
 const settings = '{"folders":{"aiReports":"自定义输出/AI"},"synthetic":true}';
+const recoveryPath = "自定义输出/AI/Operations/write-recovery.json";
 const vaultFile = (path: string) => join(config.vaultPath, path);
 const pluginFile = (path: string) => join(config.pluginPath, path);
 const read = (path: string) => readFile(path, "utf8");
@@ -86,6 +87,39 @@ it("aborts rollback before changing the plugin if any backed-up file is damaged"
   await put(join(installed.backup, "vault/LifeOps/Output/AI/日报.md"), "corrupted");
   await expect(restorePackage(config, installed.backup)).rejects.toThrow("备份清单");
   expect(await read(pluginFile("main.js"))).toBe(packageBytes);
+});
+
+it("keeps the current program and the recovery journal when a save is pending", async () => {
+  const output = await prepare();
+  const pending = JSON.stringify({ version: 1, operationId: "fictional-save", status: "pending", entries: [] });
+  const journal = vaultFile(recoveryPath);
+  await put(journal, pending);
+  await expect(installPackage(config, version, output)).rejects.toThrow("检查并恢复未完成操作");
+  expect(await read(pluginFile("main.js"))).toBe(oldProgram);
+  expect(await read(journal)).toBe(pending);
+  await expect(lstat(config.backupRoot)).rejects.toMatchObject({ code: "ENOENT" });
+
+  const committed = pending.replace('"pending"', '"committed"');
+  await put(journal, committed);
+  const installed = await installPackage(config, version, output);
+  await put(journal, pending);
+  await expect(restorePackage(config, installed.backup)).rejects.toThrow("检查并恢复未完成操作");
+  expect(await read(pluginFile("main.js"))).toBe(packageBytes);
+  expect(await read(journal)).toBe(pending);
+  const restored = pending.replace('"pending"', '"rolled_back"');
+  await put(journal, restored);
+  await restorePackage(config, installed.backup);
+  expect(await read(pluginFile("main.js"))).toBe(oldProgram);
+  expect(await read(journal)).toBe(restored);
+});
+
+it("leaves an unreadable recovery journal and the installed package intact", async () => {
+  const installed = await installPackage(config, version, await prepare());
+  const malformed = JSON.stringify({ version: 2, operationId: "fictional-save", status: "committed", entries: [] });
+  await put(vaultFile(recoveryPath), malformed);
+  await expect(restorePackage(config, installed.backup)).rejects.toThrow("检查并恢复未完成操作");
+  expect(await read(pluginFile("main.js"))).toBe(packageBytes);
+  expect(await read(vaultFile(recoveryPath))).toBe(malformed);
 });
 
 it("preserves both verified backups when an installation retries in the same minute", async () => {

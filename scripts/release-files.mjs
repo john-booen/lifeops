@@ -5,6 +5,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { assertSafeDiskPath } from "../src/dataFoundation/offlineRecovery.ts";
+import { decodeFactRecovery, MAX_RECOVERY_BYTES } from "../src/dataFoundation/recoveryEncoding.ts";
 import { FULL_PLUGIN_FILES } from "./plugin-package-upgrade.mjs";
 import { assert, readRegularFile, sha256, verifyPluginPackage } from "./verify-plugin-package.mjs";
 
@@ -93,13 +94,42 @@ async function walk(root, folder, entries, managedOnly = false) {
   }
 }
 
-async function backupEntries(config) {
-  const entries = new Map();
+async function reportFolders(config) {
   const settingsFile = join(config.pluginPath, "data.json");
   const configuredReports = (await statIfPresent(settingsFile)) ? (await readJson(settingsFile))?.folders?.aiReports : undefined;
-  for (const path of new Set([pluginRelative, reportsRelative, configuredReports || reportsRelative])) {
+  const paths = [...new Set([configuredReports || reportsRelative, reportsRelative])];
+  for (const path of paths) {
     assert(typeof path === "string" && path.split("/").every((part) => part && part !== "." && part !== "..")
       && !isAbsolute(path) && !path.includes("\\"), "AI 复盘目录必须是库内相对路径");
+  }
+  return paths;
+}
+
+async function settledRecoveryRevision(config) {
+  const [folder] = await reportFolders(config);
+  const path = join(config.vaultPath, folder, "Operations", "write-recovery.json");
+  await assertSafeDiskPath(path);
+  const stat = await statIfPresent(path);
+  if (!stat) return JSON.stringify([path, null]);
+  const message = "恢复记录无法安全核验。请使用当前版本检查并恢复未完成操作，再切换版本。";
+  assert(stat.isFile() && stat.nlink === 1 && stat.size <= MAX_RECOVERY_BYTES, message);
+  const raw = await readRegularFile(path);
+  try {
+    const text = raw.toString("utf8");
+    assert(raw.length <= MAX_RECOVERY_BYTES && Buffer.from(text).equals(raw), message);
+    const wire = JSON.parse(text);
+    assert(wire && [1, 2, 3].includes(wire.version) && !Object.hasOwn(wire, "schemaVersion")
+      && ["committed", "rolled_back"].includes(wire.status)
+      && typeof wire.operationId === "string" && wire.operationId && Array.isArray(wire.entries), message);
+    assert(wire.version !== 3 || wire.ledgerUndo?.kind === "ledger-revert-v1", message);
+    decodeFactRecovery(wire);
+  } catch { throw new Error(message); }
+  return JSON.stringify([path, sha256(raw)]);
+}
+
+async function backupEntries(config) {
+  const entries = new Map();
+  for (const path of [pluginRelative, ...await reportFolders(config)]) {
     const fullPath = join(config.vaultPath, path);
     await assertSafeDiskPath(fullPath);
     const stat = await statIfPresent(fullPath);
@@ -247,6 +277,7 @@ export async function installPackage(config, version, packageDir = join(projectR
   assert(JSON.parse(contents.get("manifest.json").toString("utf8")).version === version, "安装包版本不符");
   const mainSha256 = sha256(contents.get("main.js"));
   return withReleaseLock(config, async () => {
+    const recovery = await settledRecoveryRevision(config);
     const { directory: backup, snapshot } = await createBackup(config, version);
     console.log(`备份已读回校验 · ${backup}`);
     await swapPlugin(config.pluginPath, async (stage) => {
@@ -258,6 +289,7 @@ export async function installPackage(config, version, packageDir = join(projectR
         assert((await readRegularFile(target)).equals(bytes), "暂存的安装包文件读回失败");
       }
       await verifyPluginSnapshot(config.pluginPath, snapshot, false);
+      assert(await settledRecoveryRevision(config) === recovery, "版本切换期间恢复记录发生变化");
     });
     return { version, mainSha256, backup, startedAt: Date.now() };
   });
@@ -286,6 +318,7 @@ export async function restorePackage(config, directory) {
     const hasLivePlugin = await statIfPresent(config.pluginPath);
     const liveSettings = join(config.pluginPath, "data.json");
     const settings = await statIfPresent(liveSettings);
+    const recovery = await settledRecoveryRevision(config);
     await swapPlugin(config.pluginPath, async (stage) => {
       await cp(oldPlugin, stage, { recursive: true, errorOnExist: true, force: false });
       if (settings) {
@@ -294,6 +327,7 @@ export async function restorePackage(config, directory) {
         assert((await fileRecord(stage, "data.json")).sha256 === prior.sha256, "现有设置的读回复核失败");
       } else if (hasLivePlugin) await rm(join(stage, "data.json"), { force: true });
       await verifyPluginSnapshot(stage, snapshot, Boolean(hasLivePlugin));
+      assert(await settledRecoveryRevision(config) === recovery, "版本切换期间恢复记录发生变化");
     });
     return { version: oldManifest.version, mainSha256, startedAt: Date.now(),
       legacy: oldManifest.version === "0.2.0" && mainSha256 === legacyMainSha256 };
