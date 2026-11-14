@@ -1,3 +1,4 @@
+import { renameSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -226,6 +227,48 @@ it("keeps verified days when one health note cannot be safely read", async () =>
   expect(result.success).toBe(true);
   expect(JSON.parse(result.output)).toMatchObject({ recordedDays: 1, scope: "只统计允许读取的记录",
     sleepHours: { average: 7.5, recordedDays: 1 } });
+});
+
+it("marks a health range as partial when a listed note disappears before it can be read", async () => {
+  await store.appendHealthEntry({ date: previous, sleepHours: 7.5 });
+  await store.appendHealthEntry({ date, sleepHours: 6 });
+  const removed = healthNotePath(store, date);
+  const vault = store.app.vault, list = vault.getMarkdownFiles.bind(vault);
+  const listing = vi.spyOn(vault, "getMarkdownFiles").mockImplementationOnce(() => {
+    const snapshot = list();
+    renameSync(join(root, removed), join(root, "synthetic-health-sync-holding.md"));
+    return snapshot;
+  });
+  try {
+    const result = await readStats(store, { domain: "health", range: { from: previous, to: date } }, new Date());
+    expect(result.success).toBe(true);
+    expect(JSON.parse(result.output)).toMatchObject({ recordedDays: 1, scope: "只统计允许读取的记录",
+      sleepHours: { average: 7.5, recordedDays: 1 } });
+  } finally {
+    listing.mockRestore();
+  }
+});
+
+it("does not combine health readings across a folder change during a range read", async () => {
+  await store.appendHealthEntry({ date: previous, sleepHours: 7.5 });
+  const folder = store.settings.folders.health;
+  const newFolder = folder + "-虚构切换";
+  await store.writeFile(store.path(newFolder, date + ".md"), `## ${date}\n- 睡眠小时：3\n`);
+  await store.appendHealthEntry({ date, sleepHours: 6 });
+  const vault = store.app.vault as unknown as ReturnType<typeof createFsApp>["vault"];
+  const adapter = vault.adapter, rootPath = adapter.getBasePath.bind(adapter);
+  const original = vi.spyOn(adapter, "getBasePath").mockImplementation(() => {
+    store.settings.folders.health = newFolder;
+    return rootPath();
+  });
+  try {
+    const result = await readStats(store, { domain: "health", range: { from: previous, to: date } }, new Date());
+    expect(result.success).toBe(true);
+    expect(JSON.parse(result.output)).toMatchObject({ recordedDays: 0, scope: "只统计允许读取的记录",
+      sleepHours: { average: null, recordedDays: 0 } });
+  } finally {
+    original.mockRestore();
+  }
 });
 
 function simulateNormalizedObsidianText(path: string) {

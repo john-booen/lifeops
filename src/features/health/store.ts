@@ -1,6 +1,6 @@
 import { normalizePath } from "obsidian";
 import { normalizeJournalDate } from "../../date";
-import { isVaultPathExcluded } from "../../privacy";
+import { isVaultPathExcluded, normalizeExcludedVaultPrefixes } from "../../privacy";
 import { isGuardedOperationScope } from "../../dataFoundation/factOperation";
 import { readScopedMarkdown } from "../../dataFoundation/markdownSources";
 import type { StoreHost } from "../../store/settingsSlice";
@@ -19,17 +19,22 @@ export async function readHealthDay(store: StoreHost, date: string): Promise<Hea
   return (await checkHealthNote(store, date)).day;
 }
 
-async function checkHealthNote(store: StoreHost, date: string) {
+async function checkHealthNote(store: StoreHost, date: string): Promise<{ day: HealthDay; canAppend: boolean; missing?: boolean }> {
   const path = healthNotePath(store, date);
   if (!healthPathAllowed(store, date)) return { day: { date }, canAppend: false };
-  if (!store.getFile(path)) return { day: { date }, canAppend: true };
+  if (!store.getFile(path)) return { day: { date }, canAppend: true, missing: true };
   const text = isGuardedOperationScope(store) ? await store.readPath(path) : await readScopedMarkdown(store, path);
-  return healthPathAllowed(store, date) ? inspectHealthMarkdown(date, text) : { day: { date }, canAppend: false };
+  return path === healthNotePath(store, date) && healthPathAllowed(store, date)
+    ? inspectHealthMarkdown(date, text) : { day: { date }, canAppend: false };
 }
 
 export async function readHealthRange(store: StoreHost, from: string, to: string): Promise<{ days: HealthDay[]; partial: boolean }> {
   const folder = normalizePath(store.settings.folders.health);
-  const dates = from === to && normalizeJournalDate(from) === from && !!from
+  const exclusions = () => JSON.stringify(normalizeExcludedVaultPrefixes(store.settings.privacy?.excludedVaultPrefixes ?? []));
+  const excluded = exclusions();
+  const current = () => normalizePath(store.settings.folders.health) === folder && exclusions() === excluded;
+  const directDay = from === to && normalizeJournalDate(from) === from && !!from;
+  const dates = directDay
     ? [from] : store.app.vault.getMarkdownFiles().flatMap(file => {
       if (!file.path.startsWith(folder + "/")) return [];
       const rest = file.path.slice(folder.length + 1);
@@ -39,13 +44,14 @@ export async function readHealthRange(store: StoreHost, from: string, to: string
   let partial = false;
   const days: HealthDay[] = [];
   for (const date of dates) {
+    if (!current()) return { days: [], partial: true };
     if (!healthPathAllowed(store, date)) { partial = true; continue; }
     const note = await checkHealthNote(store, date).catch(() => undefined);
     if (!note || !healthPathAllowed(store, date)) { partial = true; continue; }
-    if (!note.canAppend) partial = true;
+    if (!note.canAppend || note.missing && !directDay) partial = true;
     if (healthMetricKeys.some(key => note.day[key] !== undefined)) days.push(note.day);
   }
-  return { days, partial };
+  return current() ? { days, partial } : { days: [], partial: true };
 }
 
 export async function recordHealthEntries(store: StoreHost, entries: readonly HealthEntry[]): Promise<number> {
