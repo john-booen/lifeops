@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { AiChatResult, AiToolCall, AiToolDefinition, ChatMessage, LifeOpsAi } from "../ai";
 import type { ToolCallResult } from "../agentRuntime";
 import { formatDate } from "../date";
-import { deviceSleepAnswer, deviceSleepRange } from "../features/health/sleepAnswer";
+import { deviceHealthAnswer, deviceHealthQuestion } from "../features/health/deviceHealthAnswer";
 import { formatQuizQuestions } from "../features/learning/quizTools";
 import { readingLinkEvidence } from "../features/reading/tools";
 import { habitDateEvidence } from "../features/stats/habitEvidence";
@@ -204,18 +204,18 @@ export class AgentLoop {
         }
       }
       if (!input.voiceBackground && (input.source === "text" || input.source === "voice")) {
-        const sleepRange = deviceSleepRange(input.message);
-        const completionRange = sleepRange ? undefined : taskCompletionRateQuestion(input.message);
-        const period = sleepRange ?? completionRange;
+        const health = deviceHealthQuestion(input.message);
+        const period = health?.range ?? taskCompletionRateQuestion(input.message);
         if (period) {
           await waitForFactOperations(this.host.store, { signal: input.signal, assertCurrent: assertPolicy });
           const range = resolveStatsRange(period, input.now);
-          const calls = this.scopedCalls([{ name: "get_stats", arguments: { domain: sleepRange ? "health" : "tasks", range } }], state.id, 0);
+          const calls = this.scopedCalls([{ name: "get_stats", arguments: { domain: health ? "health" : "tasks", range } }], state.id, 0);
           const [result] = await this.executeRegular(input, state, calls);
           assertProviderActive(input.signal);
           assertPolicy();
-          const format = sleepRange ? deviceSleepAnswer : formatTaskCompletionRate;
-          return this.localAnswer(input, state, result?.success ? format(result.output) : result?.output || "记录暂不可用。");
+          const reply = !result?.success ? result?.output || "记录暂不可用。"
+            : health ? deviceHealthAnswer(result.output, health.metric, health.aggregate) : formatTaskCompletionRate(result.output);
+          return this.localAnswer(input, state, reply);
         }
       }
       if (!this.modelAvailable()) {
@@ -397,7 +397,7 @@ export class AgentLoop {
             if (typeof ranking === "string" && ranking) reply = ranking;
           } else if (!input.voiceBackground && call.name === "get_stats"
             && call.arguments.domain === "health" && call.arguments.directReply === "device_sleep") {
-            reply = deviceSleepAnswer(single.output);
+            reply = deviceHealthAnswer(single.output, "sleepHours");
           } else if (round === 0 && fastVoice && call.name === "get_stats") reply = formatVoiceStats(single.output, call.arguments);
           else if (round === 0 && fastVoice && call.name === "plan_today") reply = formatVoiceTaskPriorities(single.output, call.arguments);
           else if (round === 0 && call.name === "list_tasks" && call.arguments.category === undefined

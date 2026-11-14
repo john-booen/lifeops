@@ -598,6 +598,34 @@ describe("unified agent loop", () => {
     expect(requests).toHaveLength(1);
   });
 
+  it("uses measured values, their date coverage, and explicit aggregations for other device questions", async () => {
+    const today = formatDate(now), yesterday = addDays(today, -1), tomorrow = addDays(today, 1);
+    await store.appendHealthEntry({ date: today, steps: 0, runningKm: 2.25, weightKg: 70.5 });
+    await store.appendHealthEntry({ date: yesterday, steps: 1234, runningKm: 1.25, weightKg: 71.5, restingHeartRate: 61 });
+    await store.appendHealthEntry({ date: tomorrow, steps: 9999, runningKm: 100, restingHeartRate: 45 });
+    const loop = new AgentLoop(host);
+    const questions = [
+      ["今天手表记录的步数是多少步？", "有 1 天设备步数记录，记录值 0 步。"],
+      ["最近三天设备记录的步数合计多少步？", "有 2 天设备步数记录，合计 1234 步。"],
+      ["过去三天设备记录的跑步距离一共是多少公里？", "有 2 天设备跑步距离记录，合计 3.5 公里。"],
+      ["最近三天手表记录的体重平均是多少公斤？", "有 2 天设备体重记录，平均 71 公斤。"],
+      ["最近三天手表记录的静息心率平均是多少次/分？", "有 1 天设备静息心率记录，平均 61 次/分。"],
+      ["今天设备记录的静息心率是多少？", "暂无可读的设备静息心率记录。"]
+    ] as const;
+    for (const [message, expected] of questions) {
+      const onVoiceText = vi.fn();
+      const result = await loop.run(input({ source: "voice", message, onVoiceText }));
+      expect(result.text).toContain(expected);
+      expect(result.toolCalls).toEqual([{ name: "get_stats", ok: true }]);
+      expect(onVoiceText).toHaveBeenCalledExactlyOnceWith(result.text);
+    }
+    expect(requests).toHaveLength(0);
+    responses.push(reply("虚构综合分析。"));
+    const mixed = await loop.run(input({ message: "今天设备记录的步数是多少，为什么走得少？" }));
+    expect(mixed.text).toBe("虚构综合分析。");
+    expect(requests).toHaveLength(1);
+  });
+
   it.each(["get_stats", "query_vault"])("adds verified habit dates only from the stats tool (%s)", async name => {
     const answer = "虚构存钱在11月11日没达标。";
     const report = { domain: "habits", range: { from: "2026-11-09", to: "2026-11-12" },
