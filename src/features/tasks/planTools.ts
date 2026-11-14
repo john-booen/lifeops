@@ -210,7 +210,9 @@ export function repeatedTaskListPriority(calls: readonly AiToolCall[], today: st
   const date = (call: AiToolCall) => call.arguments.date === undefined ? today : typeof call.arguments.date === "string"
     ? normalizeJournalDate(call.arguments.date, today) : "";
   const selectedDate = date(first);
-  if (selectedDate && calls.every(call => call.name === "list_tasks" && call.arguments.directReply === true
+  if (selectedDate && calls.every(call => call.name === "plan_today"
+    ? selectedDate === today && Object.keys(call.arguments).length === 0
+    : call.name === "list_tasks" && call.arguments.directReply === true
     && call.arguments.category === undefined && call.arguments.dueStatus === undefined && call.arguments.habitName === undefined
     && (call.arguments.status === undefined || call.arguments.status === "active") && date(call) === selectedDate
     && (call.arguments.order === undefined && call.arguments.limit === undefined
