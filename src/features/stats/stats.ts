@@ -1,5 +1,5 @@
 import { addDays, datesBetween, formatDate, normalizeJournalDate, startOfWeek } from "../../date";
-import { isTaskOverdue } from "../../taskSchedule";
+import { isTaskOnDate, isTaskOverdue } from "../../taskSchedule";
 import type { HabitCheckin, HabitDefinition, LifeOpsTask } from "../../types";
 import { JOURNAL_SIGNAL_FIELDS, type SignalValues } from "../journal/signals";
 import { habitMeasurementUnit, habitRecordedAmount, isHabitRequiredOn, numericHabitGoalProgress } from "../habits/targets";
@@ -152,7 +152,7 @@ export function taskCompletionEvents(tasks: readonly LifeOpsTask[], range: DayRa
 
 export function todayTaskCounts(tasks: readonly LifeOpsTask[], date: string, now: Date) {
   const completed = new Set(taskCompletionEvents(tasks, { from: date, to: date }, now).map(event => event.task.id));
-  const planned = tasks.filter(task => task.status !== "abandoned" && (task.date === date || task.dueDate === date)).map(task => task.id);
+  const planned = tasks.filter(task => task.status !== "abandoned" && (isTaskOnDate(task, date) || task.dueDate === date)).map(task => task.id);
   return { completed: completed.size, scheduled: new Set(planned).size, total: new Set([...completed, ...planned]).size };
 }
 

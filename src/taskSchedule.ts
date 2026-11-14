@@ -4,6 +4,10 @@ import type { LifeOpsTask } from "./types";
 type Schedule = Pick<LifeOpsTask, "date" | "endDate" | "time" | "startTime" | "endTime" | "estimateMin">;
 export type TaskTimeGroup = "morning" | "afternoon" | "evening" | "spanning" | "boundary" | "unscheduled";
 
+export function isTaskOnDate(task: Pick<LifeOpsTask, "date" | "endDate">, date: string): boolean {
+  return Boolean(task.date && task.date <= date && date <= (task.endDate || task.date));
+}
+
 export function taskDeadlineDate(task: Pick<LifeOpsTask, "dueDate" | "date" | "endDate">): string {
   return task.dueDate || (task.date && task.endDate >= task.date ? task.endDate : task.date);
 }

@@ -479,6 +479,17 @@ describe("unified agent loop", () => {
     } finally { vi.useRealTimers(); }
   });
 
+  it("includes a still-active multiday plan in the regular local task list", async () => {
+    const date = formatDate(now);
+    await store.createTask({ title: "虚构仍在计划内", date: addDays(date, -1), endDate: addDays(date, 1) });
+    await store.createTask({ title: "虚构计划已结束", date: addDays(date, -3), endDate: addDays(date, -1) });
+    const result = await new AgentLoop(host).run(input({ message: "今天有哪些未完成的任务？" }));
+    expect(result.text).toContain("今天有 1 个未完成任务。");
+    expect(result.text).toContain("虚构仍在计划内");
+    expect(result.text).not.toContain("虚构计划已结束");
+    expect(requests).toHaveLength(0);
+  });
+
   it.each(["single", "duplicate", "also-plan"])("reports the remaining count and highest priorities (%s)", async mode => {
     const date = formatDate(now);
     await store.createTask({ title: "虚构归档", date, quadrant: "not-important-not-urgent" });

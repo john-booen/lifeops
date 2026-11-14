@@ -14,7 +14,7 @@ import { captureKindLabel } from "../classifier";
 import { addDays, datesBetween, todayString, weekDates } from "../date";
 import { habitRecordedAmount, isHabitRequiredOn, numericHabitPeriods } from "../features/habits/targets";
 import { taskScheduleLabel } from "../taskSchedule";
-export { isTaskOverdue } from "../taskSchedule";
+export { isTaskOnDate, isTaskOverdue } from "../taskSchedule";
 import { createMemoryCandidate, promoteMemory, recordMemoryRetrieved, selectActiveMemories } from "../memoryIndex";
 import { serializeQualityLogEntry } from "../qualityLog";
 import type { ProactiveCandidate } from "../scheduler";
@@ -1434,14 +1434,6 @@ export function sortTasks(a: LifeOpsTask, b: LifeOpsTask): number {
   if (orderCompare !== 0) return orderCompare;
   const priorityWeight: Record<string, number> = { high: 0, medium: 1, low: 2, none: 3 };
   return (priorityWeight[a.priority] ?? 3) - (priorityWeight[b.priority] ?? 3);
-}
-
-export function isTaskOnDate(task: LifeOpsTask, date: string): boolean {
-  if (!task.date) return false;
-  if (task.endDate) {
-    return task.date <= date && date <= task.endDate;
-  }
-  return task.date === date;
 }
 
 export function nextRepeatedTaskDates(task: LifeOpsTask): { date: string; endDate: string; dueDate: string } {

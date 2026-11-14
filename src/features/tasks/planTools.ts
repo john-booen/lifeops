@@ -1,7 +1,7 @@
 import { addDays, formatDate, normalizeJournalDate, todayString } from "../../date";
 import type { AiToolCall, AiToolDefinition } from "../../ai";
 import { isVaultPathExcluded } from "../../privacy";
-import { taskScheduleLabel } from "../../taskSchedule";
+import { isTaskOnDate, isTaskOverdue, taskScheduleLabel } from "../../taskSchedule";
 import type { LifeOpsToolDefinition, ToolExecutionContext } from "../../toolRegistry";
 import { currentSignalValues } from "../journal/signals";
 import { todayTaskCounts, type StatsRange } from "../stats/stats";
@@ -75,7 +75,6 @@ export const TASK_PLANNING_TOOLS: LifeOpsToolDefinition[] = [
       const orderedItems = (items: typeof tasks) => ordered
         ? prioritizeTasks(items, new Date(), undefined, estimate).map(item => item.task) : items;
       if (dueGroups) {
-        const { isTaskOverdue } = await import("../../store/settingsSlice");
         context.assertCurrent?.();
         const active = tasks.filter(task => task.status === "active");
         const group = (items: typeof tasks) => ({
@@ -87,7 +86,7 @@ export const TASK_PLANNING_TOOLS: LifeOpsToolDefinition[] = [
           dueToday: group(active.filter(task => task.dueDate === date))
         } }), actions: [] };
       }
-      const items = visible.filter(task => (anyDate || task.date === date || task.dueDate === date)
+      const items = visible.filter(task => (anyDate || isTaskOnDate(task, date) || task.dueDate === date)
         && (status === "all" || task.status === status) && (!penalties || task.category === "punishment")
         && (!selectedHabit || task.habitPunishment?.habitId === selectedHabit));
       const selected = orderedItems(items);

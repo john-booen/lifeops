@@ -1,5 +1,5 @@
 import { addDays, formatDate } from "../../date";
-import { taskDeadlineDate } from "../../taskSchedule";
+import { isTaskOnDate, taskDeadlineDate } from "../../taskSchedule";
 import type { LifeOpsTask } from "../../types";
 import { taskCompletionEvents } from "../stats/stats";
 
@@ -41,7 +41,7 @@ export function tasksDueBy(tasks: readonly LifeOpsTask[], date: string): LifeOps
   return tasks.filter(task => {
     const due = taskDeadlineDate(task);
     return task.status === "active" && (!!due && due <= date
-      || !!task.date && task.endDate > task.date && task.date <= date && date <= task.endDate);
+      || task.endDate > task.date && isTaskOnDate(task, date));
   });
 }
 
@@ -61,7 +61,7 @@ export function taskCapacity(tasks: readonly LifeOpsTask[], now: Date, estimate:
   }
   const planned = planDate === undefined ? tasksDueBy(tasks, today) : tasks.filter(task => {
     const due = taskDeadlineDate(task);
-    return task.status === "active" && (task.dueDate === planDate || !!task.date && task.date <= planDate && planDate <= (task.endDate || task.date)
+    return task.status === "active" && (task.dueDate === planDate || isTaskOnDate(task, planDate)
       || planDate === today && !!due && due <= today);
   });
   const plannedCount = planned.length, plannedMin = planned.reduce((sum, task) => sum + estimate(task), 0);
@@ -96,6 +96,6 @@ export function taskOverloadNotice(before: readonly LifeOpsTask[], after: readon
 
 export function taskDraftRoom(tasks: readonly LifeOpsTask[], date: string, typicalCount: number | null) {
   const limit = Math.max(1, Math.floor(typicalCount ?? 3));
-  const existing = tasks.filter(task => task.status === "active" && (task.date === date || task.dueDate === date));
+  const existing = tasks.filter(task => task.status === "active" && (isTaskOnDate(task, date) || task.dueDate === date));
   return { existing, remaining: Math.max(0, limit - existing.length) };
 }
