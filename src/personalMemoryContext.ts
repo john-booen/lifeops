@@ -31,7 +31,7 @@ export function formatConfirmedPersonalMemoryContext(records: PersonalMemoryReco
     "## Confirmed Personal Memory",
     `本轮可用的已确认个人记忆：${selected.length - automatic}条。`,
     ...(automatic ? [`另有 ${automatic} 条从日摘要自动提炼的记忆。引用时注明来源，以用户的说明为准。`] : []),
-    "仅以下当前可用记录可作为已确认个人记忆；记录可用不代表其中的状态现在仍存在。Cici Runtime Personality 和系统表达要求是助手的回复策略，不是用户事实，不能由助手默认表达风格推导用户偏好。",
+    "仅以下当前可用记录可作为已确认个人记忆；记录可用不代表其中的状态现在仍存在。助手表达规则 和系统表达要求是助手的回复策略，不是用户事实，不能由助手默认表达风格推导用户偏好。",
     "区分原记录日期、来源采集或登记时间、确认时间和事件时间。内容中的今天、昨天、最近应以该内容对应的叙述时点理解，不能改以读取或确认日期为基准；补记及后来纠正不能只凭来源记录日期确定事件日，内容时点不清楚时应说明无法确定。未设置状态有效期不能证明状态一直持续，也不能自行给记忆设定失效日期。",
     selected.length
       ? personalMemoriesToMarkdown(selected, "verified")

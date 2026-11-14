@@ -1,3 +1,4 @@
+import { assistantName } from "./assistantSettings";
 import { summarizeTaskFacts, type InjectedContext, type TaskCompletionEvidence } from "./contextInjection";
 import { AgentRuntime } from "./agentRuntime";
 import { formatDate } from "./date";
@@ -39,7 +40,7 @@ export async function recordConversationMemory(
   const record: MemoryRecord = {
     timestamp: captured.toISOString(),
     type: "conversation_summary",
-    content: summarizeConversation(userMessage, assistantReply),
+    content: summarizeConversation(userMessage, assistantReply, assistantName(store.settings)),
     userStatement: compactConversationText(userMessage),
     assistantResponse: compactConversationText(assistantReply),
     metadata: {
@@ -108,10 +109,10 @@ function memoryLogPath(store: StoreHost): string {
   return store.path(store.settings.folders.aiReports, "Memory", "conversation-memory.jsonl");
 }
 
-function summarizeConversation(userMessage: string, assistantReply: string): string {
+function summarizeConversation(userMessage: string, assistantReply: string, name: string): string {
   const user = compactConversationText(userMessage);
   const assistant = compactConversationText(assistantReply);
-  return `用户：${user}\nCici：${assistant}`;
+  return `用户：${user}\n${name}：${assistant}`;
 }
 
 function compactConversationText(value: string): string {

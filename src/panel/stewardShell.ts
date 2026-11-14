@@ -22,6 +22,7 @@ export interface StewardShell {
   conversationHost: HTMLElement;
   navButtons: HTMLButtonElement[];
   setPage(page: StewardPage): void;
+  setAssistantName(name: string): void;
   updatePendingCount(count: number): void;
 }
 
@@ -40,7 +41,7 @@ export function renderStewardShell(container: HTMLElement, options: StewardShell
   const brand = append(sidebar, "div", "lifeops-steward-brand");
   icon(brand, "sparkles", "lifeops-steward-brand-mark");
   const brandCopy = append(brand, "div", "lifeops-steward-brand-copy");
-  append(brandCopy, "div", "lifeops-steward-brand-name", "管家");
+  const brandName = append(brandCopy, "div", "lifeops-steward-brand-name", "管家");
   append(brandCopy, "span", "lifeops-steward-brand-caption", "LifeOps");
 
   const nav = append(sidebar, "nav", "lifeops-steward-nav");
@@ -89,7 +90,7 @@ export function renderStewardShell(container: HTMLElement, options: StewardShell
 
   setPage(options.page);
   updatePendingCount(options.pendingCount);
-  return { element, header, utilityHost, main, conversationHost, navButtons, setPage, updatePendingCount };
+  return { element, header, utilityHost, main, conversationHost, navButtons, setPage, updatePendingCount, setAssistantName: name => { brandName.textContent = name; } };
 }
 
 export interface StewardTodayOptions {

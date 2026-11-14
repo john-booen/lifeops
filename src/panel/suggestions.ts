@@ -433,11 +433,11 @@ const suggestionsPanel = {
         if (previouslyOpen === kind) open(restoreFocus);
         return detail;
       };
-      const proactiveDetail = popover("proactive", "候选提醒", "查看 Cici 候选提醒", "sparkles", this.proactiveCandidates.length);
+      const proactiveDetail = popover("proactive", "候选提醒", "查看 候选提醒", "sparkles", this.proactiveCandidates.length);
       if (proactiveDetail) {
         const proactive = proactiveDetail.createDiv({ cls: "lifeops-agent-proactive" });
         const proactiveHead = proactive.createDiv({ cls: "lifeops-agent-suggestions-head" });
-        proactiveHead.createDiv({ text: "Cici 候选提醒", cls: "lifeops-agent-suggestions-title" });
+        proactiveHead.createDiv({ text: "候选提醒", cls: "lifeops-agent-suggestions-title" });
         proactiveHead.createDiv({ text: `${this.proactiveCandidates.length} 条低打扰建议`, cls: "lifeops-agent-suggestions-hint" });
         const proactiveList = proactive.createDiv({ cls: "lifeops-agent-proactive-list" });
         for (const candidate of this.proactiveCandidates) {

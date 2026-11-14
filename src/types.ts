@@ -306,6 +306,8 @@ export interface GatewaySettings {
 export interface LifeOpsSettings {
   habitCompensation?: HabitCompensationSettings;
   setupComplete?: boolean;
+  assistantName?: string;
+  homeVideoPath?: string;
   linkedNoteNames?: { knowledge: string; trading: string };
   folders: FolderSettings;
   externalVaults?: import("./features/externalVault/readOnly").ExternalVaultSettings[];

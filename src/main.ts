@@ -100,7 +100,9 @@ import { TradingResearchBoard } from "./tradingResearchBoard";
 import { runVoiceAgentSelfTest, runVoiceRuntimeSelfTest } from "./voiceCheck";
 import { openSetupWizard } from "./features/setup/wizard";
 import { migrateRealtimeVoiceSettings } from "./settingsMigration";
-import { migrateLinkedNoteNames } from "./linkedNoteSettings";
+import { assistantName, localHomeVideoPath } from "./assistantSettings";
+import { isVaultPathExcluded } from "./privacy";
+import { discoverLinkedNoteNames } from "./linkedNoteSettings";
 
 import { voiceSettingsRevision } from "./voice/voiceSettingsBoundary";
 import type { LifeOpsWorkflowId } from "./workflows";
@@ -488,6 +490,9 @@ export default class LifeOpsPlugin extends Plugin {
     const saved = await this.loadData();
     if (!this.isLifecycleCurrent(generation)) return;
     this.settings = mergeSettings(DEFAULT_SETTINGS, saved ?? {});
+    const legacyLinks = (this.app?.vault.getMarkdownFiles?.() ?? []).filter(file =>
+      !isVaultPathExcluded(file.path, this.settings.privacy?.excludedVaultPrefixes));
+    this.settings.linkedNoteNames = discoverLinkedNoteNames(this.settings, legacyLinks);
     this.settings.setupComplete = saved?.setupComplete ?? Boolean(saved?.folders);
     this.savedVoiceSettingsRevision = voiceSettingsRevision(this.settings);
   }
@@ -835,6 +840,15 @@ export default class LifeOpsPlugin extends Plugin {
 
   async appendQualityLog(entry: QualityLogEntry): Promise<void> {
     await this.store.appendQualityLog(entry);
+  }
+
+  getAssistantName(): string { return assistantName(this.settings); }
+
+  getHomeVideoUrl(): string | undefined {
+    const path = localHomeVideoPath(this.settings.homeVideoPath);
+    if (!path || isVaultPathExcluded(path, this.settings.privacy?.excludedVaultPrefixes)) return;
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (file instanceof TFile && file.path === path) return this.app.vault.getResourcePath(file);
   }
 
   hasPhoneInbox(): boolean { return this.phoneInbox?.enabled === true; }
@@ -1408,7 +1422,6 @@ function mergeSettings(defaults: LifeOpsSettings, saved: Partial<LifeOpsSettings
   return {
     ...defaults,
     ...saved,
-    linkedNoteNames: migrateLinkedNoteNames(saved),
     folders: { ...defaults.folders, ...(saved.folders ?? {}) },
     ai,
     embedding,

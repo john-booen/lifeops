@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { agentsForDomain, classifyTaskComplexity, findLifeOpsAgent } from "../src/agents";
 
 describe("agentTypes", () => {
-  it("defines Cici Core as the only general entry", () => {
-    const agent = findLifeOpsAgent("cici-core");
+  it("defines LifeOps Core as the only general entry", () => {
+    const agent = findLifeOpsAgent("lifeops-core");
 
     expect(agent?.domain).toBe("general");
     expect(agent?.canWrite).toBe(false);

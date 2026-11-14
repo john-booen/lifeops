@@ -207,6 +207,8 @@ export interface LifeOpsViewController extends StewardRecordsController {
   mountLearningPanel?(container: HTMLElement): () => Promise<void>;
   openIdeaCandidates?(): void;
   hasPhoneInbox?(): boolean;
+  getAssistantName?(): string;
+  getHomeVideoUrl?(): string | undefined;
   openPhoneInbox?(): void;
   getProactiveCandidates(): Promise<ProactiveCandidate[]>;
   respondToProactiveCandidate(candidateId: string, decision: ProactiveFeedbackDecision): Promise<void>;
@@ -465,6 +467,7 @@ export class LifeOpsView extends ItemView {
     this.stewardLastBoard = board;
     const shell = this.stewardShell!;
     shell.setPage(this.stewardPage);
+    shell.setAssistantName(this.controller.getAssistantName?.() ?? "管家");
     const key = this.stewardPage === "affairs" ? `affairs:${this.mode}` : this.stewardPage;
     const main = shell.main;
     if (this.stewardRenderedKey && this.stewardPage !== "chat") {
@@ -493,7 +496,7 @@ export class LifeOpsView extends ItemView {
       }
       if (this.stewardPage === "today") {
         const homeOptions: NeuralHomeOptions = {
-          stats, board, todayCard, onAddJournalPlan: this.controller.addJournalPlanTask?.bind(this.controller),
+          stats, board, todayCard, orbVideoUrl: this.controller.getHomeVideoUrl?.(), onAddJournalPlan: this.controller.addJournalPlanTask?.bind(this.controller),
           onCorrectYesterdayHabit: this.controller.correctYesterdayHabit?.bind(this.controller),
           onReviewIdeas: this.controller.openIdeaCandidates?.bind(this.controller),
           onOpenPhoneInbox: this.controller.hasPhoneInbox?.() ? this.controller.openPhoneInbox?.bind(this.controller) : undefined,

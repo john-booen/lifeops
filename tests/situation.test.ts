@@ -13,6 +13,6 @@ describe("situation without media inputs",()=>{
   const time=getTimeContext(new Date(2026,10,5,10,0));
   const situation=buildSituation({time,voice:{isActive:true,lastUserMessage:"纯虚构：我有点累。",lastSentiment:{valence:0,urgency:0,frustration:0,anxiety:0,fatigue:0.8,excitement:0}}});
   expect(situation.evidence.map(item=>item.source)).toEqual(["time","voice"]);
-  expect(situation.fusion.suggestedCiciMode).toBe("health_care");expect(situation.fusion.suggestedCiciAction).toBe("encourage");
+  expect(situation.fusion.suggestedAssistantMode).toBe("health_care");expect(situation.fusion.suggestedAssistantAction).toBe("encourage");
  });
 });

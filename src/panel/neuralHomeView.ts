@@ -15,6 +15,7 @@ export interface NeuralHomeOptions extends StewardTodayOptions {
   onAddJournalPlan?(plan: JournalPlanChoice): Promise<void>;
   onReviewIdeas?(): void;
   onOpenPhoneInbox?(): void;
+  orbVideoUrl?: string;
   onCorrectYesterdayHabit?(taskId: string): Promise<void>;
 }
 
@@ -55,7 +56,37 @@ export function mountNeuralHomeView(container: HTMLElement, initial: NeuralHomeO
   }
   const orb = button(stage, "lh-orb", "", () => selectDomain(null));
   orb.setAttribute("aria-label", "收起领域，返回网络空间");
-  picture(orb, "lh-orb-picture", HOME_MEDIA.orbPoster);
+  const orbPicture = picture(orb, "lh-orb-picture", HOME_MEDIA.orbPoster);
+  const video = el(orbPicture, "video", "lh-home-video");
+  video.muted = true;
+  video.loop = true;
+  video.playsInline = true;
+  video.preload = "none";
+  video.style.display = "none";
+  let videoUrl: string | undefined;
+  let videoFailed = false;
+  function syncOrbVideo() {
+    const url = options.orbVideoUrl;
+    if (videoUrl !== url) {
+      video.pause();
+      video.removeAttribute("src");
+      video.load();
+      video.style.display = "none";
+      videoFailed = false;
+      videoUrl = url;
+    }
+    if (!url || videoFailed || stage.dataset.motion !== "running") {
+      if (video.hasAttribute("src")) video.pause();
+      video.style.display = "none";
+      return;
+    }
+    if (!video.hasAttribute("src")) video.src = url;
+    if (video.paused) void video.play().catch(() => undefined);
+  }
+  video.onplaying = () => {
+    if (!disposed && stage.dataset.motion === "running" && videoUrl) video.style.display = "";
+  };
+  video.onerror = () => { videoFailed = true; video.style.display = "none"; };
   el(orb, "span", "lh-orb-label", "LIFEOPS");
   const modules = el(stage, "nav", "lh-modules"); modules.setAttribute("aria-label", "生活领域");
   const moduleButtons = new Map<NeuralDomain, HTMLButtonElement>();
@@ -188,9 +219,11 @@ export function mountNeuralHomeView(container: HTMLElement, initial: NeuralHomeO
 
   function startMotion() {
     stage.dataset.motion = "running";
+    syncOrbVideo();
   }
   function stopMotion() {
     stage.dataset.motion = "stopped";
+    syncOrbVideo();
     dust.width = 0; dust.height = 0;
   }
   function paint(time: number) {
@@ -241,7 +274,13 @@ export function mountNeuralHomeView(container: HTMLElement, initial: NeuralHomeO
   renderContent();
   return {
     element,
-    update(next: NeuralHomeOptions) { if (disposed) return; options = next; phoneInbox.style.display = options.onOpenPhoneInbox ? "" : "none"; renderContent(); },
+    update(next: NeuralHomeOptions) {
+      if (disposed) return;
+      options = next;
+      phoneInbox.style.display = options.onOpenPhoneInbox ? "" : "none";
+      syncOrbVideo();
+      renderContent();
+    },
     setActive(active: boolean) {
       motion.setGate({ active, visible: !document.hidden, focused: document.hasFocus(),
         ...(!observer ? { intersecting: active && element.isConnected && element.getClientRects().length > 0 } : {}) });
@@ -252,7 +291,9 @@ export function mountNeuralHomeView(container: HTMLElement, initial: NeuralHomeO
       observer?.disconnect(); document.removeEventListener("visibilitychange", onVisibility);
       win.removeEventListener("focus", onFocus); win.removeEventListener("blur", onBlur);
       reduced?.removeEventListener("change", onReduced);
-      motion.dispose(); element.remove();
+      motion.dispose();
+      if (video.hasAttribute("src")) { video.removeAttribute("src"); video.load(); }
+      element.remove();
     }
   };
 }

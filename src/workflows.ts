@@ -36,7 +36,7 @@ export const LIFEOPS_WORKFLOW_TEMPLATES: LifeOpsWorkflowTemplate[] = [
     domain: "planning",
     trigger: "startup",
     cadence: "每天首次打开 Obsidian，可由用户确认后显示",
-    agentIds: ["cici-core", "planner", "health"],
+    agentIds: ["lifeops-core", "planner", "health"],
     steps: [
       {
         id: "collect-today",
@@ -52,7 +52,7 @@ export const LIFEOPS_WORKFLOW_TEMPLATES: LifeOpsWorkflowTemplate[] = [
       },
       {
         id: "brief",
-        agentId: "cici-core",
+        agentId: "lifeops-core",
         title: "生成一句话重点和 3 个行动",
         instruction: "用短句给出今天最重要的重点、风险和下一步。",
         outputTarget: "LifeOps 面板"
@@ -67,7 +67,7 @@ export const LIFEOPS_WORKFLOW_TEMPLATES: LifeOpsWorkflowTemplate[] = [
     domain: "knowledge",
     trigger: "nightly",
     cadence: "每天晚间，建议先以命令手动触发",
-    agentIds: ["cici-core", "planner", "knowledge", "health", "trading"],
+    agentIds: ["lifeops-core", "planner", "knowledge", "health", "trading"],
     steps: [
       {
         id: "collect-day",
@@ -85,7 +85,7 @@ export const LIFEOPS_WORKFLOW_TEMPLATES: LifeOpsWorkflowTemplate[] = [
       },
       {
         id: "write-review",
-        agentId: "cici-core",
+        agentId: "lifeops-core",
         title: "生成晚间复盘草稿",
         instruction: "给出简洁复盘，不虚构没有记录的事实。",
         outputTarget: "日记/晚"
@@ -100,7 +100,7 @@ export const LIFEOPS_WORKFLOW_TEMPLATES: LifeOpsWorkflowTemplate[] = [
     domain: "planning",
     trigger: "weekly",
     cadence: "每周日或用户手动触发",
-    agentIds: ["cici-core", "planner", "knowledge", "health", "trading"],
+    agentIds: ["lifeops-core", "planner", "knowledge", "health", "trading"],
     steps: [
       {
         id: "collect-week",
@@ -116,7 +116,7 @@ export const LIFEOPS_WORKFLOW_TEMPLATES: LifeOpsWorkflowTemplate[] = [
       },
       {
         id: "next-week",
-        agentId: "cici-core",
+        agentId: "lifeops-core",
         title: "生成下周策略",
         instruction: "保存前展示完整回顾核对卡；下次可核对的问题不自动安排任务，记住理解另行本人确认。"
       }
@@ -130,7 +130,7 @@ export const LIFEOPS_WORKFLOW_TEMPLATES: LifeOpsWorkflowTemplate[] = [
     domain: "trading",
     trigger: "manual",
     cadence: "每次交易后手动触发",
-    agentIds: ["cici-core", "trading", "knowledge"],
+    agentIds: ["lifeops-core", "trading", "knowledge"],
     steps: [
       {
         id: "match-model",
@@ -147,7 +147,7 @@ export const LIFEOPS_WORKFLOW_TEMPLATES: LifeOpsWorkflowTemplate[] = [
       },
       {
         id: "safe-reply",
-        agentId: "cici-core",
+        agentId: "lifeops-core",
         title: "安全回复",
         instruction: "只做复盘和纪律提醒，不给实盘买卖点。"
       }
@@ -161,7 +161,7 @@ export const LIFEOPS_WORKFLOW_TEMPLATES: LifeOpsWorkflowTemplate[] = [
     domain: "knowledge",
     trigger: "manual",
     cadence: "用户手动确认或晚间整合后弹出",
-    agentIds: ["cici-core", "knowledge"],
+    agentIds: ["lifeops-core", "knowledge"],
     steps: [
       {
         id: "list-candidates",
@@ -171,14 +171,14 @@ export const LIFEOPS_WORKFLOW_TEMPLATES: LifeOpsWorkflowTemplate[] = [
       },
       {
         id: "confirm",
-        agentId: "cici-core",
+        agentId: "lifeops-core",
         title: "等待用户确认",
         instruction: "让用户选择确认、改写、归档或提升层级。",
         requiresUserConfirmation: true
       }
     ],
     outputTargets: ["LifeOps/Output/AI/Memory/memory-index.json"],
-    privacyNotes: ["Cici 不能自动把候选写成核心身份。"]
+    privacyNotes: ["助手不能自动把候选写成核心身份。"]
   },
   {
     id: "multimodal_situation_check",
@@ -186,7 +186,7 @@ export const LIFEOPS_WORKFLOW_TEMPLATES: LifeOpsWorkflowTemplate[] = [
     domain: "multimodal",
     trigger: "contextual",
     cadence: "语音稳定后再启用，低频、可关闭",
-    agentIds: ["cici-core", "vision"],
+    agentIds: ["lifeops-core", "vision"],
     steps: [
       {
         id: "collect-summary",
@@ -196,7 +196,7 @@ export const LIFEOPS_WORKFLOW_TEMPLATES: LifeOpsWorkflowTemplate[] = [
       },
       {
         id: "fuse",
-        agentId: "cici-core",
+        agentId: "lifeops-core",
         title: "融合到上下文",
         instruction: "把未过期视觉摘要作为 ContextBlock 提供给回复，不把过期摘要当事实。"
       }

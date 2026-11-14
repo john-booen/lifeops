@@ -16,8 +16,8 @@ export interface LifeOpsAgentConfig {
 
 export const LIFEOPS_AGENT_CONFIGS: LifeOpsAgentConfig[] = [
   {
-    id: "cici-core",
-    name: "Cici Core",
+    id: "lifeops-core",
+    name: "LifeOps Core",
     domain: "general",
     memoryScope: "shared",
     autonomyLevel: "reactive",

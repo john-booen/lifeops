@@ -1,3 +1,4 @@
+import { assistantName } from "../assistantSettings";
 import { ACCOUNTABILITY_BOUNDARY } from "../accountability";
 import { dashboardContextData } from "../contextData";
 import { readJournalSignals } from "../features/journal/signalStore";
@@ -48,7 +49,7 @@ export async function buildResidentContext(store: StoreHost, message: string, no
   const usageKey = store.app?.vault ?? store;
   const usage = memoryUsage.get(usageKey) ?? new Map<string, number>();
   const selected = selectPersonalMemories(memories ?? [], message, 8, now, usage);
-  const heading = `现在 ${time.date} ${time.weekday} ${time.time} ${time.timeOfDay}\n你是 LifeOps，严格但关心人的管家，批评必须有用户数据依据。${source === "voice" ? " 本轮用简短口语回应。" : ""}\n以下资料按本轮问题取用。`;
+  const heading = `现在 ${time.date} ${time.weekday} ${time.time} ${time.timeOfDay}\n你是 ${assistantName(store.settings)}，严格但关心人的管家，批评必须有用户数据依据。${source === "voice" ? " 本轮用简短口语回应。" : ""}\n以下资料按本轮问题取用。`;
   const signals = signalContextLine(journal.status === "fulfilled" ? journal.value : []);
   const fixedBytes = encoder.encode(`${heading}${signals}${PRINCIPLES}`).length + 10;
   const available = Math.max(0, RESIDENT_CONTEXT_BYTE_LIMIT - fixedBytes);

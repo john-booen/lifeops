@@ -16,6 +16,7 @@ import type { ProactiveTone } from "./proactivePolicy";
 import { renderExternalVaultSettings, type ExternalVaultHost } from "./features/externalVault/ui";
 import { voiceVadSilenceMs } from "./voice/continuousInput";
 import { asrHotwords } from "./voice/realtimeAsrOptions";
+import { assistantName, localHomeVideoPath, normalizeAssistantName } from "./assistantSettings";
 import { linkedNoteName, normalizeLinkedNoteName } from "./linkedNoteSettings";
 
 export class LifeOpsSettingTab extends PluginSettingTab {
@@ -30,6 +31,28 @@ export class LifeOpsSettingTab extends PluginSettingTab {
     containerEl.createEl("h2", { text: "LifeOps Assistant" });
     new Setting(containerEl).setName("初次设置").addButton(button =>
       button.setButtonText("打开向导").onClick(() => openSetupWizard(this.plugin)));
+    new Setting(containerEl).setName("助手名称").setDesc("用于面板、对话身份和新记录。")
+      .addText(field => {
+        field.setValue(assistantName(this.plugin.settings));
+        field.inputEl.addEventListener("change", async () => {
+          this.plugin.settings.assistantName = normalizeAssistantName(field.getValue()) || undefined;
+          field.setValue(assistantName(this.plugin.settings));
+          await this.plugin.saveSettings();
+          await this.plugin.refreshViews();
+        });
+      });
+    new Setting(containerEl).setName("首页可选视频").setDesc("填写库内 MP4 或 WebM 的相对路径。空值使用静态图。")
+      .addText(field => {
+        field.setValue(this.plugin.settings.homeVideoPath ?? "");
+        field.inputEl.addEventListener("change", async () => {
+          const input = field.getValue().trim();
+          const path = localHomeVideoPath(input);
+          if (input && !path) { new Notice("请输入库内 MP4 或 WebM 的相对路径。"); return; }
+          this.plugin.settings.homeVideoPath = path || undefined;
+          await this.plugin.saveSettings();
+          await this.plugin.refreshViews();
+        });
+      });
     for (const [kind, label] of [["knowledge", "知识沉淀笔记"], ["trading", "交易模型笔记"]] as const) {
       new Setting(containerEl).setName(label).setDesc("填写文件名。改名后从下次写入生效。")
         .addText(field => {

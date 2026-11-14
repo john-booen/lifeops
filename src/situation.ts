@@ -14,7 +14,7 @@ interface SentimentSignal {
 
 type ConversationMode = "daily_companion" | "trading_discipline" | "evening_review" | "health_care";
 
-export type SuggestedCiciAction = "be_quiet" | "check_in" | "remind" | "warn" | "encourage";
+export type SuggestedAssistantAction = "be_quiet" | "check_in" | "remind" | "warn" | "encourage";
 
 export interface SituationVoiceInput {
   isActive: boolean;
@@ -59,8 +59,8 @@ export interface FusionResult {
   inferredState: string;
   confidence: number;
   contradictions: string[];
-  suggestedCiciMode: ConversationMode;
-  suggestedCiciAction: SuggestedCiciAction;
+  suggestedAssistantMode: ConversationMode;
+  suggestedAssistantAction: SuggestedAssistantAction;
 }
 
 interface FusionSignal {
@@ -138,8 +138,8 @@ export function situationToMarkdown(situation: Situation): string {
     `- primaryActivity: ${situation.fusion.primaryActivity}`,
     `- inferredState: ${situation.fusion.inferredState}`,
     `- confidence: ${situation.fusion.confidence.toFixed(2)}`,
-    `- suggestedCiciMode: ${situation.fusion.suggestedCiciMode}`,
-    `- suggestedCiciAction: ${situation.fusion.suggestedCiciAction}`,
+    `- suggestedAssistantMode: ${situation.fusion.suggestedAssistantMode}`,
+    `- suggestedAssistantAction: ${situation.fusion.suggestedAssistantAction}`,
     situation.uncertainties.length > 0 ? ["", "### Uncertainties", ...situation.uncertainties.map((item) => `- ${item}`)].join("\n") : "",
     situation.fusion.contradictions.length > 0 ? ["", "### Contradictions", ...situation.fusion.contradictions.map((item) => `- ${item}`)].join("\n") : ""
   ].filter(Boolean).join("\n");
@@ -176,8 +176,8 @@ function chooseFusion(
         : "需要核对交易计划与纪律",
       confidence,
       contradictions,
-      suggestedCiciMode: "trading_discipline",
-      suggestedCiciAction: "warn"
+      suggestedAssistantMode: "trading_discipline",
+      suggestedAssistantAction: "warn"
     };
   }
   if (sentiment && sentiment.fatigue > 0.45) {
@@ -186,8 +186,8 @@ function chooseFusion(
       inferredState: "出现可能的疲劳或休息迹象，可先确认本人感受",
       confidence,
       contradictions,
-      suggestedCiciMode: "health_care",
-      suggestedCiciAction: "encourage"
+      suggestedAssistantMode: "health_care",
+      suggestedAssistantAction: "encourage"
     };
   }
   if (input.time.timeOfDay === "evening") {
@@ -196,8 +196,8 @@ function chooseFusion(
       inferredState: "适合复盘和收尾",
       confidence,
       contradictions,
-      suggestedCiciMode: "evening_review",
-      suggestedCiciAction: "remind"
+      suggestedAssistantMode: "evening_review",
+      suggestedAssistantAction: "remind"
     };
   }
 
@@ -206,8 +206,8 @@ function chooseFusion(
     inferredState: "正常",
     confidence,
     contradictions,
-    suggestedCiciMode: "daily_companion",
-    suggestedCiciAction: "check_in"
+    suggestedAssistantMode: "daily_companion",
+    suggestedAssistantAction: "check_in"
   };
 }
 
