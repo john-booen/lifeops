@@ -1673,6 +1673,48 @@ it("rejects a synced phone row when its final newline is removed during processi
   } finally { inbox.stop(); }
 });
 
+it("leaves later phone rows unclaimed if a guarded save starts during a batch", async () => {
+  const { PhoneInbox } = await import("../src/features/phoneInbox/service");
+  const { PHONE_INBOX_PATH } = await import("../src/features/phoneInbox/model");
+  const { LifeOpsEventBus } = await import("../src/lifeOpsEventBus");
+  let finish!: () => void, started!: () => void;
+  const hold = new Promise<void>(resolve => { finish = resolve; });
+  const ready = new Promise<void>(resolve => { started = resolve; });
+  let writing: Promise<unknown> | undefined;
+  const submit = vi.fn(async (text: string) => {
+    if (text === "虚构第一行") {
+      writing = runtime.executeLocalOperation("synthetic_phone_batch_save", {}, async scoped => {
+        await scoped.writeFile(store.path(store.settings.folders.ideas, "synthetic-batch.md"), "纯虚构");
+        started();
+        await hold;
+      });
+      await ready;
+    }
+    return { reply: "核对完成。", actions: [] };
+  });
+  const inbox = new PhoneInbox({ store: () => store, enabled: () => true, submit,
+    confirm: async () => undefined, undo: async () => true, notify: () => undefined }, new LifeOpsEventBus());
+  const schedule = vi.spyOn(inbox, "schedule").mockImplementation(() => undefined);
+  const source = "虚构第一行\n虚构第二行\n";
+  try {
+    await store.ensureFile(PHONE_INBOX_PATH, source);
+    await inbox.scan();
+    expect(submit.mock.calls.map(([text]) => text)).toEqual(["虚构第一行"]);
+    expect(schedule).toHaveBeenCalledExactlyOnceWith(10_000);
+    expect((await inbox.list()).map(row => row.line)).toEqual([1]);
+    finish();
+    await writing;
+    await inbox.scan();
+    expect(submit.mock.calls.map(([text]) => text)).toEqual(["虚构第一行", "虚构第二行"]);
+    expect((await inbox.list()).map(row => row.line)).toEqual([2, 1]);
+    expect(await store.readPath(PHONE_INBOX_PATH)).toBe(source);
+  } finally {
+    finish();
+    await writing;
+    inbox.stop();
+  }
+});
+
 it("submits phone inbox entries without sending Markdown properties, comments or fenced samples", async () => {
   const { PhoneInbox } = await import("../src/features/phoneInbox/service");
   const { PHONE_INBOX_PATH } = await import("../src/features/phoneInbox/model");

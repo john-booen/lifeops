@@ -112,6 +112,10 @@ export class PhoneInbox {
       for (const { line, invalid } of lines.slice(0, MAX_BATCH_LINES)) {
         if (!this.enabled || store !== this.host.store()) break;
         if (!invalid && !canSubmitPhoneInbox(store)) continue;
+        if (await hasPendingFactOperation(store)) {
+          this.schedule(10_000);
+          break;
+        }
         added.push(await this.process(store, doc, line, invalid));
       }
       if (added.length) this.host.notify(summarizePhoneInbox(added));
