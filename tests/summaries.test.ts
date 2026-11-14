@@ -152,6 +152,40 @@ it("catches up the previous day even when the first launch is after 23:30", asyn
   expect((await saved("day", "2026-11-12"))?.properties.complete).toBe(true);
 });
 
+it("accepts a new request when the previous summary request is already cancelled", async () => {
+  const date = "2026-11-12", period = summaryPeriod("day", date);
+  const cancelled = new AbortController();
+  let started!: () => void, finish!: () => void, replacementStarted!: () => void, finishReplacement!: () => void;
+  const waiting = new Promise<void>(resolve => { started = resolve; });
+  const held = new Promise<void>(resolve => { finish = resolve; });
+  const replacementWaiting = new Promise<void>(resolve => { replacementStarted = resolve; });
+  const replacementHeld = new Promise<void>(resolve => { finishReplacement = resolve; });
+  ask.mockImplementationOnce(async (_messages, options) => {
+    started();
+    await held;
+    options.signal?.throwIfAborted();
+    return summaryText("day");
+  }).mockImplementationOnce(async () => {
+    replacementStarted();
+    await replacementHeld;
+    return summaryText("day");
+  });
+  const original = generatePeriodSummary(host, period, now(12, 23, 30), cancelled.signal);
+  const rejection = expect(original).rejects.toThrow();
+  await waiting;
+  cancelled.abort();
+  const replacement = generatePeriodSummary(host, period, now(12, 23, 30));
+  finish();
+  await rejection;
+  await replacementWaiting;
+  try {
+    expect(generatePeriodSummary(host, period, now(12, 23, 30))).toBe(replacement);
+  } finally { finishReplacement(); }
+  expect(await replacement).toMatchObject({ status: "saved" });
+  expect(ask).toHaveBeenCalledTimes(2);
+  expect((await saved("day", date))?.properties.complete).toBe(true);
+});
+
 it("starts automatic summaries at installation and leaves earlier history for confirmed backfill", async () => {
   await startSummarySchedule(host, now(12, 22));
   expect(ask).not.toHaveBeenCalled();

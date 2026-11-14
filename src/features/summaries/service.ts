@@ -18,7 +18,8 @@ export interface SummaryHost extends LocalOperationHost {
   withAiFallback: LifeOpsPlugin["withAiFallback"];
 }
 type SummaryResult = { path: string; status: "saved" | "existing" | "unavailable"; generatedBy?: SummaryKind };
-const pending = new WeakMap<SummaryHost, Map<string, Promise<SummaryResult>>>();
+type PendingSummary = { signal?: AbortSignal; operation: Promise<SummaryResult> };
+const pending = new WeakMap<SummaryHost, Map<string, PendingSummary>>();
 const scheduleRuns = new WeakMap<SummaryHost, { phase: string; running: boolean; retryAt: number }>();
 const scheduledHosts = new WeakSet<SummaryHost>();
 const scheduleStarts = new WeakMap<SummaryHost, Promise<string>>();
@@ -39,17 +40,20 @@ function periodIsComplete(period: SummaryPeriod, now: Date, sundayComplete: bool
 
 export function generatePeriodSummary(host: SummaryHost, period: SummaryPeriod, now: Date, signal?: AbortSignal,
   scheduled = false): Promise<SummaryResult> {
+  if (signal?.aborted) return Promise.reject(signal.reason);
   const store = host.store;
   const path = summaryPath(store, period);
   if (!summaryPathAllowed(store, path) || dateCutoff(period, now) < period.from) {
     return Promise.resolve({ path, status: "unavailable" });
   }
-  const operations = pending.get(host) ?? new Map<string, Promise<SummaryResult>>();
+  const operations = pending.get(host) ?? new Map<string, PendingSummary>();
   pending.set(host, operations);
   const current = operations.get(path);
-  if (current) return current;
-  const operation = generateSummary(host, store, period, path, now, signal, scheduled).finally(() => operations.delete(path));
-  operations.set(path, operation);
+  if (current && !current.signal?.aborted) return current.operation;
+  const operation = generateSummary(host, store, period, path, now, signal, scheduled).finally(() => {
+    if (operations.get(path)?.operation === operation) operations.delete(path);
+  });
+  operations.set(path, { signal, operation });
   return operation;
 }
 
