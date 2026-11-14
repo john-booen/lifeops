@@ -885,6 +885,26 @@ describe("unified agent loop", () => {
     expect(await store.readPath(path)).toBe(unfinished);
   });
 
+  it("keeps the original diary section after a model draft contains a reserved heading", async () => {
+    const date = formatDate(now), path = store.dailyNotePath(date, "晚");
+    const original = "虚构原话：刚把纸地图画好。";
+    const content = "草稿里的虚构标题\n\n## 原话\n\n另一段整理后的话。";
+    const saved = await runtime.executeAiToolCall(tool("append_journal_entry", { date, period: "晚", content }, "journal-reserved-heading"), "kimi", original);
+    expect(saved.success, saved.output).toBe(true);
+    const diary = await store.readPath(path);
+    expect(diary).toContain("### 原话\n\n另一段整理后的话。");
+    const rawSection = diary.slice(diary.indexOf("\n## 原话\n"));
+    expect(rawSection).toContain("~~~\n" + original + "\n~~~");
+    expect(rawSection).not.toContain("另一段整理后的话");
+    expect(diary.match(/^## 原话$/gm)).toHaveLength(1);
+    const blocked = await runtime.executeAiToolCall(tool("append_journal_entry", {
+      date, period: "晚", content: "虚构整理稿\n~~~text\n代码块没收口。"
+    }, "journal-draft-open-fence"), "kimi", "另一条虚构原话。");
+    expect(blocked.success).toBe(false);
+    expect(blocked.output).toContain("整理稿有未闭合");
+    expect(await store.readPath(path)).toBe(diary);
+  });
+
   it("keeps an automatically saved memory when undoing the task from the same turn", async () => {
     const loop = new AgentLoop(host);
     const title = "虚构样品盒贴标签", preference = "我习惯用虚构绿色标签归档";

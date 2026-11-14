@@ -2,7 +2,7 @@ import {executeStoredQuery} from "./storedQueryRead";
 import { saveMemoryNote } from "./memoryNoteWrite";
 import { activityNotePath } from "./activityRecords";
 import { linkedNoteName } from "./linkedNoteSettings";
-import { journalOriginalBlock } from "./features/journal/entry";
+import { journalDraftContent, journalOriginalBlock } from "./features/journal/entry";
 import { explicitReminderClock, explicitScheduledTaskTitle, isCopiedTaskTitleReference, isTaskIdentifierReference } from "./taskReference";
 import type { AiToolDefinition } from "./ai";
 import { assertSafeOperationId, fileRevision, MAX_CONFIRMATION_ACTION_ID_LENGTH, recordRevision } from "./operationIdentity";
@@ -616,9 +616,10 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
       }
 
       const original = period === "晚" && request.userMessage?.trim() ? request.userMessage : undefined;
-      await context.store.appendDaily(date, heading, `${content}\n${marker}`, period, original);
+      const draft = original === undefined ? content : journalDraftContent(content);
+      await context.store.appendDaily(date, heading, `${draft}\n${marker}`, period, original);
       const verified = await context.store.readPath(path);
-      if (!verified.includes(marker) || !verified.includes(content)
+      if (!verified.includes(marker) || !verified.includes(draft)
         || original !== undefined && !verified.includes(journalOriginalBlock(original))) {
         return toolError(`日记写入后校验失败，没有在 ${path} 读回刚才的内容。`);
       }

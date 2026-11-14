@@ -26,6 +26,17 @@ export function journalOriginalBlock(source: string): string {
   return `${fence}\n${source}\n${fence}`;
 }
 
+export function journalDraftContent(content: string): string {
+  // Draft headings are nested under their own section, including headings named 原话.
+  const blocks = new MarkdownBlocks();
+  const draft = content.split(/(\r\n|\n|\r)/u).map((line, index) => {
+    if (index % 2 || blocks.skip(line, false)) return line;
+    return line.replace(/^( {0,3})#{1,2}(?=[ \t])/u, "$1###");
+  }).join("");
+  if (!blocks.canAppend) throw Error("整理稿有未闭合的注释或代码块，请调整后再追加。");
+  return draft;
+}
+
 export function appendEveningEntry(text: string, heading: string, entry: string, original: string): string {
   const section = heading === "原话" || heading === "日记" ? "整理" : heading;
   return appendSection(appendSection(text, section, entry), "原话", journalOriginalBlock(original));
