@@ -127,15 +127,19 @@ function validatePath(store: StoreHost, path: string, identity: FactOperationIde
     }
   }
 }
-function needsExactIdeaMarkdown(store: StoreHost, path: string): boolean {
-  const folder = store.settings.folders.ideas;
-  return !!folder && path.endsWith(".md") && path.startsWith(folder + "/") && !path.startsWith(folder + "/每日记录/");
+function needsExactMarkdown(store: StoreHost, path: string): boolean {
+  if (!path.endsWith(".md")) return false;
+  const { ideas, health } = store.settings.folders;
+  const retained = store.path(store.settings.folders.aiReports, "Operations", "Retained");
+  return (Boolean(ideas) && path.startsWith(ideas + "/") && !path.startsWith(ideas + "/每日记录/"))
+    || (Boolean(health) && path.startsWith(health + "/"))
+    || path.startsWith(retained + "/");
 }
 async function readVaultText(store: StoreHost, file: TFile, vault = store.app.vault): Promise<string> {
   // Obsidian's text reader can normalize a hand-written note. Recovery and
   // attribute-only changes must retain the original UTF-8 bytes.
   const adapter = vault.adapter as { getBasePath?: () => string } | undefined;
-  if (needsExactIdeaMarkdown(store, file.path) && typeof vault.readBinary === "function" && adapter?.getBasePath?.()) {
+  if (needsExactMarkdown(store, file.path) && typeof vault.readBinary === "function" && adapter?.getBasePath?.()) {
     return Buffer.from(await vault.readBinary(file)).toString("utf8");
   }
   return vault.read(file);
@@ -188,7 +192,7 @@ async function replaceRaw(store: StoreHost, path: string, expected: string | nul
     } else if (file && scopes.has(store)) await store.app.vault.delete(file);
     else if (file) throw new Error("删除缺少保留副本，已停止操作。");
   } else if (file) {
-    const assertExactMarkdown = needsExactIdeaMarkdown(store, path) && typeof store.app.vault.readBinary === "function"
+    const assertExactMarkdown = needsExactMarkdown(store, path) && typeof store.app.vault.readBinary === "function"
       ? checkRecoveryFilesAtWrite(store, new Map([[path, expected]])) : undefined;
     await store.app.vault.process(file, current => {
       assertStable?.();

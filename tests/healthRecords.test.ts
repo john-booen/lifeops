@@ -230,15 +230,22 @@ it("keeps verified days when one health note cannot be safely read", async () =>
 
 it("keeps an existing health note byte-for-byte at the start of an appended entry", async () => {
   const path = healthNotePath(store, date);
-  const prior = `## ${date}\r\n- 步数：850\r\n旧备注保留两个空格  \r\n\r\n`;
+  const prior = `\uFEFF## ${date}\r\n- 步数：850\r\n旧备注保留两个空格  \r\n\r\n`;
   await store.writeFile(path, prior);
+  const disk = store.app.vault as unknown as ReturnType<typeof createFsApp>["vault"];
+  const originalRead = disk.read.bind(disk);
+  vi.spyOn(disk, "read").mockImplementation(async file => {
+    const text = await originalRead(file);
+    return file.path === path ? text.replace(/^\uFEFF/u, "").replaceAll("\r\n", "\n") : text;
+  });
+  Object.assign(disk, { readBinary: (file: { path: string }) => disk.adapter.readBinary(file.path) });
   const entries = [{ date, steps: 0 }];
   const result = await runtime.executeLocalOperation("manual_health_csv_batch", { entries }, scope => recordHealthEntries(scope, entries));
   expect(result.success).toBe(true);
-  expect((await store.readPath(path)).startsWith(prior)).toBe(true);
+  expect((await disk.bytes(path)).startsWith(prior)).toBe(true);
   expect(await readHealthDay(store, date)).toEqual({ date, steps: 0 });
   await runtime.undoOperation(result.callId);
-  expect(await store.readPath(path)).toBe(prior);
+  expect(await disk.bytes(path)).toBe(prior);
 });
 
 it("reads a specific health day without enumerating vault notes and marks its exclusion even if it is missing", async () => {
