@@ -1301,7 +1301,8 @@ export async function readHabitContextWithEvidence(store: StoreHost, date: strin
         if (item.periodUnavailable) return `- ${item.habit.name}：交易记录暂不可用，进度未知。`;
         if (item.habit.source === "trades") return `- ${item.habit.name}：${item.periodLabel} ${item.periodDone}/${item.periodTarget} 笔。`;
         if (isHealthHabitSource(item.habit.source)) {
-          const progress = `${item.periodLabel} ${item.periodDone}/${item.periodTarget}${item.periodUnit ? " " + item.periodUnit : " 次"}`;
+          const progress = item.healthUnrecorded ? `${item.periodLabel}还没有健康记录`
+            : `${item.periodLabel} ${item.periodDone}/${item.periodTarget}${item.periodUnit ? " " + item.periodUnit : " 次"}`;
           const scope = data.healthPartial ? "，只统计可读的健康记录" : "";
           return `- ${item.habit.name}：${progress}${scope}。`;
         }

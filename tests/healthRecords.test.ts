@@ -102,6 +102,20 @@ it("links opted-in habits to daily snapshots without stacking data or overriding
   expect((await getTodayCard(store, partialDashboard)).habits.find(row => row.id === habit.id)?.healthCoveragePartial).toBe(true);
 });
 
+it("shows missing device readings separately from a recorded zero in today's card and agent context", async () => {
+  const habit = await store.createHabit({ name: "虚构设备计步", source: "health:steps", frequencyUnit: "day",
+    frequencyInterval: 1, targetCount: 1, startDate: previous, target: { kind: "number", unit: "步", perDay: 3000 } });
+  const before = await getTodayCard(store, await store.getTaskDashboard(date));
+  expect(before.habits.find(row => row.id === habit.id)?.healthUnrecorded).toBe(true);
+  expect((await readHabitContextWithEvidence(store, date)).text).toContain("今日还没有健康记录");
+  await store.appendHealthEntry({ date, steps: 0 });
+  const after = await getTodayCard(store, await store.getTaskDashboard(date));
+  const checked = after.habits.find(row => row.id === habit.id);
+  expect(checked).toMatchObject({ done: 0, target: 3000, unit: "步" });
+  expect(checked?.healthUnrecorded).toBeUndefined();
+  expect((await readHabitContextWithEvidence(store, date)).text).toContain("今日 0/3000 步");
+});
+
 it("does not turn gaps in a device habit into failures or count a below-goal reading in its streak", async () => {
   const start = addDays(startOfWeek(date), -7);
   const habit = await store.createHabit({ name: "虚构设备跑步", source: "health:runningKm", frequencyUnit: "day",

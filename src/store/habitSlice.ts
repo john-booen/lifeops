@@ -1,6 +1,6 @@
 import { acknowledgeAccountability, hasPendingAccountability } from "../accountability";
 import { randomUUID } from "node:crypto";
-import { addDays, datesBetween, formatDate, parseLocalDate, todayString, weekDates } from "../date";
+import { addDays, datesBetween, formatDate, parseLocalDate, startOfWeek, todayString, weekDates } from "../date";
 import { isContextDataProjection } from "../contextData";
 import { firstUncheckedHabitDay, planHabitPunishments } from "../features/habits/punishments";
 import { advanceCompensationDebt } from "../features/habits/compensationDebt";
@@ -300,13 +300,17 @@ async buildHabitDashboard(this: StoreHost, checkins: HabitCheckin[], date: strin
     const weeklyFailures = await this.getWeeklyFailures(date, tradeUnavailable && database
       ? { ...database, habits: database.habits.filter(habit => habit.source !== "trades") } : database);
     const habits = database?.habits ?? await this.getHabitDefinitions();
+    const weekStart = startOfWeek(date);
     return habits.map((habit) => {
       const checkin = checkins.find((item) => item.habitId === habit.id && item.date === date);
       const period = habitPeriodProgress(habit, checkins, date);
       const periodFailures = weeklyFailures[habit.name] ?? 0;
       const weekly = period.label === "本周";
       const auto = habit.source === "trades", unavailable = auto && tradeUnavailable;
-      const dailyTarget = (auto || isHealthHabitSource(habit.source)) && habit.target?.kind === "number"
+      const fromDevice = isHealthHabitSource(habit.source);
+      const healthUnrecorded = fromDevice && (weekly ? !checkins.some(entry => entry.habitId === habit.id
+        && entry.date >= weekStart && entry.date <= date && entry.date >= habit.startDate) : !checkin);
+      const dailyTarget = (auto || fromDevice) && habit.target?.kind === "number"
         ? habit.target.perDay : undefined;
       const streakEntries = dailyTarget ? checkins.filter(entry => habitRecordedAmount(habit, entry) >= dailyTarget) : checkins;
       const status = habit.target?.kind === "number"
@@ -327,6 +331,7 @@ async buildHabitDashboard(this: StoreHost, checkins: HabitCheckin[], date: strin
         periodLabel: period.label,
         ...(period.unit ? { periodUnit: period.unit } : {}),
         ...(unavailable ? { periodUnavailable: true } : {}),
+        ...(healthUnrecorded ? { healthUnrecorded: true } : {}),
         history: checkins.filter((item) => item.habitId === habit.id)
       };
     });

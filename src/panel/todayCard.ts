@@ -56,7 +56,8 @@ export function renderTodayCard(
   if (!data.habits.length) add(habits, "p", "lh-caption", "还没有习惯。");
   for (const habit of data.habits) {
     const coverage = habit.healthCoveragePartial ? " · 仅可读记录" : "";
-    add(habits, "p", "", habit.unavailable ? `${habit.title} · 交易记录暂不可用` : `${habit.title} · ${habit.period} ${habit.done}/${habit.target} ${habit.unit}${coverage}`);
+    const progress = habit.healthUnrecorded ? "还没有健康记录" : `${habit.done}/${habit.target} ${habit.unit}`;
+    add(habits, "p", "", habit.unavailable ? `${habit.title} · 交易记录暂不可用` : `${habit.title} · ${habit.period} ${progress}${coverage}`);
   }
   for (const penalty of data.penalties) {
     add(habits, "p", "lh-today-overload", [penalty.title, penalty.due, penalty.dueDate && `${penalty.dueDate} 到期`].filter(Boolean).join(" · "));

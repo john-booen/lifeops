@@ -477,7 +477,7 @@ const statusBarPanel = {
           empty: "当前没有待处理习惯。",
           rows: board.habits.filter((item) => item.requiredToday && item.status === "pending").slice(0, 5).map((item) => ({
             title: item.habit.name,
-            meta: `${habitFrequencyLabel(item.habit)} · ${item.periodLabel} ${item.periodDone}/${item.periodTarget}${item.periodUnit ? ` ${item.periodUnit}` : ""}`,
+            meta: `${habitFrequencyLabel(item.habit)} · ${item.periodLabel} ${item.healthUnrecorded ? "还没有健康记录" : `${item.periodDone}/${item.periodTarget}${item.periodUnit ? ` ${item.periodUnit}` : ""}`}`,
             action: () => item.habit.source === "trades" ? this.controller.openHabitDetailModal(item) : this.controller.openHabitCheckinModal(item.habit, { status: "done" })
           }))
         },
@@ -670,7 +670,7 @@ const statusBarPanel = {
         const left = top.createDiv();
         left.createDiv({ text: item.habit.name, cls: "lifeops-habit-name" });
         const auto = item.habit.source === "trades";
-        const periodProgress = item.periodUnavailable ? "进度未知" : `${item.periodDone}/${item.periodTarget}${item.periodUnit ? ` ${item.periodUnit}` : ""}`;
+        const periodProgress = item.periodUnavailable ? "进度未知" : item.healthUnrecorded ? "还没有健康记录" : `${item.periodDone}/${item.periodTarget}${item.periodUnit ? ` ${item.periodUnit}` : ""}`;
         left.createDiv({
           text: item.periodUnavailable ? "交易记录暂不可用，进度未知。"
             : `${habitRequirementLabel(item)} · ${habitFrequencyLabel(item.habit)} · ${item.periodLabel} ${periodProgress} · 连续 ${item.streak} 天 · 总计 ${item.totalDone} ${auto ? "笔" : "次"}`,
@@ -681,7 +681,7 @@ const statusBarPanel = {
         status.createSpan({ text: item.periodUnavailable ? "交易记录暂不可用"
           : auto && item.status !== "leave" ? item.status === "done" ? "已达标" : "未达标" : habitStatusLabel(item.status) });
         const progress = row.createDiv({ cls: "lifeops-habit-progress" });
-        const progressWidth = Math.max(8, Math.min(100, Math.round(item.periodDone / item.periodTarget * 100)));
+        const progressWidth = item.healthUnrecorded ? 0 : Math.max(8, Math.min(100, Math.round(item.periodDone / item.periodTarget * 100)));
         progress.createDiv({
           cls: `lifeops-habit-progress-bar status-${item.status}`,
           attr: { style: `width: ${item.status === "missed" ? 18 : item.status === "leave" ? 55 : progressWidth}%` }
@@ -1229,7 +1229,7 @@ const statusBarPanel = {
       stats.createDiv({ text: `完成 ${done.reduce((sum, checkin) => sum + Math.max(1, checkin.count || 1), 0)} ${item.habit.source === "trades" ? "笔" : "次"}` });
       stats.createDiv({ text: `未完成 ${missed.length} 次` });
       stats.createDiv({ text: `请假 ${leave.length} 次` });
-      stats.createDiv({ text: `${item.periodLabel} ${item.periodDone}/${item.periodTarget} ${item.periodUnit ?? "次"}` });
+      stats.createDiv({ text: `${item.periodLabel} ${item.healthUnrecorded ? "还没有健康记录" : `${item.periodDone}/${item.periodTarget} ${item.periodUnit ?? "次"}`}` });
       stats.createDiv({ text: `7天 ${sevenDays.done}/${sevenDays.required}` });
       stats.createDiv({ text: `30天 ${thirtyDays.done}/${thirtyDays.required}` });
       stats.createDiv({ text: thirtyDays.rate === null ? "完成率 暂无数据" : `完成率 ${thirtyDays.rate}%` });
