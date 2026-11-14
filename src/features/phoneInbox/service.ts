@@ -6,6 +6,7 @@ import { todayString } from "../../date";
 import type { LifeOpsEventBus } from "../../lifeOpsEventBus";
 import { newLocalOperationId } from "../../operationIdentity";
 import { isVaultPathExcluded } from "../../privacy";
+import { ProviderRunFailure } from "../../providerRun";
 import type { StoreHost } from "../../store/settingsSlice";
 import type { AgentActionSuggestion, AgentResponse } from "../../types";
 import {
@@ -32,9 +33,9 @@ interface PhoneInboxHost {
 export class PhoneInbox {
   private running: Promise<void> = Promise.resolve();
   private scheduled?: ReturnType<typeof setTimeout>;
+  private activeSubmission?: AbortController;
   private stopped = false;
   private readonly unsubscribe: () => void;
-  private readonly controller = new AbortController();
 
   constructor(private readonly host: PhoneInboxHost, events: LifeOpsEventBus) {
     this.unsubscribe = events.subscribe(event => {
@@ -49,7 +50,10 @@ export class PhoneInbox {
 
   schedule(delay = 650): void {
     clearTimeout(this.scheduled);
-    if (!this.enabled) return;
+    if (!this.enabled) {
+      this.activeSubmission?.abort();
+      return;
+    }
     this.scheduled = setTimeout(() => void this.scan().catch(() =>
       this.host.notify("手机随手记暂时无法读取或处理，请打开回执核对。")), delay);
   }
@@ -58,7 +62,7 @@ export class PhoneInbox {
     this.stopped = true;
     this.unsubscribe();
     clearTimeout(this.scheduled);
-    this.controller.abort();
+    this.activeSubmission?.abort();
   }
 
   async list(): Promise<PhoneInboxReceipt[]> {
@@ -154,8 +158,13 @@ export class PhoneInbox {
     }
     row.pendingOperationId = `${newLocalOperationId("agent-turn")}:phone`;
     await this.write(store, doc);
+    const turn = this.turn(store, line, row.pendingOperationId);
+    const submission = new AbortController();
+    this.activeSubmission = submission;
     try {
-      const response = await this.host.submit(line.text, this.turn(store, line, row.pendingOperationId), this.controller.signal);
+      turn.assertCurrent();
+      const response = await this.host.submit(line.text, turn, submission.signal);
+      turn.assertCurrent();
       const call = response.toolCalls?.find(item => isPhoneInboxTool(item.name));
       if (call?.ok && isPhoneInboxTool(call.name)) row.tool = call.name;
       const receipt = response.receipts?.[0];
@@ -172,10 +181,14 @@ export class PhoneInbox {
         row.status = "review";
       }
       row.message = response.reply.trim().slice(0, 2000) || "请核对对应的保存记录。";
-    } catch {
+    } catch (error) {
       if (!this.enabled || store !== this.host.store()) throw Error("手机随手记已停止。");
       row.status = "review";
-      row.message = "本条没有读回保存回执。请核对「最近操作」和收件箱原文。";
+      row.message = error instanceof ProviderRunFailure && error.code === "network"
+        ? "文字模型暂时连不上。原文保留，请先核对「最近操作」。"
+        : "本条没有读回保存回执。请核对「最近操作」和收件箱原文。";
+    } finally {
+      if (this.activeSubmission === submission) this.activeSubmission = undefined;
     }
     await this.write(store, doc);
     return row;

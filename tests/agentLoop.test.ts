@@ -1580,6 +1580,34 @@ it("keeps phone lines containing credentials local while processing clean lines"
   } finally { inbox.stop(); store.settings.ai.apiKey = oldKey; }
 });
 
+it("aborts the current phone submission when the inbox is disabled and keeps the input for review", async () => {
+  const { PhoneInbox } = await import("../src/features/phoneInbox/service");
+  const { PHONE_INBOX_PATH } = await import("../src/features/phoneInbox/model");
+  const { LifeOpsEventBus } = await import("../src/lifeOpsEventBus");
+  let enabled = true;
+  const submit = vi.fn((_text: string, _turn: NonNullable<AgentTurnInput["phoneInbox"]>, signal: AbortSignal) =>
+    new Promise<import("../src/types").AgentResponse>((_resolve, reject) => {
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    }));
+  const inbox = new PhoneInbox({ store: () => store, enabled: () => enabled, submit,
+    confirm: async () => {}, undo: async () => true, notify: () => {} }, new LifeOpsEventBus());
+  const note = "明天取虚构样品\n";
+  try {
+    await store.ensureFile(PHONE_INBOX_PATH, note);
+    const running = inbox.scan();
+    const observed = expect(running).rejects.toThrow("手机随手记已停止");
+    await vi.waitFor(() => expect(submit).toHaveBeenCalledOnce());
+    enabled = false;
+    inbox.schedule();
+    await observed;
+    expect(submit.mock.calls[0][2].aborted).toBe(true);
+    expect(await store.readPath(PHONE_INBOX_PATH)).toBe(note);
+    enabled = true;
+    expect((await inbox.list())[0]).toMatchObject({ status: "processing" });
+    expect((await store.readTaskDb()).tasks).toEqual([]);
+  } finally { inbox.stop(); }
+});
+
 it("reads an already confirmed phone action from the ledger after the original line is moved away", async () => {
   const { PhoneInbox } = await import("../src/features/phoneInbox/service");
   const { PHONE_INBOX_PATH, PHONE_INBOX_STATE } = await import("../src/features/phoneInbox/model");
