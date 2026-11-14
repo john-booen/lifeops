@@ -19,6 +19,7 @@ import { normalizeRealtimeAsrLanguage } from "./voice/realtimeAsrOptions";
 import { ProtectedOmniResponses } from "./voice/omniE2e/protectedResponses";
 import { OmniResponseText } from "./voice/omniE2e/responseText";
 import { OmniInitialInstructions, RealtimeConnectionContextError } from "./voice/omniE2e/initialInstructions";
+import { prepareOmniResponseContext } from "./voice/omniE2e/contextSources";
 
 export const UNCONFIRMED_VOICE_CANCEL_MESSAGE = "语音取消未获确认，旧连接已停止；重新连接后请重说刚才一句。";
 
@@ -970,23 +971,11 @@ export class BailianRealtimeClient {
     };
     if (!this.instructionsBoundary && !this.hasProtectedContextSources()) { sendResponse(); return; }
     this.responsePreparationPending = true;
-    void (async()=>{
-      await this.assertContextSourcesCurrent();
-      if(!current())return;
-      const snapshot=await this.instructionsBoundary?.prepareForResponse(current);
-      try {
-        if (!current()) return;
-        if(this.hasProtectedContextSources())await this.assertContextSourcesCurrent();
-        if(!current())return;
-        await snapshot?.assertSourcesCurrent?.();
-        if(!current())return;
-        snapshot?.assertCurrent();
-        await this.assertContextSourcesCurrent();if(!current())return;
-        snapshot?.assertCurrent();
-        this.assertContextSourcesCurrentNow();
-        sendResponse();
-      } finally { snapshot?.dispose(); }
-    })().catch(() => {
+    void prepareOmniResponseContext({
+      hasProtectedSources: () => this.hasProtectedContextSources(),
+      assertSourcesCurrent: () => this.assertContextSourcesCurrent(),
+      assertSourcesCurrentNow: () => this.assertContextSourcesCurrentNow()
+    }, this.instructionsBoundary, current, sendResponse).catch(() => {
       if (!current()) return;
       if(this.hasProtectedContextSources()){this.failToolContext();return;}
       if(this.options.sourceValidationRequired || this.instructionsBoundary?.requiresSourceValidation){
