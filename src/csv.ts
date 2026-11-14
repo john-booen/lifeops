@@ -19,6 +19,8 @@ export function parseHealthCsv(text: string): HealthEntry[] {
       sleepHours: numberFrom(row.sleepHours || row["睡眠小时"] || row.sleep || row["睡眠"]),
       weightKg: numberFrom(row.weightKg || row["体重"] || row.weight),
       steps: numberFrom(row.steps || row["步数"]),
+      runningKm: numberFrom(row.runningKm || row["跑步距离"]),
+      restingHeartRate: numberFrom(row.restingHeartRate || row["静息心率"]),
       exercise: row.exercise || row["运动"] || "",
       fatigue: numberFrom(row.fatigue || row["疲劳"]),
       energy: numberFrom(row.energy || row["精力"]),

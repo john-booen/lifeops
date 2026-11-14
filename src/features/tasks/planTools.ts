@@ -121,7 +121,8 @@ export const TASK_PLANNING_TOOLS: LifeOpsToolDefinition[] = [
       const date = formatDate(now);
       const signalEnergy = energy ?? currentSignalValues(await import("../journal/signalStore")
         .then(({ readJournalSignals }) => readJournalSignals(context.store, date)).catch(() => [])).energy ?? undefined;
-      const { capacity, priorities } = todayTaskPlan(tasks, now, signalEnergy);
+      const health = await import("../health/store").then(({ readHealthDay }) => readHealthDay(context.store, date)).catch(() => undefined);
+      const { capacity, priorities } = todayTaskPlan(tasks, now, signalEnergy, health?.sleepHours);
       const today = todayTaskCounts(tasks, date, now);
       const normal = capacity.typicalCount === null ? "缺少常态完成量" : `平时约完成 ${Math.round(capacity.typicalCount)} 个`;
       const workloadSummary = `今天原排 ${today.scheduled} 个，已完成 ${today.completed} 个。含逾期的未完成负荷 ${capacity.plannedCount} 个，${normal}。`;

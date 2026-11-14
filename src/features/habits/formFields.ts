@@ -1,5 +1,6 @@
 import { Setting } from "obsidian";
 import type { HabitCompensationSettings, HabitInput, PunishmentRule } from "../../types";
+import { HEALTH_HABIT_SOURCES, isHealthHabitSource } from "../health/habits";
 import { DEFAULT_REFLECTION_INCREASE, exerciseLimitMultiplier, exerciseOverflowRate } from "./compensationDebt";
 
 function numberField(parent: HTMLElement, label: string, value: number | undefined, update: (value: number | undefined) => void): void {
@@ -31,15 +32,21 @@ export function renderHabitTargetFields(parent: HTMLElement, input: HabitInput):
     .addOption("boolean", "按次数打卡")
     .addOption("number", "记录数值")
     .addOption("trades", "按交易笔数自动统计")
-    .setValue(input.source === "trades" ? "trades" : input.target?.kind ?? "boolean")
+    .addOptions(Object.fromEntries(Object.entries(HEALTH_HABIT_SOURCES).map(([source, metric]) => [source, metric.label])))
+    .setValue(input.source === "trades" || isHealthHabitSource(input.source) ? input.source : input.target?.kind ?? "boolean")
     .onChange(kind => {
       if (kind === "trades") {
         input.source = "trades";
         input.frequencyUnit = "day";
         input.frequencyInterval = 1;
         input.target = { kind: "number", unit: "笔" };
+      } else if (isHealthHabitSource(kind)) {
+        input.source = kind;
+        const { unit } = HEALTH_HABIT_SOURCES[kind];
+        if (!unit) input.targetCount = 1;
+        input.target = unit ? { kind: "number", unit } : { kind: "boolean" };
       } else {
-        if (input.source === "trades") input.source = "";
+        if (input.source === "trades" || isHealthHabitSource(input.source)) input.source = "";
         input.target = kind === "number" ? { kind: "number", unit: "" } : { kind: "boolean" };
       }
       render();
@@ -51,6 +58,14 @@ export function renderHabitTargetFields(parent: HTMLElement, input: HabitInput):
     if (input.source === "trades" && target?.kind === "number") {
       details.createEl("p", { text: "按开仓日期统计实际交易笔数，每天自动更新。" });
       numberField(details, "每日目标（笔）", target.perDay, value => { target.perDay = value; });
+      return;
+    }
+    if (isHealthHabitSource(input.source)) {
+      details.createEl("p", { text: "已核对的健康数据会自动计入进度，手动打卡优先。健康来源只统计进度，暂停自动补偿。" });
+      if (target?.kind === "number") {
+        numberField(details, `每日目标（${target.unit}）`, target.perDay, value => { target.perDay = value; });
+        numberField(details, `每周目标（${target.unit}）`, target.perWeek, value => { target.perWeek = value; });
+      }
       return;
     }
     if (target?.kind !== "number") {

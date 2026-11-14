@@ -40,6 +40,10 @@ import type { VaultQueryRead } from "./vaultQueryRead";
 import { type RealtimeToolOutput } from "./voice/realtimeToolOutput";
 
 import { parseHealthCsv } from "./csv";
+import { openHealthScreenshot, type HealthScreenshotHost } from "./features/health/modal";
+import { recognizeHealthScreenshot } from "./features/health/screenshot";
+import { recordHealthEntries } from "./features/health/store";
+import type { ScreenshotImage } from "./features/screenshots/image";
 import { todayString } from "./date";
 import { DEFAULT_SETTINGS } from "./defaults";
 import { hasInterruptedFactOperation, recoverFactOperation, type FactOperationOptions } from "./dataFoundation/factOperation";
@@ -100,7 +104,7 @@ import { migrateLinkedNoteNames } from "./linkedNoteSettings";
 
 import { voiceSettingsRevision } from "./voice/voiceSettingsBoundary";
 import type { LifeOpsWorkflowId } from "./workflows";
-import type { AgentActionSuggestion, AgentConversationMessage, AgentSubmissionOptions, AgentResponse, CaptureKind, ClassifiedInput, DashboardStats, HabitInput, HabitCheckinStatus, HabitDashboardItem, HabitDefinition, HealthEntry, LifeOpsSettings, LifeOpsTask, LifeOpsTaskInput, LifeOpsTaskQuadrant, QualityLogEntry, ProviderRequestOptions, ProviderStage, TaskDashboardData, VoiceMetricEntry } from "./types";
+import type { AgentActionSuggestion, AgentConversationMessage, AgentSubmissionOptions, AgentResponse, CaptureKind, ClassifiedInput, DashboardStats, HabitInput, HabitCheckinStatus, HabitDashboardItem, HabitDefinition, LifeOpsSettings, LifeOpsTask, LifeOpsTaskInput, LifeOpsTaskQuadrant, QualityLogEntry, ProviderRequestOptions, ProviderStage, TaskDashboardData, VoiceMetricEntry } from "./types";
 
 export default class LifeOpsPlugin extends Plugin {
   settings: LifeOpsSettings = DEFAULT_SETTINGS;
@@ -350,6 +354,7 @@ export default class LifeOpsPlugin extends Plugin {
       name: "Import health CSV",
       callback: () => this.openHealthCsvImport()
     });
+    if (Platform.isDesktopApp) this.addCommand({ id: "import-health-screenshot", name: "截图记健康", callback: () => this.openHealthScreenshot() });
     this.addCommand({ id: "import-trade-csv", name: "导入交易 CSV", callback: () => openTradeCsvImport(this as unknown as TradeCsvHost) });
     this.addCommand({ id: "import-trade-screenshot", name: "截图记交易", callback: () => this.openTradeScreenshotImport() });
     this.addCommand({ id: "backfill-trades", name: "回填历史交易", callback: () => openTradeBackfill(this as unknown as TradeBackfillHost) });
@@ -763,10 +768,20 @@ export default class LifeOpsPlugin extends Plugin {
 
   openHealthEntryModal(): void {
     new HealthEntryModal(this.app, async (entry) => {
-      await this.saveLocalOperation("local_appendHealthEntry", { arguments: [cleanHealthEntry(entry)] }, store => store.appendHealthEntry(cleanHealthEntry(entry)));
+      const data = { ...entry, date: entry.date || todayString() };
+      await this.saveLocalOperation("local_appendHealthEntry", { arguments: [data] }, store => recordHealthEntries(store, [data]));
       await this.refreshViews();
       new Notice("LifeOps 已保存健康记录");
     }).open();
+  }
+
+  openHealthScreenshot(): void {
+    if (Platform.isDesktopApp) openHealthScreenshot(this as unknown as HealthScreenshotHost);
+  }
+
+  recognizeHealthScreenshot(image: ScreenshotImage, signal: AbortSignal) {
+    return this.observeProvider("vision", "text", (options, store, _ai, current) =>
+      recognizeHealthScreenshot(store.settings, image, options, current), signal);
   }
 
   openTradeEntryModal(): void {
@@ -1291,11 +1306,10 @@ export default class LifeOpsPlugin extends Plugin {
   private openHealthCsvImport(): void {
     new CsvImportModal(this.app, async (value) => {
       const entries = parseHealthCsv(value);
-      await this.saveLocalOperation("manual_health_csv_batch", { entries }, async store => {
-        for (const entry of entries) await store.appendHealthEntry(entry);
-      });
+      let saved = 0;
+      await this.saveLocalOperation("manual_health_csv_batch", { entries }, async store => { saved = await recordHealthEntries(store, entries); });
       await this.refreshViews();
-      new Notice(`LifeOps 已导入 ${entries.length} 条健康记录`);
+      new Notice(`LifeOps 已导入 ${saved} 条健康记录`);
     }).open();
   }
 
@@ -1387,6 +1401,7 @@ function mergeSettings(defaults: LifeOpsSettings, saved: Partial<LifeOpsSettings
     ai.dataDisclosureAccepted = false;
     embedding.dataDisclosureAccepted = false;
     vision.remoteDataDisclosureAccepted = false;
+    vision.healthScreenshotDisclosureAccepted = false;
     voice.dataDisclosureAccepted = false;
     realtimeVoice.dataDisclosureAccepted = false;
   }
@@ -1418,19 +1433,6 @@ function manualClassification(raw: string, kind: CaptureKind, date = todayString
     raw,
     source,
     reason: "用户在快速记录中手动指定类型"
-  };
-}
-
-function cleanHealthEntry(entry: HealthEntry): HealthEntry {
-  return {
-    date: entry.date || todayString(),
-    sleepHours: entry.sleepHours,
-    weightKg: entry.weightKg,
-    steps: entry.steps,
-    exercise: entry.exercise?.trim() || undefined,
-    fatigue: entry.fatigue,
-    energy: entry.energy,
-    note: entry.note?.trim() || undefined
   };
 }
 

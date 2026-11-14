@@ -4,10 +4,11 @@ import { JOURNAL_SIGNAL_FIELDS, type SignalValues } from "../journal/signals";
 import { habitMeasurementUnit, habitRecordedAmount, isHabitRequiredOn, numericHabitGoalProgress } from "../habits/targets";
 import type { Trade } from "../trading/types";
 import type { IdeaNote } from "../ideas/notes";
+import { healthStats, type HealthDay } from "../health/model";
 import type { LearningTrack } from "../learning/model";
 import { tradeStats, type TradeStatGroup, type TradeStatsSettings } from "./trades";
 
-export type StatsDomain = "tasks" | "habits" | "journal" | "trades" | "ideas" | "learning";
+export type StatsDomain = "tasks" | "habits" | "journal" | "trades" | "ideas" | "learning" | "health";
 export const statsNamedRanges = ["today", "last_3d", "this_week", "last_week", "last_7d", "this_month", "last_month", "last_30d"] as const;
 export type StatsRange = { from: string; to: string } | typeof statsNamedRanges[number];
 export type StatsGroup = "category" | TradeStatGroup;
@@ -28,6 +29,7 @@ export interface StatsData {
   habits?: readonly HabitDefinition[];
   checkins?: readonly HabitCheckin[];
   journal?: readonly JournalStatsEntry[];
+  health?: readonly HealthDay[];
   trades?: readonly Trade[];
   tradeSettings?: TradeStatsSettings;
   ideas?: readonly (Pick<IdeaNote, "created" | "lastProgress" | "status"> & { stalled: boolean })[];
@@ -79,6 +81,7 @@ export function getStats(request: StatsRequest, data: StatsData, now: Date) {
     case "tasks": return { domain, range, ...taskStats(data.tasks ?? [], range, now, group) };
     case "habits": return { domain, range, ...habitStats(data.habits ?? [], data.checkins ?? [], range, now, group) };
     case "journal": return { domain, range, ...journalStats(data.journal ?? [], range, group) };
+    case "health": return { domain, range, ...healthStats((data.health ?? []).filter(day => inRange(day.date, range))) };
     case "trades": return { domain, range, ...tradeStats(data.trades ?? [], range, groupBy as TradeStatGroup | undefined, data.tradeSettings, request.combineUsd) };
     case "ideas": return { domain, range, ...ideaStats(data.ideas ?? [], range, group) };
     case "learning": return { domain, range, ...learningStats(data.learning ?? [], range, group) };

@@ -199,6 +199,7 @@ export interface VisionSettings {
   screenAnalysisMinIntervalMs: number;
   remoteDataDisclosureAccepted?: boolean;
   tradeScreenshotDisclosureAccepted?: boolean;
+  healthScreenshotDisclosureAccepted?: boolean;
 }
 
 export interface VisualAnalysisResult {
@@ -631,6 +632,8 @@ export interface HealthEntry {
   sleepHours?: number;
   weightKg?: number;
   steps?: number;
+  runningKm?: number;
+  restingHeartRate?: number;
   exercise?: string;
   fatigue?: number;
   energy?: number;

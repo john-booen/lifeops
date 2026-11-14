@@ -1,5 +1,6 @@
 import { Notice } from "obsidian";
 import { normalizeJournalDate } from "../../date";
+import { readHealthDay } from "../health/store";
 import { fileRevision } from "../../operationIdentity";
 import type { StoreHost } from "../../store/settingsSlice";
 import type { TaskDashboardData } from "../../types";
@@ -13,11 +14,11 @@ import { buildTodayCard, existingJournalPlanTask, journalPlanChoices, journalPla
 
 export async function getTodayCard(store: StoreHost, board: TaskDashboardData) {
   const now = new Date();
-  const [signals, ideas, quizDueCount] = await Promise.all([
+  const [signals, ideas, quizDueCount, health] = await Promise.all([
     readJournalSignals(store, board.date).catch(() => []), listIdeaCandidates(store, now).catch(() => undefined),
-    countDueQuizCards(store, board.date).catch(() => undefined)
+    countDueQuizCards(store, board.date).catch(() => undefined), readHealthDay(store, board.date).catch(() => undefined)
   ]);
-  return { ...buildTodayCard(board, signals, now), ...(ideas?.length ? { ideaCandidateCount: ideas.length } : {}),
+  return { ...buildTodayCard(board, signals, now, health), ...(ideas?.length ? { ideaCandidateCount: ideas.length } : {}),
     ...(quizDueCount !== undefined ? { quizDueCount } : {}) };
 }
 

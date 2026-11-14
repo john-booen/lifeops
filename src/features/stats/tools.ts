@@ -7,7 +7,7 @@ import type { StoreHost } from "../../store/settingsSlice";
 import { getStats, resolveStatsRange, statsNamedRanges, type StatsData, type StatsDomain, type StatsGroup, type StatsRange } from "./stats";
 import { formatTradeModelLeaders, TRADE_STAT_GROUPS } from "./trades";
 
-export const statsDomains: StatsDomain[] = ["tasks", "habits", "journal", "trades", "ideas", "learning"];
+export const statsDomains: StatsDomain[] = ["tasks", "habits", "journal", "trades", "ideas", "learning", "health"];
 const groups: StatsGroup[] = [...TRADE_STAT_GROUPS, "category"];
 const standardRanges = statsNamedRanges.filter(range => range !== "last_week" && range !== "last_month");
 const rangeParameter = (names: readonly string[]) => ({ anyOf: [{ type: "string", enum: [...names] }, {
@@ -17,7 +17,7 @@ const rangeParameter = (names: readonly string[]) => ({ anyOf: [{ type: "string"
 
 export const STATS_TOOL: LifeOpsToolDefinition = {
   name: "get_stats",
-  description: "查完成数、完成率、状态趋势和交易盈亏。今日交易目标用 habits 和 today。原币分别报告，明确要求折合美元总额才用 combineUsd。",
+  description: "查任务、习惯、日记、交易、想法、学习和健康。设备记录的睡眠时长、步数、跑步距离、体重和静息心率用 health。主观睡眠质量用 journal。今日交易目标用 habits 和 today。原币分别报告，明确要求折合美元总额才用 combineUsd。",
   safety: "safe",
   parameters: {
     type: "object", additionalProperties: false,
@@ -79,6 +79,15 @@ export async function readStats(store: StoreHost, args: Record<string, unknown>,
         if (visible.sessions.length !== track.sessions.length) partial = true;
         return visible;
       });
+    } else if (domain === "health") {
+      const { readHealthRange } = await import("../health/store");
+      if (isVaultPathExcluded(store.settings.folders.health, store.settings.privacy?.excludedVaultPrefixes)) {
+        return { success: false, output: "健康目录已排除，无法统计。", actions: [] };
+      }
+      const range = resolveStatsRange(args.range as StatsRange, now);
+      const result = await readHealthRange(store, range.from, range.to);
+      data.health = result.days;
+      partial = result.partial;
     } else if (domain === "journal") {
       const { readJournalSignals } = await import("../journal/signalStore");
       const root = store.settings.folders.dailyRoot;

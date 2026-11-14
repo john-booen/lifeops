@@ -24,6 +24,13 @@ export function renderTodayCard(
   if (quotes.length === 0) add(state, "p", "lh-caption", "暂无对应的日记原话。");
   for (const item of quotes) add(state, "p", "lh-caption", `${item.label}「${item.quote}」`);
 
+  if (data.health?.sleepHours !== undefined || data.health?.steps !== undefined) {
+    const health = [];
+    if (data.health.sleepHours !== undefined) health.push(`昨晚睡眠 ${data.health.sleepHours} 小时`);
+    if (data.health.steps !== undefined) health.push(`今日 ${data.health.steps.toLocaleString("zh-CN")} 步`);
+    add(card, "p", "lh-caption", health.join(" · "));
+  }
+
   const taskStatus = add(card, "p", data.capacity.overloaded ? "lh-today-overload" : "",
     `今日任务 ${data.completed} / ${data.total} 已完成`);
   if (data.capacity.overloaded && data.capacity.typicalCount !== null) {

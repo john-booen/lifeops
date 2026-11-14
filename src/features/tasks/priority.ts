@@ -3,16 +3,16 @@ import { timeMinutes } from "../../taskSchedule";
 import type { LifeOpsTask } from "../../types";
 import { taskCapacity, taskCategory, taskEstimates, tasksDueBy } from "./capacity";
 
-export function todayTaskPlan(tasks: readonly LifeOpsTask[], now: Date, energy?: number) {
+export function todayTaskPlan(tasks: readonly LifeOpsTask[], now: Date, energy?: number, sleepHours?: number) {
   const estimate = taskEstimates(tasks);
   return {
     capacity: taskCapacity(tasks, now, estimate),
-    priorities: prioritizeTasks(tasksDueBy(tasks, formatDate(now)), now, energy, estimate)
+    priorities: prioritizeTasks(tasksDueBy(tasks, formatDate(now)), now, energy, estimate, sleepHours)
   };
 }
 
 export function prioritizeTasks(tasks: readonly LifeOpsTask[], now: Date, energy?: number,
-  estimate: (task: LifeOpsTask) => number = taskEstimates(tasks)) {
+  estimate: (task: LifeOpsTask) => number = taskEstimates(tasks), sleepHours?: number) {
   const today = formatDate(now), minuteNow = now.getHours() * 60 + now.getMinutes();
   return tasks.filter(task => task.status === "active").map(task => {
     let score = 0;
@@ -31,7 +31,10 @@ export function prioritizeTasks(tasks: readonly LifeOpsTask[], now: Date, energy
     }
     if (taskCategory(task) === "punishment") { score += 1; reasons.push("惩罚任务"); }
     const estimateMin = estimate(task);
-    if (energy !== undefined && energy <= 2 && estimateMin > 90) { score -= 2; reasons.push("精力偏低，长任务后排"); }
+    if (estimateMin > 90) {
+      if (energy !== undefined && energy <= 2) { score -= 2; reasons.push("精力偏低，长任务后排"); }
+      else if (energy === undefined && sleepHours !== undefined && sleepHours < 6) { score -= 2; reasons.push("昨晚睡眠记录少于 6 小时，长任务后排"); }
+    }
     return { task, score, estimateMin, reasons };
   }).sort((left, right) => right.score - left.score || left.task.sortOrder - right.task.sortOrder
     || left.task.id.localeCompare(right.task.id));

@@ -12,7 +12,7 @@ import {
   type TaskDatabase
 } from "./settingsSlice";
 import { bindDashboardContextData, contextDataPolicy, readContextHabits, readContextTasks } from "../contextData";
-import { tradeHabitProgress } from "../features/habits/tradeProgress";
+import { automaticHabitProgress } from "../features/habits/tradeProgress";
 import { advanceCompensationDebt } from "../features/habits/compensationDebt";
 import { isVaultPathExcluded } from "../privacy";
 
@@ -274,7 +274,7 @@ async getTaskDashboard(this: StoreHost, date: string = todayString(), options: {
     const db = taskContext ? { tasks: taskContext.tasks } : await this.readTaskDb();
     const habitDb = habitContext ? habitContext.database : await this.readHabitDb();
     const progress = habitContext ? { checkins: habitDb.checkins, unavailable: habitContext.tradeUnavailable }
-      : await tradeHabitProgress(this, habitDb);
+      : await automaticHabitProgress(this, habitDb);
     const tasks = (options.forContext ? db.tasks.slice()
       : advanceCompensationDebt(db.tasks, habitDb.habits, todayString(), this.settings.habitCompensation)).sort(sortTasks);
     const allActive = tasks.filter((task) => task.status === "active");

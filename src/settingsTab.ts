@@ -112,6 +112,7 @@ export class LifeOpsSettingTab extends PluginSettingTab {
             this.plugin.settings.embedding.dataDisclosureAccepted = false;
             this.plugin.settings.vision.remoteDataDisclosureAccepted = false;
             this.plugin.settings.vision.tradeScreenshotDisclosureAccepted = false;
+            this.plugin.settings.vision.healthScreenshotDisclosureAccepted = false;
             this.plugin.settings.voice.dataDisclosureAccepted = false;
             this.plugin.settings.realtimeVoice.dataDisclosureAccepted = false;
           }
@@ -213,7 +214,7 @@ export class LifeOpsSettingTab extends PluginSettingTab {
       refreshTextDisclosure = () => {
         const ai = this.plugin.settings.ai;
         const allowed = ai.dataDisclosureAccepted === true;
-        textDisclosure.setDesc(`当前 Provider：${ai.provider}。会发送用户消息、必要对话历史和筛选后的库文本。日记信号会自动处理允许读取的日记，每篇最多 6000 字。被排除目录不会发送。更换主用或备用服务类型、地址后自动撤销授权。`);
+        textDisclosure.setDesc(`当前 Provider：${ai.provider}。会发送用户消息、必要对话历史和筛选后的库文本。日记信号会自动处理允许读取的日记，每篇最多 6000 字。摘要和健康统计问答会使用允许读取的健康指标。被排除目录不会发送。更换主用或备用服务类型、地址后自动撤销授权。`);
         toggle.setValue(allowed);
         toggle.toggleEl.setAttribute("aria-checked", String(allowed));
       };
@@ -711,7 +712,7 @@ export class LifeOpsSettingTab extends PluginSettingTab {
 
   private renderTradeScreenshotSettings(parent: HTMLElement): void {
     const vision = this.plugin.settings.vision;
-    parent.createEl("h3", { text: "交易截图识别" });
+    parent.createEl("h3", { text: "截图识别" });
     new Setting(parent).setName("视觉服务")
       .setDesc("仅识别你手动选择并点击发送的图片。")
       .addDropdown(dropdown => {
@@ -721,13 +722,20 @@ export class LifeOpsSettingTab extends PluginSettingTab {
         dropdown.setValue(vision.provider).onChange(async value => {
           vision.provider = value as typeof vision.provider;
           vision.tradeScreenshotDisclosureAccepted = false;
+          vision.healthScreenshotDisclosureAccepted = false;
           await this.plugin.saveSettings();
           this.display();
         });
       });
     if (vision.provider === "off") return;
     let uncheck = () => {};
-    const revoke = () => { vision.tradeScreenshotDisclosureAccepted = false; uncheck(); };
+    let uncheckHealth = () => {};
+    const revoke = () => {
+      vision.tradeScreenshotDisclosureAccepted = false;
+      vision.healthScreenshotDisclosureAccepted = false;
+      uncheck();
+      uncheckHealth();
+    };
     new Setting(parent).setName("视觉服务地址").setDesc("完整的 HTTPS /chat/completions 地址。").addText(text => {
       text.setValue(vision.endpoint).onChange(async value => {
         vision.endpoint = value.trim(); revoke(); await this.plugin.saveSettings();
@@ -750,6 +758,15 @@ export class LifeOpsSettingTab extends PluginSettingTab {
         uncheck = () => { toggle.setValue(false); };
         toggle.setValue(vision.tradeScreenshotDisclosureAccepted === true).onChange(async allowed => {
           vision.tradeScreenshotDisclosureAccepted = allowed;
+          await this.plugin.saveSettings();
+        });
+      });
+    new Setting(parent).setName("允许发送手动选中的健康截图")
+      .setDesc("只在你选择图片并点击「发送并识别」时，将原图发送到这里配置的服务。更改服务配置后需要重新确认。")
+      .addToggle(toggle => {
+        uncheckHealth = () => { toggle.setValue(false); };
+        toggle.setValue(vision.healthScreenshotDisclosureAccepted === true).onChange(async allowed => {
+          vision.healthScreenshotDisclosureAccepted = allowed;
           await this.plugin.saveSettings();
         });
       });

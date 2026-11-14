@@ -4,9 +4,10 @@ import { addDays, datesBetween, formatDate, parseLocalDate, todayString, weekDat
 import { isContextDataProjection } from "../contextData";
 import { firstUncheckedHabitDay, planHabitPunishments } from "../features/habits/punishments";
 import { advanceCompensationDebt } from "../features/habits/compensationDebt";
-import { assertTradeHabitSource, tradeHabitProgress } from "../features/habits/tradeProgress";
+import { assertTradeHabitSource, automaticHabitProgress } from "../features/habits/tradeProgress";
 import { habitMeasurementUnit, habitRecordedAmount, numericHabitPeriods, validateHabitPunishment, validateHabitTarget } from "../features/habits/targets";
 import { isVaultPathExcluded } from "../privacy";
+import { assertHealthHabitTarget, isHealthHabitSource } from "../features/health/habits";
 import { buildTaskFromInput } from "../vaultApi";
 import type {
   HabitCheckin,
@@ -72,6 +73,7 @@ async createHabit(this: StoreHost, input: HabitInput): Promise<HabitDefinition> 
       source: input.source
     };
     assertTradeHabitSource(habit.source, habit.target, habit.frequencyUnit, habit.frequencyInterval);
+    assertHealthHabitTarget(habit.source, habit.target);
 
     db.habits.push(habit);
     await this.writeHabitDb(db);
@@ -94,6 +96,7 @@ async updateHabitDetails(this: StoreHost, habitId: string, input: HabitInput): P
     const source = Object.hasOwn(input, "source") ? input.source || undefined : habit.source;
     const interval = Math.max(1, input.frequencyInterval || 1);
     assertTradeHabitSource(source, target, input.frequencyUnit, interval);
+    assertHealthHabitTarget(source, target);
     if (source === "trades" && habit.source !== "trades" && db.checkins.some(item => item.habitId === habitId)) {
       throw new Error("这项习惯已有手动记录，请另外新建交易笔数习惯。");
     }
@@ -213,8 +216,8 @@ async checkPunishments(this: StoreHost, now: Date = new Date(), acknowledgeLegac
     const date = formatDate(now);
     const through = now.getHours() >= 21 ? date : addDays(date, -1);
     const tasks = await this.readTaskDb({ readOnly: true });
-    const progress = await tradeHabitProgress(this, db, true);
-    const eligible = db.habits.filter(habit => habit.punishment?.enabled && !(progress.unavailable && habit.source === "trades"));
+    const progress = await automaticHabitProgress(this, db, true);
+    const eligible = db.habits.filter(habit => habit.punishment?.enabled && !isHealthHabitSource(habit.source) && !(progress.unavailable && habit.source === "trades"));
     const checked: Record<string, string> = Object.assign(Object.create(null), db.habitPunishmentCheckedThrough);
     const windows = eligible.map(habit => ({ habit, from: firstUncheckedHabitDay(db, habit, date) }));
     const nextTasks = tasks.tasks.slice();
@@ -244,7 +247,7 @@ async acceptPunishments(this: StoreHost): Promise<void> {
 async getWeeklyFailures(this: StoreHost, date: string, database?: HabitDatabase): Promise<Record<string, number>> {
     const failures: Record<string, number> = {};
     const raw = database ?? await this.readHabitDb();
-    const progress = database ? undefined : await tradeHabitProgress(this, raw);
+    const progress = database ? undefined : await automaticHabitProgress(this, raw);
     const habits = progress?.unavailable ? raw.habits.filter(habit => habit.source !== "trades") : raw.habits;
     for (const habit of habits) {
       failures[habit.name] = 0;

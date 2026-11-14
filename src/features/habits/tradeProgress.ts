@@ -1,3 +1,4 @@
+import { projectHealthCheckins } from "../health/habits";
 import { isVaultPathExcluded } from "../../privacy";
 import type { HabitDatabase, StoreHost } from "../../store/settingsSlice";
 import type { HabitCheckin, HabitDefinition, HabitTarget } from "../../types";
@@ -34,10 +35,12 @@ function projectTradeCheckins(database: HabitDatabase, trades: readonly Trade[])
   return checkins;
 }
 
-export async function tradeHabitProgress(store: StoreHost, database: HabitDatabase, respectPrivacy = false): Promise<{
+export async function automaticHabitProgress(store: StoreHost, database: HabitDatabase, respectPrivacy = false): Promise<{
   checkins: HabitCheckin[]; unavailable: boolean;
 }> {
-  if (!database.habits.some(habit => habit.source === "trades")) return { checkins: database.checkins, unavailable: false };
+  const healthCheckins = (checkins: HabitCheckin[]) =>
+    projectHealthCheckins(store, { ...database, checkins }).catch(() => checkins);
+  if (!database.habits.some(habit => habit.source === "trades")) return { checkins: await healthCheckins(database.checkins), unavailable: false };
   try {
     const { readTradeDatabase, tradeDatabasePath } = await import("../trading/persistence");
     const excluded = store.settings.privacy?.excludedVaultPrefixes;
@@ -46,8 +49,8 @@ export async function tradeHabitProgress(store: StoreHost, database: HabitDataba
     if (respectPrivacy && trades.some(trade => trade.source.kind === "backfill" && trade.source.ref && isVaultPathExcluded(trade.source.ref, excluded))) {
       throw new Error("部分交易原文已排除。");
     }
-    return { checkins: projectTradeCheckins(database, trades), unavailable: false };
+    return { checkins: await healthCheckins(projectTradeCheckins(database, trades)), unavailable: false };
   } catch {
-    return { checkins: projectTradeCheckins(database, []), unavailable: true };
+    return { checkins: await healthCheckins(projectTradeCheckins(database, [])), unavailable: true };
   }
 }

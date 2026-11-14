@@ -372,6 +372,13 @@ export class HealthEntryModal extends Modal {
       });
     });
 
+    new Setting(contentEl).setName("跑步距离（公里）").addText(text => {
+      text.onChange(value => { this.value.runningKm = parseOptionalNumber(value); });
+    });
+    new Setting(contentEl).setName("静息心率（次/分）").addText(text => {
+      text.onChange(value => { this.value.restingHeartRate = parseOptionalNumber(value); });
+    });
+
     new Setting(contentEl).setName("运动").addText((text) => {
       text.setPlaceholder("跑步 5 公里").onChange((value) => {
         this.value.exercise = value.trim();

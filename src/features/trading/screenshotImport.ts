@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { recordRevision } from "../../operationIdentity";
 import type { LocalOperationHost } from "../serviceHost";
 import { normalizeJournalDate } from "../../date";
@@ -8,26 +7,9 @@ import { readTradeDatabase, recordTradeDrafts } from "./persistence";
 import { tradeMultiplier, tradeNumber, tradePnl } from "./pnl";
 import { isTradeDraft, isTradeTimestamp, type Trade, type TradeDraft, type TradeMarket } from "./types";
 
-export const TRADE_SCREENSHOT_MAX_BYTES = 4 * 1024 * 1024;
+export { SCREENSHOT_MAX_BYTES as TRADE_SCREENSHOT_MAX_BYTES, readScreenshotImage as readTradeScreenshot, type ScreenshotImage as TradeScreenshot } from "../screenshots/image";
 export const TRADE_SCREENSHOT_MAX_ROWS = 20;
-const PNG = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
-const JPEG = Buffer.from([255, 216, 255]);
 const MARKETS: Record<string, TradeMarket> = { "a-share": "A股", "us-stock": "美股", futures: "期货", forex: "外汇", crypto: "加密" };
-
-export interface TradeScreenshot {
-  bytes: Buffer;
-  mime: "image/png" | "image/jpeg";
-  digest: string;
-}
-
-export function readTradeScreenshot(input: ArrayBuffer | Uint8Array): TradeScreenshot {
-  const bytes = input instanceof Uint8Array ? Buffer.from(input) : Buffer.from(new Uint8Array(input));
-  if (!bytes.length || bytes.length > TRADE_SCREENSHOT_MAX_BYTES) throw Error("截图大小须在 4 MB 以内，请裁剪后重试。");
-  const mime = bytes.subarray(0, PNG.length).equals(PNG) ? "image/png"
-    : bytes.subarray(0, JPEG.length).equals(JPEG) ? "image/jpeg" : undefined;
-  if (!mime) throw Error("请选择 PNG 或 JPEG 格式的截图。");
-  return { bytes, mime, digest: createHash("sha256").update(bytes).digest("hex") };
-}
 
 const fields = ["symbol", "market", "direction", "openedAt", "openClockShown", "openedZone", "closedAt", "closedZone",
   "qty", "qtyUnit", "entry", "exit", "fees", "displayedPnl", "currency"] as const;

@@ -5,7 +5,7 @@ import { TaskConflictError, validateTaskMirrorRevision, validateTaskRecords } fr
 import { normalizeTasks, normalizeHabitDefinitions, type StoreHost, type HabitDatabase, type TaskDatabase } from "./store/settingsSlice";
 import { parseVaultTasks } from "./vaultApi";
 import type { TaskDashboardData } from "./types";
-import { tradeHabitProgress } from "./features/habits/tradeProgress";
+import { automaticHabitProgress } from "./features/habits/tradeProgress";
 
 export interface ContextDataSource { path: string; hash: string }
 export interface ContextTaskData { available: boolean; tasks: TaskDatabase["tasks"]; source?: ContextDataSource; reads?: ContextDataSource[]; missing?: string[]; filtered?: boolean }
@@ -63,7 +63,7 @@ export async function readContextHabits(store: StoreHost): Promise<ContextHabitD
   if (!file) return { available: false, database: habitProjection({ habits: [], checkins: [] }), missing: [path] };
   const db = parseJsonData(file.raw, path, jsonDataContract(path, store.settings.folders)) as HabitDatabase;
   const database = { ...db, habits: normalizeHabitDefinitions(db.habits ?? []), checkins: db.checkins ?? [] };
-  const progress = await tradeHabitProgress(store, database, true);
+  const progress = await automaticHabitProgress(store, database, true);
   if (contextDataPolicy(store) !== policy) throw new Error("当前记录权限变化，无法核对上下文。");
   return { available: true, source: file.source, database: habitProjection({ ...database, checkins: progress.checkins }),
     ...(progress.unavailable ? { tradeUnavailable: true } : {}) };

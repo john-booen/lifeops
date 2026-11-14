@@ -508,6 +508,8 @@ async appendHealthEntry(this: StoreHost, entry: HealthEntry): Promise<void> {
       entry.sleepHours !== undefined ? `- 睡眠小时：${entry.sleepHours}` : "",
       entry.weightKg !== undefined ? `- 体重：${entry.weightKg} kg` : "",
       entry.steps !== undefined ? `- 步数：${entry.steps}` : "",
+      entry.runningKm !== undefined ? `- 跑步距离：${entry.runningKm} 公里` : "",
+      entry.restingHeartRate !== undefined ? `- 静息心率：${entry.restingHeartRate} 次/分` : "",
       entry.exercise ? `- 运动：${entry.exercise}` : "",
       entry.fatigue !== undefined ? `- 疲劳：${entry.fatigue}` : "",
       entry.energy !== undefined ? `- 精力：${entry.energy}` : "",

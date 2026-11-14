@@ -37,6 +37,10 @@ export function localSummaryText(period: SummaryPeriod, data: SummaryData): stri
     "",
     "- 完成任务 " + display(metrics.tasksCompleted, " 项") + "。计划任务完成率 " + display(metrics.taskCompletionPercent, "%") + "。",
     "- 精力 " + display(metrics.energy, " / 5") + "。交易净盈亏为 CNY " + display(metrics.tradePnlCny) + "，USD " + display(metrics.tradePnlUsd) + "。",
+    ...(data.stats.health?.recordedDays ? [`- 健康记录覆盖 ${data.stats.health.recordedDays} 天。` +
+      (data.stats.health.sleepHours?.recordedDays ? `平均睡眠 ${data.stats.health.sleepHours.average} 小时（${data.stats.health.sleepHours.recordedDays} 天）。` : "") +
+      (data.stats.health.steps?.recordedDays ? `累计 ${data.stats.health.steps.total} 步（${data.stats.health.steps.recordedDays} 天）。` : "") +
+      (data.stats.health.runningKm?.recordedDays ? `累计跑步 ${data.stats.health.runningKm.total} 公里（${data.stats.health.runningKm.recordedDays} 天）。` : "")] : []),
     ...(period.level === "day" ? ["- 有 " + (data.daily?.signals.length ?? 0) + " 份可用日记信号。"]
       : ["- 有 " + data.summaries.length + " 份可用下级摘要。"])
   ].join("\n");

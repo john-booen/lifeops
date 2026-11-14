@@ -1,6 +1,7 @@
 import { Notice } from "obsidian";
 import type LifeOpsPlugin from "../../main";
 import { HabitCheckinModal, HabitDetailModal, HabitModal } from "../../modals";
+import { isHealthHabitSource } from "../health/habits";
 import { addDays, formatDate } from "../../date";
 import { assertRecordRevision, recordRevision } from "../../operationIdentity";
 import { isVaultPathExcluded } from "../../privacy";
@@ -137,7 +138,7 @@ export async function runScheduledPunishmentCheck(
   if ([store.habitDbPath(), store.taskDbPath()].some(path => isVaultPathExcluded(path, excluded))) return;
   const date = formatDate(now), db = await store.readHabitDb();
   const through = now.getHours() >= 21 ? date : addDays(date, -1);
-  if (!db.habits.some(habit => habit.punishment?.enabled && firstUncheckedHabitDay(db, habit, date) <= through)
+  if (!db.habits.some(habit => habit.punishment?.enabled && !isHealthHabitSource(habit.source) && firstUncheckedHabitDay(db, habit, date) <= through)
     && !(await store.readTaskDb({ readOnly: true })).tasks.some(task => task.status === "active"
       && task.habitPunishment?.rule && task.habitPunishment.debt?.appliedOn !== date)) return;
   await host.saveLocalOperation("local_checkHabitPunishments", { date }, scope => scope.checkPunishments(now), { assertCurrent });

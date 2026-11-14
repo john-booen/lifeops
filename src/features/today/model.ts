@@ -1,3 +1,4 @@
+import type { HealthDay } from "../health/model";
 import { addDays, formatDate, normalizeJournalDate } from "../../date";
 import { fileRevision } from "../../operationIdentity";
 import type { LifeOpsTask, TaskDashboardData } from "../../types";
@@ -48,7 +49,7 @@ const STATUS_FIELDS: Array<{ field: SignalField; label: string; unit: string }> 
   { field: "sleepQuality", label: "睡眠质量", unit: "/5" }
 ];
 
-export function buildTodayCard(board: TaskDashboardData, signals: readonly JournalSignal[], now: Date) {
+export function buildTodayCard(board: TaskDashboardData, signals: readonly JournalSignal[], now: Date, health?: HealthDay) {
   const values = currentSignalValues(signals);
   const latest = signals.slice().reverse();
   const status = STATUS_FIELDS.map(({ field, label, unit }) => {
@@ -58,10 +59,11 @@ export function buildTodayCard(board: TaskDashboardData, signals: readonly Journ
   });
   const date = board.date;
   const { completed, total } = todayTaskCounts(board.tasks, date, now);
-  const { capacity, priorities } = todayTaskPlan(board.tasks, now, values.energy ?? undefined);
+  const { capacity, priorities } = todayTaskPlan(board.tasks, now, values.energy ?? undefined, health?.sleepHours);
   const today = formatDate(now);
   return {
     date, status, completed, total, capacity,
+    ...(health && (health.sleepHours !== undefined || health.steps !== undefined) ? { health: { sleepHours: health.sleepHours, steps: health.steps } } : {}),
     priorities: priorities.slice(0, 3).map(({ task, reasons }) => ({ id: task.id, title: task.title, reasons })),
     habits: board.habits.map(item => ({
       id: item.habit.id, title: item.habit.name, done: item.periodDone, target: item.periodTarget,
