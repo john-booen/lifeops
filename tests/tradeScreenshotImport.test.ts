@@ -20,9 +20,10 @@ const ui = vi.hoisted(() => {
     checked = false;
     onchange?: () => void;
     onClick?: () => Promise<void>;
-    constructor(readonly tag: string) {}
+    constructor(readonly tag: string, private readonly parent?: Element) {}
+    get isConnected(): boolean { return !this.parent || this.parent.isConnected && this.parent.children.includes(this); }
     createEl(tag: string, options?: { text?: string }) {
-      const child = new Element(tag);
+      const child = new Element(tag, this);
       child.textContent = options?.text ?? "";
       this.children.push(child);
       return child;
@@ -149,6 +150,45 @@ it("allows the same trade screenshot selection to be retried after a transient s
     await confirm.onClick!();
     expect(recognize).toHaveBeenCalledOnce();
     expect((await readTradeDatabase(store)).trades).toMatchObject([{ symbol: "FICT-A", pnl: 97.5 }]);
+  } finally { ui.root.empty(); await rm(root, { recursive: true, force: true }); }
+});
+
+it("rebuilds a stale trade confirmation from recognized rows with fresh amounts and new consent", async () => {
+  const root = await mkdtemp(join(tmpdir(), "lifeops-trade-screenshot-refresh-"));
+  const store = new LifeOpsStore(createFsApp(root), settings()) as unknown as StoreHost;
+  const file = await readFile(join("tests/fixtures/trade-screenshots/futures-mismatch.png"));
+  const image = new File([new Uint8Array(file)], "fictional.png", { type: "image/png" });
+  const runtime = new AgentRuntime({ store, refreshViews: async () => {} });
+  const recognize = vi.fn(async () => [cases["futures-mismatch"]]);
+  const button = (label: string) => ui.elements().find(el => el.tag === "button" && el.textContent === label)!;
+  const select = () => {
+    const choice = ui.elements().find(el => el.tag === "input")!;
+    choice.checked = true;
+    choice.onchange!();
+  };
+  try {
+    await store.initializeVault();
+    openTradeScreenshotImport({
+      app: store.app, store, settings: store.settings, register: () => {}, refreshViews: async () => {},
+      recognizeTradeScreenshot: recognize,
+      async saveLocalOperation(name, args, operation, options) {
+        const result = await runtime.executeLocalOperation(name, args, operation, undefined, options);
+        if (!result.success) throw Error(result.output);
+      }
+    }, image);
+    await vi.waitFor(() => expect(button("确认保存 0 笔")).toBeDefined());
+    select();
+    store.settings.tradingContractMultipliers = { ...store.settings.tradingContractMultipliers, "FICT-F": 20 };
+    await button("确认保存 1 笔").onClick!();
+    expect(ui.elements().some(el => el.textContent.includes("已经变化"))).toBe(true);
+    expect((await readTradeDatabase(store)).trades).toEqual([]);
+    await button("刷新核对").onClick!();
+    expect(button("确认保存 0 笔").disabled).toBe(true);
+    expect(ui.elements().some(el => el.textContent.includes("197.00 CNY") || el.textContent.includes("197 CNY"))).toBe(true);
+    expect(recognize).toHaveBeenCalledOnce();
+    select();
+    await button("确认保存 1 笔").onClick!();
+    expect((await readTradeDatabase(store)).trades).toMatchObject([{ symbol: "FICT-F", pnl: 197 }]);
   } finally { ui.root.empty(); await rm(root, { recursive: true, force: true }); }
 });
 

@@ -134,13 +134,38 @@ class TradeScreenshotImportModal extends Modal {
         cls: unverified || row.mismatch ? "lifeops-warning" : "" });
     }
     const feedback = contentEl.createEl("p", { attr: { role: "status" } });
+    let confirming = false;
+    let refreshing = false;
     new Setting(contentEl)
       .addButton(button => button.setButtonText("重选截图").onClick(() => { this.clipboardImage = undefined; this.choose(); }))
+      .addButton(button => button.setButtonText("刷新核对").onClick(async () => {
+        if (confirming || refreshing) return;
+        refreshing = true;
+        button.setDisabled(true);
+        updateButton();
+        try {
+          current();
+          const { trades } = await readTradeDatabase(this.host.store);
+          current();
+          if (!feedback.isConnected) return;
+          const fresh = previewTradeScreenshot(rows, digest, trades, this.host.settings.tradingContractMultipliers);
+          this.confirm(rows, digest, fresh, current);
+        } catch (error) {
+          if (feedback.isConnected) feedback.setText(error instanceof Error ? error.message : "暂时无法重新核对。");
+        } finally {
+          refreshing = false;
+          if (feedback.isConnected) { button.setDisabled(false); updateButton(); }
+        }
+      }))
       .addButton(button => {
-        updateButton = () => { const count = picked().length; button.setButtonText(`确认保存 ${count} 笔`).setDisabled(!count); };
+        updateButton = () => {
+          const count = picked().length;
+          button.setButtonText(`确认保存 ${count} 笔`).setDisabled(!count || refreshing || confirming);
+        };
         updateButton();
         button.setCta().onClick(async () => {
           if (button.buttonEl.disabled) return;
+          confirming = true;
           button.setDisabled(true);
           for (const input of choices.values()) input.disabled = true;
           try {
@@ -148,6 +173,7 @@ class TradeScreenshotImportModal extends Modal {
             try { current(); this.close(); } catch { /* A replacement view owns its own picker. */ }
             new Notice(`已保存并核对 ${count} 笔交易。可以使用撤销。`);
           } catch (error) {
+            confirming = false;
             try { current(); } catch { return; }
             feedback.setText(error instanceof Error ? error.message : "没有保存，请重新核对。");
             for (const input of choices.values()) input.disabled = false;
