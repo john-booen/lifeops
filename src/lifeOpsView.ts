@@ -48,7 +48,7 @@ import {
   stopBailianRealtimeRecording as stopBailianRealtimeRecordingFlow,
   voiceJobsForPanel
 } from "./voice/voiceRealtime";
-import { AudioOutputActor } from "./voice/audioOutput";
+import { AudioOutputActor, type AudioOutputPlayback } from "./voice/audioOutput";
 import { VoiceBargeInController } from "./voice/voiceBargeIn";
 import { VoiceE2eCircuitBreaker } from "./voice/voiceCircuitBreaker";
 import { VoiceRuntimeJournal, VoiceSessionController } from "./voice/voiceRuntime";
@@ -257,7 +257,7 @@ export class LifeOpsView extends ItemView {
   private readonly agentAudioOutput: AudioOutputActor;
   private readonly agentVoiceBargeIn: VoiceBargeInController;
   private readonly agentVoiceCircuitBreaker: VoiceE2eCircuitBreaker;
-  private agentOmniPlaybackReady: Promise<void> | null = null;
+  private agentOmniPlaybackReady: Promise<AudioOutputPlayback | undefined> | null = null;
   private agentOmniPendingAudio: Array<{ pcm: Int16Array; sampleRate: number; cue?: string }> = [];
   private agentVoiceResponseTimer = 0;
   private agentVoiceFallbackTimer = 0;
