@@ -7,7 +7,7 @@ import type { StoreHost } from "../../store/settingsSlice";
 import type { AgentActionSuggestion, AgentResponse } from "../../types";
 import {
   PHONE_INBOX_PATH, PHONE_INBOX_STATE, isPhoneInboxAction, isPhoneInboxTool, parsePhoneInbox, phoneInboxLabels,
-  validPhoneInboxDocument, type PhoneInboxDocument, type PhoneInboxLine, type PhoneInboxRecord, type PhoneInboxTurn
+  validPhoneInboxDocument, type PhoneInboxDocument, type PhoneInboxLine, type PhoneInboxReceipt, type PhoneInboxRecord, type PhoneInboxTurn
 } from "./model";
 
 const EMPTY_NOTE = "# 手机随手记\n";
@@ -54,9 +54,18 @@ export class PhoneInbox {
     this.controller.abort();
   }
 
-  async list(): Promise<PhoneInboxRecord[]> {
+  async list(): Promise<PhoneInboxReceipt[]> {
     if (!this.enabled) return [];
-    return (await this.read(this.host.store())).records.slice().reverse();
+    const store = this.host.store();
+    const doc = await this.read(store);
+    const positions = store.getFile(PHONE_INBOX_PATH)
+      ? await this.lines(store, true).then(lines => new Map(lines.map(({ id, line }) => [id, line])), () => undefined)
+      : new Map<string, number>();
+    this.assertCurrent(store);
+    return doc.records.slice().reverse().map(row => {
+      const line = positions?.get(row.id);
+      return { ...row, ...(line === undefined ? { sourceUnavailable: true as const } : { line }) };
+    });
   }
 
   async createFile(): Promise<void> {

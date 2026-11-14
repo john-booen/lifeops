@@ -1,5 +1,5 @@
 import { App, Modal, Notice } from "obsidian";
-import { PHONE_INBOX_PATH, type PhoneInboxRecord } from "./model";
+import { PHONE_INBOX_PATH, type PhoneInboxReceipt } from "./model";
 import { summarizePhoneInbox, type PhoneInbox } from "./service";
 
 export class PhoneInboxModal extends Modal {
@@ -37,14 +37,14 @@ export class PhoneInboxModal extends Modal {
     }
   }
 
-  private renderRow(list: HTMLElement, row: PhoneInboxRecord): void {
+  private renderRow(list: HTMLElement, row: PhoneInboxReceipt): void {
     const item = list.createEl("li");
     const label = row.undone ? "已撤销" : { processing: "待核对", saved: "已保存", review: "待核对", confirm: "待确认", dismissed: "已归档" }[row.status];
-    item.createEl("strong", { text: `第 ${row.line} 行 · ${label}` });
+    item.createEl("strong", { text: row.sourceUnavailable ? `原行待核对 · ${label}` : `第 ${row.line} 行 · ${label}` });
     item.createEl("p", { text: row.message });
     if (row.status === "confirm" && row.action) {
       item.createEl("p", { text: [row.action.title, row.action.content, row.action.description].join(" · ") });
-      this.button(item, "确认执行", () => this.inbox.resolve(row.id, "confirm"));
+      if (!row.sourceUnavailable) this.button(item, "确认执行", () => this.inbox.resolve(row.id, "confirm"));
     }
     if (["confirm", "review", "processing"].includes(row.status)) {
       this.button(item, row.status === "confirm" ? "取消操作" : "归档回执", () => this.inbox.resolve(row.id, "dismiss"));

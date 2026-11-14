@@ -1279,5 +1279,12 @@ it("waits for a complete phone inbox line while mobile sync updates an unfinishe
     await store.app.vault.modify(note, "# 手机随手记\n明天去拿蓝纸\n另一个未完\n");
     await inbox.scan();
     expect(saved).toHaveBeenCalledTimes(2);
+    expect((await inbox.list()).map(row => row.line)).toEqual([3, 2]);
+    await store.app.vault.modify(note, "# 手机随手记\n\n明天去拿蓝纸\n另一条已经改过\n");
+    const [changed, moved] = await inbox.list();
+    expect(changed.sourceUnavailable).toBe(true);
+    expect(moved).toMatchObject({ line: 3 });
+    expect(moved.sourceUnavailable).toBeUndefined();
+    expect(saved).toHaveBeenCalledTimes(2);
   } finally { inbox.stop(); }
 });
