@@ -46,7 +46,7 @@ import { acceptsOmniRuntimeEvent, createOmniResponseHandlers } from "./omniE2e/r
 import { armOmniResponseTimer as armOmniTimer, clearOmniResponseTimer } from "./omniE2e/responseTimer";
 import { createOmniCallbacks, omniSessionOptions } from "./omniE2e/session";
 import { projectProposalFailure } from "./omniE2e/projectProposals";
-import { checkActiveOmniSources, CONTEXT_CHANGED_MESSAGE } from "./omniE2e/contextSources";
+import { checkActiveOmniSources, CONTEXT_CHANGED_MESSAGE, withdrawOmniContext } from "./omniE2e/contextSources";
 import {
   canQueueAfterNativePlayback,
   handleOmniE2eBargeInEvent as applyOmniBargeInEvent,
@@ -1325,22 +1325,9 @@ function failOmniE2eVoiceTurn(
   view.refreshAgentSurfaceState?.();
 }
 
-function failOmniToolContext(view:VoiceRealtimeView,message:string):void{
-  // Withdraw old visible details and stop playback; this is not a model fallback.
-  handleOmniE2eResponseText(view, message);
-  // Closing/cancelling can synchronously emit callbacks. Retire the turn first
-  // so a cancelled old queue cannot re-enter fallback and settle as completed.
-  failOmniE2eVoiceTurn(view,message);
-  view.agentRealtimeClient?.close();
-  const current=view.agentVoiceRuntime?.snapshot().currentTurn;
-  if(current?.playbackId)view.agentAudioOutput?.cancel?.(current.playbackId,"query_context_changed");
-  if(view.transitionVoiceSession && view.clearVoiceWarmupTimer && view.currentVoiceMessageText){
-    const stopped=stopBailianRealtimeRecording(view,true),stoppedGeneration=view.agentRealtimeStartGeneration;
-    void stopped.finally(()=>{
-      if(view.viewClosed || view.agentRealtimeStartGeneration!==stoppedGeneration)return;
-      view.agentReply=message;view.refreshAgentSurfaceState?.();
-    }).catch(()=>undefined);
-  }
+function failOmniToolContext(view: VoiceRealtimeView, message: string): void {
+  withdrawOmniContext(view, message, () => handleOmniE2eResponseText(view, message),
+    () => failOmniE2eVoiceTurn(view, message), stopBailianRealtimeRecording);
 }
 
 export function handleRealtimeDisconnect(view: VoiceRealtimeView, code: number, reason: string): void {

@@ -1,7 +1,61 @@
 import type { BailianRealtimeClient } from "../../bailianRealtime";
 import type { RealtimeInstructionsBoundary } from "../realtimeInstructionsBoundary";
+import type { VoiceSessionController } from "../voiceRuntime";
 
 export const CONTEXT_CHANGED_MESSAGE = "语音资料刚刚变化，旧回复已停止。请重新查询。";
+
+interface OmniContextView {
+  agentRealtimeClient?: Pick<BailianRealtimeClient, "close"> | null;
+  agentVoiceRuntime?: Pick<VoiceSessionController, "snapshot">;
+  agentTextRequestGeneration?: number;
+  agentRealtimeStartGeneration?: number;
+  viewClosed?: boolean;
+  agentReply: string;
+  agentAudioOutput?: { cancel?(playbackId: string, reason: string): void };
+  transitionVoiceSession?: unknown;
+  clearVoiceWarmupTimer?: unknown;
+  currentVoiceMessageText?: unknown;
+  refreshAgentSurfaceState?(): void;
+}
+
+export function withdrawOmniContext<View extends OmniContextView>(
+  view: View,
+  message: string,
+  withdrawText: () => void,
+  failTurn: () => void,
+  stopRecording: (view: View, silent: true) => Promise<void>
+): void {
+  const client = view.agentRealtimeClient;
+  const runtime = view.agentVoiceRuntime;
+  const turn = runtime?.snapshot().currentTurn;
+  const textGeneration = view.agentTextRequestGeneration;
+  const captureGeneration = view.agentRealtimeStartGeneration;
+  const ownsPresentation = () => !view.viewClosed && view.agentVoiceRuntime === runtime
+    && view.agentTextRequestGeneration === textGeneration;
+  const ownsCapture = () => ownsPresentation() && view.agentRealtimeClient === client
+    && view.agentRealtimeStartGeneration === captureGeneration
+    && runtime?.snapshot().currentTurn?.turnId === turn?.turnId;
+  if (!ownsCapture()) return;
+  withdrawText();
+  if (!ownsCapture()) return;
+  // Retire the turn before callbacks from playback cancellation can run.
+  failTurn();
+  if (!ownsCapture()) return;
+  if (turn?.playbackId) view.agentAudioOutput?.cancel?.(turn.playbackId, "query_context_changed");
+  if (!ownsCapture()) return;
+  if (!(view.transitionVoiceSession && view.clearVoiceWarmupTimer && view.currentVoiceMessageText)) {
+    client?.close();
+    return;
+  }
+  // Silent stop invalidates provider callbacks before it closes the connection.
+  const stopped = stopRecording(view, true);
+  const stoppedGeneration = view.agentRealtimeStartGeneration;
+  void stopped.finally(() => {
+    if (!ownsPresentation() || view.agentRealtimeStartGeneration !== stoppedGeneration) return;
+    view.agentReply = message;
+    view.refreshAgentSurfaceState?.();
+  }).catch(() => undefined);
+}
 
 type ProtectedContextClient = Pick<BailianRealtimeClient, "assertContextSourcesCurrent" | "assertContextSourcesCurrentNow">;
 
