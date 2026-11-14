@@ -306,7 +306,7 @@ export interface StoreHost extends ProjectSliceApi, TradingSliceApi {
   appendMonthlyIdea(input: ClassifiedInput): Promise<void>;
   appendTrade(input: ClassifiedInput): Promise<void>;
   appendHealthText(content: string, date: string): Promise<void>;
-  appendFile(filePath: string, content: string, isCurrent?: () => boolean): Promise<void>;
+  appendFile(filePath: string, content: string, isCurrent?: () => boolean, options?: { preserveExistingText?: boolean }): Promise<void>;
   ensureFile(filePath: string, initialContent: string): Promise<TFile>;
   ensureFolder(folderPath: string): Promise<void>;
   getFile(filePath: string): TFile | null;
@@ -517,7 +517,8 @@ async appendHealthEntry(this: StoreHost, entry: HealthEntry): Promise<void> {
       entry.energy !== undefined ? `- 精力：${entry.energy}` : "",
       entry.note ? `- 备注：${continuation(entry.note)}` : ""
     ].filter(Boolean);
-    await this.appendFile(this.path(this.settings.folders.health, `${entry.date}.md`), `${lines.join("\n")}\n`);
+    await this.appendFile(this.path(this.settings.folders.health, `${entry.date}.md`), `${lines.join("\n")}\n`, undefined,
+      { preserveExistingText: true });
   },
 
 async appendGatewayMessage(this: StoreHost, raw: string, source: string = "gateway"): Promise<void> {
@@ -667,10 +668,12 @@ async appendTrade(this: StoreHost, input: ClassifiedInput): Promise<void> {
   },
 
 async appendHealthText(this: StoreHost, content: string, date: string): Promise<void> {
-    await this.appendFile(this.path(this.settings.folders.health, `${date}.md`), `\n## 手动记录\n\n${content}\n`);
+    await this.appendFile(this.path(this.settings.folders.health, `${date}.md`), `\n## 手动记录\n\n${content}\n`, undefined,
+      { preserveExistingText: true });
   },
 
-async appendFile(this: StoreHost, filePath: string, content: string, isCurrent?: () => boolean): Promise<void> {
+async appendFile(this: StoreHost, filePath: string, content: string, isCurrent?: () => boolean,
+  options?: { preserveExistingText?: boolean }): Promise<void> {
     assertCurrentWrite(isCurrent);
     const normalized = normalizePath(filePath);
     await this.ensureFolder(parentFolder(normalized));
@@ -682,6 +685,7 @@ async appendFile(this: StoreHost, filePath: string, content: string, isCurrent?:
     }
     await this.app.vault.process(file, (text) => {
       assertCurrentWrite(isCurrent);
+      if (options?.preserveExistingText) return text + (text && !/[\r\n]$/u.test(text) ? "\n" : "") + content;
       return `${text.trimEnd()}\n${content}`;
     });
   },

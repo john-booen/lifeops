@@ -210,6 +210,19 @@ it("keeps verified days when one health note cannot be safely read", async () =>
     sleepHours: { average: 7.5, recordedDays: 1 } });
 });
 
+it("keeps an existing health note byte-for-byte at the start of an appended entry", async () => {
+  const path = healthNotePath(store, date);
+  const prior = `## ${date}\r\n- 步数：850\r\n旧备注保留两个空格  \r\n\r\n`;
+  await store.writeFile(path, prior);
+  const entries = [{ date, steps: 0 }];
+  const result = await runtime.executeLocalOperation("manual_health_csv_batch", { entries }, scope => recordHealthEntries(scope, entries));
+  expect(result.success).toBe(true);
+  expect((await store.readPath(path)).startsWith(prior)).toBe(true);
+  expect(await readHealthDay(store, date)).toEqual({ date, steps: 0 });
+  await runtime.undoOperation(result.callId);
+  expect(await store.readPath(path)).toBe(prior);
+});
+
 it("reads a specific health day without enumerating vault notes and marks its exclusion even if it is missing", async () => {
   await store.appendHealthEntry({ date, steps: 0 });
   const enumerate = vi.spyOn(store.app.vault, "getMarkdownFiles");
