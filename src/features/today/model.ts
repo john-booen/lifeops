@@ -1,5 +1,6 @@
 import type { HealthDay } from "../health/model";
-import { addDays, formatDate, normalizeJournalDate } from "../../date";
+import { clockFromMatch, clockMatches } from "../../clockText";
+import { addDays, formatDate, journalDateToken, normalizeJournalDate } from "../../date";
 import { fileRevision } from "../../operationIdentity";
 import type { LifeOpsTask, TaskDashboardData } from "../../types";
 import { currentSignalValues, type JournalSignal, type SignalField, type SignalSource } from "../journal/signals";
@@ -13,10 +14,12 @@ export interface JournalPlanChoice {
   when: string | null;
   journalDate: string;
   date: string;
+  time?: string;
   source: SignalSource;
 }
 
 const normalizedTitle = (title: string) => title.normalize("NFKC").replace(/\s+/gu, "").toLowerCase();
+const planDateAndClock = new RegExp(`^(${journalDateToken})\\s*(.+)$`, "u");
 
 export function journalPlanTaskSource(plan: JournalPlanChoice): string {
   return `lifeops-journal-plan:${fileRevision(JSON.stringify([plan.source.path, plan.journalDate, plan.text, plan.when]))}`;
@@ -24,8 +27,29 @@ export function journalPlanTaskSource(plan: JournalPlanChoice): string {
 
 export function existingJournalPlanTask(tasks: readonly LifeOpsTask[], plan: JournalPlanChoice): LifeOpsTask | undefined {
   const source = journalPlanTaskSource(plan), title = normalizedTitle(plan.title);
+  const matchesSchedule = (task: LifeOpsTask) => {
+    if (plan.time) return task.date === plan.date && (task.startTime || task.time) === plan.time;
+    if (plan.date) return task.date === plan.date || task.dueDate === plan.date;
+    return task.status === "active" || task.date === plan.journalDate;
+  };
   return tasks.find(task => task.status !== "abandoned" && (task.source === source || normalizedTitle(task.title) === title
-    && (plan.date ? task.date === plan.date || task.dueDate === plan.date : task.status === "active" || task.date === plan.journalDate)));
+    && matchesSchedule(task)));
+}
+
+function readPlanSchedule(when: string | null, journalDate: string): Pick<JournalPlanChoice, "date" | "time"> {
+  if (!when) return { date: "" };
+  const date = normalizeJournalDate(when, journalDate);
+  if (date) return { date };
+  const parts = planDateAndClock.exec(when.normalize("NFKC").trim());
+  if (!parts) return { date: "" };
+  const [, day, rest] = parts;
+  const dateWithClock = normalizeJournalDate(day, journalDate);
+  const [clock] = clockMatches(rest);
+  if (!dateWithClock || clock?.[0] !== rest) return { date: "" };
+  const dayPeriod = day.endsWith("早") ? "早上" : /[晚夜]$/u.test(day) ? "晚上" : undefined;
+  const clockWithPeriod = dayPeriod && !clock[1] ? clockMatches(dayPeriod + rest)[0] : clock;
+  const time = clockWithPeriod ? clockFromMatch(clockWithPeriod) : null;
+  return time ? { date: dateWithClock, time } : { date: "" };
 }
 
 export function journalPlanChoices(signals: readonly JournalSignal[]): JournalPlanChoice[] {
@@ -34,9 +58,9 @@ export function journalPlanChoices(signals: readonly JournalSignal[]): JournalPl
     for (const plan of signal.plans) {
       const title = plan.text.replace(/\s+/gu, " ").trim();
       if (!title) continue;
-      const date = plan.when ? normalizeJournalDate(plan.when, signal.date) : "";
-      const key = JSON.stringify([normalizedTitle(title), date]);
-      if (!choices.has(key)) choices.set(key, { ...plan, title, journalDate: signal.date, date, source: signal.sources[0] });
+      const schedule = readPlanSchedule(plan.when, signal.date);
+      const key = JSON.stringify([normalizedTitle(title), schedule.date, schedule.time]);
+      if (!choices.has(key)) choices.set(key, { ...plan, title, journalDate: signal.date, ...schedule, source: signal.sources[0] });
     }
   }
   return [...choices.values()];

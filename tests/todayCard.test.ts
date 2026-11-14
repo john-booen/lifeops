@@ -120,6 +120,37 @@ describe("today card reads and journal plan creation", () => {
     expect(await vault.bytes(morning)).toBe(exact);
   });
 
+  it("keeps the day and point time of two same-title plans and deduplicates only the matching slot", async () => {
+    await vault.seed(morning, "明天上午十点核对虚构纸样，明天下午三点继续核对虚构纸样。");
+    await extractJournalSignal(store, morning, "2026", async () => JSON.stringify({
+      date, period: "晨", plans: [{ text: "核对虚构纸样", when: "明天上午十点" }, { text: "核对虚构纸样", when: "明天下午三点" }]
+    }), new AbortController().signal, () => {});
+    await store.createTask({ title: "核对虚构纸样", date: tomorrow, time: "10:00" });
+    const choices = (await getTodayCard(store, await store.getTaskDashboard(date))).plans;
+    expect(choices).toMatchObject([
+      { plan: { title: "核对虚构纸样", date: tomorrow, time: "10:00" }, added: true },
+      { plan: { title: "核对虚构纸样", date: tomorrow, time: "15:00" }, added: false }
+    ]);
+    await addJournalPlanTask(host, () => store, choices[1].plan);
+    expect((await store.readTaskDb()).tasks).toMatchObject([
+      { title: "核对虚构纸样", date: tomorrow, time: "10:00" },
+      { title: "核对虚构纸样", date: tomorrow, time: "15:00", sourceNotePath: morning }
+    ]);
+    await runtime.undoLatestOperation();
+    expect((await store.readTaskDb()).tasks).toMatchObject([{ date: tomorrow, time: "10:00" }]);
+  });
+
+  it("resolves the explicit evening time and leaves an approximate time unscheduled", async () => {
+    await vault.seed(morning, "明晚八点摆虚构立牌，明天下午三点左右收虚构纸夹。");
+    await extractJournalSignal(store, morning, "2026", async () => JSON.stringify({
+      date, period: "晨", plans: [{ text: "摆虚构立牌", when: "明晚八点" }, { text: "收虚构纸夹", when: "明天下午三点左右" }]
+    }), new AbortController().signal, () => {});
+    const choices = (await getTodayCard(store, await store.getTaskDashboard(date))).plans;
+    expect(choices[0].plan).toMatchObject({ title: "摆虚构立牌", date: tomorrow, time: "20:00" });
+    expect(choices[1].plan).toMatchObject({ title: "收虚构纸夹", date: "" });
+    expect(choices[1].plan.time).toBeUndefined();
+  });
+
   it("includes a task scheduled today in the day's priorities even if its deadline is tomorrow", async () => {
     const task = await store.createTask({ title: "今天处理虚构纸卡", date, dueDate: tomorrow, startTime: "10:30" });
     const card = await getTodayCard(store, await store.getTaskDashboard(date));

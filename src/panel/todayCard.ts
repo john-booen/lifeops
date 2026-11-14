@@ -89,7 +89,8 @@ export function renderTodayCard(
   if (!data.plans.length) add(plans, "p", "lh-caption", "今天还没有提取到计划。");
   for (const { plan, added } of data.plans) {
     const row = add(plans, "div", "lh-today-plan");
-    add(row, "span", "", `${plan.title} · ${plan.date || "未定日期"}`);
+    const schedule = [plan.date, plan.time].filter(Boolean).join(" ") || "未定日期";
+    add(row, "span", "", `${plan.title} · ${schedule}`);
     const button = add(row, "button", "lh-button", added ? "已添加" : "加到任务");
     button.type = "button"; button.disabled = added;
     button.setAttribute("aria-label", `${added ? "已添加" : "加到任务"} ${plan.title}`);

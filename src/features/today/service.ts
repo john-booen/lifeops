@@ -53,7 +53,7 @@ export async function addJournalPlanTask(host: LocalOperationHost, getStore: () 
     await assertSource(store, current.source);
     assertCurrent();
     taskId = (await store.createTask({
-      title: current.title, date: current.date, source: journalPlanTaskSource(current),
+      title: current.title, date: current.date, ...(current.time ? { time: current.time } : {}), source: journalPlanTaskSource(current),
       sourceNotePath: current.source.path
     })).id;
     created = true;
