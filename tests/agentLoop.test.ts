@@ -1556,6 +1556,17 @@ it("locally creates an explicitly requested single timed task and keeps conditio
   expect((await store.readTaskDb()).tasks).toHaveLength(1);
 });
 
+it.each([
+  ["下周末下午三点提醒虚构检查纸盒。", "2026-11-21", "15:00"],
+  ["帮我创建任务 虚构检查纸盒，安排在月底10:30。", "2026-11-30", "10:30"],
+  ["帮我建12月5日上午十点虚构检查纸盒的待办。", "2026-12-05", "10:00"]
+])("keeps supported date tokens on the explicit local route: %s", async (message, date, time) => {
+  const result = await new AgentLoop(host).run(input({ message }));
+  expect(requests).toHaveLength(0);
+  expect(result.receipts).toHaveLength(1);
+  expect((await store.readTaskDb()).tasks).toMatchObject([{ title: "虚构检查纸盒", date, time }]);
+});
+
 it("blocks a model-proposed undo for a named voice deletion", async () => {
   const original = await runtime.executeAiToolCall(tool("upsert_idea", { title: "虚构蓝色图册想法", description: "核对虚构目录" }), "kimi");
   expect(original.success).toBe(true);

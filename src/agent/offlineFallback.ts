@@ -1,6 +1,6 @@
 import { dashboardContextData, readContextHabits } from "../contextData";
 import { clockFromMatch, clockMatches } from "../clockText";
-import { formatDate, normalizeJournalDate } from "../date";
+import { formatDate, journalDateToken, normalizeJournalDate } from "../date";
 import { isHealthHabitSource } from "../features/health/habitSources";
 import { newLocalOperationId } from "../operationIdentity";
 import { assertProviderActive } from "../providerRun";
@@ -10,10 +10,15 @@ import type { AgentResponse } from "../types";
 import type { AgentRuntime } from "../agentRuntime";
 import type { AgentTurnInput } from "./AgentLoop";
 
+const dateAndTask = new RegExp(String.raw`(?:^|[，,\s])(${journalDateToken})(?=$|[，,\s零一二两三四五六七八九十半\d]|凌晨|早上|上午|中午|下午|傍晚|晚上)`, "u");
+const taskThenSchedule = new RegExp(String.raw`^(?:请(?:帮我)?|帮我)?\s*(?:创建|新建|添加|建)(?:一[个条项])?(?:任务|待办)(?:[：:]\s*|[ \t]+)([^，,]+)[，,]\s*(?:安排在|定在|时间是)(${journalDateToken})\s*([^，,]+)$`, "u");
+const scheduledReminder = new RegExp(String.raw`^(?:请(?:帮我)?|帮我)?\s*(${journalDateToken})\s*([^，,]+?)提醒(?:我)?(.+)$`, "u");
+const leadingSchedule = new RegExp(String.raw`^(?:${journalDateToken})(?:\s*\d|\s*(?:凌晨|早上|上午|中午|下午|傍晚|晚上))`, "u");
+
 export function explicitSingleTimedTask(message: string, today: string): Record<string, unknown> | null {
   const text = message.trim().replace(/[。！!]$/u, "");
   if (/[。；;？！!?\r\n]|(?:如果|要是|的话|然后|同时|另外|或者|再帮我|先查|每周|每天|重复)/u.test(text)) return null;
-  const separated = /^(?:请(?:帮我)?|帮我)?\s*(?:创建|新建|添加|建)(?:一[个条项])?(?:任务|待办)(?:[：:]\s*|[ \t]+)([^，,]+)[，,]\s*(?:安排在|定在|时间是)(今天|明天|后天|\d{4}-\d{2}-\d{2})\s*([^，,]+)$/u.exec(text);
+  const separated = taskThenSchedule.exec(text);
   if (separated) {
     const [, rawTitle, day, clockText] = separated;
     const title = rawTitle.trim();
@@ -24,7 +29,7 @@ export function explicitSingleTimedTask(message: string, today: string): Record<
     return null;
   }
   if (/[，,]/u.test(text)) return null;
-  const reminder = /^(?:请(?:帮我)?|帮我)?\s*(今天|今日|明天|后天|大后天|(?:这|本|下)周[一二三四五六日天1-7]|\d{4}-\d{2}-\d{2})\s*([^，,]+?)提醒(?:我)?(.+)$/u.exec(text);
+  const reminder = scheduledReminder.exec(text);
   if (reminder) {
     const [, day, clockText, rawTitle] = reminder;
     const date = normalizeJournalDate(day, today);
@@ -36,7 +41,7 @@ export function explicitSingleTimedTask(message: string, today: string): Record<
     return null;
   }
   const command = /^(?:请(?:帮我)?|帮我)?\s*(?:创建|新建|加|建)(?:一[条项个])?\s*(.+?)的(?:任务|待办)$/u.exec(text);
-  if (!command || !/^(?:今天|明天|后天|\d{4}-\d{2}-\d{2})(?:\s*\d|\s*(?:凌晨|早上|上午|中午|下午|傍晚|晚上))/u.test(command[1])) return null;
+  if (!command || !leadingSchedule.test(command[1])) return null;
   const task = offlineTask(command[1], today);
   return task?.time ? task : null;
 }
@@ -84,18 +89,18 @@ export async function offlineFallback(input: AgentTurnInput, store: StoreHost, r
 }
 
 function offlineTask(value: string, today: string): Record<string, unknown> | null {
-  const day = /(?:^|[，,\s])(今天|明天|后天|\d{4}-\d{2}-\d{2})(?=$|[，,\s零一二两三四五六七八九十半\d]|凌晨|早上|上午|中午|下午|傍晚|晚上)/u.exec(value);
+  const day = dateAndTask.exec(value);
   const date = day ? normalizeJournalDate(day[1], today) : today;
   if (!date) return null;
   const remaining = day ? value.slice(0, day.index) + " " + value.slice(day.index + day[0].length) : value;
-  const clock = parseTaskClock(remaining);
+  const clock = parseTaskClock(remaining, !!day);
   if (!clock) return null;
   const title = clock.titleText.replace(/^[，,\s]+|[，,\s]+$/g, "");
   if (!title || (day && !clock.time && remaining.includes(" ") && /[点时分]|半小/.test(remaining))) return null;
   return { title, date, time: clock.time };
 }
 
-function parseTaskClock(text: string): { time: string; titleText: string } | null {
+function parseTaskClock(text: string, hasExplicitDate = false): { time: string; titleText: string } | null {
   // Local fallback has only one absolute clock field. Keep unsupported relative,
   // approximate or range requests out of Runtime instead of saving a partial task.
   if (/(分钟|小时|刻钟)\s*(之?[前后]|以[前后])/.test(text)) return null;
@@ -110,7 +115,8 @@ function parseTaskClock(text: string): { time: string; titleText: string } | nul
   if (match[5] && !match[6] && !/^(?:$|[，,。；;]|开始)/.test(after.trimStart())) return null;
   // Without a day period, require a clock position instead of extracting e.g.
   // “三点” from the task title “整理三点建议”. Ambiguity stays with the model.
-  if (!match[1] && !/(今天|明天|后天|任务|待办|提醒我|记一下|记下|安排|[，,。；;]|^\/todo)\s*$/.test(before)
+  const clockAfterDate = hasExplicitDate && !before.trim() && /^\d{1,2}[:：]\d{2}$/u.test(match[0]);
+  if (!match[1] && !clockAfterDate && !/(今天|明天|后天|任务|待办|提醒我|记一下|记下|安排|[，,。；;]|^\/todo)\s*$/.test(before)
     && !/^(?:$|开始)/.test(after.trimStart())) return null;
   const time = clockFromMatch(match);
   return time === null ? null : { time, titleText: before + after.replace(/^\s*开始/u, "") };

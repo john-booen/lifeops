@@ -5,6 +5,7 @@ import {afterEach, beforeEach, expect, it, vi} from "vitest";
 import type {App} from "obsidian";
 import type {StoreHost} from "../src/store/settingsSlice";
 import {DEFAULT_SETTINGS} from "../src/defaults";
+import {normalizeJournalDate, todayString} from "../src/date";
 import {OperationLedger} from "../src/dataFoundation/operationLedger";
 const request = vi.hoisted(() => vi.fn());
 vi.mock("obsidian", () => ({App: class {}, Plugin: class {}, TFile: class {}, TFolder: class {}, WorkspaceLeaf: class {}, ItemView: class {},
@@ -73,6 +74,23 @@ it("retains explicit direct creation compatibility when no preview was requested
   const directTitle = "合成直接创建";
   const result = await run("/todo " + directTitle);
   expect((await store.readTaskDb()).tasks.map(t => t.title)).toEqual([directTitle]); expect(result.actions).toEqual([]);
+});
+
+it.each(["大后天", "下周三", "下周末", "月底", "１２月５日", "十号"])("saves the requested date in an explicit offline task: %s", async day => {
+  plugin.settings.ai.provider = "off";
+  const date = normalizeJournalDate(day, todayString()), title = "虚构整理纸样";
+  const result = await run(`/todo ${day} 10:30 ${title}`);
+  expect(request).not.toHaveBeenCalled();
+  expect(result.receipts).toHaveLength(1);
+  expect((await store.readTaskDb()).tasks).toMatchObject([{title, date, time: "10:30"}]);
+});
+
+it("keeps the task database unchanged when an explicit offline month-day is impossible", async () => {
+  plugin.settings.ai.provider = "off";
+  const before = await facts();
+  const result = await run("/todo 2月30日 虚构整理纸样");
+  expect(result.receipts ?? []).toEqual([]);
+  expect(await facts()).toEqual(before);
 });
 
 for (const source of ["text", "voice"] as const) {

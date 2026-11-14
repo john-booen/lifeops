@@ -9,6 +9,22 @@ const relativeDays: Readonly<Record<string, number>> = {
 };
 const weekdays = "一二三四五六日";
 const digits = "〇一二三四五六七八九";
+const dayNumberPattern = "[0-9０-９一二三四五六七八九十]{1,3}";
+const weekPrefixPattern = "这周|本周|下周";
+const weekNumberPattern = "[一二三四五六日天1-7１-７]";
+const weekDay = new RegExp(`^(${weekPrefixPattern})(${weekNumberPattern})$`, "u");
+const monthDay = new RegExp(`^(?:(${dayNumberPattern})月)?(${dayNumberPattern})[日号]$`, "u");
+const thisWeekend = ["周末", "本周末", "这周末", "这个周末"];
+const nextWeekend = ["下周末", "下个周末"];
+const monthEnd = ["月底", "本月底", "这个月底"];
+
+/** Date token within an explicit scheduling command. Validate it with normalizeJournalDate. */
+export const journalDateToken = [
+  String.raw`[0-9０-９]{4}[-－][0-9０-９]{2}[-－][0-9０-９]{2}`,
+  `(?:${dayNumberPattern}月)?${dayNumberPattern}[日号]`,
+  `(?:${weekPrefixPattern})${weekNumberPattern}`,
+  ...[...Object.keys(relativeDays), ...thisWeekend, ...nextWeekend, ...monthEnd].sort((a, b) => b.length - a.length)
+].join("|");
 
 function validLocalDay(text: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(text) && formatDate(parseLocalDate(text)) === text;
@@ -29,18 +45,18 @@ export function normalizeJournalDate(value: string, baseDate = todayString()): s
   if (validLocalDay(text)) return text;
   if (!validLocalDay(baseDate)) return "";
   if (Object.hasOwn(relativeDays, text)) return addDays(baseDate, relativeDays[text]);
-  const week = /^(这周|本周|下周)([一二三四五六日天1-7])$/.exec(text);
+  const week = weekDay.exec(text);
   if (week) {
     const day = week[2] === "天" ? 6 : /^\d$/.test(week[2]) ? Number(week[2]) - 1 : weekdays.indexOf(week[2]);
     return addDays(startOfWeek(baseDate), day + (week[1] === "下周" ? 7 : 0));
   }
-  if (text === "周末" || text === "本周末" || text === "这周末" || text === "这个周末") {
+  if (thisWeekend.includes(text)) {
     return parseLocalDate(baseDate).getDay() === 0 ? baseDate : addDays(startOfWeek(baseDate), 5);
   }
-  if (text === "下周末" || text === "下个周末") return addDays(startOfWeek(baseDate), 12);
+  if (nextWeekend.includes(text)) return addDays(startOfWeek(baseDate), 12);
   const [year, month] = baseDate.split("-");
-  if (text === "月底" || text === "本月底" || text === "这个月底") return formatDate(new Date(Number(year), Number(month), 0));
-  const day = /^(?:([0-9一二三四五六七八九十]{1,3})月)?([0-9一二三四五六七八九十]{1,3})[日号]$/.exec(text);
+  if (monthEnd.includes(text)) return formatDate(new Date(Number(year), Number(month), 0));
+  const day = monthDay.exec(text);
   if (!day) return "";
   const withMonth = day[1] ? String(dateNumber(day[1])).padStart(2, "0") : month;
   const result = `${year}-${withMonth}-${String(dateNumber(day[2])).padStart(2, "0")}`;
