@@ -1,4 +1,4 @@
-import { projectHealthCheckins } from "../health/habits";
+import { isHealthHabitSource, projectHealthHabitProgress } from "../health/habits";
 import { isVaultPathExcluded } from "../../privacy";
 import type { HabitDatabase, StoreHost } from "../../store/settingsSlice";
 import type { HabitCheckin, HabitDefinition, HabitTarget } from "../../types";
@@ -36,11 +36,14 @@ function projectTradeCheckins(database: HabitDatabase, trades: readonly Trade[])
 }
 
 export async function automaticHabitProgress(store: StoreHost, database: HabitDatabase, respectPrivacy = false): Promise<{
-  checkins: HabitCheckin[]; unavailable: boolean;
+  checkins: HabitCheckin[]; unavailable: boolean; healthPartial?: boolean;
 }> {
-  const healthCheckins = (checkins: HabitCheckin[]) =>
-    projectHealthCheckins(store, { ...database, checkins }).catch(() => checkins);
-  if (!database.habits.some(habit => habit.source === "trades")) return { checkins: await healthCheckins(database.checkins), unavailable: false };
+  const withHealth = async (checkins: HabitCheckin[], unavailable: boolean) => {
+    const health = await projectHealthHabitProgress(store, { ...database, checkins }).catch(() =>
+      ({ checkins, partial: database.habits.some(habit => isHealthHabitSource(habit.source)) }));
+    return { checkins: health.checkins, unavailable, ...(health.partial ? { healthPartial: true } : {}) };
+  };
+  if (!database.habits.some(habit => habit.source === "trades")) return withHealth(database.checkins, false);
   try {
     const { readTradeDatabase, tradeDatabasePath } = await import("../trading/persistence");
     const excluded = store.settings.privacy?.excludedVaultPrefixes;
@@ -49,8 +52,8 @@ export async function automaticHabitProgress(store: StoreHost, database: HabitDa
     if (respectPrivacy && trades.some(trade => trade.source.kind === "backfill" && trade.source.ref && isVaultPathExcluded(trade.source.ref, excluded))) {
       throw new Error("部分交易原文已排除。");
     }
-    return { checkins: await healthCheckins(projectTradeCheckins(database, trades)), unavailable: false };
+    return withHealth(projectTradeCheckins(database, trades), false);
   } catch {
-    return { checkins: await healthCheckins(projectTradeCheckins(database, [])), unavailable: true };
+    return withHealth(projectTradeCheckins(database, []), true);
   }
 }

@@ -24,11 +24,14 @@ export function assertHealthHabitTarget(source: string | undefined, target: Habi
 }
 
 /** Derive a single daily value. Keep explicit check-ins, including leave, authoritative. */
-export async function projectHealthCheckins(store: StoreHost, database: HabitDatabase): Promise<HabitCheckin[]> {
+export async function projectHealthHabitProgress(store: StoreHost, database: HabitDatabase): Promise<{
+  checkins: HabitCheckin[];
+  partial: boolean;
+}> {
   const habits = database.habits.filter(habit => isHealthHabitSource(habit.source));
-  if (!habits.length) return database.checkins;
+  if (!habits.length) return { checkins: database.checkins, partial: false };
   const start = habits.map(habit => habit.startDate).sort()[0];
-  const { days } = await readHealthRange(store, start, todayString());
+  const { days, partial } = await readHealthRange(store, start, todayString());
   const checkins = database.checkins.slice();
   const existing = new Set(checkins.map(row => row.habitId + ":" + row.date));
   for (const habit of habits) {
@@ -41,5 +44,5 @@ export async function projectHealthCheckins(store: StoreHost, database: HabitDat
         ...(unit ? { value, valueUnit: unit } : {}), updatedAt: day.date + "T00:00:00.000Z", note: "由已核对的健康记录计算" });
     }
   }
-  return checkins;
+  return { checkins, partial };
 }

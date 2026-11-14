@@ -17,7 +17,7 @@ const { AgentRuntime } = await import("../src/agentRuntime");
 const { healthRows } = await import("../src/features/health/model");
 const { recordHealthEntries, readHealthDay, healthNotePath } = await import("../src/features/health/store");
 const { readStats } = await import("../src/features/stats/tools");
-const { projectHealthCheckins } = await import("../src/features/health/habits");
+const { projectHealthHabitProgress } = await import("../src/features/health/habits");
 const { readScreenshotImage } = await import("../src/features/screenshots/image");
 const { recognizeHealthScreenshot } = await import("../src/features/health/screenshot");
 const { getTodayCard } = await import("../src/features/today/service");
@@ -77,14 +77,18 @@ it("links opted-in habits to daily snapshots without stacking data or overriding
   const { checkins: actual } = await store.readHabitDb();
   const dashboard = await store.getTaskDashboard();
   expect(dashboard.habits.find(row => row.habit.id === habit.id)?.periodDone).toBe(3.4);
-  const projection = await projectHealthCheckins(store, await store.readHabitDb());
+  const { checkins: projection, partial } = await projectHealthHabitProgress(store, await store.readHabitDb());
+  expect(partial).toBe(false);
   expect(projection).toEqual([actual[0], expect.objectContaining({ date, habitId: habit.id, status: "done", value: 3.4 })]);
   expect((await store.readHabitDb()).checkins).toEqual(actual);
   store.settings.privacy = { excludedVaultPrefixes: [healthNotePath(store, date)] };
-  expect(await projectHealthCheckins(store, await store.readHabitDb())).toEqual(actual);
+  expect(await projectHealthHabitProgress(store, await store.readHabitDb())).toEqual({ checkins: actual, partial: true });
   const read = await readStats(store, { domain: "health", range: "today" }, new Date());
   expect(read.success).toBe(true);
   expect(JSON.parse(read.output)).toMatchObject({ recordedDays: 0, scope: "只统计允许读取的记录" });
+  const habitStats = await readStats(store, { domain: "habits", range: "today" }, new Date());
+  expect(habitStats.success).toBe(true);
+  expect(JSON.parse(habitStats.output)).toMatchObject({ scope: "只统计允许读取的记录" });
 });
 
 it("keeps field-looking lines entered as free text out of numerical records", async () => {

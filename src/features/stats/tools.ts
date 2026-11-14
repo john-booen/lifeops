@@ -57,6 +57,7 @@ export async function readStats(store: StoreHost, args: Record<string, unknown>,
       const result = await readContextHabits(store);
       if (!result.available) return { success: false, output: "习惯记录暂不可用，无法计算。", actions: [] };
       tradeGoalsUnavailable = result.tradeUnavailable === true;
+      partial = result.healthPartial === true;
       data.habits = tradeGoalsUnavailable ? result.database.habits.filter(habit => habit.source !== "trades") : result.database.habits;
       data.checkins = result.database.checkins;
     } else if (domain === "trades") {

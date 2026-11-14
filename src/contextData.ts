@@ -9,7 +9,7 @@ import { automaticHabitProgress } from "./features/habits/tradeProgress";
 
 export interface ContextDataSource { path: string; hash: string }
 export interface ContextTaskData { available: boolean; tasks: TaskDatabase["tasks"]; source?: ContextDataSource; reads?: ContextDataSource[]; missing?: string[]; filtered?: boolean }
-export interface ContextHabitData { available: boolean; database: HabitDatabase; source?: ContextDataSource; missing?: string[]; tradeUnavailable?: boolean }
+export interface ContextHabitData { available: boolean; database: HabitDatabase; source?: ContextDataSource; missing?: string[]; tradeUnavailable?: boolean; healthPartial?: boolean }
 export interface DashboardContextData { tasks: ContextTaskData; habits: ContextHabitData; policy: string }
 const dashboardSources = new WeakMap<TaskDashboardData, DashboardContextData>();
 const readOnlyDatabases = new WeakSet<HabitDatabase>();
@@ -19,6 +19,7 @@ export function bindDashboardContextData(dashboard: TaskDashboardData, data: Das
 export function dashboardContextData(dashboard: TaskDashboardData): DashboardContextData | undefined { return dashboardSources.get(dashboard); }
 export function contextDataPolicy(store: StoreHost): string {
   return JSON.stringify({ tasks: store.settings.folders.tasks, habits: store.settings.folders.habits, trades: store.settings.folders.tradingReviews,
+    health: store.settings.folders.health,
     excluded: store.settings.privacy?.excludedVaultPrefixes ?? [] });
 }
 const allowed = (store: StoreHost, path: string) => isContextSourcePath(path) && !isVaultPathExcluded(path, store.settings.privacy?.excludedVaultPrefixes);
@@ -66,5 +67,6 @@ export async function readContextHabits(store: StoreHost): Promise<ContextHabitD
   const progress = await automaticHabitProgress(store, database, true);
   if (contextDataPolicy(store) !== policy) throw new Error("当前记录权限变化，无法核对上下文。");
   return { available: true, source: file.source, database: habitProjection({ ...database, checkins: progress.checkins }),
-    ...(progress.unavailable ? { tradeUnavailable: true } : {}) };
+    ...(progress.unavailable ? { tradeUnavailable: true } : {}),
+    ...(progress.healthPartial ? { healthPartial: true } : {}) };
 }
