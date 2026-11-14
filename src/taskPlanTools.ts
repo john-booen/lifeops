@@ -29,7 +29,7 @@ export const TASK_PLAN_TOOL: LifeOpsToolDefinition = {
     projectId: { type: "string", description: "可省略；整份安排所属已有项目的精确ID，先query_projects取得。" }, tasks: { type: "array", minItems: 1, maxItems: 8,
     items: { type: "object", additionalProperties: false, properties: {
       title: { type: "string", description: "具体任务名称；用户给出名称时逐字保留。" },
-      date: { type: "string", description: "YYYY-MM-DD、今天或明天；预览时固定为实际日期。" },
+      date: { type: "string", description: "明确日期或中文相对日期，生成预览时固定到具体日期。" },
       time: { type: "string", pattern: "^(?:(?:[01]\\d|2[0-3]):[0-5]\\d)?$", description: "单个开始时间 HH:mm，可省略。" }, category: { type: "string", description: "任务分类，可省略。" }
     }, required: ["title"] } } }, required: ["tasks"] },
   prepareConfirmation: async (args, context, request) => {
@@ -44,7 +44,13 @@ export const TASK_PLAN_TOOL: LifeOpsToolDefinition = {
         const item = value as Record<string, unknown>;
         if (Object.keys(item).some(key => !["title", "date", "time", "category"].includes(key)) || typeof item.title !== "string"
           || !item.title.trim() || Object.values(item).some(value => typeof value !== "string")) throw Error("安排包含未支持的字段，请重新提出具体任务。");
-        return structuredClone(item) as Partial<ProjectJobArguments> & { title: string };
+        const task = structuredClone(item) as Partial<ProjectJobArguments> & { title: string };
+        if (task.date) {
+          const date = normalizeJournalDate(task.date);
+          if (!date) throw Error("草案包含无法识别的日期，请先核对。");
+          task.date = date;
+        }
+        return task;
       });
       if (args.capacityAware === true) await assertDraftCapacity(context.store, tasks);
       const action = await context.prepareTaskPlan(tasks, request.userMessage, request.operationId, typeof args.projectId === "string" ? args.projectId : undefined);

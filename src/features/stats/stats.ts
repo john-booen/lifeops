@@ -48,9 +48,9 @@ export function resolveStatsRange(range: StatsRange, now: Date): DayRange {
   if (!Number.isFinite(now.getTime())) throw Error("统计时间无效。");
   const today = formatDate(now);
   if (typeof range === "object" && range !== null) {
-    const { from, to } = range;
-    if (typeof from !== "string" || typeof to !== "string"
-      || normalizeJournalDate(from, today) !== from || normalizeJournalDate(to, today) !== to || !from || from > to) {
+    const from = typeof range.from === "string" ? normalizeJournalDate(range.from, today) : "";
+    const to = typeof range.to === "string" ? normalizeJournalDate(range.to, today) : "";
+    if (!from || !to || from > to) {
       throw Error("统计区间需要有效的起止日期，开始日期不能晚于结束日期。");
     }
     return { from, to };

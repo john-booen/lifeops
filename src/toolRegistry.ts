@@ -1216,17 +1216,6 @@ function toolArgString(args: Record<string, unknown>, key: string): string {
   return "";
 }
 
-function normalizeToolDate(value: string): string {
-  const text = value.trim();
-  if (!text) return "";
-  const today = todayString();
-  if (/今天/.test(text)) return today;
-  if (/明天/.test(text)) return addDays(today, 1);
-  if (/后天/.test(text)) return addDays(today, 2);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
-  return "";
-}
-
 function normalizeToolTime(value: string): string {
   const time = value.trim();
   if (!time) return "";

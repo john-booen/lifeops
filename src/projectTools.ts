@@ -8,7 +8,7 @@ import { continuityHash, projectEntrySourcePaths, projectTaskEvidence, projectTa
   type GoalInput, type ProjectInput, type ProjectCommand, type ProjectSnapshot } from "./projectContinuity";
 import type { AgentActionSuggestion, LifeOpsTaskInput } from "./types";
 import type { StoreHost } from "./store/settingsSlice";
-import { todayString } from "./date";
+import { normalizeJournalDate, todayString } from "./date";
 import { buildTaskFromInput } from "./vaultApi";
 import { parseProjectHistorySelection } from "./projectHistorySelection";
 
@@ -87,9 +87,11 @@ function taskInput(value: unknown): LifeOpsTaskInput {
   const raw = object(value); keys(raw, taskFields);
   const input = Object.fromEntries(Object.entries(raw).map(([field, value]) => [field, field === "repeatInterval" ? value : string(value)])) as unknown as LifeOpsTaskInput;
   if (!input.title) throw new Error("请填写任务名称。");
+  const today = todayString();
   for (const field of ["date", "endDate", "dueDate", "repeatUntil"] as const) if (input[field]) {
-    const date = new Date(`${input[field]}T12:00:00Z`);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(input[field]!) || !Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== input[field]) throw new Error("任务日期须为有效的年-月-日。");
+    const date = normalizeJournalDate(input[field]!, today);
+    if (!date) throw new Error("任务日期无效，请核对。");
+    input[field] = date;
   }
   for (const field of ["time", "dueTime"] as const) if (input[field] && !/^([01]\d|2[0-3]):[0-5]\d$/.test(input[field]!)) throw new Error("任务时间须为有效的时:分。");
   if (input.priority && !["high", "medium", "low", "none"].includes(input.priority) || input.quadrant && !["important-urgent", "important-not-urgent", "not-important-urgent", "not-important-not-urgent"].includes(input.quadrant)
@@ -97,17 +99,25 @@ function taskInput(value: unknown): LifeOpsTaskInput {
   const normalized = buildTaskFromInput(input, new Date(), () => "preview");
   return Object.fromEntries(taskFields.map(field => [field, normalized[field]])) as unknown as LifeOpsTaskInput;
 }
+function normalizeReviewDate(value: string): string {
+  const date = normalizeJournalDate(value);
+  if (!date) throw new Error("回顾日期无效，请核对。");
+  return date;
+}
+
 function normalizeCommand(value: unknown, store: StoreHost, snapshot: ProjectSnapshot): ProjectCommand {
   const raw = object(value), kind = string(raw.kind), id = exactRecordId(raw.id, true);
   if (kind === "save_goal") {
     keys(raw, ["kind", "id", "input"]); const previous = id ? visibleGoal(store, snapshot, id) : undefined;
     const input = patch<GoalInput>(raw.input, GOAL_FIELDS, previous);
+    if (input.reviewOn) input.reviewOn = normalizeReviewDate(input.reviewOn);
     if (!validGoalInput(input)) throw new Error("请填写目标名称，检查回顾日期；完成或取消须说明依据。");
     allowedPath(store, input.sourcePath, true); return { kind, ...(id ? { id } : {}), input };
   }
   if (kind === "save_project") {
     keys(raw, ["kind", "id", "input"]); const previous = id ? visibleProject(store, snapshot, id) : undefined;
     const input = patch<ProjectInput>(raw.input, PROJECT_FIELDS, previous);
+    if (input.reviewOn) input.reviewOn = normalizeReviewDate(input.reviewOn);
     if (!validProjectInput(input)) throw new Error("请填写项目名称并选择已有目标，检查回顾日期；完成或取消须说明依据。");
     visibleGoal(store, snapshot, input.goalId); allowedPath(store, input.nextStepSourcePath); return { kind, ...(id ? { id } : {}), input };
   }

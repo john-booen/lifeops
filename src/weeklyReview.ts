@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { todayString } from "./date";
+import { normalizeJournalDate, todayString } from "./date";
 import { safeProjectPath } from "./projectContinuity";
 import { isVaultPathExcluded } from "./privacy";
 import { personalMemoryReadSnapshot } from "./personalMemory";
@@ -31,9 +31,14 @@ const readMemories = async (store: StoreHost) => (await import("./personalMemory
 function object(value: unknown): Record<string, unknown> { if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("请提供选定日期、原文和可核对的回顾内容。"); return value as Record<string, unknown>; }
 function keys(value: Record<string, unknown>, allowed: string[]) { if (Object.keys(value).some(key => !allowed.includes(key))) throw new Error("周回顾包含不支持的字段，请重新核对。"); }
 function text(value: unknown, max: number): string { if (typeof value !== "string" || !value.trim() || value.trim().length > max) throw new Error("回顾文字为空或过长，请缩小范围。"); return value.trim(); }
-function date(value: unknown): string { const s = text(value, 10), d = new Date(`${s}T00:00:00Z`); if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || !Number.isFinite(d.getTime()) || d.toISOString().slice(0, 10) !== s) throw new Error("请选择有效的开始和结束日期。"); return s; }
+function date(value: unknown, baseDate: string): string {
+  const day = typeof value === "string" ? normalizeJournalDate(value, baseDate) : "";
+  if (!day) throw Error("请选择有效的开始和结束日期。");
+  return day;
+}
 export function weeklyReviewDates(start: unknown, end: unknown): { startDate: string; endDate: string } {
-  const startDate = date(start), endDate = date(end), days = (Date.parse(endDate) - Date.parse(startDate)) / 86400000;
+  const today = todayString();
+  const startDate = date(start, today), endDate = date(end, today), days = (Date.parse(endDate) - Date.parse(startDate)) / 86400000;
   if (days < 0 || days > 6) throw new Error("每次周回顾选择一至七天，不会拼接日期冒充长期观察。");
   return { startDate, endDate };
 }
@@ -65,7 +70,7 @@ export function matchesSelectedWeeklyReviewRead(request: SelectedWeeklyReviewReq
 }
 export function weeklyReviewDocumentDate(path: string): string | undefined {
   const value = /^(\d{4}-\d{2}-\d{2})(?:早|晚)?\.md$/.exec(path.split("/").at(-1) ?? "")?.[1];
-  if (!value) return undefined; try { return date(value); } catch { return undefined; }
+  if (!value) return undefined; try { return date(value, todayString()); } catch { return undefined; }
 }
 export function allowedWeeklyReviewSource(store: StoreHost, path: string): boolean {
   const root = store.settings.folders.aiReports;
