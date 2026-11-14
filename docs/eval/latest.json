@@ -1,5 +1,5 @@
 {
-  "version": "0.5.10",
+  "version": "0.5.16",
   "date": "2026-11-14",
   "passRate": 1,
   "questionIds": [
@@ -53,7 +53,10 @@
     "short-correction-45",
     "finished-correction-46",
     "voice-count-period-correction-48",
-    "voice-named-reminder-51"
+    "voice-named-reminder-51",
+    "today-due-and-overdue-52",
+    "voice-planned-finish-53",
+    "text-planned-finish-54"
   ],
   "passedIds": [
     "today-unfinished-01",
@@ -106,6 +109,9 @@
     "short-correction-45",
     "finished-correction-46",
     "voice-count-period-correction-48",
-    "voice-named-reminder-51"
+    "voice-named-reminder-51",
+    "today-due-and-overdue-52",
+    "voice-planned-finish-53",
+    "text-planned-finish-54"
   ]
 }
