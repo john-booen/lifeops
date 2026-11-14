@@ -474,6 +474,27 @@ describe("ordinary voice and text mode cycles", () => {
     expect(transport.sockets).toHaveLength(1);
   });
 
+  it("releases ownership and lets the next start proceed even when transport disposal fails", async () => {
+    const capture = captureFixture();
+    capture.connects.mockRejectedValueOnce(Error("虚构启动错误"));
+    const close = vi.spyOn(BailianRealtimeClient.prototype, "close").mockImplementationOnce(() => { throw Error("虚构底层关闭错误"); });
+    view.agentMode = "voice";
+    view.agentVoiceConversation = true;
+    await startBailianRealtimeRecording(view);
+    expect(close).toHaveBeenCalledOnce();
+    expect(capture.tracks[0].readyState).toBe("ended");
+    expect(view.agentRealtimeClient).toBeNull();
+    expect(view.agentVoiceRuntime.snapshot().sessionPhase).toBe("stopped");
+    expect(view.agentRecording).toBe(false);
+    expect(view.agentReply).toContain("虚构启动错误");
+
+    await view.ensureVoiceStandby();
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(getUserMedia).toHaveBeenCalledTimes(2);
+    expect(view.agentVoiceReady).toBe(true);
+    expect(capture.tracks[1].readyState).toBe("live");
+  });
+
   it("retries a failed original voice selection once while keeping busy, pending and active capture protected", async () => {
     const capture = captureFixture(), [voice, text] = modeButtons();
     vi.spyOn(plugin, "buildVoiceSessionContextBlock").mockResolvedValue("纯虚构重试上下文");

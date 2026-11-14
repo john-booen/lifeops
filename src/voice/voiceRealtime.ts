@@ -341,8 +341,7 @@ export async function startBailianRealtimeRecording(view: VoiceRealtimeView): Pr
     view.clearVoiceWarmupTimer();
     view.agentVoiceReady = false;
     cleanupRealtimeAudio(view);
-    view.agentRealtimeClient?.close?.();
-    view.agentRealtimeClient = null;
+    retireRealtimeClient(view);
     view.agentRecording = false;
     const message = error instanceof Error ? error.message : "百炼实时语音启动失败";
     const reconnect = !(error instanceof Error && error.name === "RealtimeConnectionContextError")
