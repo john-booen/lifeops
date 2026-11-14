@@ -28,7 +28,12 @@ export class PhoneInboxModal extends Modal {
       await this.app.workspace.openLinkText(PHONE_INBOX_PATH, "", true);
       this.close();
     }, false);
-    this.button(host, "检查新记录", () => this.inbox.scan(true));
+    const status = host.createEl("p", { attr: { role: "status" } });
+    this.button(host, "检查新记录", async () => {
+      status.setText("正在检查新记录…");
+      try { await this.inbox.scan(true); }
+      finally { status.setText(""); }
+    });
     try {
       const rows = await this.inbox.list();
       if (generation !== this.generation) return;
@@ -57,8 +62,9 @@ export class PhoneInboxModal extends Modal {
 
   private button(host: HTMLElement, text: string, action: () => Promise<void>, refresh = true): void {
     const button = host.createEl("button", { text, attr: { type: "button" } });
+    const generation = this.generation;
     button.onclick = async () => {
-      const generation = this.generation;
+      if (generation !== this.generation || button.disabled) return;
       button.disabled = true;
       try {
         await action();
