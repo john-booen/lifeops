@@ -9,6 +9,6 @@ export function migrateRealtimeVoiceSettings(settings: RealtimeVoiceSettings): R
     if (typeof value === "string") breeze[key] = value;
   }
   return { ...settings, mode: "cascade", vadSilenceMs: voiceVadSilenceMs(settings.vadSilenceMs), breeze,
-    asrEngine: settings.asrEngine === "streaming-hotwords" ? settings.asrEngine : "realtime",
+    asrEngine: settings.asrEngine === "streaming-hotwords" || settings.asrEngine === "realtime-only" ? settings.asrEngine : "realtime",
     asrHotwords: asrHotwords(settings.asrHotwords).join("\n") };
 }

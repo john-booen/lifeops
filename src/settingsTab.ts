@@ -351,7 +351,7 @@ export class LifeOpsSettingTab extends PluginSettingTab {
     containerEl.createEl("h3", { text: "实时语音对话", attr: { "data-lifeops-settings": "voice", tabindex: "-1" } });
     new Setting(containerEl)
       .setName("允许音频和 TTS 文本发送给 Realtime Provider")
-      .setDesc(`当前 Provider：${this.plugin.settings.realtimeVoice.provider}。会发送麦克风音频；启用云端朗读时还会发送回复文本；选择热词识别时也会把下方词表发给百炼。更换服务或识别方式后需重新确认。`)
+      .setDesc(`当前 Provider：${this.plugin.settings.realtimeVoice.provider}。会发送麦克风音频，启用云端朗读时还会发送回复文本。使用热词识别时，会向百炼发送手填热词、习惯名、近七天任务关键词和交易品种。更换服务或识别方式后需重新确认。`)
       .addToggle((toggle) => {
         toggle.setValue(this.plugin.settings.realtimeVoice.dataDisclosureAccepted === true).onChange(async (value) => {
           this.plugin.settings.realtimeVoice.dataDisclosureAccepted = value;
@@ -382,20 +382,21 @@ export class LifeOpsSettingTab extends PluginSettingTab {
     const voiceSettings = this.plugin.settings.realtimeVoice;
     if (voiceSettings.provider === "qwen-omni-realtime" && (voiceSettings.mode ?? "cascade") === "cascade") {
       new Setting(containerEl).setName("语音识别方式")
-        .setDesc("如果常听错专用词，可以试用百炼热词识别。切回默认即可恢复原来的识别。")
+        .setDesc("自动模式在支持即时热词的百炼地址优先使用热词识别。也可单独选择百炼实时识别。")
         .addDropdown(dropdown => dropdown
-          .addOption("realtime", "百炼实时识别（默认）")
-          .addOption("streaming-hotwords", "百炼热词识别（试用）")
+          .addOption("realtime", "自动识别（默认）")
+          .addOption("streaming-hotwords", "百炼热词识别")
+          .addOption("realtime-only", "百炼实时识别")
           .setValue(voiceSettings.asrEngine ?? "realtime")
           .onChange(async value => {
-            voiceSettings.asrEngine = value === "streaming-hotwords" ? value : "realtime";
+            voiceSettings.asrEngine = value === "streaming-hotwords" || value === "realtime-only" ? value : "realtime";
             voiceSettings.dataDisclosureAccepted = false;
             await this.plugin.saveSettings();
             this.display();
           }));
-      if (voiceSettings.asrEngine === "streaming-hotwords") {
+      if (voiceSettings.asrEngine !== "realtime-only") {
         new Setting(containerEl).setName("语音热词")
-          .setDesc("输入容易听错的词，换行或用逗号分开，最多 50 个。只填愿意发送给百炼的词。")
+          .setDesc("填写愿意发给百炼的词，按换行或逗号分隔。会和习惯名、近七天任务关键词、交易品种一起去重，最多 50 个。")
           .addTextArea(field => {
             field.inputEl.maxLength = 8000;
             field.setValue(voiceSettings.asrHotwords ?? "").onChange(async value => {

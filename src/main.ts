@@ -804,6 +804,11 @@ export default class LifeOpsPlugin extends Plugin {
     return (await buildResidentContext(this.store as unknown as StoreHost, "", new Date())).text;
   }
 
+  async collectVoiceSessionHotwords(configured: string | undefined): Promise<string[]> {
+    const { collectSessionHotwords } = await import("./voice/sessionHotwords");
+    return collectSessionHotwords(this.store as unknown as StoreHost, configured);
+  }
+
   async buildVoiceSessionContextBlock(): Promise<string> {
     return (await buildResidentContext(this.store as unknown as StoreHost, "", new Date(), "voice")).text;
   }

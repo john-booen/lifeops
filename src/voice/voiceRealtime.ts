@@ -4,6 +4,8 @@ import { randomUUID } from "node:crypto";
 import { realtimeProviderError, type RealtimeProviderRunEvent } from "./realtimeProviderRun";
 import { JOURNAL_INSTRUCTIONS } from "../journalInstructions";
 import { realtimeVoiceReadiness } from "../capabilityReadiness";
+import { asrHotwords } from "./realtimeAsrOptions";
+import { canUseStreamingHotwords } from "./sessionHotwords";
 import { Notice } from "obsidian";
 import {createOutputSliceYield,createOutputSliceBudget} from "./outputSliceYield";
 import {
@@ -284,7 +286,20 @@ export async function startBailianRealtimeRecording(view: VoiceRealtimeView): Pr
     if (!startIsCurrent()) { stream.getTracks().forEach(track => track.stop()); return; }
     const providerRuntime: VoiceSessionController | undefined = view.agentVoiceRuntime;
     const cascadeEndpoint = isOmniE2eRealtimeMode(realtimeVoice) ? undefined : new ServerVoiceEndpoint();
-    const client: BailianRealtimeClient = new BailianRealtimeClient(realtimeVoice, { ...guardRealtimeCallbacks({
+    const automaticHotwords = !!cascadeEndpoint && (realtimeVoice.asrEngine ?? "realtime") === "realtime"
+      && canUseStreamingHotwords(realtimeVoice.endpoint);
+    const words = cascadeEndpoint && (automaticHotwords || realtimeVoice.asrEngine === "streaming-hotwords")
+      ? await (view.controller.collectVoiceSessionHotwords?.(realtimeVoice.asrHotwords) ?? Promise.resolve(asrHotwords(realtimeVoice.asrHotwords)))
+        .catch(() => asrHotwords(realtimeVoice.asrHotwords))
+      : [];
+    if (!startIsCurrent() || view.controller.settings.realtimeVoice !== realtimeVoice) {
+      stream.getTracks().forEach(track => track.stop());
+      return;
+    }
+    const useHotwords = automaticHotwords && words.length > 0 || realtimeVoice.asrEngine === "streaming-hotwords";
+    const asr = useHotwords ? { ...realtimeVoice, asrEngine: "streaming-hotwords" as const, asrHotwords: words.join("\n") } : realtimeVoice;
+    const createClient = (voice: RealtimeVoiceSettings): BailianRealtimeClient => {
+      const connection: BailianRealtimeClient = new BailianRealtimeClient(voice, { ...guardRealtimeCallbacks({
       onCascadeCapture: event => { if (cascadeEndpoint) handleCascadeCapture(view, cascadeEndpoint, event); },
       onOpen: () => {
         view.agentReply = "百炼实时语音已连接，正在预热；等提示变成“语音常驻监听中”再开始说。";
@@ -370,7 +385,7 @@ export async function startBailianRealtimeRecording(view: VoiceRealtimeView): Pr
         }
         new Notice(view.agentReply);
       }
-    }, () => startIsCurrent() && view.agentRealtimeClient === client),
+    }, () => startIsCurrent() && view.agentRealtimeClient === connection),
       onProviderRun: event => recordVoiceProviderRun(view, providerRuntime, event)
     }, {
       mode: realtimeVoice.mode ?? "cascade",
@@ -382,7 +397,10 @@ export async function startBailianRealtimeRecording(view: VoiceRealtimeView): Pr
         return snapshot ? { sessionId: snapshot.sessionId, generation: snapshot.generation,
           ...(snapshot.currentTurn ? { turnId: snapshot.currentTurn.turnId } : {}) } : undefined;
       }
-    });
+      });
+      return connection;
+    };
+    let client = createClient(asr);
     view.agentRealtimeClient = client;
     view.agentRecording = true;
     view.agentReply = "麦克风已接入，正在连接百炼实时语音...";
@@ -390,9 +408,17 @@ export async function startBailianRealtimeRecording(view: VoiceRealtimeView): Pr
     try {
       await client.connect();
     } catch (error) {
-      if (!(error instanceof BailianConnectionTimeoutError) || isOmniE2eRealtimeMode(realtimeVoice)
-        || view.agentVoiceReconnectAttempts || !startIsCurrent() || view.agentRealtimeClient !== client) throw error;
-      view.agentReply = "语音连接超时，正在重试…";
+      if (!startIsCurrent() || view.agentRealtimeClient !== client) throw error;
+      if (automaticHotwords && useHotwords) {
+        client.close();
+        client = createClient(realtimeVoice);
+        view.agentRealtimeClient = client;
+        view.agentReply = "热词识别暂时连不上，正在连接百炼实时识别…";
+      } else {
+        if (!(error instanceof BailianConnectionTimeoutError) || isOmniE2eRealtimeMode(realtimeVoice)
+          || view.agentVoiceReconnectAttempts) throw error;
+        view.agentReply = "语音连接超时，正在重试…";
+      }
       view.refreshAgentSurfaceState();
       await client.connect();
     }

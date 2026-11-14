@@ -237,6 +237,36 @@ describe("ordinary voice and text mode cycles", () => {
     expect(getUserMedia).toHaveBeenCalledOnce(); expect(transport.socket).not.toHaveBeenCalled();
   });
 
+  it("collects hotwords from local records, prefers manually entered terms and uses the hotword engine", async () => {
+    const capture = captureFixture();
+    const today = new Date().toLocaleDateString("sv-SE");
+    await plugin.store.createHabit({ name: "虚构纸牌训练", frequencyUnit: "day", frequencyInterval: 1, targetCount: 1, startDate: today });
+    await plugin.store.createTask({ title: "整理 EVALBOX 目录", date: today });
+    plugin.settings.realtimeVoice.asrHotwords = "虚构手填词";
+    view.agentMode = "voice";
+    await startBailianRealtimeRecording(view);
+    const client = capture.connects.mock.contexts[0] as unknown as { settings: LifeOpsSettings["realtimeVoice"] };
+    expect(client.settings.asrEngine).toBe("streaming-hotwords");
+    const words = client.settings.asrHotwords!.split("\n");
+    expect(words[0]).toBe("虚构手填词");
+    expect(words).toEqual(expect.arrayContaining(["虚构纸牌训练", "EVALBOX"]));
+    expect(plugin.settings.realtimeVoice.asrHotwords).toBe("虚构手填词");
+    expect(getUserMedia).toHaveBeenCalledOnce();
+  });
+
+  it("falls back from automatic hotwords on connection failure without reopening the microphone", async () => {
+    const capture = captureFixture();
+    plugin.settings.realtimeVoice.asrHotwords = "虚构手填词";
+    capture.connects.mockRejectedValueOnce(new Error("synthetic hotword connection error"));
+    view.agentMode = "voice";
+    await startBailianRealtimeRecording(view);
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(capture.connects).toHaveBeenCalledTimes(2);
+    expect(capture.connects.mock.contexts[1]).not.toBe(capture.connects.mock.contexts[0]);
+    expect(view.agentVoiceReady).toBe(true);
+    expect(getUserMedia).toHaveBeenCalledOnce();
+  });
+
   it.each([true, false])("retries a cascade startup timeout once on the same microphone (recovers: %s)", async recovers => {
     const capture = captureFixture();
     Object.assign(plugin.settings.realtimeVoice, { provider: "qwen-omni-realtime", mode: "cascade" });
@@ -258,7 +288,7 @@ describe("ordinary voice and text mode cycles", () => {
   it.each([true, false])("runs the real client through a first socket timeout (recovers: %s)", async recovers => {
     const capture = captureFixture(false);
     transport.flags.allowFakeSockets = true;
-    Object.assign(plugin.settings.realtimeVoice, { provider: "qwen-omni-realtime", mode: "cascade" });
+    Object.assign(plugin.settings.realtimeVoice, { provider: "qwen-omni-realtime", mode: "cascade", asrEngine: "realtime-only" });
     view.agentMode = "voice";
     view.agentVoiceConversation = true;
     const update = vi.spyOn(view, "updateRealtimeTranscript");
@@ -320,7 +350,7 @@ describe("ordinary voice and text mode cycles", () => {
   it("stops once and prompts for a restart when the open socket never acknowledges its session", async () => {
     const capture = captureFixture(false);
     transport.flags.allowFakeSockets = true;
-    Object.assign(plugin.settings.realtimeVoice, { provider: "qwen-omni-realtime", mode: "cascade" });
+    Object.assign(plugin.settings.realtimeVoice, { provider: "qwen-omni-realtime", mode: "cascade", asrEngine: "realtime-only" });
     view.agentMode = "voice";
     view.agentVoiceConversation = true;
     const starting = startBailianRealtimeRecording(view);
@@ -391,6 +421,7 @@ describe("ordinary voice and text mode cycles", () => {
 
   it("preserves scheduled recovery and settles after the existing reconnect limit", async () => {
     const capture = captureFixture(); capture.connects.mockRejectedValue(new Error("synthetic reconnect failed"));
+    plugin.settings.realtimeVoice.asrEngine = "realtime-only";
     vi.spyOn(plugin, "buildVoiceSessionContextBlock").mockResolvedValue("纯虚构重连上下文");
     view.agentMode = "voice"; view.agentVoiceConversation = true; view.agentVoiceReconnectAttempts = 1;
     await startBailianRealtimeRecording(view);

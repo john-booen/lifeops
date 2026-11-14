@@ -268,7 +268,7 @@ export interface BreezeLocalSettings {
 export interface RealtimeVoiceSettings {
   provider: "off" | "browser-live" | "qwen-omni-realtime";
   mode: "cascade" | "omni-e2e";
-  asrEngine?: "realtime" | "streaming-hotwords";
+  asrEngine?: "realtime" | "streaming-hotwords" | "realtime-only";
   asrHotwords?: string;
   vadSilenceMs?: number;
   endpoint: string;

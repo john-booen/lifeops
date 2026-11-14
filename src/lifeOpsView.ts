@@ -175,6 +175,7 @@ export interface LifeOpsViewController extends StewardRecordsController {
   appendAgentConversation?(userMessage: string, assistantReply: string, isCurrent?: () => boolean): Promise<void>;
   buildAgentInjectedContextBlock?(): Promise<string>;
   buildVoiceSessionContextBlock?(): Promise<string>;
+  collectVoiceSessionHotwords?(configured: string | undefined): Promise<string[]>;
   executeAgentToolCall(toolCall: AiToolCall, userMessage?: string): Promise<AgentResponse>;
   executeAgentAction(action: AgentActionSuggestion): Promise<void | string>;
   appendAgentActionReceipt?(title: string, receipt: string): Promise<boolean>;
