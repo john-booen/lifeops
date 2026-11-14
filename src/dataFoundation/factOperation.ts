@@ -3,7 +3,7 @@ import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import type { App, TFile, Vault } from "obsidian";
 import type { StoreHost } from "../store/settingsSlice";
-import { compactRevertedUndo, OperationLedger, operationFingerprint, type OperationUndoDescriptor, type OperationLedgerDocument, type OperationLedgerRecord } from "./operationLedger";
+import { OperationLedger, operationFingerprint, type OperationUndoDescriptor, type OperationLedgerDocument, type OperationLedgerRecord } from "./operationLedger";
 import { jsonDataContract, parseJsonData, serializeJsonData } from "./jsonDataGuard";
 import { assertSafeOperationId, fileRevision } from "../operationIdentity";
 import { decodeFactRecovery, encodeFactRecovery, MAX_RECOVERY_BYTES, RecoveryCapacityError } from "./recoveryEncoding";
@@ -485,17 +485,12 @@ async function runFactOperationOnce<T>(
       }
     }
     if (canCompactLedger) {
-      const path = new OperationLedger(store).filePath;
-      const raw = await readRaw(store, path);
-      if (raw !== null) {
-        const contract = jsonDataContract(path, store.settings.folders);
-        const compacted = compactRevertedUndo(raw, parseJsonData(raw, path, contract) as OperationLedgerDocument);
-        if (compacted) {
-          // This changes only finished undo data. A pending recovery must keep its exact ledger bytes.
-          activeWrites.set(store.app.vault, { ...identity });
-          await replaceRaw(store, path, raw, serializeJsonData(compacted, { compact: true }), undefined, options.assertCurrent);
-        }
-      }
+      const ledger = new OperationLedger(store);
+      await ledger.compactRevertedSnapshots(() => readRaw(store, ledger.filePath), async (raw, compacted) => {
+        // This changes only finished undo data. A pending recovery must keep its exact ledger bytes.
+        activeWrites.set(store.app.vault, { ...identity });
+        await replaceRaw(store, ledger.filePath, raw, serializeJsonData(compacted, { compact: true }), undefined, options.assertCurrent);
+      });
     }
     const document: RecoveryDocument = { version: 1, ...identity, status: "pending", entries: [] };
     if (identity.undoToolOperationId) {

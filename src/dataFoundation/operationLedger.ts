@@ -260,6 +260,24 @@ export class OperationLedger {
     return { reverted, verified };
   }
 
+  async compactRevertedSnapshots(
+    readRaw: () => Promise<string | null>,
+    replace: (expected: string, next: OperationLedgerDocument) => Promise<void>
+  ): Promise<void> {
+    await this.withLock(async () => {
+      const raw = await readRaw();
+      if (raw === null || Buffer.byteLength(raw, "utf8") <= REVERTED_UNDO_ARCHIVE_THRESHOLD) return;
+      let document: OperationLedgerDocument;
+      try { document = JSON.parse(raw) as OperationLedgerDocument; }
+      catch { throw Error("操作历史格式无法安全读取。"); }
+      if (document?.version !== 1 || !Array.isArray(document.records) || Object.hasOwn(document, "schemaVersion")) {
+        throw Error("操作历史格式无法安全读取。");
+      }
+      const next = compactRevertedUndo(document);
+      if (next) await replace(raw, next);
+    });
+  }
+
   async revert(
     operationId: string,
     executeUndo: (descriptor: OperationUndoDescriptor, plannedLedger: OperationLedgerDocument) => Promise<void>,
@@ -361,10 +379,9 @@ export class OperationLedger {
 
 function operationIdHash(operationId: string): string { return createHash("sha256").update(operationId, "utf8").digest("hex"); }
 
-export function compactRevertedUndo(raw: string, document: OperationLedgerDocument): OperationLedgerDocument | undefined {
+function compactRevertedUndo(document: OperationLedgerDocument): OperationLedgerDocument | undefined {
   // Existing WAL replay must continue to apply its frozen transition to its
   // exact saved base. Compact only outside ledger-revert-v1 planning.
-  if (Buffer.byteLength(raw, "utf8") <= REVERTED_UNDO_ARCHIVE_THRESHOLD) return;
   const records = document.records.map(archiveRevertedUndo);
   if (records.some((record, index) => record !== document.records[index])) return { ...document, records };
 }
