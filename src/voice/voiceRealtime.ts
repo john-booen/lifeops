@@ -851,7 +851,7 @@ export async function startPcmAudioCapture(view: VoiceRealtimeView, client: Bail
   sink.gain.value = 0;
   processor.onaudioprocess = (event) => {
     const input = event.inputBuffer.getChannelData(0);
-    if (!canSendRealtimeAudio(view, client)) return;
+    if (!isCurrent() || view.agentAudioProcessor !== processor || !canSendRealtimeAudio(view, client)) return;
     observeLocalVoiceEnergy(view, input);
     const pcm = floatTo16kPcm(input, audioContext.sampleRate);
     if (pcm.byteLength > 0) {
@@ -873,24 +873,24 @@ export async function startAudioWorkletCapture(
   isCurrent: () => boolean = () => true
 ): Promise<boolean> {
   if (!audioContext.audioWorklet || typeof AudioWorkletNode === "undefined") return false;
+  let moduleUrl: string | undefined;
+  let node: AudioWorkletNode | undefined;
+  let sink: GainNode | undefined;
   try {
     const batch40ms = view.controller.settings.realtimeVoice.provider === "qwen-omni-realtime"
       && [16_000, 44_100, 48_000].includes(audioContext.sampleRate);
-    view.agentAudioWorkletUrl = URL.createObjectURL(new Blob([lifeOpsAudioWorkletSource(batch40ms)], { type: "text/javascript" }));
-    await audioContext.audioWorklet.addModule(view.agentAudioWorkletUrl);
+    moduleUrl = URL.createObjectURL(new Blob([lifeOpsAudioWorkletSource(batch40ms)], { type: "text/javascript" }));
+    await audioContext.audioWorklet.addModule(moduleUrl);
     if (!isCurrent()) return false;
-    const node = new AudioWorkletNode(audioContext, "lifeops-pcm-capture");
-    const sink = audioContext.createGain();
+    node = new AudioWorkletNode(audioContext, "lifeops-pcm-capture");
+    sink = audioContext.createGain();
     sink.gain.value = 0;
     node.port.onmessage = (event: MessageEvent<Float32Array>) => {
-      if (!canSendRealtimeAudio(view, client)) return;
-      if (batch40ms && (!isCurrent() || view.agentAudioWorklet !== node)) return;
+      if (!isCurrent() || view.agentAudioWorklet !== node || !canSendRealtimeAudio(view, client)) return;
       const input = event.data;
       observeLocalVoiceEnergy(view, input);
       const pcm = floatTo16kPcm(input, audioContext.sampleRate);
-      if (pcm.byteLength > 0) {
-        client.appendPcm16(pcm16ToBase64(pcm));
-      }
+      if (pcm.byteLength > 0) client.appendPcm16(pcm16ToBase64(pcm));
     };
     source.connect(node);
     node.connect(sink);
@@ -898,8 +898,14 @@ export async function startAudioWorkletCapture(
     view.agentAudioWorklet = node;
     return true;
   } catch {
-    if (isCurrent()) cleanupAudioWorkletCapture(view);
+    if (node) {
+      node.port.onmessage = null;
+      node.disconnect();
+    }
+    sink?.disconnect();
     return false;
+  } finally {
+    if (moduleUrl) URL.revokeObjectURL(moduleUrl);
   }
 }
 
@@ -983,10 +989,6 @@ export function cleanupAudioWorkletCapture(view: VoiceRealtimeView): void {
     view.agentAudioWorklet.disconnect();
   }
   view.agentAudioWorklet = null;
-  if (view.agentAudioWorkletUrl) {
-    URL.revokeObjectURL(view.agentAudioWorkletUrl);
-    view.agentAudioWorkletUrl = "";
-  }
 }
 
 export function floatTo16kPcm(input: Float32Array, inputSampleRate: number): Int16Array {

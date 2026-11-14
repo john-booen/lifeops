@@ -272,7 +272,6 @@ describe("voice integration flow", () => {
       agentAudioSource: source,
       agentAudioContext: { close },
       agentAudioWorklet: null,
-      agentAudioWorkletUrl: "",
       cleanupAgentMedia
     } as any;
 
@@ -2529,7 +2528,6 @@ describe("voice integration flow", () => {
       agentAudioSource: null,
       agentAudioContext: null,
       agentAudioWorklet: null,
-      agentAudioWorkletUrl: "",
       agentVoiceLocalSpeechActive: false,
       agentVoiceLocalSpeechStartedAt: 0,
       agentVoiceLocalLastSpeechAt: 0,

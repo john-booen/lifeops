@@ -138,7 +138,7 @@ async function capture(rate: number, omni = true, provider = "qwen-omni-realtime
   const view: any = {
     controller: { settings: { realtimeVoice: { provider, mode: omni ? "omni-e2e" : "cascade" } } },
     agentVoiceReady: true, agentRecording: true, agentRealtimeClient: client,
-    agentMode: "voice", agentAudioWorklet: null, agentAudioWorkletUrl: "",
+    agentMode: "voice", agentAudioWorklet: null,
     agentVoiceLocalSpeechActive: true, clearVoiceLocalEndpointTimer: vi.fn()
   };
   const context: any = {
@@ -218,6 +218,39 @@ it.each([true, false])("rejects stopped, replaced and expired-generation Qwen ca
   expect(client.appendPcm16).toHaveBeenCalledOnce();
 });
 
+it.each([["off", 48_000], ["qwen-omni-realtime", 96_000]] as const)("rejects an old unbatched callback from %s at %i Hz", async (provider, rate) => {
+  const { client, context, source, view, node } = await capture(rate, false, provider);
+  const oldHandler = node.port.onmessage!;
+  cleanupAudioWorkletCapture(view);
+  expect(await startAudioWorkletCapture(view, context, source, client as any)).toBe(true);
+  const current = view.agentAudioWorklet as FakeNode;
+  const event = { data: new Float32Array(128).fill(0.25) } as MessageEvent<Float32Array>;
+  oldHandler(event);
+  expect(client.appendPcm16).not.toHaveBeenCalled();
+  current.port.onmessage!(event);
+  expect(client.appendPcm16).toHaveBeenCalledOnce();
+});
+
+it("releases each module URL when an older capture expires while its module is loading", async () => {
+  const { client, context, source, view } = await capture(48_000);
+  const original = view.agentAudioWorklet;
+  let finishOld: () => void = () => {};
+  const pending = new Promise<void>(resolve => { finishOld = resolve; });
+  context.audioWorklet.addModule.mockImplementationOnce(() => pending);
+  let oldCurrent = true;
+  const startOld = startAudioWorkletCapture(view, context, source, client as any, () => oldCurrent);
+  expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1);
+  oldCurrent = false;
+  expect(await startAudioWorkletCapture(view, context, source, client as any)).toBe(true);
+  const replacement = view.agentAudioWorklet;
+  expect(replacement).not.toBe(original);
+  finishOld();
+  expect(await startOld).toBe(false);
+  expect(view.agentAudioWorklet).toBe(replacement);
+  expect(URL.revokeObjectURL).toHaveBeenNthCalledWith(2, "blob:owned-capture-2");
+  expect(URL.revokeObjectURL).toHaveBeenNthCalledWith(3, "blob:owned-capture-1");
+});
+
 function captureFactory(omni = true, firstError?: Error | DOMException | (Error | DOMException | undefined)[], provider = "qwen-omni-realtime") {
   const attempts: unknown[][] = [], contexts: any[] = [];
   class Factory {
@@ -242,7 +275,7 @@ function captureFactory(omni = true, firstError?: Error | DOMException | (Error 
   const client = { appendPcm16: vi.fn() }, view: any = {
     controller: { settings: { realtimeVoice: { provider, mode: omni ? "omni-e2e" : "cascade" } } },
     agentStream: {}, agentVoiceReady: true, agentRecording: true, agentRealtimeClient: client,
-    agentMode: "voice", agentAudioWorklet: null, agentAudioWorkletUrl: "",
+    agentMode: "voice", agentAudioWorklet: null,
     agentVoiceLocalSpeechActive: true, clearVoiceLocalEndpointTimer: vi.fn(), setVoiceCaptureMode: vi.fn()
   };
   return { attempts, contexts, client, view, Factory };

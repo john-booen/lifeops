@@ -244,7 +244,6 @@ export class LifeOpsView extends ItemView {
   private agentAudioSource: MediaStreamAudioSourceNode | null = null;
   private agentAudioProcessor: ScriptProcessorNode | null = null;
   private agentAudioWorklet: AudioWorkletNode | null = null;
-  private agentAudioWorkletUrl = "";
   private agentInputEl: HTMLTextAreaElement | null = null;
   private agentSpeechRecognition: SpeechRecognitionLike | null = null;
   private agentTtsClient: BailianRealtimeTtsClient | null = null;
