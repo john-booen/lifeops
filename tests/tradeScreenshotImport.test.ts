@@ -103,6 +103,20 @@ it("detects a reimport of the same date-only trade after the computer time zone 
   expect(previewTradeScreenshot([input], "b".repeat(64), [prior]).rows[0]?.kind).toBe("ready");
 });
 
+it.each([
+  ["a-share", "CNY", "+08:00", "Asia/Shanghai"],
+  ["us-stock", "USD", "-04:00", "America/New_York"],
+  ["futures", "CNY", "+08:00", "Asia/Shanghai"]
+])("keeps the date-only opening and same-day close in the %s market", (market, currency, offset, timeZone) => {
+  const input = { ...cases["equity-match"], market, currency, openedAt: "2026-10-12", openClockShown: false,
+    openedZone: null, closedAt: "2026-10-12T15:00", closedZone: null };
+  const preview = (changes = {}) => previewTradeScreenshot([{ ...input, ...changes }], "a".repeat(64), []).rows[0];
+  expect(preview()).toMatchObject({ kind: "ready", inferredTimeZone: timeZone, draft: { openedAtPrecision: "date",
+    openedAt: "2026-10-12T00:00:00" + offset, closedAt: "2026-10-12T15:00" + offset } });
+  expect(preview({ closedAt: "2026-10-11T15:00" })).toMatchObject({ kind: "invalid" });
+  expect(preview({ openedZone: offset, closedZone: offset })).toMatchObject({ kind: "ready", inferredTimeZone: undefined });
+});
+
 it("asks for an explicit offset when a US local time occurs twice", () => {
   const data = { ...cases["equity-match"], openedAt: "2026-11-01T01:30", openedZone: null, closedAt: undefined };
   expect(previewTradeScreenshot([data], "a".repeat(64), []).rows[0]).toMatchObject({ kind: "invalid", reason: expect.stringContaining("夏令时") });

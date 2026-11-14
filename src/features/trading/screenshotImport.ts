@@ -89,19 +89,35 @@ function screenshotTimestamp(value: unknown, printedZone: unknown, marketZone?: 
   return { timestamp, ...(!explicit ? { inferred: marketZone } : {}) };
 }
 
+function screenshotOpening(row: ModelRow, marketZone?: string): Pick<TradeDraft, "openedAt" | "openedAtPrecision"> & { inferred?: string } {
+  const date = row.openedAt;
+  if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/u.test(date) || row.openClockShown !== false) {
+    const open = screenshotTimestamp(date, row.openedZone, marketZone);
+    return { ...tradeTime(open.timestamp), inferred: open.inferred };
+  }
+  const printed = explicitOffset(row.openedZone);
+  if (row.openedZone && !printed) throw Error("截图上显示的时区无效。");
+  if (printed === undefined && marketZone === undefined) return tradeTime(date);
+  if (normalizeJournalDate(date) !== date) throw Error("截图中的日期无效。");
+  const inferred = printed === undefined ? marketZone : undefined;
+  const offset = inferred ? offsetForLocalClock(date, "00:00:00", inferred) : printed;
+  // The ledger uses midnight to store a date. Keep it in the source market to
+  // avoid rejecting a same-day close when the computer is in another zone.
+  return { openedAt: `${date}T00:00:00${offset}`, openedAtPrecision: "date" as const, inferred };
+}
+
 function screenshotDraft(row: ModelRow, digest: string, multipliers?: Record<string, number>) {
   const market = typeof row.market === "string" && Object.hasOwn(MARKETS, row.market) ? MARKETS[row.market] : undefined;
   if (!market || typeof row.symbol !== "string" || !/^[A-Z0-9][A-Z0-9.\/_:-]{0,31}$/iu.test(row.symbol)
     || row.direction !== "long" && row.direction !== "short" || (row.currency !== "CNY" && row.currency !== "USD")) {
     throw Error("缺少可核对的品种、市场、持仓方向或币种。");
   }
-  const dateOnly = typeof row.openedAt === "string" && /^\d{4}-\d{2}-\d{2}$/u.test(row.openedAt) && row.openClockShown === false;
   const marketZone = marketTimeZones[market] ?? (market === "期货" && row.currency === "CNY" ? "Asia/Shanghai" : undefined);
-  const open = dateOnly ? { timestamp: row.openedAt as string } : screenshotTimestamp(row.openedAt, row.openedZone, marketZone);
+  const { inferred: openingZone, ...open } = screenshotOpening(row, marketZone);
   const close = row.closedAt === undefined ? undefined : screenshotTimestamp(row.closedAt, row.closedZone, marketZone);
-  const inferredTimeZone = open.inferred || close?.inferred;
+  const inferredTimeZone = openingZone || close?.inferred;
   const draft: TradeDraft = {
-    ...tradeTime(open.timestamp), closedAt: close?.timestamp, market, direction: row.direction,
+    ...open, closedAt: close?.timestamp, market, direction: row.direction,
     symbol: row.symbol.toUpperCase(), currency: row.currency, qty: finiteField(row, "qty"),
     qtyUnit: typeof row.qtyUnit === "string" && /^[a-z][a-z -]{0,19}$/iu.test(row.qtyUnit) ? row.qtyUnit : undefined,
     entry: finiteField(row, "entry"), exit: finiteField(row, "exit"), fees: finiteField(row, "fees"),
