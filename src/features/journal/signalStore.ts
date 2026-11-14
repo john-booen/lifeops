@@ -51,7 +51,10 @@ export async function readJournalSignals(store: StoreHost, date: string): Promis
     const source = item.sources[0];
     if (journalSourceFor(store, source.path, year)?.date !== date) return;
     const raw = await readScopedMarkdown(store, source.path).catch(() => undefined);
-    if (raw !== undefined && fileRevision(raw) === source.sha256) return item;
+    if (raw === undefined) return;
+    // Extraction used Obsidian's text read, which can remove the BOM and normalize line endings.
+    const normalized = raw.replace(/^\uFEFF/u, "").replace(/\r\n?/gu, "\n");
+    if (fileRevision(raw) === source.sha256 || raw !== normalized && fileRevision(normalized) === source.sha256) return item;
   }));
   const local = current()
     ? verified.filter((item): item is JournalSignal => !!item && journalSourceFor(store, item.sources[0].path, year)?.date === date)
