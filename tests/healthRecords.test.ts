@@ -169,6 +169,11 @@ it("preserves the prior health notes when a batch would append inside an unfinis
   const earlierPath = healthNotePath(store, previous);
   await store.writeFile(path, original);
   expect(await readHealthDay(store, date)).toEqual({ date, steps: 850 });
+  const stats = await readStats(store, { domain: "health", range: "today" }, new Date());
+  expect(stats.success).toBe(true);
+  expect(JSON.parse(stats.output)).toMatchObject({
+    recordedDays: 1, steps: { total: 850, recordedDays: 1 }, scope: "只统计允许读取的记录"
+  });
   const entries = [{ date: previous, steps: 720 }, { date, note: "虚构运动备注" }];
   const saved = await runtime.executeLocalOperation("manual_health_csv_batch", { entries }, scope => recordHealthEntries(scope, entries));
   expect(saved.success).toBe(false);

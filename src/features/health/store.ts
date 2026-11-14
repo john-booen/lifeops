@@ -39,9 +39,10 @@ export async function readHealthRange(store: StoreHost, from: string, to: string
   const days: HealthDay[] = [];
   for (const date of files) {
     if (!healthPathAllowed(store, date)) { partial = true; continue; }
-    const row = await readHealthDay(store, date).catch(() => undefined);
-    if (!row || !healthPathAllowed(store, date)) { partial = true; continue; }
-    if (healthMetricKeys.some(key => row[key] !== undefined)) days.push(row);
+    const note = await checkHealthNote(store, date).catch(() => undefined);
+    if (!note || !healthPathAllowed(store, date)) { partial = true; continue; }
+    if (!note.canAppend) partial = true;
+    if (healthMetricKeys.some(key => note.day[key] !== undefined)) days.push(note.day);
   }
   return { days, partial };
 }
