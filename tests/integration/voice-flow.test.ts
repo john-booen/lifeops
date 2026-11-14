@@ -1846,17 +1846,29 @@ describe("voice integration flow", () => {
 
   it.each([
     { resident: false, text: "看看我最后一篇日记是哪一天", serverFinal: false },
-    { resident: true, text: "看看我最后一篇日记是哪一天", serverFinal: false, playbackFails: false },
-    { resident: true, text: "看看我最后一篇日记是哪一天", serverFinal: false, playbackFails: true },
+    { resident: true, text: "看看我最后一篇日记是哪一天", serverFinal: false },
+    { resident: true, text: "看看我最后一篇日记是哪一天", serverFinal: false, playbackFailure: "playing" },
+    { resident: true, text: "看看我最后一篇日记是哪一天", serverFinal: false, playbackFailure: "before first frame" },
     { resident: false, text: "对。", serverFinal: true },
     { resident: false, text: "不对不对。", serverFinal: true }
-  ])("routes cascade input $text through the same agent (resident Breeze $resident, failure $playbackFails)", async ({ resident, text, serverFinal, playbackFails }) => {
+  ])("routes cascade input $text through the same agent (resident Breeze $resident, failure $playbackFailure)", async ({ resident, text, serverFinal, playbackFailure }) => {
     const runtime = new VoiceSessionController({ provider: "qwen-test" });
     runtime.connect();
     runtime.connected();
     const createResponse = vi.fn();
     const resetTranscript = vi.fn();
     const reply = "你最后一篇日记是今天的晨间记录。";
+    class SystemUtterance {
+      onstart?: () => void;
+      onend?: () => void;
+
+      constructor(readonly text: string) {}
+    }
+    const systemSpeak = vi.fn((utterance: SystemUtterance) => utterance.onstart?.());
+    if (playbackFailure) {
+      vi.stubGlobal("SpeechSynthesisUtterance", SystemUtterance);
+      Object.assign(window, { speechSynthesis: { speak: systemSpeak, cancel: vi.fn() } });
+    }
     const responseGate: { finish?: () => void; speak?: () => void } = {};
     const speak = vi.fn(async (_text: string, emit: (pcm: string) => void) => emit(Buffer.from([1, 2, 3, 4]).toString("base64")));
     const local = resident ? vi.spyOn(breezeSpeech, "sessionBreeze").mockReturnValue({ speak } as unknown as BreezeResidentWorker) : undefined;
@@ -1963,25 +1975,34 @@ describe("voice integration flow", () => {
     if (output) {
       responseGate.speak?.();
       await vi.waitFor(() => expect(output.actor.snapshot()?.chunksQueued).toBe(1));
-      output.render();
+      if (playbackFailure !== "before first frame") output.render();
       expect(speak).toHaveBeenCalledExactlyOnceWith(reply, expect.any(Function), expect.any(AbortSignal));
-      expect(runtime.snapshot().currentTurn).toMatchObject({ phase: "playing", modelDone: false });
-      if (playbackFails) {
+      expect(runtime.snapshot().currentTurn).toMatchObject({ modelDone: false });
+      if (playbackFailure) {
         const playing = output.actor.snapshot()!;
         handleOmniE2eAudioOutputEvent(view, { type: "failed", owner: "fallback-tts",
           playbackId: playing.playbackId, errorCode: "synthetic_failure", timestamp: Date.now() });
-        expect(runtime.snapshot().currentTurn).toMatchObject({ modelDone: false, playbackDrained: true, outputOwner: "none" });
+        expect(runtime.snapshot().currentTurn).toMatchObject({ modelDone: false,
+          playbackDrained: playbackFailure === "playing", outputOwner: playbackFailure === "playing" ? "none" : "system" });
+        expect(systemSpeak).not.toHaveBeenCalled();
       }
     }
     responseGate.finish?.();
     await turn;
     if (output) {
-      if (!playbackFails) {
+      if (!playbackFailure) {
         await vi.waitFor(() => expect(output.actor.snapshot()?.status).toBe("draining"));
         output.render();
       }
+      if (playbackFailure === "before first frame") {
+        await vi.waitFor(() => expect(systemSpeak).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ text: reply })));
+        expect(runtime.snapshot().currentTurn?.phase).toBe("playing");
+        systemSpeak.mock.calls[0][0].onend?.();
+      } else {
+        expect(systemSpeak).not.toHaveBeenCalled();
+      }
       await vi.waitFor(() => expect(runtime.snapshot().currentTurn?.phase).toBe("completed"));
-      if (playbackFails) {
+      if (playbackFailure) {
         expect(runtime.snapshot().sessionPhase).toBe("listening");
         expect(view.agentBusy).toBe(false);
         expect(view.agentVoiceSendInFlight).toBe(false);
@@ -2012,7 +2033,7 @@ describe("voice integration flow", () => {
     });
     expect(view.speakAgentReply).not.toHaveBeenCalled();
     expect(runtime.snapshot().currentTurn).toMatchObject({
-      outputOwner: playbackFails ? "none" : resident ? "fallback-tts" : "system",
+      outputOwner: playbackFailure === "playing" ? "none" : resident && !playbackFailure ? "fallback-tts" : "system",
       playbackDrained: true
     });
   });

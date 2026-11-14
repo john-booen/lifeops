@@ -1259,7 +1259,12 @@ async function sendRoutedLifeOpsVoiceTurn(
     if (earlyPlayback) {
       speechParts?.finish(reply);
       await earlyPlayback;
-      if (isCurrent()) await settleVoiceAfterPlaybackEvent(view);
+      if (isCurrent()) {
+        const playback = runtime?.snapshot().currentTurn;
+        if (playback?.outputOwner === "system" && !playback.playbackDrained && !view.agentVoiceSystemSpeechActive) {
+          startSystemSpeechForActiveTurn(view, reply, view.agentVoiceFallbackReason || "fallback_playback_cancelled");
+        } else await settleVoiceAfterPlaybackEvent(view);
+      }
       return;
     }
     const shouldSpeak = Boolean(
@@ -1630,6 +1635,8 @@ export function handleOmniE2eAudioOutputEvent(
     view.agentVoiceFallbackReason = event.errorCode || event.type;
     if (event.owner === "fallback-tts") {
       runtime.selectOutputOwner("system");
+      view.agentTtsClient?.cancel?.();
+      view.agentTtsClient = null;
     }
     view.agentAudioOutput.cancel(event.playbackId, event.errorCode || event.type);
     view.agentSpeaking = false;
@@ -1679,6 +1686,12 @@ export function handleOmniE2eAudioOutputEvent(
     }
     retireOmniPlaybackDrain(view);
     view.agentSpeaking = false;
+    if (event.owner === "fallback-tts") {
+      view.agentVoiceFallbackReason = event.errorCode || "fallback_playback_cancelled";
+      runtime.selectOutputOwner("system");
+      view.agentTtsClient?.cancel?.();
+      view.agentTtsClient = null;
+    }
     view.refreshAgentSurfaceState();
     if (current.modelDone) {
       const reply = (current.assistantText || view.agentOmniE2eReply).trim();
