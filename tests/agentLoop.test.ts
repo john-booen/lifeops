@@ -905,6 +905,21 @@ describe("unified agent loop", () => {
     expect(await store.readPath(path)).toBe(diary);
   });
 
+  it("keeps a second evening diary draft without a chat message outside existing original words", async () => {
+    const date = formatDate(now), path = store.dailyNotePath(date, "晚");
+    const original = "昨天的虚构原话。\n逐字保留  ";
+    const before = "# 虚构晚间日记\n\n## 整理\n\n之前的整理稿。\n\n## 原话\n\n~~~\n" + original + "\n~~~\n";
+    await store.writeFile(path, before);
+    const content = "定时写入的虚构整理稿。\n\n## 原话\n\n整理稿内还没有原文。";
+    const saved = await runtime.executeAiToolCall(tool("append_journal_entry", { date, period: "晚", content }, "journal-draft-only"), "kimi");
+    expect(saved.success, saved.output).toBe(true);
+    const after = await store.readPath(path);
+    const originalSection = "\n## 原话\n\n~~~\n" + original + "\n~~~\n";
+    expect(after.slice(after.indexOf("\n## 原话\n"))).toBe(originalSection);
+    expect(after).toContain("定时写入的虚构整理稿。\n\n### 原话\n\n整理稿内还没有原文。");
+    expect(after.match(/^## 原话$/gm)).toHaveLength(1);
+  });
+
   it("keeps an automatically saved memory when undoing the task from the same turn", async () => {
     const loop = new AgentLoop(host);
     const title = "虚构样品盒贴标签", preference = "我习惯用虚构绿色标签归档";

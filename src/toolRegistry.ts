@@ -616,7 +616,7 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
       }
 
       const original = period === "晚" && request.userMessage?.trim() ? request.userMessage : undefined;
-      const draft = original === undefined ? content : journalDraftContent(content);
+      const draft = period === "晚" ? journalDraftContent(content) : content;
       await context.store.appendDaily(date, heading, `${draft}\n${marker}`, period, original);
       const verified = await context.store.readPath(path);
       if (!verified.includes(marker) || !verified.includes(draft)

@@ -37,7 +37,8 @@ export function journalDraftContent(content: string): string {
   return draft;
 }
 
-export function appendEveningEntry(text: string, heading: string, entry: string, original: string): string {
+export function appendEveningEntry(text: string, heading: string, entry: string, original?: string): string {
   const section = heading === "原话" || heading === "日记" ? "整理" : heading;
-  return appendSection(appendSection(text, section, entry), "原话", journalOriginalBlock(original));
+  const draft = appendSection(text, section, entry);
+  return original === undefined ? draft : appendSection(draft, "原话", journalOriginalBlock(original));
 }

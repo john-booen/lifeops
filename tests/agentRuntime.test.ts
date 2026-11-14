@@ -37,7 +37,7 @@ class RuntimeStore {
     }
     const path = this.dailyNotePath(date, period);
     const current = this.textFiles.get(path) ?? `# ${date}${period}\n`;
-    this.textFiles.set(path, period === "晚" && original !== undefined ? appendEveningEntry(current, heading, line, original)
+    this.textFiles.set(path, period === "晚" ? appendEveningEntry(current, heading, line, original)
       : `${current.trimEnd()}\n\n## ${heading}\n\n${line}\n`);
     this.appendCount += 1;
   }

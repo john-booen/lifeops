@@ -1,6 +1,6 @@
 import { activityNotePath, ACTIVITY_LABELS, type ActivityDomain } from "../activityRecords";
 import { ACCOUNTABILITY_TEMPLATE } from "../accountability";
-import { appendEveningEntry } from "../features/journal/entry";
+import { appendEveningEntry, journalDraftContent } from "../features/journal/entry";
 import { App, Notice, TFile, TFolder, normalizePath } from "obsidian";
 import { contextSourceHash, isContextSourcePath, recordContextSource, type ContextSourceRecorder } from "../sourceReferences";
 import type { FactOperationIdentity, FactOperationOptions } from "../dataFoundation/factOperation";
@@ -545,7 +545,7 @@ async resetGatewayInbox(this: StoreHost): Promise<void> {
 
 async createDailyReview(this: StoreHost, markdown: string, date: string = todayString()): Promise<void> {
     const draft = `> LifeOps 生成的复盘草稿，请核对；不代表已经确认的个人事实。\n\n${markdown.trim()}`;
-    await this.appendDaily(date, "晚间复盘", draft, "晚");
+    await this.appendDaily(date, "晚间复盘", journalDraftContent(draft), "晚");
     await this.appendFile(this.path(this.settings.folders.aiReports, `${date}-日报.md`), `# ${date} 日报\n\n${draft}\n`);
   },
 
@@ -627,7 +627,7 @@ async writeFile(this: StoreHost, filePath: string, content: string): Promise<voi
 
 async appendDaily(this: StoreHost, date: string, heading: string, line: string, period: "早" | "晚" = "早", original?: string): Promise<void> {
     const file = await this.ensureDailyNote(date, period);
-    if (period === "晚" && original !== undefined) {
+    if (period === "晚") {
       await this.app.vault.process(file, text => appendEveningEntry(text, heading, line, original));
       return;
     }
