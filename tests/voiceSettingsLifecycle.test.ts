@@ -513,6 +513,29 @@ describe("ordinary voice and text mode cycles", () => {
     await vi.advanceTimersByTimeAsync(31_000); expect(getUserMedia).toHaveBeenCalledTimes(5);
   });
 
+  it("disposes the capture and client when the warmup cannot reset the session", async () => {
+    const capture = captureFixture();
+    view.agentMode = "voice";
+    await view.ensureVoiceStandby();
+    const client = view.agentRealtimeClient as InstanceType<typeof BailianRealtimeClient>;
+    const close = vi.spyOn(client, "close");
+    vi.spyOn(client, "resetTranscript").mockImplementationOnce(() => { throw Error("虚构预热失败"); });
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(close).toHaveBeenCalledOnce();
+    expect(view.agentRealtimeClient).toBeNull();
+    expect(view.agentRecording).toBe(false);
+    expect(view.agentVoiceReady).toBe(false);
+    expect(view.agentVoiceConversation).toBe(false);
+    expect(view.agentVoiceRuntime.snapshot().sessionPhase).toBe("stopped");
+    expect(capture.tracks.map(track => track.readyState)).toEqual(["ended"]);
+    expect(capture.contexts.map(context => context.state)).toEqual(["closed"]);
+    expect(view.agentReply).toContain("虚构预热失败");
+    await view.ensureVoiceStandby();
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(view.agentRealtimeClient).not.toBe(client);
+    expect(view.agentVoiceReady).toBe(true);
+  });
+
   it("does not let an old failure render restart a new voice session", async () => {
     const capture = captureFixture(); capture.connects.mockRejectedValueOnce(new Error("synthetic old connection failed"));
     vi.spyOn(plugin, "buildVoiceSessionContextBlock").mockResolvedValue("纯虚构重开上下文");

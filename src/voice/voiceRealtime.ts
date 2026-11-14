@@ -482,13 +482,25 @@ export async function finishBailianVoiceWarmup(view: VoiceRealtimeView, client: 
       : "百炼实时语音已启动，我在听；点击停止后会发送给管家。";
     view.refreshAgentSurfaceState();
   } catch (error) {
-    view.agentVoiceReady = false;
+    if (view.agentRealtimeClient !== client) return;
+    view.agentVoiceConversation = false;
+    clearVoiceReconnectState(view);
+    closeSessionBreeze(view);
+    retireRealtimeClient(view);
+    view.agentRecording = false;
+    view.agentVoiceRuntime?.stop?.();
+    cleanupRealtimeAudio(view);
     view.transitionVoiceSession("error", error instanceof Error ? error.message : "voice capture start failed");
     view.agentReply = error instanceof Error ? `语音采集启动失败：${error.message}` : "语音采集启动失败";
     new Notice(view.agentReply);
-    cleanupRealtimeAudio(view);
     await view.render();
   }
+}
+
+function retireRealtimeClient(view: VoiceRealtimeView): void {
+  const client = view.agentRealtimeClient;
+  view.agentRealtimeClient = null;
+  try { client?.close(); } catch { /* Client ownership is retired even if disposal reports a failure. */ }
 }
 
 export async function stopBailianRealtimeRecording(view: VoiceRealtimeView, silent = false): Promise<void> {
@@ -1163,9 +1175,7 @@ export function handleRealtimeDisconnect(view: VoiceRealtimeView, code: number, 
   retireOmniPlaybackDrain(view);
   view.agentOmniPlaybackReady = null;
   view.agentVoiceFallbackReason = "";
-  const disconnectedClient = view.agentRealtimeClient;
-  view.agentRealtimeClient = null;
-  try { disconnectedClient?.close(); } catch { /* Continue releasing capture and scheduling recovery. */ }
+  retireRealtimeClient(view);
   cleanupRealtimeAudio(view);
   view.setAgentBusy?.(false);
   view.agentSpeaking = false;
