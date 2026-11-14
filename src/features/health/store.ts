@@ -16,8 +16,8 @@ export function healthPathAllowed(store: StoreHost, date: string): boolean {
 }
 
 export async function readHealthDay(store: StoreHost, date: string): Promise<HealthDay> {
-  if (!healthPathAllowed(store, date) || !store.getFile(healthNotePath(store, date))) return { date };
   const path = healthNotePath(store, date);
+  if (!healthPathAllowed(store, date) || !store.getFile(path)) return { date };
   const text = isGuardedOperationScope(store) ? await store.readPath(path) : await readScopedMarkdown(store, path);
   return healthPathAllowed(store, date) ? readHealthMarkdown(date, text) : { date };
 }
@@ -34,7 +34,8 @@ export async function readHealthRange(store: StoreHost, from: string, to: string
   const days: HealthDay[] = [];
   for (const date of files) {
     if (!healthPathAllowed(store, date)) { partial = true; continue; }
-    const row = await readHealthDay(store, date);
+    const row = await readHealthDay(store, date).catch(() => undefined);
+    if (!row || !healthPathAllowed(store, date)) { partial = true; continue; }
     if (healthMetricKeys.some(key => row[key] !== undefined)) days.push(row);
   }
   return { days, partial };

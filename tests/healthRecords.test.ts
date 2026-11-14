@@ -98,6 +98,15 @@ it("keeps field-looking lines entered as free text out of numerical records", as
   expect(await store.readPath(healthNotePath(store, date))).toContain("  - 跑步距离：120 公里");
 });
 
+it("keeps verified days when one health note cannot be safely read", async () => {
+  await store.appendHealthEntry({ date, sleepHours: 7.5 });
+  await store.writeFile(healthNotePath(store, previous), "虚构长记录\n".repeat(40_000));
+  const result = await readStats(store, { domain: "health", range: { from: previous, to: date } }, new Date());
+  expect(result.success).toBe(true);
+  expect(JSON.parse(result.output)).toMatchObject({ recordedDays: 1, scope: "只统计允许读取的记录",
+    sleepHours: { average: 7.5, recordedDays: 1 } });
+});
+
 it("requires health-specific disclosure and validates extracted dates and numerical fields", async () => {
   const image = readScreenshotImage(Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10, 0));
   const raw = JSON.stringify({ rows: [{ date: "2026-02-30", runningKm: 2.4, sleepMinutes: 430, weightKg: -56,
