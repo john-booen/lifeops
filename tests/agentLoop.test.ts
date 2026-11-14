@@ -491,24 +491,35 @@ describe("unified agent loop", () => {
     await store.appendHealthEntry({ date: addDays(date, 1), sleepHours: 20 });
     const spoken = vi.fn();
     const message = "最近三天设备记录的睡眠时长平均是多少小时？";
-    const query = () => responses.push(reply("", [tool("get_stats", {
-      domain: "health", range: { from: addDays(date, -2), to: date }, directReply: "device_sleep"
-    })]));
-    query();
     const result = await new AgentLoop(host).run(input({ source, message, onVoiceText: spoken }));
     expect(result.text).toContain("有 2 天设备睡眠记录，平均 6.5 小时。");
     if (source === "voice") expect(spoken).toHaveBeenCalledExactlyOnceWith(result.text);
     expect(result.toolCalls).toEqual([{ name: "get_stats", ok: true }]);
-    expect(requests).toHaveLength(1);
+    expect(requests).toHaveLength(0);
     store.settings.privacy!.excludedVaultPrefixes = [store.path(store.settings.folders.health, previous + ".md")];
-    query();
     const scoped = await new AgentLoop(host).run(input({ source, message }));
     expect(scoped.text).toContain("有 1 天设备睡眠记录，平均 7.75 小时。只统计允许读取的健康记录。");
     store.settings.privacy!.excludedVaultPrefixes.push(store.path(store.settings.folders.health, date + ".md"));
-    query();
     const empty = await new AgentLoop(host).run(input({ source, message }));
     expect(empty.text).toContain("暂无可读的设备睡眠记录。只统计允许读取的健康记录。");
-    expect(requests).toHaveLength(3);
+    expect(requests).toHaveLength(0);
+  });
+
+  it("can read one clearly requested device sleep result offline and keeps qualitative analysis in the model path", async () => {
+    const date = formatDate(now);
+    await store.appendHealthEntry({ date, sleepHours: 7.5 });
+    const saved = host.settings.ai;
+    host.settings.ai = { ...saved, provider: "off" };
+    let local;
+    try {
+      local = await new AgentLoop(host).run(input({ message: "昨晚手表记录的睡眠时长是多少小时？" }));
+    } finally { host.settings.ai = saved; }
+    expect(local.text).toContain(date + " 有 1 天设备睡眠记录，平均 7.5 小时。");
+    expect(requests).toHaveLength(0);
+    responses.push(reply("虚构问题走一般分析。"));
+    const mixed = await new AgentLoop(host).run(input({ message: "这周手表记录的睡眠时长平均是多少，为什么会这样？" }));
+    expect(mixed.text).toBe("虚构问题走一般分析。");
+    expect(requests).toHaveLength(1);
   });
 
   it.each(["get_stats", "query_vault"])("adds verified habit dates only from the stats tool (%s)", async name => {

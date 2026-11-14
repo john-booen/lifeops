@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { AiChatResult, AiToolCall, AiToolDefinition, ChatMessage, LifeOpsAi } from "../ai";
 import type { ToolCallResult } from "../agentRuntime";
 import { formatDate } from "../date";
-import { deviceSleepAnswer } from "../features/health/sleepAnswer";
+import { deviceSleepAnswer, deviceSleepRange } from "../features/health/sleepAnswer";
 import { formatQuizQuestions } from "../features/learning/quizTools";
 import { habitDateEvidence } from "../features/stats/habitEvidence";
 import { asksForRecentStatus, formatRecentStatus, recentStatusDomains } from "../features/stats/statusEvidence";
@@ -192,6 +192,16 @@ export class AgentLoop {
           assertPolicy();
           return this.localAnswer(input, state, result?.output || "任务没有保存，请稍后再试。");
         }
+      }
+      const sleepRange = !input.voiceBackground && (input.source === "text" || input.source === "voice")
+        ? deviceSleepRange(input.message) : undefined;
+      if (sleepRange) {
+        const range = resolveStatsRange(sleepRange, input.now);
+        const calls = this.scopedCalls([{ name: "get_stats", arguments: { domain: "health", range } }], state.id, 0);
+        const [result] = await this.executeRegular(input, state, calls);
+        assertProviderActive(input.signal);
+        assertPolicy();
+        return this.localAnswer(input, state, result?.success ? deviceSleepAnswer(result.output) : result?.output || "健康记录暂不可用。");
       }
       if (!this.modelAvailable()) {
         if (input.voiceBackground) throw new Error("后台模型未就绪。");
