@@ -20,20 +20,31 @@ export async function classifyPlaybackInput(
   if (signal.aborted) return undefined;
   const value = transcript.trim();
   if (!value) return "ignore";
+  const request = new AbortController();
+  const abort = () => request.abort(signal.reason);
+  signal.addEventListener("abort", abort, { once: true });
+  const timer = setTimeout(() => {
+    const error = new Error("语音插话判断超时");
+    error.name = "TimeoutError";
+    request.abort(error);
+  }, RESPONSE_TIMEOUT_MS);
   try {
     const ai = new LifeOpsAi(settingsForAgentModel(settings, "fast"));
     const result = await ai.agentTurnStream([
       { role: "system", content: PLAYBACK_INPUT_PROMPT },
       { role: "user", content: JSON.stringify({ previousQuestion: previousQuestion.slice(0, 240), transcript }) }
     ], () => undefined, {
-      signal: AbortSignal.any([signal, AbortSignal.timeout(RESPONSE_TIMEOUT_MS)]),
+      signal: request.signal,
       timeoutMs: RESPONSE_TIMEOUT_MS, toolChoice: "none", preferFinite: true, reasoning: "disabled", maxTokens: 12
     });
     if (signal.aborted) return undefined;
     const decision = result.content.trim().toLowerCase();
-    if (result.toolCalls.length === 0 && (decision === "accept" || decision === "ignore")) return decision;
+    if (!request.signal.aborted && result.toolCalls.length === 0 && (decision === "accept" || decision === "ignore")) return decision;
   } catch {
     // An unavailable classifier must not turn background speech into a new request.
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", abort);
   }
   return signal.aborted ? undefined : offlinePlaybackDecision(value, previousQuestion);
 }
