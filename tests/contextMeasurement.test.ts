@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "../src/defaults";
 import { agentToolsForChat } from "../src/toolRegistry";
+import { AgentRuntime } from "../src/agentRuntime";
 import type { StoreHost } from "../src/store/settingsSlice";
 
 vi.mock("obsidian", () => ({ App: class {}, Plugin: class {}, TFile: class {}, TFolder: class {}, WorkspaceLeaf: class {}, ItemView: class {},
@@ -20,7 +21,8 @@ const benchmarkClock = new Date("2026-11-06T00:27:14+08:00");
 const questions = [
   { question: "你好", localReply: /^你好！$/u },
   { question: "我今天还有什么任务没完成", localReply: /^今天有 \d+ 个未完成任务。/u },
-  { question: "帮我建一个明天下午三点见客户的任务" },
+  { question: "帮我建一个明天下午三点见客户的任务", localReply: /见客户/u,
+    scheduled: { title: "见客户", date: "2026-11-07", time: "15:00" } },
   { question: "今天日记的状态怎么样" },
   { question: "这周习惯完成得怎么样" }
 ];
@@ -58,7 +60,7 @@ async function measureUsage(body: any): Promise<{ inputTokens: number; provider:
 }
 
 describe("production context measurement with synthetic Test Vault data", () => {
-  it("measures provider context and local replies without changing the task records", async () => {
+  it("measures provider context and local replies, reverting the explicitly requested task", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(benchmarkClock);
     vi.stubGlobal("window", globalThis);
@@ -83,10 +85,16 @@ describe("production context measurement with synthetic Test Vault data", () => 
       return new Response('data: {"choices":[{"delta":{"content":"虚构测量回复。"}}]}\n\ndata: [DONE]\n\n', { headers: { "Content-Type": "text/event-stream" } });
     }));
     const reports = [];
-    for (const { question, localReply } of questions) {
+    for (const { question, localReply, scheduled } of questions) {
       captured.length = 0;
       const tasksBefore = await vault.bytes(store.taskDbPath());
       const response = await plugin.submitAgentMessageStream(question, [], () => {}, { selfTest: true });
+      if (scheduled) {
+        expect((await store.readTaskDb({ readOnly: true })).tasks).toContainEqual(expect.objectContaining(scheduled));
+        expect(response.receipts).toHaveLength(1);
+        const runtime = new AgentRuntime({ store, refreshViews: async () => {} });
+        expect(await runtime.undoOperation(response.receipts![0].operationId)).toBe(true);
+      }
       expect(await vault.bytes(store.taskDbPath())).toBe(tasksBefore);
       if (localReply) {
         expect(captured, question).toHaveLength(0);
