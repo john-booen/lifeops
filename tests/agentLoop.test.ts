@@ -612,6 +612,28 @@ describe("unified agent loop", () => {
     expect((await store.readTaskDb()).tasks).toHaveLength(3);
   });
 
+  it("preserves journal frontmatter and stops before appending into an open code fence", async () => {
+    const date = formatDate(now), path = store.dailyNotePath(date, "晚");
+    const header = "\uFEFF---\r\nsubject: |\r\n  ## 整理\r\n---\r\n";
+    const available = header + "\r\n## 原话\r\n\r\n已有原话\r\n";
+    await store.writeFile(path, available);
+    const args = { date, period: "晚", content: "汇总虚构新句。" };
+    const original = "记下今天整理好了。";
+    const stored = await runtime.executeAiToolCall(tool("append_journal_entry", args, "journal-frontmatter"), "kimi", original);
+    expect(stored.success).toBe(true);
+    const diary = await store.readPath(path);
+    expect(diary.startsWith(header)).toBe(true);
+    expect(diary).toContain("## 整理\n\n汇总虚构新句。");
+    expect(diary).toContain(original);
+
+    const openFence = header + "\n## 整理\n\n~~~text\n用户尚在填写。\n";
+    await store.writeFile(path, openFence);
+    const blocked = await runtime.executeAiToolCall(tool("append_journal_entry", args, "journal-open-fence"), "kimi", original);
+    expect(blocked.success).toBe(false);
+    expect(blocked.output).toContain("未闭合");
+    expect(await store.readPath(path)).toBe(openFence);
+  });
+
   it("keeps an automatically saved memory when undoing the task from the same turn", async () => {
     const loop = new AgentLoop(host);
     const title = "虚构样品盒贴标签", preference = "我习惯用虚构绿色标签归档";
