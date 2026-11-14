@@ -5,14 +5,14 @@ export function parseCsv(text: string, strict = false): Record<string, string>[]
   const rows = parseCsvGrid(text, strict);
   if (rows.length === 0) return [];
   const headers = rows[0].map((value) => value.trim());
+  if (strict && (headers.some(header => !header) || new Set(headers).size !== headers.length)) {
+    throw Error("健康 CSV 的表头有空白或重复列名，请核对。");
+  }
   return rows.slice(1).map((values, index) => {
     if (strict && values.length > headers.length) {
       throw Error(`第 ${index + 1} 条健康记录的列数超过表头。含逗号的字段请用双引号括起来。`);
     }
-    return headers.reduce<Record<string, string>>((record, header, index) => {
-      record[header] = values[index]?.trim() ?? "";
-      return record;
-    }, {});
+    return Object.fromEntries(headers.map((header, index) => [header, values[index]?.trim() ?? ""]));
   });
 }
 
