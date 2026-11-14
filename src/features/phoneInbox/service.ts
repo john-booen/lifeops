@@ -122,7 +122,8 @@ export class PhoneInbox {
       const known = new Set(doc.records.map(row => row.id));
       const eligible = (line: PhoneInboxLine) => !known.has(line.id)
         && (textAiReadiness(store.settings).ready || !!phoneInboxReviewReason(store, line));
-      const lines = (await this.lines(store, includeUnterminated)).filter(eligible);
+      const scanDate = todayString();
+      const lines = (await this.lines(store, includeUnterminated, scanDate)).filter(eligible);
       const added: PhoneInboxRecord[] = [];
       let pausedBySave = false;
       for (const queued of lines.slice(0, MAX_BATCH_LINES)) {
@@ -134,7 +135,7 @@ export class PhoneInbox {
         }
         // A sync may have edited or reopened a later line during processing.
         if (!store.getFile(PHONE_INBOX_PATH)) break;
-        const line = (await this.lines(store, includeUnterminated)).find(row => row.id === queued.id);
+        const line = (await this.lines(store, includeUnterminated, scanDate)).find(row => row.id === queued.id);
         if (!line || queued.terminated && !line.terminated) {
           this.schedule();
           break;
@@ -282,11 +283,11 @@ export class PhoneInbox {
     return line;
   }
 
-  private async lines(store: StoreHost, includeUnterminated: boolean): Promise<PhoneInboxLine[]> {
+  private async lines(store: StoreHost, includeUnterminated: boolean, referenceDate = todayString()): Promise<PhoneInboxLine[]> {
     this.assertCurrent(store);
     const text = await readScopedMarkdown(store, PHONE_INBOX_PATH);
     this.assertCurrent(store);
-    return parsePhoneInbox(text, todayString(), includeUnterminated);
+    return parsePhoneInbox(text, referenceDate, includeUnterminated);
   }
 
   private async read(store: StoreHost): Promise<PhoneInboxDocument> {

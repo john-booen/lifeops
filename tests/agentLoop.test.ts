@@ -1602,6 +1602,32 @@ it("answers the device date with the text model disabled and preserves multi-par
 describe("phone inbox", () => {
   const phoneDate = "2026-01-09";
 
+  it("keeps an unstamped phone date fixed when processing crosses midnight", async () => {
+    const { PhoneInbox } = await import("../src/features/phoneInbox/service");
+    const { PHONE_INBOX_PATH } = await import("../src/features/phoneInbox/model");
+    const { LifeOpsEventBus } = await import("../src/lifeOpsEventBus");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const source = "整理虚构蓝色纸样。\n整理虚构黄色纸样。\n";
+    const seen: string[] = [];
+    const inbox = new PhoneInbox({
+      store: () => store, enabled: () => true,
+      submit: async (_message, turn) => {
+        seen.push(turn.date);
+        vi.setSystemTime(new Date(2026, 0, 10, 0, 1));
+        await turn.assertLineCurrent();
+        return { reply: "虚构检查回执。", actions: [] };
+      },
+      confirm: async () => {}, undo: async () => true, notify: () => {}
+    }, new LifeOpsEventBus());
+    try {
+      vi.setSystemTime(new Date(2026, 0, 9, 23, 59));
+      await store.ensureFile(PHONE_INBOX_PATH, source);
+      await inbox.scan();
+      expect(seen).toEqual([phoneDate, phoneDate]);
+      expect(await store.readPath(PHONE_INBOX_PATH)).toBe(source);
+    } finally { inbox.stop(); vi.useRealTimers(); }
+  });
+
   it("counts a delayed phone task completion on its captured day and supports undo", async () => {
     const { PhoneInbox } = await import("../src/features/phoneInbox/service");
     const { PHONE_INBOX_PATH } = await import("../src/features/phoneInbox/model");
