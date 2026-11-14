@@ -181,6 +181,7 @@ async function sample(item: VoiceCase, pcm: Buffer, settings: LifeOpsSettings, w
 const reportOnly = process.env.LIFEOPS_VOICE_REPORT === "1";
 const correctionOnly = process.env.LIFEOPS_VOICE_CORRECTIONS === "1";
 const playbackOnly = process.env.LIFEOPS_VOICE_PLAYBACK_INPUT === "1";
+const playbackAudio = playbackOnly && process.env.LIFEOPS_VOICE_PLAYBACK_AUDIO === "1";
 
 it.runIf(playbackOnly)("distinguishes incidental speech from requests during fictional voice playback", async () => {
   const { settings, transport } = await voiceSettings();
@@ -217,6 +218,43 @@ it.runIf(playbackOnly)("distinguishes incidental speech from requests during fic
       results.push({ transcript, expected, decision, ms: Math.round(performance.now() - started) });
     }
   } finally { vi.unstubAllGlobals(); vi.restoreAllMocks(); }
+  process.stdout.write(JSON.stringify(results) + "\n");
+  expect(results.filter(row => row.expected !== row.decision)).toEqual([]);
+});
+
+it.runIf(playbackAudio)("replays identical synthetic audio fixtures for the current transcription and interruption baseline", async () => {
+  const { settings, transport } = await voiceSettings();
+  const directory = await mkdtemp(join(tmpdir(), "lifeops-fictional-interruption-"));
+  const cases = [
+    { id: "direct-stop", text: "停一下，我想问明天的任务。", expected: "accept" },
+    { id: "background-question", text: "下一场几点开始？", expected: "ignore" },
+    { id: "other-person-question", text: "小李，你说今晚一起吃什么？", expected: "ignore" },
+    { id: "backchannel", text: "嗯嗯，你继续。", expected: "ignore" },
+    { id: "new-topic", text: "我想换个话题，怎么把菜切得均匀一点？", expected: "accept" }
+  ] as const;
+  vi.stubGlobal("window", globalThis);
+  vi.stubGlobal("WebSocket", WebSocket);
+  vi.stubGlobal("fetch", transport.fetch);
+  vi.mocked(requestUrl).mockImplementation(transport.requestUrl);
+  const results = [];
+  try {
+    for (const item of cases) {
+      const pcm = await preparePcm(directory, item);
+      const latency: VoiceLatency = {};
+      try {
+        const transcript = await transcribe(pcm, settings.realtimeVoice, latency);
+        const decision = await classifyPlaybackInput(settings, transcript, "上周完成了多少项任务？", AbortSignal.timeout(5000));
+        results.push({ id: item.id, pcmSha256: createHash("sha256").update(pcm).digest("hex"),
+          exactTranscript: transcriptKey(transcript) === transcriptKey(item.text), expected: item.expected, decision });
+      } catch (error) {
+        results.push({ id: item.id, expected: item.expected, failure: redactSensitiveText(error, configuredCredentials(settings)) });
+      }
+    }
+  } finally {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    await rm(directory, { recursive: true, force: true });
+  }
   process.stdout.write(JSON.stringify(results) + "\n");
   expect(results.filter(row => row.expected !== row.decision)).toEqual([]);
 });
