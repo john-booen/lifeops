@@ -16,6 +16,7 @@ import {
   responseEventId, responseFailureMessage, responseLifecycleEvent
 } from "./voice/omniE2e/protocol";
 import { normalizeRealtimeAsrLanguage } from "./voice/realtimeAsrOptions";
+import { ProtectedOmniResponses } from "./voice/omniE2e/protectedResponses";
 
 export const UNCONFIRMED_VOICE_CANCEL_MESSAGE = "语音取消未获确认，旧连接已停止；重新连接后请重说刚才一句。";
 
@@ -106,24 +107,17 @@ interface InitialInstructionsSlot {
   checkingAck: boolean;
 }
 
-import {createOutputSliceYield,createOutputSliceBudget} from "./voice/outputSliceYield";
-const PROTECTED_RESPONSE_MAX_FRAMES = 128;
-const PROTECTED_RESPONSE_BATCH_FRAMES = 32;
-const PROTECTED_RESPONSE_MAX_BYTES = 4 * 1024 * 1024;
-interface ProtectedResponseFrame {
-  event: Record<string, unknown>; bytes: number; epoch: number;
-  socket: WebSocket | null; generation: number; current: () => boolean;
-}
-
 export class BailianRealtimeClient {
   private readonly streamingAsr?: BailianStreamingAsr;
   private readonly toolOutputs=new RealtimeToolOutputs();
-  private toolEventSerial:Promise<void>=Promise.resolve();
-  private toolEventQueue:ProtectedResponseFrame[]=[];
-  private toolEventFlight?:{epoch:number;socket:WebSocket|null;sliceYield:ReturnType<typeof createOutputSliceYield>;startBudget:ReturnType<typeof createOutputSliceBudget>};
-  private toolEventEpoch=0;
-  private toolEventPending=0;
-  private toolEventBytes=0;
+  private readonly protectedResponses = new ProtectedOmniResponses({
+    connection: () => this.socket,
+    assertSourcesCurrent: () => this.assertContextSourcesCurrent(),
+    assertSourcesCurrentNow: () => this.assertContextSourcesCurrentNow(),
+    handle: event => this.handleEvent(event),
+    handleStale: ({event, generation}, connection) => this.settleStaleProtectedResponse(event, generation, connection),
+    fail: message => this.failToolContext(message)
+  });
   private initialSnapshot: RealtimeInstructionsSnapshot | undefined;
   private initialSlot: InitialInstructionsSlot | undefined;
   private initialConsumed = false;
@@ -493,10 +487,8 @@ export class BailianRealtimeClient {
     let failed=false,failure:unknown;
     for(const dispose of[
       ()=>{if(socket&&socket.readyState===WebSocket.OPEN)socket.close(1000);else socket?.terminate();},
-      ()=>this.toolOutputs.dispose(),()=>this.toolEventFlight?.sliceYield.dispose()
+      ()=>this.toolOutputs.dispose(),()=>this.protectedResponses.reset()
     ])try{dispose();}catch(error){if(!failed){failed=true;failure=error;}}
-    this.toolEventSerial=Promise.resolve();this.toolEventQueue=[];this.toolEventFlight=undefined;
-    this.toolEventEpoch++;this.toolEventPending=0;this.toolEventBytes=0;
     this.asrRuns.clear();
     this.unboundAsrRun = undefined;
     this.ignoredResponseIds.clear();
@@ -639,67 +631,22 @@ export class BailianRealtimeClient {
         if(event.type==="response.done"||event.type==="response.completed")this.handleIgnoredResponseDone(event);
         return;
       }
-      const bytes=Buffer.byteLength(text,"utf8");
-      if(this.toolEventPending>=PROTECTED_RESPONSE_MAX_FRAMES || this.toolEventBytes+bytes>PROTECTED_RESPONSE_MAX_BYTES){
-        this.failToolContext("查询核对未赶上语音输出，已结束这次连接并保留文字输入；可先用文字查询，未自动重试。");return;
-      }
-      this.toolEventQueue.push({event,bytes,epoch:this.toolEventEpoch,socket:this.socket,
-        generation:this.responseGeneration,current:this.capturePendingResponseGuard()});
-      this.toolEventPending++;this.toolEventBytes+=bytes;
-      if(!this.toolEventFlight){
-        const flight={epoch:this.toolEventEpoch,socket:this.socket,sliceYield:createOutputSliceYield(),startBudget:createOutputSliceBudget()};this.toolEventFlight=flight;
-        this.toolEventSerial=this.drainProtectedResponseEvents(flight);
-      }
+      this.protectedResponses.enqueue({ event, generation: this.responseGeneration, current: this.capturePendingResponseGuard() },
+        Buffer.byteLength(text, "utf8"));
       return;
     }
     this.handleEvent(event);
   }
 
-  private settleStaleProtectedResponse(frame:ProtectedResponseFrame):void{
-    const {event,socket,generation}=frame;
-    // A completed old read may bind its created id for cancellation only.
-    if(this.socket!==socket||this.intentionalClose||event.type!=="response.created")return;
-    if(this.responseGeneration===generation+1&&this.responseCancelPending&&!this.activeResponseId)this.handleResponseCreated(event);
-    else {const id=responseEventId(event);if(id)this.rememberIgnoredResponse(id);}
-  }
-
-  private async drainProtectedResponseEvents(flight:{epoch:number;socket:WebSocket|null;sliceYield:ReturnType<typeof createOutputSliceYield>;startBudget:ReturnType<typeof createOutputSliceBudget>}):Promise<void>{
-    let published=false;
-    try{
-      while(this.toolEventFlight===flight&&this.toolEventQueue.length){
-        const first=this.toolEventQueue[0],members:ProtectedResponseFrame[]=[];
-        // Membership is frozen before the raw read. Later arrivals wait for the next read.
-        while(members.length<PROTECTED_RESPONSE_BATCH_FRAMES&&this.toolEventQueue.length){
-          const next=this.toolEventQueue[0];
-          if(next.epoch!==first.epoch||next.socket!==first.socket||next.generation!==first.generation)break;
-          members.push(this.toolEventQueue.shift()!);
-        }
-        const batch=Object.freeze(members),bytes=batch.reduce((sum,item)=>sum+item.bytes,0);
-        try{
-          let offset=0;while(offset<batch.length){
-            const slice=Object.freeze(batch.slice(offset,offset+32));
-            if(published&&slice.some(item=>item.current()))await flight.sliceYield.wait();
-            if(this.toolEventFlight!==flight||flight.epoch!==this.toolEventEpoch||flight.socket!==this.socket)break;
-            if(slice.some(item=>item.current()))await this.assertContextSourcesCurrent();
-            if(this.toolEventFlight!==flight||flight.epoch!==this.toolEventEpoch||flight.socket!==this.socket)break;
-            const exhausted=flight.startBudget();
-            for(const item of slice){
-              if(!item.current())this.settleStaleProtectedResponse(item);
-              else{
-                // Callbacks can synchronously cancel or change policy between members.
-                this.assertContextSourcesCurrentNow();this.handleEvent(item.event);
-              }
-              offset++;if(exhausted())break;
-            }
-            published=true;
-          }
-        }catch{if(batch.some(item=>item.current()))this.failToolContext();}
-        finally{
-          // An old read never debits a reset/reconnected queue.
-          if(first.epoch===this.toolEventEpoch){this.toolEventPending-=batch.length;this.toolEventBytes-=bytes;}
-        }
-      }
-    }finally{flight.sliceYield.dispose();if(this.toolEventFlight===flight)this.toolEventFlight=undefined;}
+  private settleStaleProtectedResponse(event: Record<string, unknown>, generation: number, connection: object | null): void {
+    // A stale response identity can still permit cancellation to finish.
+    if (this.socket !== connection || this.intentionalClose || event.type !== "response.created") return;
+    if (this.responseGeneration === generation + 1 && this.responseCancelPending && !this.activeResponseId) {
+      this.handleResponseCreated(event);
+    } else {
+      const id = responseEventId(event);
+      if (id) this.rememberIgnoredResponse(id);
+    }
   }
 
   hasProtectedToolOutputs():boolean{return this.toolOutputs.protected;}
@@ -1072,7 +1019,7 @@ export class BailianRealtimeClient {
   private invalidatePendingResponseWork(): void {
     this.responsePreparationPending = false;
     this.responseGeneration += 1;
-    this.toolEventFlight?.sliceYield.cancel();
+    this.protectedResponses.cancelYield();
     this.toolArgumentBuffers.clear();
     this.toolResponseContinuation = null;
     this.requestedToolContinuation = undefined;
@@ -1080,9 +1027,7 @@ export class BailianRealtimeClient {
   }
 
   private resetConnectionState(): void {
-    this.toolEventFlight?.sliceYield.dispose();
-    this.toolEventSerial=Promise.resolve();this.toolEventQueue=[];this.toolEventFlight=undefined;
-    this.toolEventEpoch++;this.toolEventPending=0;this.toolEventBytes=0;
+    this.protectedResponses.reset();
     this.instructionsBoundary?.cancel();
     this.instructionsBoundary = undefined;
     this.reportedModel = undefined;
