@@ -9,7 +9,7 @@ import { habitDateEvidence } from "../features/stats/habitEvidence";
 import { asksForRecentStatus, formatRecentStatus, recentStatusDomains } from "../features/stats/statusEvidence";
 import { backgroundStatsTool } from "../features/stats/tools";
 import { resolveStatsRange } from "../features/stats/stats";
-import { formatHabitCompensationReply, formatTaskCompletionRate, formatTaskListReply, formatVoiceTaskPriorities, habitCompensationQuestion, repeatedTaskListPriority, taskCompletionRateQuestion, todayTaskListQuestion, voiceTaskPriorityTool } from "../features/tasks/planTools";
+import { asksForTodayPriorities, formatHabitCompensationReply, formatTaskCompletionRate, formatTaskListReply, formatTaskPriorities, formatVoiceTaskPriorities, habitCompensationQuestion, repeatedTaskListPriority, taskCompletionRateQuestion, todayTaskListQuestion, voiceTaskPriorityTool } from "../features/tasks/planTools";
 import { asksForTodayCapacity, formatTodayCapacity, planCapacityEvidence } from "../features/tasks/capacityEvidence";
 import { weekendClarification } from "../features/tasks/weekendClarification";
 import { phoneInboxCall, phoneInboxRequest, phoneInboxToolDefinitions } from "../features/phoneInbox/agent";
@@ -210,13 +210,14 @@ export class AgentLoop {
           const reply = result?.success ? formatTaskListReply(result.output, date) : result?.output;
           return this.localAnswer(input, state, reply || "今天的任务记录暂不可用，请稍后再试。");
         }
-        if (asksForTodayCapacity(input.message)) {
+        const workload = asksForTodayCapacity(input.message);
+        if (workload || asksForTodayPriorities(input.message)) {
           await waitForFactOperations(this.host.store, { signal: input.signal, assertCurrent: assertPolicy });
           const calls = this.scopedCalls([{ name: "plan_today", arguments: {} }], state.id, 0);
           const [result] = await this.executeRegular(input, state, calls);
           assertProviderActive(input.signal);
           assertPolicy();
-          const reply = result?.success ? formatTodayCapacity(result.output) : result?.output;
+          const reply = result?.success ? workload ? formatTodayCapacity(result.output) : formatTaskPriorities(result.output, 3, true) : result?.output;
           return this.localAnswer(input, state, reply || "今天的任务记录暂不可用，请稍后再试。");
         }
         const health = deviceHealthQuestion(input.message);

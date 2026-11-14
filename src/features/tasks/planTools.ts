@@ -143,6 +143,11 @@ const todayUnfinishedQuestions = [
   /^我?今天还?剩下?(?:哪些|什么)(?:任务|待办)$/u
 ];
 const dueGroupsRequest = /^(?:请)?(?:把|将)?(?:已|已经)?逾期的?(?:任务|待办)?(?:和|跟|与|以及|、)(?:今天|今日)到期的?(?:任务|待办)?(?:各自|分别|分开)(?:列(?:出|出来|一下)?|说(?:一下)?|显示)$/u;
+const todayPriorityQuestion = /^(?:请问[，, ]*)?(?:我)?(?:今天|今日)(?:应当|应该|该|要)?先做(?:什么|哪些(?:任务|待办|事)?)[。！？!?]?$/u;
+
+export function asksForTodayPriorities(message: string): boolean {
+  return todayPriorityQuestion.test(message.trim());
+}
 
 export function todayTaskListQuestion(message: string, date: string): Record<string, unknown> | undefined {
   const text = message.trim().replace(/^请问[，, ]*/u, "").replace(/[。！？!?]+$/u, "");
@@ -267,7 +272,11 @@ export function voiceTaskPriorityTool(tool: AiToolDefinition): AiToolDefinition 
 export function formatVoiceTaskPriorities(output: string, args: Record<string, unknown>): string | undefined {
   const count = args.voicePriorityCount;
   if (args.draftTomorrow === true || typeof count !== "number" || !Number.isInteger(count) || count < 1 || count > 3) return;
-  let plan: { tasks: Array<{ title: string; time?: string; reasons: string[] }>; scope?: string };
+  return formatTaskPriorities(output, count);
+}
+
+export function formatTaskPriorities(output: string, count: number, includeEnergy = false): string | undefined {
+  let plan: { tasks: Array<{ title: string; time?: string; reasons: string[] }>; scope?: string; energy?: number };
   try { plan = JSON.parse(output); } catch { return; }
   if (!Array.isArray(plan?.tasks)) return;
   const selected = plan.tasks.slice(0, count);
@@ -278,5 +287,7 @@ export function formatVoiceTaskPriorities(output: string, args: Record<string, u
     const details = [time, ...reasons.slice(0, 2)].filter(Boolean).join("，");
     return `${index === 0 ? "先做" : "然后做"}「${title}」${details ? `，${details}` : ""}`;
   });
-  return lines.join("。") + scope + "。";
+  const energy = includeEnergy && typeof plan.energy === "number" && Number.isFinite(plan.energy)
+    ? `计划按精力 ${plan.energy} 分排序。` : "";
+  return lines.join("。") + scope + "。" + energy;
 }

@@ -490,6 +490,21 @@ describe("unified agent loop", () => {
     expect(requests).toHaveLength(0);
   });
 
+  it("reads a simple priority question from the verified local order, reasons, and recorded energy", async () => {
+    const data = { energy: 2, tasks: [
+      { title: "虚构见样品负责人", time: "原安排 21:00", reasons: ["今天到期", "重要且紧急"] },
+      { title: "虚构整理周报", reasons: ["今天到期"] },
+      { title: "虚构复核地图", reasons: [] }
+    ] };
+    vi.spyOn(host, "executeTools").mockImplementation(async calls => calls.map(call =>
+      ({ callId: call.id!, success: true, output: JSON.stringify(data), actions: [] })));
+    const result = await new AgentLoop(host).run(input({ message: "今天应该先做哪些？" }));
+    expect(result.text).toContain("先做「虚构见样品负责人」，原安排 21:00，今天到期，重要且紧急。然后做「虚构整理周报」");
+    expect(result.text).toContain("精力 2 分");
+    expect(requests).toHaveLength(0);
+    expect(result.receipts).toEqual([]);
+  });
+
   it.each(["single", "duplicate", "also-plan"])("reports the remaining count and highest priorities (%s)", async mode => {
     const date = formatDate(now);
     await store.createTask({ title: "虚构归档", date, quadrant: "not-important-not-urgent" });
