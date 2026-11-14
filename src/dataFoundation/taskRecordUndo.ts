@@ -3,12 +3,12 @@ import type { StoreHost, TaskDatabase } from "../store/settingsSlice";
 import { fileRevision, recordRevision } from "../operationIdentity";
 import type { GuardedFileChange } from "./factOperation";
 import type { OperationLedgerRecord, OperationUndoDescriptor } from "./operationLedger";
-import { planTaskDatabaseWrite, readTaskFile, taskReadSnapshot, validateTaskRecords } from "./taskPersistence";
 
 function taskDelta(file: GuardedFileChange) {
   const parse = (text: string | null) => {
     const document = (text === null ? { tasks: [] } : JSON.parse(text)) as TaskDatabase;
-    validateTaskRecords(document.tasks);
+    if (!Array.isArray(document.tasks) || document.tasks.some(task => !task || typeof task.id !== "string")
+      || new Set(document.tasks.map(task => task.id)).size !== document.tasks.length) throw new Error("任务撤销记录格式无效。");
     const { taskMirror: _mirror, tasks, ...metadata } = document;
     return { metadata, tasks: new Map(tasks.map(task => [task.id, task])) };
   };
@@ -41,13 +41,15 @@ export async function rebaseTaskRecordUndo(store: StoreHost, descriptor: Operati
   const json = descriptor.files.find(file => file.path === taskPath);
   const mirror = descriptor.files.find(file => file.path === mirrorPath);
   if (!json || !mirror) return;
+  const persistence = await import("./taskPersistence");
+  const { planTaskDatabaseWrite, readTaskFile } = persistence;
   const currentJson = await readTaskFile(store, taskPath), currentMirror = await readTaskFile(store, mirrorPath);
   if (json.after === currentJson && mirror.after === currentMirror) return;
   if (currentJson === null || fileRevision(mirror.before) !== mirror.beforeHash || fileRevision(mirror.after) !== mirror.afterHash) return;
   const changes = taskDelta(json);
   if (!changes?.length) return;
   const database = await store.readTaskDb({ readOnly: true });
-  const snapshot = database[taskReadSnapshot];
+  const snapshot = database[persistence.taskReadSnapshot];
   if (!snapshot || snapshot.json !== currentJson || snapshot.mirror !== currentMirror) {
     throw new Error("撤销期间任务库发生变化，请重试。");
   }
