@@ -52,8 +52,26 @@ export function parsePhoneInbox(text: string, today: string, includeUnterminated
   const occurrences = new Map<string, number>();
   const lines = text.replace(/^\uFEFF/u, "").split(/\r\n|\n|\r/u);
   if (!includeUnterminated) lines.pop();
+  let frontmatter = lines[0]?.trimEnd() === "---";
+  let comment = false;
+  let fence: string | undefined;
   return lines.flatMap((raw, index) => {
-    if (!raw.trim() || /^\s*#{1,6}(?:[ \t]|$)/u.test(raw) || /^\s*<!--.*-->\s*$/u.test(raw)) return [];
+    if (frontmatter) {
+      if (index > 0 && /^(?:---|\.\.\.)[ \t]*$/u.test(raw)) frontmatter = false;
+      return [];
+    }
+    if (comment || /^\s*<!--/u.test(raw) && !fence) {
+      comment = !raw.includes("-->");
+      return [];
+    }
+    const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(raw);
+    if (marker) {
+      const [, run, rest] = marker;
+      if (!fence) fence = run;
+      else if (run[0] === fence[0] && run.length >= fence.length && !rest.trim()) fence = undefined;
+      return [];
+    }
+    if (fence || !raw.trim() || /^\s*#{1,6}(?:[ \t]|$)/u.test(raw)) return [];
     const hash = fileRevision(raw);
     const occurrence = (occurrences.get(hash) ?? 0) + 1;
     occurrences.set(hash, occurrence);

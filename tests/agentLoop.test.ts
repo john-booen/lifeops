@@ -1410,3 +1410,23 @@ it("rejects a synced phone row when its final newline is removed during processi
     expect(await store.readPath(PHONE_INBOX_PATH)).toBe(original.trimEnd());
   } finally { inbox.stop(); }
 });
+
+it("submits phone inbox entries without sending Markdown properties, comments or fenced samples", async () => {
+  const { PhoneInbox } = await import("../src/features/phoneInbox/service");
+  const { PHONE_INBOX_PATH } = await import("../src/features/phoneInbox/model");
+  const { LifeOpsEventBus } = await import("../src/lifeOpsEventBus");
+  const submit = vi.fn(async (_text: string) => ({ reply: "请核对。", actions: [] }));
+  const inbox = new PhoneInbox({ store: () => store, enabled: () => true, submit,
+    confirm: async () => {}, undo: async () => true, notify: () => {} }, new LifeOpsEventBus());
+  const original = [
+    "\uFEFF---", "project: 虚构属性", "---", "# 手机随手记", "<!--", "虚构模板备注", "-->",
+    "~~~text", "虚构示例", "~~~", "[2026-01-09 15:00] 明天取样", ""
+  ].join("\r\n");
+  try {
+    await store.ensureFile(PHONE_INBOX_PATH, original);
+    await inbox.scan();
+    expect(submit.mock.calls.map(([text]) => text)).toEqual(["明天取样"]);
+    expect((await inbox.list()).map(row => row.line)).toEqual([11]);
+    expect(await store.readPath(PHONE_INBOX_PATH)).toBe(original);
+  } finally { inbox.stop(); }
+});
