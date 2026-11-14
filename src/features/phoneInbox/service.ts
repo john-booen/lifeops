@@ -118,21 +118,27 @@ export class PhoneInbox {
       if (await this.restoreReceipts(store, doc.records)) await this.write(store, doc);
       if (!store.getFile(PHONE_INBOX_PATH)) return;
       const known = new Set(doc.records.map(row => row.id));
-      const lines = (await this.lines(store, includeUnterminated)).flatMap(line => {
-        if (known.has(line.id)) return [];
-        const invalid = phoneInboxReviewReason(store, line);
-        return invalid || textAiReadiness(store.settings).ready ? [{ line, invalid }] : [];
-      });
+      const eligible = (line: PhoneInboxLine) => !known.has(line.id)
+        && (textAiReadiness(store.settings).ready || !!phoneInboxReviewReason(store, line));
+      const lines = (await this.lines(store, includeUnterminated)).filter(eligible);
       const added: PhoneInboxRecord[] = [];
       let pausedBySave = false;
-      for (const { line, invalid } of lines.slice(0, MAX_BATCH_LINES)) {
+      for (const queued of lines.slice(0, MAX_BATCH_LINES)) {
         if (!this.enabled || store !== this.host.store()) break;
-        if (!invalid && !textAiReadiness(store.settings).ready) continue;
         if (await hasPendingFactOperation(store)) {
           pausedBySave = true;
           this.schedule(10_000);
           break;
         }
+        // A sync may have edited or reopened a later line during processing.
+        if (!store.getFile(PHONE_INBOX_PATH)) break;
+        const line = (await this.lines(store, includeUnterminated)).find(row => row.id === queued.id);
+        if (!line || queued.terminated && !line.terminated) {
+          this.schedule();
+          break;
+        }
+        const invalid = phoneInboxReviewReason(store, line);
+        if (!invalid && !textAiReadiness(store.settings).ready) continue;
         added.push(await this.process(store, doc, line, invalid));
       }
       if (added.length) this.host.notify(summarizePhoneInbox(added));

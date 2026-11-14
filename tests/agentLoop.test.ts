@@ -1783,6 +1783,32 @@ it("rejects a synced phone row when its final newline is removed during processi
   } finally { inbox.stop(); }
 });
 
+it("leaves a later synced phone row unclaimed if the line changes before its send", async () => {
+  const { PhoneInbox } = await import("../src/features/phoneInbox/service");
+  const { PHONE_INBOX_PATH } = await import("../src/features/phoneInbox/model");
+  const { LifeOpsEventBus } = await import("../src/lifeOpsEventBus");
+  const draft = "虚构第一行\n虚构未写完的第二行";
+  const original = draft + "\n";
+  const synced = "虚构第一行\n虚构完整第二行\n";
+  const note = await store.ensureFile(PHONE_INBOX_PATH, original);
+  const submit = vi.fn(async (text: string) => {
+    if (text === "虚构第一行") await store.app.vault.modify(note, draft);
+    return { reply: "核对完成。", actions: [] };
+  });
+  const inbox = new PhoneInbox({ store: () => store, enabled: () => true, submit,
+    confirm: async () => undefined, undo: async () => true, notify: () => undefined }, new LifeOpsEventBus());
+  try {
+    await inbox.scan();
+    expect(submit.mock.calls.map(([text]) => text)).toEqual(["虚构第一行"]);
+    expect(await inbox.snapshot()).toMatchObject({ pending: 0, unfinished: 1, receipts: [{ line: 1 }] });
+    await store.app.vault.modify(note, synced);
+    await inbox.scan();
+    expect(submit.mock.calls.map(([text]) => text)).toEqual(["虚构第一行", "虚构完整第二行"]);
+    expect(await inbox.snapshot()).toMatchObject({ pending: 0, unfinished: 0, receipts: [{ line: 2 }, { line: 1 }] });
+    expect(await store.readPath(PHONE_INBOX_PATH)).toBe(synced);
+  } finally { inbox.stop(); }
+});
+
 it.each([false, true])("leaves later phone rows unclaimed if a guarded save starts during a batch (manual: %s)", async manual => {
   const { PhoneInbox, PhoneInboxBusyError } = await import("../src/features/phoneInbox/service");
   const { PHONE_INBOX_PATH } = await import("../src/features/phoneInbox/model");
