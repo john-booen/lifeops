@@ -25,7 +25,7 @@ export class PhoneInboxModal extends Modal {
       await this.app.workspace.openLinkText(PHONE_INBOX_PATH, "", true);
       this.close();
     }, false);
-    this.button(host, "检查新记录", () => this.inbox.scan());
+    this.button(host, "检查新记录", () => this.inbox.scan(true));
     try {
       const rows = await this.inbox.list();
       if (generation !== this.generation) return;

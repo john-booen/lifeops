@@ -45,9 +45,11 @@ export const phoneInboxLabels: Record<PhoneInboxTool, string> = {
   delete_task: "删除任务", delete_habit: "删除习惯"
 };
 
-export function parsePhoneInbox(text: string, today: string): PhoneInboxLine[] {
+export function parsePhoneInbox(text: string, today: string, includeUnterminated = false): PhoneInboxLine[] {
   const occurrences = new Map<string, number>();
-  return text.split(/\r\n|\n|\r/).flatMap((raw, index) => {
+  const lines = text.replace(/^\uFEFF/u, "").split(/\r\n|\n|\r/u);
+  if (!includeUnterminated) lines.pop();
+  return lines.flatMap((raw, index) => {
     if (!raw.trim() || /^\s*#{1,6}(?:[ \t]|$)/u.test(raw) || /^\s*<!--.*-->\s*$/u.test(raw)) return [];
     const hash = fileRevision(raw);
     const occurrence = (occurrences.get(hash) ?? 0) + 1;

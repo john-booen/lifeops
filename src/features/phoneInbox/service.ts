@@ -40,10 +40,10 @@ export class PhoneInbox {
     return !this.stopped && this.host.enabled() && this.allowed(this.host.store());
   }
 
-  schedule(delay = 650): void {
+  schedule(delay = 650, includeUnterminated = false): void {
     clearTimeout(this.scheduled);
     if (!this.enabled) return;
-    this.scheduled = setTimeout(() => void this.scan().catch(() =>
+    this.scheduled = setTimeout(() => void this.scan(includeUnterminated).catch(() =>
       this.host.notify("手机随手记暂时无法读取或处理，请打开回执核对。")), delay);
   }
 
@@ -66,27 +66,27 @@ export class PhoneInbox {
     this.schedule();
   }
 
-  scan(): Promise<void> {
+  scan(includeUnterminated = false): Promise<void> {
     return this.serialize(async () => {
       if (!this.enabled) return;
       const store = this.host.store();
       if (!store.getFile(PHONE_INBOX_PATH)) return;
       if (await hasPendingFactOperation(store)) {
-        this.schedule(10_000);
+        this.schedule(10_000, includeUnterminated);
         return;
       }
       const ai = store.settings.ai;
       if (ai.provider === "off" || !ai.dataDisclosureAccepted || !ai.endpoint || !ai.model) return;
       const doc = await this.read(store);
       const known = new Set(doc.records.map(row => row.id));
-      const lines = (await this.lines(store)).filter(line => !known.has(line.id));
+      const lines = (await this.lines(store, includeUnterminated)).filter(line => !known.has(line.id));
       const added: PhoneInboxRecord[] = [];
       for (const line of lines.slice(0, MAX_BATCH_LINES)) {
         if (!this.enabled || store !== this.host.store()) break;
         added.push(await this.process(store, doc, line));
       }
       if (added.length) this.host.notify(summarizePhoneInbox(added));
-      if (added.length === MAX_BATCH_LINES && lines.length > added.length) this.schedule();
+      if (added.length === MAX_BATCH_LINES && lines.length > added.length) this.schedule(650, includeUnterminated);
     });
   }
 
@@ -155,16 +155,16 @@ export class PhoneInbox {
   }
 
   private async findLine(store: StoreHost, id: string): Promise<PhoneInboxLine> {
-    const line = (await this.lines(store)).find(item => item.id === id);
+    const line = (await this.lines(store, true)).find(item => item.id === id);
     if (!line) throw Error("这一行已经修改或移除，请核对收件箱。");
     return line;
   }
 
-  private async lines(store: StoreHost): Promise<PhoneInboxLine[]> {
+  private async lines(store: StoreHost, includeUnterminated: boolean): Promise<PhoneInboxLine[]> {
     this.assertCurrent(store);
     const text = await readScopedMarkdown(store, PHONE_INBOX_PATH);
     this.assertCurrent(store);
-    return parsePhoneInbox(text, todayString());
+    return parsePhoneInbox(text, todayString(), includeUnterminated);
   }
 
   private async read(store: StoreHost): Promise<PhoneInboxDocument> {

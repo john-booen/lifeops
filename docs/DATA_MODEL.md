@@ -10,6 +10,9 @@
 | 日记信号 | `folders.aiReports/Signals/YYYY-MM-DD.json` | 信号提取服务 | 上下文、统计、今日卡片 | 带出处的派生结果 |
 | 任务 | `folders.tasks/LifeOps任务库.json` | 表单、任务工具、惩罚判定 | 排序、容量、统计、任务视图 | 用户安排与完成事实 |
 | 习惯与打卡 | `folders.habits/LifeOps打卡库.json` | 表单、打卡工具、数值记录 | 习惯、统计、惩罚判定 | 目标配置与打卡事实 |
+| 手机随手记原文 | `输入/手机随手记.md` | 手机或用户 | 桌面收件箱 | 逐行追加的用户原文 |
+| 手机处理回执 | `folders.aiReports/System/phone-inbox.json` | 桌面收件箱 | 回执面板 | 行哈希、处理结果、待确认动作及操作 ID |
+| 健康 | `folders.health/YYYY-MM-DD.md` | 本人手填或确认后的导入 | 今日卡片、习惯、摘要和统计 | 一天可有多次记录，各指标取最后有效值 |
 | 交易 | `folders.tradingReviews/LifeOps交易记录.json` | 对话、表单、确认后的导入或回填 | 交易统计、纪律、复盘 | 用户记录与代码计算值 |
 | 想法 | `folders.ideas/*.md` | 用户、新建想法工具、确认后的旧笔记登记 | 想法面板、督促、阅读关联 | 原文及登记元数据 |
 | 学习轨道 | `folders.goals/LifeOps学习轨道.json` | 确认后的计划、学习记录工具 | 学习面板、统计、测验 | 计划与学习事实 |

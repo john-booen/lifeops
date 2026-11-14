@@ -1230,3 +1230,26 @@ describe("phone inbox", () => {
     expect((await store.readTaskDb()).tasks).toEqual([]);
   });
 });
+
+it("waits for a complete phone inbox line while mobile sync updates an unfinished draft", async () => {
+  const { PhoneInbox } = await import("../src/features/phoneInbox/service");
+  const { PHONE_INBOX_PATH } = await import("../src/features/phoneInbox/model");
+  const { LifeOpsEventBus } = await import("../src/lifeOpsEventBus");
+  const saved = vi.fn(async (_text: string) => ({ reply: "请核对。", actions: [] }));
+  const events = new LifeOpsEventBus();
+  const inbox = new PhoneInbox({ store: () => store, enabled: () => true, submit: saved,
+    confirm: async () => {}, undo: async () => true, notify: () => {} }, events);
+  try {
+    const note = await store.ensureFile(PHONE_INBOX_PATH, "# 手机随手记\n明天去");
+    await inbox.scan();
+    expect(saved).not.toHaveBeenCalled();
+    await store.app.vault.modify(note, "# 手机随手记\n明天去拿蓝纸\n另一个未完");
+    await inbox.scan();
+    expect(saved.mock.calls.map(args => args[0])).toEqual(["明天去拿蓝纸"]);
+    await inbox.scan(true);
+    expect(saved.mock.calls.map(args => args[0])).toEqual(["明天去拿蓝纸", "另一个未完"]);
+    await store.app.vault.modify(note, "# 手机随手记\n明天去拿蓝纸\n另一个未完\n");
+    await inbox.scan();
+    expect(saved).toHaveBeenCalledTimes(2);
+  } finally { inbox.stop(); }
+});
