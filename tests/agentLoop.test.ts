@@ -1218,6 +1218,19 @@ it("still handles a task question that begins with a greeting", async () => {
   expect(requests).toHaveLength(1);
 });
 
+it("recalls an explicitly saved recurring appointment without relying on a newly generated answer", async () => {
+  const loop = new AgentLoop(host);
+  responses.push(reply("", [tool("append_memory_note", { content: "我周五晚上固定整理虚构读书卡。", fileName: "个人画像.md", explicit: true })]));
+  const remembered = await loop.run(input({ message: "记住我周五晚上固定整理虚构读书卡。" }));
+  expect(remembered.toolCalls).toContainEqual({ name: "append_memory_note", ok: true });
+  const beforeRecall = requests.length;
+  expect((await loop.run(input({ message: "我星期五晚上有哪些安排？" }))).text).toBe("已确认的固定安排：我周五晚上固定整理虚构读书卡。");
+  expect(requests).toHaveLength(beforeRecall);
+  responses.push(reply("我需要查当日的虚构待办。"));
+  expect((await loop.run(input({ message: "我下周五晚上有哪些安排？" }))).text).toBe("我需要查当日的虚构待办。");
+  expect(requests).toHaveLength(beforeRecall + 1);
+});
+
 it("answers standalone greetings and device date questions by voice without checking background jobs or loading personal records", async () => {
   const { VoiceJobManager } = await import("../src/voice/jobs");
   const jobs = new VoiceJobManager((_task, signal) => new Promise((_resolve, reject) => {

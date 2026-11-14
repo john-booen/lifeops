@@ -22,6 +22,7 @@ import { agentToolsForChat, getLifeOpsTool } from "../toolRegistry";
 import { prepareToolBatch } from "../toolBatch";
 import type { AgentActionSuggestion, AgentConversationMessage, AgentResponse, AgentWriteReceipt, LifeOpsSettings, ProviderRunResult } from "../types";
 import { agentHistoryMessages, buildResidentContext, clipBytes, type ResidentContext } from "./context";
+import { recurringScheduleAnswer } from "./recurringSchedule";
 import { memorySourcePolicy } from "../personalMemorySources";
 import { agentModelRole, settingsForAgentModel, type AgentModelRole } from "./models";
 import { extractTradingRules } from "../features/trading/ruleSources";
@@ -210,6 +211,10 @@ export class AgentLoop {
       assertPolicy();
       this.host.onContext?.(context);
       state.contextChars = context.text.length;
+      if (!input.voiceBackground && (input.source === "text" || input.source === "voice") && context.memories) {
+        const schedule = recurringScheduleAnswer(input.message, context.memories, input.now);
+        if (schedule) return this.localAnswer(input, state, schedule);
+      }
       const clarification = !input.voiceBackground && weekendClarification(input.message);
       if (clarification) return this.localAnswer(input, state, clarification);
       const fastVoice = input.source === "voice" && !input.voiceBackground;
