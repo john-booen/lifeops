@@ -1,7 +1,7 @@
 import { runInNewContext } from "node:vm";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
-  cleanupAudioWorkletCapture, floatTo16kPcm, lifeOpsAudioWorkletSource,
+  cleanupAudioWorkletCapture, cleanupRealtimeAudio, floatTo16kPcm, lifeOpsAudioWorkletSource,
   startAudioWorkletCapture, startPcmAudioCapture
 } from "../src/voice/voiceRealtime";
 
@@ -409,6 +409,42 @@ it("closes the single silent-request context on the existing stale-generation bo
   expect(contexts[0].resume).toHaveBeenCalledOnce(); expect(contexts[0].close).toHaveBeenCalledOnce();
   expect(contexts[0].createMediaStreamSource).not.toHaveBeenCalled();
   expect(contexts[0].audioWorklet.addModule).not.toHaveBeenCalled(); expect(view.agentAudioWorklet).toBeNull();
+});
+it("closes the input context when the microphone source cannot be connected", async () => {
+  const { contexts, view, client } = captureFactory(false);
+  const error = new DOMException("Synthetic ended input track", "InvalidStateError");
+  const start = startPcmAudioCapture(view, client as any);
+  contexts[0].createMediaStreamSource.mockImplementation(() => { throw error; });
+  await expect(start).rejects.toBe(error);
+  expect(contexts[0].close).toHaveBeenCalledOnce();
+  expect(view.agentAudioContext).toBeUndefined();
+  expect(view.setVoiceCaptureMode).not.toHaveBeenCalled();
+});
+it("does not close an old context twice or lose its replacement when a retired capture finishes loading", async () => {
+  const { contexts, view, client } = captureFactory(false);
+  Object.assign(view, {
+    clearVoiceWarmupTimer: vi.fn(),
+    clearVoiceNoTranscriptTimer: vi.fn(),
+    cleanupAgentMedia: vi.fn()
+  });
+  let current = true;
+  let finishOld!: () => void;
+  const start = startPcmAudioCapture(view, client as any, () => current);
+  const old = contexts[0];
+  old.audioWorklet.addModule.mockImplementationOnce(() => new Promise<void>(resolve => { finishOld = resolve; }));
+  await vi.waitFor(() => expect(old.audioWorklet.addModule).toHaveBeenCalledOnce());
+  current = false;
+  cleanupRealtimeAudio(view);
+  await startPcmAudioCapture(view, client as any);
+  const replacement = view.agentAudioWorklet;
+  finishOld();
+  await start;
+
+  expect(old.close).toHaveBeenCalledOnce();
+  expect(view.agentAudioContext).toBe(contexts[1]);
+  expect(view.agentAudioWorklet).toBe(replacement);
+  expect(view.setVoiceCaptureMode).toHaveBeenCalledExactlyOnceWith("audio-worklet");
+  cleanupRealtimeAudio(view);
 });
 it.each([16_000, 48_000])("detects local speech and leaves cascade dispatch to the server at %i Hz", async rate => {
   const { node, client, view } = await capture(rate, false);
