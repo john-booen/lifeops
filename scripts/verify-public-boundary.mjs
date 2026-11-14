@@ -24,13 +24,16 @@ const secret = /(?:-----BEGIN (?:OPENSSH |RSA |EC )?PRIVATE KEY-----|\bsk-(?:pro
 const forbidden = /^(?:docs\/(?:archive\/|plan\/|vault-map\/|PROGRESS\.md|QUESTIONS_FOR_|CLAUDE)|fixtures\/real-provider\/|output\/|dist\/|test-vault\/|node_modules\/|prototypes\/)|(?:^|\/)(?:release\.config\.json|sensitive-terms\.txt|breeze-paths\.json|\.env(?:\.|$)|[^/]+\.(?:pem|key|log))$/i;
 const privateEvalReport = /^docs\/eval\/20[^/]{2}-[^/]{2}-[^/]{2}[^/]*\.md$/i;
 // Only the reviewed fictional images may bypass text scanning.
-const reviewedImages = new Map([
+const reviewedImages = [
   ["docs/images/lifeops-overview.png", "9e6d8c5f4596b3c199b44fcb22564550bc1b981c6c139b25acc37a8886baaa99"],
+  ["docs/images/lifeops-overview.png", "4ec2e6c178b78348a56e7a0ec9e1c9c04319e496fff630f047d86ae761591ac7"],
+  ["docs/images/lifeops-operations.png", "56b270ef863ca155c0236896df7d85edf8a018590fc0972ed12a13e5398afb68"],
   ["tests/fixtures/trade-screenshots/crypto-open.png", "2b84f4a23a4f2db71483fa2ad17e0e5b174b997ef37279614ba5699205ab3d67"],
   ["tests/fixtures/trade-screenshots/equity-match.png", "6b78eba15f381e9ba33fa7cdb257ae31f8a25f8576d77ac04a3310ac2db3f783"],
   ["tests/fixtures/trade-screenshots/forex-missing-zone.png", "1db5531c73553f1784338394632603e2ea1f4a9cf3ef85dee79ab917619c76ce"],
   ["tests/fixtures/trade-screenshots/futures-mismatch.png", "edf0858380d1cbd99b285624a6f48cb4abbae0e5a16990ec4a1a10112decb6b9"]
-]);
+];
+const approvedImages = new Set(reviewedImages.map(([path, digest]) => path + ":" + digest));
 const failures = new Map();
 function scanText(label, source) {
   if (homePath.test(source)) failures.set(label, "个人绝对路径");
@@ -41,7 +44,7 @@ function scanText(label, source) {
 function scan(path, blob) {
   if (forbidden.test(path) || privateEvalReport.test(path)) { failures.set(path,"禁止文件"); return; }
   if (blob.includes(0) || /\.png$/i.test(path)) {
-    if (reviewedImages.get(path) !== createHash("sha256").update(blob).digest("hex")) {
+    if (!approvedImages.has(path + ":" + createHash("sha256").update(blob).digest("hex"))) {
       failures.set(path, "未经批准的二进制文件");
     }
     return;
