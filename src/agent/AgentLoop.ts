@@ -10,7 +10,7 @@ import { asksForRecentStatus, formatRecentStatus, recentStatusDomains } from "..
 import { backgroundStatsTool } from "../features/stats/tools";
 import { resolveStatsRange } from "../features/stats/stats";
 import { formatHabitCompensationReply, formatTaskCompletionRate, formatTaskListReply, formatVoiceTaskPriorities, habitCompensationQuestion, repeatedTaskListPriority, taskCompletionRateQuestion, voiceTaskPriorityTool } from "../features/tasks/planTools";
-import { planCapacityEvidence } from "../features/tasks/capacityEvidence";
+import { asksForTodayCapacity, formatTodayCapacity, planCapacityEvidence } from "../features/tasks/capacityEvidence";
 import { weekendClarification } from "../features/tasks/weekendClarification";
 import { phoneInboxCall, phoneInboxRequest, phoneInboxToolDefinitions } from "../features/phoneInbox/agent";
 import { phoneInboxOperationId, type PhoneInboxTurn } from "../features/phoneInbox/model";
@@ -204,6 +204,15 @@ export class AgentLoop {
         }
       }
       if (!input.voiceBackground && (input.source === "text" || input.source === "voice")) {
+        if (asksForTodayCapacity(input.message)) {
+          await waitForFactOperations(this.host.store, { signal: input.signal, assertCurrent: assertPolicy });
+          const calls = this.scopedCalls([{ name: "plan_today", arguments: {} }], state.id, 0);
+          const [result] = await this.executeRegular(input, state, calls);
+          assertProviderActive(input.signal);
+          assertPolicy();
+          const reply = result?.success ? formatTodayCapacity(result.output) : result?.output;
+          return this.localAnswer(input, state, reply || "今天的任务记录暂不可用，请稍后再试。");
+        }
         const health = deviceHealthQuestion(input.message);
         const period = health?.range ?? taskCompletionRateQuestion(input.message);
         if (period) {
