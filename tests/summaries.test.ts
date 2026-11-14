@@ -124,6 +124,16 @@ it("keeps confirmed health metrics and coverage in local daily and weekly summar
   expect(weekly?.text).toContain("平均体重 69 kg（2 天）。平均静息心率 63 次/分（1 天）。");
 });
 
+it("appends the code-calculated health counts to a valid model summary", async () => {
+  const date = "2026-11-15";
+  await store.appendHealthEntry({ date, sleepHours: 7.25, steps: 0 });
+  ask.mockResolvedValueOnce(summaryText("day"));
+  const report = await generatePeriodSummary(host, summaryPeriod("day", date), now(15, 23, 30));
+  expect(report.generatedBy).toBe("model");
+  const note = await saved("day", date);
+  expect(note?.text).toContain("健康记录覆盖 1 天。平均睡眠 7.25 小时（1 天）。累计步数 0 步（1 天）。");
+});
+
 it("states that health coverage is unavailable when all records in the period are excluded", async () => {
   const date = "2026-11-15";
   await store.appendHealthEntry({ date, sleepHours: 7.25 });

@@ -4,7 +4,7 @@ import { addDays, formatDate, normalizeJournalDate } from "../../date";
 import { fileRevision } from "../../operationIdentity";
 import type { StoreHost } from "../../store/settingsSlice";
 import type { LocalOperationHost } from "../serviceHost";
-import { localSummaryText, summaryMessages, validSummaryText } from "./analysis";
+import { healthSummaryLine, localSummaryText, summaryMessages, validSummaryText } from "./analysis";
 import { collectChildSummaries, collectSummaryData } from "./data";
 import { readSummary, readSummaryScope, renderSummary, summaryPath, summaryPathAllowed, type SummaryKind } from "./notes";
 import { scheduledSummaryPeriods, summaryBackfillPeriods, summaryFolders, summaryPeriod, type SummaryLevel, type SummaryPeriod } from "./periods";
@@ -94,6 +94,10 @@ async function generateSummary(host: SummaryHost, store: StoreHost, period: Summ
     if (!local && !validSummaryText(text, period.level)) {
       options.onLocalFallback("invalid_response");
       text = fallback + "\n\n> 模型返回的摘要未达到格式要求，以上为 LifeOps 本地生成的结构化草稿。";
+    }
+    if (!local) {
+      const health = healthSummaryLine(data);
+      if (health) text += "\n\n" + health;
     }
     const generatedBy = local ? "local" : "model";
     const markdown = renderSummary(period, through, scope.hash, data.metrics, inputCount, complete, generatedBy, text);
