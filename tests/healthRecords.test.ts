@@ -100,7 +100,7 @@ it("keeps field-looking lines entered as free text out of numerical records", as
 
 it("does not count metrics in properties, comments or code samples in an existing health note", async () => {
   const note = ["---", "- 体重：45 kg", "---", "## 手填", "- 步数：850", "~~~markdown", "- 步数：41234", "~~~",
-    "<!--", "- 静息心率：69 次/分", "-->", "- 睡眠小时：7"].join("\r\n");
+    "<!--", "- 静息心率：69 次/分", "-->", "%%", "- 跑步距离：4 公里", "%%", "- 睡眠小时：7"].join("\r\n");
   await store.writeFile(healthNotePath(store, date), note);
   expect(await readHealthDay(store, date)).toEqual({ date, steps: 850, sleepHours: 7 });
 });

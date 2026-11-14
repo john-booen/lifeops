@@ -636,7 +636,7 @@ describe("unified agent loop", () => {
 
   it("leaves hidden Markdown headings alone when writing the evening diary", async () => {
     const date = formatDate(now), path = store.dailyNotePath(date, "晚");
-    const comment = "<!--\n## 原话\n虚构模板\n## 整理\n-->\n";
+    const comment = "<!--\n## 原话\n虚构模板\n-->\n%%\n## 整理\n%%\n";
     await store.writeFile(path, "# 虚构日记\n" + comment);
     const args = { date, period: "晚", content: "写完地图。" };
     const original = "刚把虚构地图画好了。";
@@ -644,7 +644,7 @@ describe("unified agent loop", () => {
     expect(saved.success).toBe(true);
     expect(await store.readPath(path)).toContain(comment + "\n## 整理");
     expect(await store.readPath(path)).toContain("## 原话\n\n~~~\n" + original);
-    const unfinished = "<!--\n虚构草稿还在填写\n";
+    const unfinished = "%%\n虚构草稿还在填写\n";
     await store.writeFile(path, unfinished);
     const blocked = await runtime.executeAiToolCall(tool("append_journal_entry", args, "journal-open-comment"), "kimi", original);
     expect(blocked.output).toContain("未闭合的属性、注释或代码块");
@@ -1437,13 +1437,13 @@ it("submits phone inbox entries without sending Markdown properties, comments or
     confirm: async () => {}, undo: async () => true, notify: () => {} }, new LifeOpsEventBus());
   const original = [
     "\uFEFF---", "project: 虚构属性", "---", "# 手机随手记", "<!--", "虚构模板备注", "-->",
-    "~~~text", "虚构示例", "~~~", "[2026-01-09 15:00] 明天取样", ""
+    "%% 行内备注 %%", "%%", "虚构隐藏块", "%%", "~~~text", "虚构示例", "~~~", "[2026-01-09 15:00] 明天取样", ""
   ].join("\r\n");
   try {
     await store.ensureFile(PHONE_INBOX_PATH, original);
     await inbox.scan();
     expect(submit.mock.calls.map(([text]) => text)).toEqual(["明天取样"]);
-    expect((await inbox.list()).map(row => row.line)).toEqual([11]);
+    expect((await inbox.list()).map(row => row.line)).toEqual([15]);
     expect(await store.readPath(PHONE_INBOX_PATH)).toBe(original);
   } finally { inbox.stop(); }
 });
