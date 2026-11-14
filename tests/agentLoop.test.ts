@@ -1943,6 +1943,43 @@ it("leaves a later synced phone row unclaimed if the line changes before its sen
   } finally { inbox.stop(); }
 });
 
+it("keeps the finished phone receipt when sync temporarily removes the input between two rows", async () => {
+  const { PhoneInbox } = await import("../src/features/phoneInbox/service");
+  const { PHONE_INBOX_PATH } = await import("../src/features/phoneInbox/model");
+  const { LifeOpsEventBus } = await import("../src/lifeOpsEventBus");
+  const original = "虚构首行。\n虚构下一行。\n";
+  const note = await store.ensureFile(PHONE_INBOX_PATH, original);
+  const source = await import("../src/dataFoundation/markdownSources");
+  const { readScopedMarkdown } = source;
+  const read = vi.spyOn(source, "readScopedMarkdown");
+  const notify = vi.fn();
+  const submit = vi.fn(async (text: string) => {
+    if (text === "虚构首行。") {
+      read.mockImplementationOnce(async (...args) => {
+        const [, path] = args;
+        if (path === PHONE_INBOX_PATH) {
+          await store.app.vault.delete(note);
+          throw Error("虚构同步临时移除原文件");
+        }
+        return readScopedMarkdown(...args);
+      });
+    }
+    return { reply: "虚构核对完成。", actions: [] };
+  });
+  const inbox = new PhoneInbox({ store: () => store, enabled: () => true, submit,
+    confirm: async () => {}, undo: async () => true, notify }, new LifeOpsEventBus());
+  try {
+    await inbox.scan();
+    expect(submit).toHaveBeenCalledOnce();
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining("已处理 1 条"));
+    expect(await inbox.snapshot()).toMatchObject({ source: "missing", receipts: [{ sourceUnavailable: true }] });
+    await store.ensureFile(PHONE_INBOX_PATH, original);
+    await inbox.scan();
+    expect(submit.mock.calls.map(([text]) => text)).toEqual(["虚构首行。", "虚构下一行。"]);
+    expect((await inbox.snapshot()).receipts).toHaveLength(2);
+  } finally { inbox.stop(); vi.restoreAllMocks(); }
+});
+
 it.each([false, true])("leaves later phone rows unclaimed if a guarded save starts during a batch (manual: %s)", async manual => {
   const { PhoneInbox, PhoneInboxBusyError } = await import("../src/features/phoneInbox/service");
   const { PHONE_INBOX_PATH } = await import("../src/features/phoneInbox/model");

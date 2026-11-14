@@ -135,7 +135,11 @@ export class PhoneInbox {
         }
         // A sync may have edited or reopened a later line during processing.
         if (!store.getFile(PHONE_INBOX_PATH)) break;
-        const line = (await this.lines(store, includeUnterminated, scanDate)).find(row => row.id === queued.id);
+        const currentLines = await this.lines(store, includeUnterminated, scanDate).catch(error => {
+          if (store.getFile(PHONE_INBOX_PATH)) throw error;
+          return [];
+        });
+        const line = currentLines.find(row => row.id === queued.id);
         if (!line || queued.terminated && !line.terminated) {
           this.schedule();
           break;
