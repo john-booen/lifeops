@@ -48,8 +48,8 @@ describe("accountability and review", () => {
     expect((await buildResidentContext(store, "虚构习惯复盘", new Date(), source)).text).toContain(ACCOUNTABILITY_BOUNDARY);
   });
   it("connects the boundary to text and realtime prompt builders without punitive UI labels", async () => {
-    for (const file of ["src/ai.ts", "src/bailianRealtime.ts", "src/voice/voiceRealtime.ts"]) {
-      const text = await readFile(file, "utf8"); expect(text.match(/ACCOUNTABILITY_BOUNDARY/g)!.length).toBeGreaterThan(1);
+    for (const file of ["src/ai.ts", "src/voice/omniE2e/protocol.ts", "src/voice/omniE2e/instructions.ts"]) {
+      const text = await readFile(file, "utf8"); expect((text.match(/ACCOUNTABILITY_BOUNDARY/g) ?? []).length).toBeGreaterThan(1);
     }
     for (const file of ["src/main.ts", "src/agent/service.ts", "src/features/habits/service.ts", "src/features/review/service.ts", "src/modals.ts", "src/panel/statusBar.ts"]) {
       expect(await readFile(file, "utf8")).not.toMatch(/接受惩罚|惩罚提醒|惩罚阈值|惩罚已触发/);
