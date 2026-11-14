@@ -14,7 +14,7 @@ vi.mock("obsidian", () => ({
 const { LifeOpsStore } = await import("../src/store");
 const { createFsApp } = await import("./helpers/fsApp");
 const { AgentRuntime } = await import("../src/agentRuntime");
-const { healthRows } = await import("../src/features/health/model");
+const { combineHealthScreenshotDays, healthRows } = await import("../src/features/health/model");
 const { recordHealthEntries, readHealthDay, healthNotePath } = await import("../src/features/health/store");
 const { readStats } = await import("../src/features/stats/tools");
 const { projectHealthHabitProgress } = await import("../src/features/health/habits");
@@ -208,6 +208,22 @@ it("keeps verified days when one health note cannot be safely read", async () =>
   expect(result.success).toBe(true);
   expect(JSON.parse(result.output)).toMatchObject({ recordedDays: 1, scope: "只统计允许读取的记录",
     sleepHours: { average: 7.5, recordedDays: 1 } });
+});
+
+it("saves compatible readings from the same screenshot day in one operation and refuses conflicting values", async () => {
+  const rows = healthRows(JSON.stringify({ rows: [{ date, steps: 0 }, { date, sleepMinutes: 450 },
+    { date, steps: 0, weightKg: 70.5 }, { date: previous, restingHeartRate: 65 }] }));
+  const entries = combineHealthScreenshotDays(rows);
+  expect(entries).toEqual([{ date, steps: 0, sleepHours: 7.5, weightKg: 70.5 }, { date: previous, restingHeartRate: 65 }]);
+  expect(() => combineHealthScreenshotDays([...rows, { date, steps: 2000 }])).toThrow(`${date} 的步数有不同数值`);
+  const operationId = "synthetic-split-health-screenshot";
+  const saved = await runtime.executeLocalOperation("manual_health_screenshot", { entries }, scope => recordHealthEntries(scope, entries), operationId);
+  expect(saved.success, saved.output).toBe(true);
+  expect(await readHealthDay(store, date)).toEqual(entries[0]);
+  expect(await readHealthDay(store, previous)).toEqual(entries[1]);
+  expect(await runtime.undoOperation(operationId)).toBe(true);
+  expect(await readHealthDay(store, date)).toEqual({ date });
+  expect(await readHealthDay(store, previous)).toEqual({ date: previous });
 });
 
 it("requires health-specific disclosure and validates extracted dates and numerical fields", async () => {

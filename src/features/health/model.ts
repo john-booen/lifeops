@@ -62,6 +62,23 @@ export function healthRows(content: string): HealthDay[] {
   });
 }
 
+export function combineHealthScreenshotDays(rows: readonly HealthDay[]): HealthDay[] {
+  const byDate = new Map<string, HealthDay>();
+  for (const row of rows) {
+    const day = byDate.get(row.date) ?? { date: row.date };
+    for (const key of healthMetricKeys) {
+      const value = row[key];
+      if (value === undefined) continue;
+      if (day[key] !== undefined && day[key] !== value) {
+        throw Error(`${row.date} 的${HEALTH_METRICS[key].label}有不同数值，请修改或取消勾选其中一条。`);
+      }
+      day[key] = value;
+    }
+    byDate.set(row.date, day);
+  }
+  return [...byDate.values()];
+}
+
 export function inspectHealthMarkdown(date: string, text: string): { day: HealthDay; canAppend: boolean } {
   const result: HealthDay = { date };
   const lines = text.replace(/^\uFEFF/u, "").split(/\r\n|\r|\n/u);

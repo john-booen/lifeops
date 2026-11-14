@@ -5,7 +5,7 @@ import type { LifeOpsSettings } from "../../types";
 import type { LocalOperationHost } from "../serviceHost";
 import { assertSelectedFileAllowed } from "../screenshots/file";
 import { readScreenshotImage, SCREENSHOT_MAX_BYTES, type ScreenshotImage } from "../screenshots/image";
-import { healthDay, healthMetricKeys, HEALTH_METRICS, type HealthDay } from "./model";
+import { combineHealthScreenshotDays, healthDay, healthMetricKeys, HEALTH_METRICS, type HealthDay } from "./model";
 import { assertHealthScreenshotReady } from "./screenshot";
 import { recordHealthEntries } from "./store";
 
@@ -79,7 +79,7 @@ class HealthScreenshotModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
     this.setTitle("核对健康记录");
-    contentEl.createEl("p", { text: "缺少完整日期时请补选日期。留空的指标不保存；同日已记录的指标保留历史，统计采用最新值。" });
+    contentEl.createEl("p", { text: "缺少完整日期时请补选日期。同一天的不同指标可一起保存。统计采用每项最新值，历史继续保留。" });
     const fields = rows.map((row, index) => this.renderEntry(row, index));
     const status = contentEl.createEl("p", { attr: { role: "status" } });
     new Setting(contentEl).addButton(button => button.setButtonText("确认并保存").setCta().onClick(async () => {
@@ -89,14 +89,14 @@ class HealthScreenshotModal extends Modal {
       for (const input of inputs) input.disabled = true;
       try {
         current();
-        const entries = fields.filter(row => row.pick.checked).map(({ date, metrics }) =>
+        const selected = fields.filter(row => row.pick.checked).map(({ date, metrics }) =>
           healthDay(date.value, Object.fromEntries(metrics.map(([key, field]) => [
             key, field.validity.badInput ? NaN : field.value.trim() ? field.valueAsNumber : undefined
           ]))));
-        if (!entries.length || entries.some(entry => entry.date > todayString() || !healthMetricKeys.some(key => entry[key] !== undefined))) {
+        if (!selected.length || selected.some(entry => entry.date > todayString() || !healthMetricKeys.some(key => entry[key] !== undefined))) {
           throw Error("请勾选至少一条有指标的记录，并核对日期。");
         }
-        if (new Set(entries.map(entry => entry.date)).size !== entries.length) throw Error("确认卡里同一天只保留一条，请核对后勾选。");
+        const entries = combineHealthScreenshotDays(selected);
         let saved = 0;
         await this.host.saveLocalOperation("manual_health_screenshot", { digest, entries }, async store => {
           saved = await recordHealthEntries(store, entries);
