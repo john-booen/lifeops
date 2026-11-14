@@ -219,9 +219,9 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
       properties: {
         title: { type: "string", description: "标题保留动作、人名和对象；指代不明先问；要求原样则逐字保留。" },
         date: { type: "string", description: "有效日期；用户说今天/明天等则原样填相对日期；未指定时省略，不编造。" },
-        time: { type: "string", description: "旧版安排时刻；新安排用startTime/endTime。" },
-        startTime: { type: "string", description: "明确计划开始的HH:mm；用户没说开始就省略，不推算工时。" },
-        endTime: { type: "string", description: "计划结束或完成目标HH:mm；单独此项不代表占用区间或实际完成。" },
+        time: { type: "string", description: "单点安排 HH:mm，如下午三点贴标签。结束时刻用 endTime。" },
+        startTime: { type: "string", description: "明确计划开始的 HH:mm，未提开始则省略。" },
+        endTime: { type: "string", description: "结束或做完的 HH:mm，如三点前交稿填 15:00。" },
         endDate: { type: "string", description: "跨天计划结束日期；同一天可省略。支持明确的相对日期，不推测。" },
         category: { type: "string", description: "任务分类，可省略。" },
         learningTrackId: { type: "string", enum: Object.keys(LEARNING_TRACKS), description: "英语 english；交易 trading；量化 quant；AI ai" },
