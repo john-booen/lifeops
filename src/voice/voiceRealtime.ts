@@ -12,7 +12,6 @@ import { createBufferedVoicePlayback } from "./bufferedPlayback";
 import {
   BailianConnectionTimeoutError,
   BailianRealtimeClient,
-  UNCONFIRMED_VOICE_CANCEL_MESSAGE,
   type BailianRealtimeCallbacks,
   type BailianRealtimeResponseEvent
 } from "../bailianRealtime";
@@ -24,7 +23,7 @@ import {
   isVoiceBackchannelOnly,
   isVoiceHoldOnlyTurn
 } from "../voiceSession";
-import { normalizeVoiceTriggerText, voiceTriggerEnabled, voiceTriggerLabel, voiceTriggerTimeoutSec } from "./voiceTrigger";
+import { voiceTriggerEnabled, voiceTriggerLabel, voiceTriggerTimeoutSec } from "./voiceTrigger";
 import type { AudioOutputEvent } from "./audioOutput";
 import type { VoiceBargeInEvent } from "./voiceBargeIn";
 import type { VoiceRuntimeTurnRoute, VoiceSessionController } from "./voiceRuntime";
@@ -49,6 +48,7 @@ import { executeOmniE2eTool } from "./omniE2e/tools";
 import { acceptsOmniRuntimeEvent, createOmniResponseHandlers } from "./omniE2e/responses";
 import { armOmniResponseTimer as armOmniTimer, clearOmniResponseTimer } from "./omniE2e/responseTimer";
 import { createOmniCallbacks, omniSessionOptions } from "./omniE2e/session";
+import { clearCancelledVoiceInput, recordUnconfirmedOmniCancellation } from "./omniE2e/cancelRecovery";
 import { projectProposalFailure } from "./omniE2e/projectProposals";
 import { checkActiveOmniSources, CONTEXT_CHANGED_MESSAGE, withdrawOmniContext } from "./omniE2e/contextSources";
 import {
@@ -64,6 +64,7 @@ import type { RealtimeToolOutput } from "./realtimeToolOutput";
 export { audioRms, base64ToPcm16, canSendRealtimeAudio, cleanupAudioWorkletCapture,
   floatTo16kPcm, lifeOpsAudioWorkletSource, pcm16ToBase64 } from "./audioCapture";
 export { buildOmniE2eInstructions } from "./omniE2e/instructions";
+export { canRepeatCancelledVoiceInput, clearCancelledVoiceInput } from "./omniE2e/cancelRecovery";
 export { handleOmniE2eSpeechStopped };
 
 type VoiceRealtimeView = any;
@@ -78,7 +79,6 @@ const fallbackTtsEngines = new WeakMap<VoiceSessionController, { turnId: string;
 const ordinaryMainResponses = new WeakMap<VoiceSessionController, {
   turnId: string; generation: number; store: object; vault: object; response: AgentResponse; reply: string;
 }>();
-const cancelledVoiceInputs = new WeakMap<object, {text: string; client: BailianRealtimeClient}>();
 const activeCascadeCapture = new WeakMap<object, ServerVoiceEndpoint>();
 const freshCascadeTranscripts = new WeakMap<object, string>();
 const cascadePlaybackLevels = new WeakMap<ServerVoiceEndpoint, number>();
@@ -163,17 +163,6 @@ function settleJobPlayback(view: VoiceRealtimeView, turnId: string | undefined, 
   return true;
 }
 
-export function clearCancelledVoiceInput(view: VoiceRealtimeView): void {
-  cancelledVoiceInputs.delete(view);
-}
-
-export function canRepeatCancelledVoiceInput(view: VoiceRealtimeView, text: string): boolean {
-  const lost = cancelledVoiceInputs.get(view);
-  const visible = view.voiceDisplayInput?.(text) ?? text;
-  return Boolean(lost && !view.viewClosed && view.agentMode === "voice" && view.agentVoiceConversation
-    && view.agentVoiceReady && view.agentRealtimeClient && view.agentRealtimeClient !== lost.client
-    && normalizeVoiceTriggerText(visible).value === normalizeVoiceTriggerText(lost.text).value);
-}
 /** Terminal metadata uses the request's captured owner, never the current turn.
  * It may settle while presentation callbacks are already invalidated. */
 export function recordVoiceProviderRun(view: VoiceRealtimeView, runtime: VoiceSessionController | undefined, event: RealtimeProviderRunEvent): void {
@@ -1149,24 +1138,7 @@ function failOmniToolContext(view: VoiceRealtimeView, message: string): void {
 export function handleRealtimeDisconnect(view: VoiceRealtimeView, code: number, reason: string): void {
   if (!shouldReconnectVoice(view)) return;
   if (view.agentVoiceReconnectTimer) return;
-  if (reason === UNCONFIRMED_VOICE_CANCEL_MESSAGE) {
-    const text = view.agentVoiceRuntime?.snapshot().currentTurn?.transcript || view.agentOmniE2eUserMessage;
-    clearCancelledVoiceInput(view);
-    if (text?.trim() && view.agentRealtimeClient) cancelledVoiceInputs.set(view, {text, client: view.agentRealtimeClient});
-    // Reconnect status replaces agentReply. Keep the lost-turn explanation in
-    // the visible conversation without persisting it as a successful answer.
-    const index = view.agentOmniE2eAssistantIndex;
-    if (index >= 0 && view.agentMessages[index]?.role === "assistant") {
-      const messages = view.agentMessages.slice();
-      messages[index] = {role: "assistant", content: reason};
-      view.agentMessages = messages.slice(-12);
-      if (view.agentOmniE2eStreamMessageEl) view.setAgentMessageBubbleContent(view.agentOmniE2eStreamMessageEl, reason);
-    } else {
-      view.agentMessages = [...view.agentMessages, {role: "assistant", content: reason}].slice(-12);
-      view.appendAgentMessage?.({role: "assistant", content: reason});
-    }
-    new Notice(reason, 10_000);
-  }
+  if (recordUnconfirmedOmniCancellation(view, reason)) new Notice(reason, 10_000);
   const runtime = view.agentVoiceRuntime;
   const disconnectedTurn = runtime?.snapshot().currentTurn;
   settleJobPlayback(view, disconnectedTurn?.turnId, false);
