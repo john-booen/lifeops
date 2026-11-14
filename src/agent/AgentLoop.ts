@@ -395,6 +395,12 @@ export class AgentLoop {
     if (evidenceCalls.length) {
       guidance.push("把工具读回的信息写成面向用户的正文，别输出结果标签或原始 JSON。");
     }
+    if (tools.some(tool => tool.name === "create_task")) {
+      guidance.push("创建提醒任务时，标题写清提醒谁做什么，保留用户原话里的人名和对象。安排日期与时刻分别填到对应字段。");
+    }
+    if (evidenceCalls.some(call => call.name === "create_task")) {
+      guidance.push("创建回执使用工具读回的标题、日期和时刻。只确认已经保存的内容，简短结束。");
+    }
     if (input.source === "voice" && !input.voiceBackground) {
       guidance.push("普通短问先说结论，第一句简短并以句号收尾。需要判断和解释时再补一句。");
     }

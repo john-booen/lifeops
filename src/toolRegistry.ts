@@ -217,7 +217,7 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
     parameters: {
       type: "object",
       properties: {
-        title: { type: "string", description: "简洁标题；指代解析成具体值，不能唯一确定先询问；原样要求保留原话。" },
+        title: { type: "string", description: "标题保留动作、人名和对象；指代不明先问；要求原样则逐字保留。" },
         date: { type: "string", description: "有效日期；用户说今天/明天等则原样填相对日期；未指定时省略，不编造。" },
         time: { type: "string", description: "旧版安排时刻；新安排用startTime/endTime。" },
         startTime: { type: "string", description: "明确计划开始的HH:mm；用户没说开始就省略，不推算工时。" },

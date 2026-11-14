@@ -83,3 +83,10 @@ it("checks actual proposed dates and limits and accepts a real weekend clarifica
     reply: "周六（11月14日）和周日（11月15日）都适合理发。" })).toContain("没有在有效周末建任务或询问具体日期");
   expect(scoreEvaluationCase(weekend, observed)).toContain("没有在有效周末建任务或询问具体日期");
 });
+
+it("checks the actual spoken receipt separately from the panel reply", () => {
+  const named: EvalQuestion = { ...question, mode: "voice", checks: { mustInclude: ["虚构纸盒"], mustSpeak: ["虚构纸盒", "15:15"] } };
+  const panelOnly = { ...observed, reply: "已记下虚构纸盒，15:15。" };
+  expect(scoreEvaluationCase(named, panelOnly)).toContain("播报缺少内容 15:15");
+  expect(scoreEvaluationCase(named, { ...panelOnly, reply: "已记下虚构纸盒。", voiceSpeech: "15:15 给虚构纸盒贴标签。" })).toEqual([]);
+});

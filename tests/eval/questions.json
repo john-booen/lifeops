@@ -757,7 +757,7 @@
     "input": "这个月和上个月比怎么样？对比任务完成数和人民币、美元净盈亏，说明本月统计到哪天。",
     "checks": {
       "mustInclude": ["46","60","180","120"],
-      "mustIncludeAny": [["11月12日","11 月 12 日","11-12","11/12"],["人民币","CNY"],["美元","USD"]],
+      "mustIncludeAny": [["11月12日","11 月 12 日","11-12","11/12","11 月 1 日至 12 日","11月1日至12日"],["人民币","CNY"],["美元","USD"]],
       "toolFacts": [
         {"name":"get_summaries","output":{"level":"month","summaries":[{"period":"2026-10","metrics":{"tasksCompleted":60,"tradePnlCny":5,"tradePnlUsd":15}}]}},
         {"name":"get_summaries","output":{"level":"month","summaries":[{"period":"2026-11","through":"2026-11-12","metrics":{"tasksCompleted":46,"tradePnlCny":180,"tradePnlUsd":120}}]}}
@@ -845,6 +845,16 @@
       "mustInclude": ["上个月"],
       "toolFacts": [{"name": "get_stats", "output": {"domain": "tasks", "range": {"from": "2026-10-01", "to": "2026-10-31"}}}],
       "expectWrites": {"tasks.created": 0, "tasks.deleted": 0}, "maxConfirmations": 0
+    }
+  },
+  {
+    "id": "voice-named-reminder-51", "milestone": "M6", "domain": "tasks", "mode": "voice",
+    "input": "明天下午3:15提醒岑知禾给蓝色样品盒贴标签。", "history": [],
+    "checks": {
+      "mustSucceedTools": ["create_task"], "minReceipts": 1,
+      "expectWrites": {"tasks.created": 1, "tasks.deleted": 0, "tasks.rescheduled": 0},
+      "createdTask": {"titleIncludes": "岑知禾给蓝色样品盒贴标签", "date": "2026-11-13", "time": "15:15"},
+      "mustInclude": ["岑知禾", "样品盒"], "mustSpeak": ["岑知禾", "样品盒", "15:15"]
     }
   }
 ]
