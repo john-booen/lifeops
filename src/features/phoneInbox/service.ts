@@ -41,7 +41,7 @@ interface PhoneInboxScope {
 export class PhoneInbox {
   private running: Promise<void> = Promise.resolve();
   private scheduled?: ReturnType<typeof setTimeout>;
-  private activeSubmission?: AbortController;
+  private activeSubmission?: { controller: AbortController; scope: PhoneInboxScope };
   private stopped = false;
   private readonly unsubscribe: () => void;
 
@@ -62,10 +62,12 @@ export class PhoneInbox {
 
   schedule(delay = 650): void {
     clearTimeout(this.scheduled);
-    if (!this.enabled) {
-      this.activeSubmission?.abort();
-      return;
+    const active = this.activeSubmission;
+    if (active) {
+      try { active.scope.assertCurrent(); }
+      catch { active.controller.abort(); }
     }
+    if (!this.enabled) return;
     this.scheduled = setTimeout(() => void this.scan().catch(() =>
       this.host.notify("手机随手记暂时无法读取或处理，请打开回执核对。")), delay);
   }
@@ -74,7 +76,7 @@ export class PhoneInbox {
     this.stopped = true;
     this.unsubscribe();
     clearTimeout(this.scheduled);
-    this.activeSubmission?.abort();
+    this.activeSubmission?.controller.abort();
   }
 
   async list(): Promise<PhoneInboxReceipt[]> {
@@ -214,11 +216,11 @@ export class PhoneInbox {
     row.pendingOperationId = `${newLocalOperationId("agent-turn")}:phone`;
     await this.write(scope, doc);
     const turn = this.turn(scope, line, row.pendingOperationId);
-    const submission = new AbortController();
+    const submission = { controller: new AbortController(), scope };
     this.activeSubmission = submission;
     try {
       turn.assertCurrent();
-      const response = await this.host.submit(line.text, turn, submission.signal);
+      const response = await this.host.submit(line.text, turn, submission.controller.signal);
       turn.assertCurrent();
       const call = response.toolCalls?.find(item => isPhoneInboxTool(item.name));
       if (call?.ok && isPhoneInboxTool(call.name)) row.tool = call.name;

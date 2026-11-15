@@ -2278,6 +2278,40 @@ it("keeps phone receipts in their original folder when the setting changes durin
   }
 });
 
+it.each(["folder", "store"] as const)("aborts an in-flight phone submission when its %s changes", async changed => {
+  const { PhoneInbox } = await import("../src/features/phoneInbox/service");
+  const { PHONE_INBOX_PATH, PHONE_INBOX_STATE } = await import("../src/features/phoneInbox/model");
+  const { LifeOpsEventBus } = await import("../src/lifeOpsEventBus");
+  const originalFolder = store.settings.folders.aiReports;
+  const replacementFolder = "虚构回执切换目录";
+  const note = "虚构正在处理的收件行\n";
+  let activeStore = store;
+  const submit = vi.fn((_text: string, _turn: NonNullable<AgentTurnInput["phoneInbox"]>, signal: AbortSignal) =>
+    new Promise<import("../src/types").AgentResponse>((_resolve, reject) => {
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    }));
+  const inbox = new PhoneInbox({ store: () => activeStore, enabled: () => true, submit,
+    confirm: async () => {}, undo: async () => true, notify: () => {} }, new LifeOpsEventBus());
+  await store.ensureFile(PHONE_INBOX_PATH, note);
+  const completed = inbox.scan().catch(error => error);
+  try {
+    await vi.waitFor(() => expect(submit).toHaveBeenCalledOnce());
+    if (changed === "folder") store.settings.folders.aiReports = replacementFolder;
+    else activeStore = Object.assign(Object.create(Object.getPrototypeOf(store)), store) as StoreHost;
+    inbox.schedule();
+    expect(submit.mock.calls[0][2].aborted).toBe(true);
+    expect(await completed).toBeInstanceOf(Error);
+    expect(await store.readPath(PHONE_INBOX_PATH)).toBe(note);
+    expect(await store.readJson(store.path(originalFolder, "System", PHONE_INBOX_STATE), null))
+      .toMatchObject({ records: [{ status: "processing" }] });
+    expect(await store.readJson(store.path(replacementFolder, "System", PHONE_INBOX_STATE), null)).toBeNull();
+  } finally {
+    inbox.stop();
+    await completed;
+    store.settings.folders.aiReports = originalFolder;
+  }
+});
+
 it.each(["folder", "record"] as const)("requires a fresh phone confirmation after a %s change", async kind => {
   const { PhoneInbox } = await import("../src/features/phoneInbox/service");
   const { PHONE_INBOX_PATH, PHONE_INBOX_STATE } = await import("../src/features/phoneInbox/model");
