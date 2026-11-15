@@ -17,6 +17,7 @@ import {
 import { normalizeRealtimeAsrLanguage } from "./voice/realtimeAsrOptions";
 import { ProtectedOmniResponses } from "./voice/omniE2e/protectedResponses";
 import { OmniResponseOutput } from "./voice/omniE2e/responseOutput";
+import { OmniResponseIdentity } from "./voice/omniE2e/responseIdentity";
 import { isRetryableOmniModelError, OmniModelRetry } from "./voice/omniE2e/modelRetry";
 import { OmniToolCalls } from "./voice/omniE2e/toolCalls";
 import { OmniInitialInstructions, RealtimeConnectionContextError } from "./voice/omniE2e/initialInstructions";
@@ -125,7 +126,7 @@ export class BailianRealtimeClient {
   private speechStartTimestamp = 0;
   private speechStartAudioMs = 0;
   private currentSpeechItemId = "";
-  private activeResponseId = "";
+  private readonly responseIdentity = new OmniResponseIdentity();
   private responseRequestPending = false;
   private responseCancelPending = false;
   private queuedResponseCreate = false;
@@ -141,7 +142,6 @@ export class BailianRealtimeClient {
   private static readonly MIN_SPEECH_DURATION_MS = 300;
   private readonly ignoredInputItemIds = new Set<string>();
   private readonly retiredAsrItemIds = new Set<string>();
-  private readonly ignoredResponseIds = new Set<string>();
   private readonly auditCredentials: () => string[];
 
   constructor(
@@ -372,7 +372,7 @@ export class BailianRealtimeClient {
 
   createResponse(): void {
     if (!this.isOmniE2e()) return;
-    if (this.initialInstructions.slot || this.activeResponseId || this.responseRequestPending || this.responseCancelPending || this.toolCalls.hasContinuation) {
+    if (this.initialInstructions.slot || this.responseIdentity.active || this.responseRequestPending || this.responseCancelPending || this.toolCalls.hasContinuation) {
       this.queuedResponseCreate = true;
       return;
     }
@@ -444,15 +444,15 @@ export class BailianRealtimeClient {
     this.responseRun?.finish(cause && cause !== "cancelled" ? "failed" : "cancelled", cause ?? "cancelled");
     this.invalidatePendingResponseWork();
     this.queuedResponseCreate = false;
-    if (preparing && !this.activeResponseId) {
+    if (preparing && !this.responseIdentity.active) {
       this.responseRequestPending = false;
       this.responseCancelPending = false;
       return;
     }
-    if (this.activeResponseId) {
-      this.rememberIgnoredResponse(this.activeResponseId);
+    if (this.responseIdentity.active) {
+      this.responseIdentity.retire(this.responseIdentity.active);
     }
-    this.responseCancelPending = Boolean(this.activeResponseId || this.responseRequestPending);
+    this.responseCancelPending = Boolean(this.responseIdentity.active || this.responseRequestPending);
     this.send({ type: "response.cancel" });
     if (this.responseCancelPending) {
       this.clearResponseCancelTimer();
@@ -496,7 +496,7 @@ export class BailianRealtimeClient {
     ])try{dispose();}catch(error){if(!failed){failed=true;failure=error;}}
     this.asrRuns.clear();
     this.unboundAsrRun = undefined;
-    this.ignoredResponseIds.clear();
+    this.responseIdentity.clearRetired();
     this.ignoredInputItemIds.clear();
     this.retiredAsrItemIds.clear();
     if(failed)throw failure;
@@ -565,7 +565,7 @@ export class BailianRealtimeClient {
     }
 
     if(this.hasProtectedContextSources() && (String(event.type??"").startsWith("response.") || event.type==="error")){
-      if(this.ignoredResponseIds.has(responseEventId(event))){
+      if(this.responseIdentity.isRetired(responseEventId(event))){
         // Acknowledging cancellation carries no old text/audio. Settle promptly
         // so a normal barge-in need not wait for the two-second fallback timer.
         if(event.type==="response.done"||event.type==="response.completed")this.handleIgnoredResponseDone(event);
@@ -581,11 +581,11 @@ export class BailianRealtimeClient {
   private settleStaleProtectedResponse(event: Record<string, unknown>, generation: number, connection: object | null): void {
     // A stale response identity can still permit cancellation to finish.
     if (this.socket !== connection || this.intentionalClose || event.type !== "response.created") return;
-    if (this.responseGeneration === generation + 1 && this.responseCancelPending && !this.activeResponseId) {
+    if (this.responseGeneration === generation + 1 && this.responseCancelPending && !this.responseIdentity.active) {
       this.handleResponseCreated(event);
     } else {
       const id = responseEventId(event);
-      if (id) this.rememberIgnoredResponse(id);
+      if (id) this.responseIdentity.retire(id);
     }
   }
 
@@ -654,10 +654,10 @@ export class BailianRealtimeClient {
       this.responseRun?.failAttempt(failure.code, failure.httpStatus);
       if (!responseEventId(event) && this.maybeRetryModelError(message)) return;
       this.responseRun?.finish("failed", failure.code, undefined, failure.httpStatus);
-      if (responseEventId(event)) this.rememberIgnoredResponse(responseEventId(event));
+      if (responseEventId(event)) this.responseIdentity.retire(responseEventId(event));
       if (responseEventId(event)) {
         if (this.callbacks.onResponseFailed) {
-          this.callbacks.onResponseFailed(message, responseLifecycleEvent(event, this.activeResponseId));
+          this.callbacks.onResponseFailed(message, responseLifecycleEvent(event, this.responseIdentity.active));
         } else {
           this.callbacks.onError?.(message);
         }
@@ -676,11 +676,11 @@ export class BailianRealtimeClient {
       if (!type.startsWith("response.") && this.maybeRetryModelError(message)) return;
       if (type.startsWith("response.")) {
         this.responseRun?.finish("failed", failure.code, undefined, failure.httpStatus);
-        if (responseEventId(event)) this.rememberIgnoredResponse(responseEventId(event));
+        if (responseEventId(event)) this.responseIdentity.retire(responseEventId(event));
       }
       if (type.startsWith("response.")) {
         if (this.callbacks.onResponseFailed) {
-          this.callbacks.onResponseFailed(message, responseLifecycleEvent(event, this.activeResponseId));
+          this.callbacks.onResponseFailed(message, responseLifecycleEvent(event, this.responseIdentity.active));
         } else {
           this.callbacks.onError?.(message);
         }
@@ -705,7 +705,7 @@ export class BailianRealtimeClient {
       this.responseRun.responseId ||= responseEventId(event);
       this.responseReportedModel = providerIdentifier(realtimeReportedModel(event)) ?? this.responseReportedModel;
     }
-    if (type.startsWith("response.") && this.responseOutput.accept(event, this.activeResponseId, this.settings.ttsSampleRate)) return;
+    if (type.startsWith("response.") && this.responseOutput.accept(event, this.responseIdentity.active, this.settings.ttsSampleRate)) return;
     if (type === "response.function_call_arguments.delta") {
       this.toolCalls.accumulate(event);
       return;
@@ -717,7 +717,7 @@ export class BailianRealtimeClient {
       }
     }
     if (type === "response.done" || type === "response.completed") {
-      const terminal = readOmniTerminalResponse(event, this.activeResponseId,
+      const terminal = readOmniTerminalResponse(event, this.responseIdentity.active,
         usageOwnerId === this.responseRun?.responseId ? usageOwnerId : undefined);
       const responseEvent = terminal.response;
       if ("usage" in terminal) this.responseRun?.observeResponseUsage(terminal.usage);
@@ -727,7 +727,7 @@ export class BailianRealtimeClient {
         const failure = realtimeProviderError(message);
         const code = responseEvent.status === "cancelled" ? "cancelled" : failure.code === "network" ? "invalid_response" : failure.code;
         this.responseRun?.finish(code === "cancelled" ? "cancelled" : "failed", code, undefined, failure.httpStatus);
-        if (responseEvent.responseId) this.rememberIgnoredResponse(responseEvent.responseId);
+        if (responseEvent.responseId) this.responseIdentity.retire(responseEvent.responseId);
         if (this.callbacks.onResponseFailed) {
           this.callbacks.onResponseFailed(message, responseEvent);
         } else {
@@ -737,10 +737,9 @@ export class BailianRealtimeClient {
         return;
       }
       this.responseRun?.finish(this.responseHasToolCall || this.responseOutput.hasOutput ? "success" : "failed", "invalid_response", this.responseReportedModel ?? this.reportedModel);
-      if (responseEvent.responseId) this.rememberIgnoredResponse(responseEvent.responseId);
+      if (responseEvent.responseId) this.responseIdentity.retire(responseEvent.responseId);
       if (this.responseHasToolCall) {
         this.toolCalls.markResponseDone(responseEvent.responseId);
-        if (responseEvent.responseId) this.rememberIgnoredResponse(responseEvent.responseId);
         this.clearActiveResponse(event);
         this.responseHasToolCall = false;
         this.requestToolContinuationWhenReady();
@@ -903,7 +902,7 @@ export class BailianRealtimeClient {
     this.invalidatePendingResponseWork();
     this.clearResponseCancelTimer();
     this.transcript = "";
-    this.activeResponseId = "";
+    this.responseIdentity.clear();
     this.responseRequestPending = false;
     this.responseCancelPending = false;
     this.queuedResponseCreate = false;
@@ -911,7 +910,7 @@ export class BailianRealtimeClient {
     this.currentSpeechItemId = "";
     this.ignoredInputItemIds.clear();
     this.retiredAsrItemIds.clear();
-    this.ignoredResponseIds.clear();
+    this.responseIdentity.clearRetired();
     this.prepareResponseTracking();
   }
 
@@ -964,7 +963,7 @@ export class BailianRealtimeClient {
   }
 
   private requestToolContinuationWhenReady(): void {
-    if (this.activeResponseId || this.responseRequestPending || this.responseCancelPending
+    if (this.responseIdentity.active || this.responseRequestPending || this.responseCancelPending
       || this.intentionalClose || this.socket?.readyState !== WebSocket.OPEN) return;
     const continuation = this.toolCalls.takeReadyContinuation();
     if (!continuation) return;
@@ -975,17 +974,14 @@ export class BailianRealtimeClient {
 
   private handleResponseCreated(event: Record<string, unknown>): void {
     const responseId = responseEventId(event);
-    if (!responseId) return;
-    if (this.ignoredResponseIds.has(responseId)) return;
-    if (this.activeResponseId && !this.responseCancelPending && responseId !== this.activeResponseId) return;
+    if (!this.responseIdentity.bindCreated(responseId, this.responseCancelPending)) return;
     const toolContinuation = this.responseRequestPending ? this.requestedToolContinuation : undefined;
     const retryOfResponseId = this.responseRequestPending ? this.requestedRetryOfResponseId : undefined;
     this.responseRequestPending = false;
     this.requestedToolContinuation = undefined;
     this.requestedRetryOfResponseId = undefined;
-    this.activeResponseId = responseId;
     if (this.responseCancelPending) {
-      this.rememberIgnoredResponse(responseId);
+      this.responseIdentity.retire(responseId);
       return;
     }
     if (!this.responseRun || this.responseRun.settled) {
@@ -1002,51 +998,35 @@ export class BailianRealtimeClient {
   }
 
   private shouldAcceptResponseEvent(event: Record<string, unknown>): boolean {
-    const responseId = responseEventId(event);
-    if (responseId && this.ignoredResponseIds.has(responseId)) return false;
-    if (this.responseCancelPending) return false;
-    if (responseId && this.activeResponseId && responseId !== this.activeResponseId) return false;
-    if (responseId && !this.activeResponseId) {
-      this.activeResponseId = responseId;
-      this.responseRequestPending = false;
-    }
-    return true;
-  }
-
-  private rememberIgnoredResponse(id: string): void {
-    if (this.ignoredResponseIds.has(id)) return;
-    if (this.ignoredResponseIds.size >= 512) this.ignoredResponseIds.delete(this.ignoredResponseIds.values().next().value!);
-    this.ignoredResponseIds.add(id);
+    const accepted = this.responseIdentity.acceptOutput(responseEventId(event), this.responseCancelPending);
+    if (accepted === "bound") this.responseRequestPending = false;
+    return accepted !== undefined;
   }
 
   private handleIgnoredResponseDone(event: Record<string, unknown>): void {
     const responseId = responseEventId(event);
-    if (responseId) this.rememberIgnoredResponse(responseId);
-    if (this.responseCancelPending && (!responseId || responseId === this.activeResponseId)) {
+    if (responseId) this.responseIdentity.retire(responseId);
+    if (this.responseCancelPending && (!responseId || responseId === this.responseIdentity.active)) {
       this.settleCancelledResponse();
     }
   }
 
   private clearActiveResponse(event: Record<string, unknown>): void {
-    const responseId = responseEventId(event);
-    if (!responseId || !this.activeResponseId || responseId === this.activeResponseId) {
-      this.activeResponseId = "";
-      this.responseRequestPending = false;
-    }
+    if (this.responseIdentity.clear(responseEventId(event))) this.responseRequestPending = false;
   }
 
   private settleCancelledResponse(): void {
     this.clearResponseCancelTimer();
     // Without the cancelled response's ID, the next created event could still
     // belong to that old request. A new request on this socket cannot be owned.
-    if (this.responseCancelPending && this.responseRequestPending && !this.activeResponseId) {
+    if (this.responseCancelPending && this.responseRequestPending && !this.responseIdentity.active) {
       this.close();
       if (this.callbacks.onTransportError) this.callbacks.onTransportError(UNCONFIRMED_VOICE_CANCEL_MESSAGE);
       else if (this.callbacks.onDisconnected) this.callbacks.onDisconnected({code: 1000, reason: UNCONFIRMED_VOICE_CANCEL_MESSAGE});
       else this.callbacks.onError?.(UNCONFIRMED_VOICE_CANCEL_MESSAGE);
       return;
     }
-    this.activeResponseId = "";
+    this.responseIdentity.clear();
     this.responseRequestPending = false;
     this.responseCancelPending = false;
     this.responseHasToolCall = false;
@@ -1067,7 +1047,7 @@ export class BailianRealtimeClient {
   }
 
   private flushQueuedResponseCreate(): void {
-    if (!this.queuedResponseCreate || this.initialInstructions.slot || this.activeResponseId || this.responseRequestPending || this.responseCancelPending || this.toolCalls.hasContinuation) {
+    if (!this.queuedResponseCreate || this.initialInstructions.slot || this.responseIdentity.active || this.responseRequestPending || this.responseCancelPending || this.toolCalls.hasContinuation) {
       return;
     }
     this.queuedResponseCreate = false;
@@ -1090,15 +1070,15 @@ export class BailianRealtimeClient {
     if (this.modelRetry.pending) return true;
     const delay = this.modelRetry.next(this.options.maxModelRetries);
     if (!delay) return false;
-    const retryOfResponseId = this.activeResponseId || this.requestedRetryOfResponseId;
+    const retryOfResponseId = this.responseIdentity.active || this.requestedRetryOfResponseId;
     const toolContinuation = this.requestedToolContinuation;
-    if (this.activeResponseId) this.rememberIgnoredResponse(this.activeResponseId);
-    this.activeResponseId = "";
+    if (this.responseIdentity.active) this.responseIdentity.retire(this.responseIdentity.active);
+    this.responseIdentity.clear();
     this.responseRequestPending = false;
     this.invalidatePendingResponseWork();
     const isCurrent = this.capturePendingResponseGuard();
     this.modelRetry.schedule(delay.delayMs, () => {
-      if (isCurrent() && this.responseRun === run && !run.settled && !this.activeResponseId && !this.responseRequestPending) {
+      if (isCurrent() && this.responseRun === run && !run.settled && !this.responseIdentity.active && !this.responseRequestPending) {
         this.requestResponse(toolContinuation, retryOfResponseId);
       }
     });
@@ -1153,7 +1133,7 @@ export class BailianRealtimeClient {
 
   private handleToolCallEvent(event: Record<string, unknown>): boolean {
     if (!this.callbacks.onToolCall) return false;
-    const accepted = this.toolCalls.accept(event, this.activeResponseId);
+    const accepted = this.toolCalls.accept(event, this.responseIdentity.active);
     if (!accepted) return false;
     if (accepted.duplicate) return true;
     const { toolCall, responseId } = accepted;
