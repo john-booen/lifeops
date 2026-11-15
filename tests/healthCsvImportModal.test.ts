@@ -2,6 +2,8 @@ import type { App } from "obsidian";
 import { beforeEach, expect, it, vi } from "vitest";
 import type { FactOperationOptions } from "../src/dataFoundation/factOperation";
 import { DEFAULT_SETTINGS } from "../src/defaults";
+import type { HealthScreenshotHost } from "../src/features/health/modal";
+import { healthRows } from "../src/features/health/model";
 import type { StoreHost } from "../src/store/settingsSlice";
 
 const notices = vi.hoisted(() => [] as string[]);
@@ -57,7 +59,7 @@ vi.mock("obsidian", () => {
 
 const { HealthCsvImportModal } = await import("../src/features/health/csvImportModal");
 const { openHealthScreenshot } = await import("../src/features/health/modal");
-type Element = { tag: string; value: string; textContent: string; onclick(): Promise<void>; onchange(): void; children: Element[];
+type Element = { tag: string; value: string; checked: boolean; textContent: string; onclick(): Promise<void>; onchange(): void; children: Element[];
   files?: Array<{ path: string; size: number; arrayBuffer(): Promise<ArrayBuffer> }> };
 const valid = "date,sleepHours,steps\n2026-05-25,7.5,8000";
 
@@ -81,6 +83,23 @@ function fixture() {
   const fill = (text: string) => { children().find(el => el.tag === "textarea")!.value = text; };
   const button = (name: string) => children().find(el => el.tag === "button" && el.textContent === name)!;
   return { modal, write, save, fill, button, children, store, replaceStore: (replacement: StoreHost) => { activeStore = replacement; } };
+}
+
+async function readScreenshot({ store, save }: Pick<ReturnType<typeof fixture>, "store" | "save">,
+  recognizeHealthScreenshot: HealthScreenshotHost["recognizeHealthScreenshot"]): Promise<Element> {
+  const settings = structuredClone(DEFAULT_SETTINGS);
+  settings.privacy!.plaintextCredentialStorageAccepted = true;
+  settings.vision = { ...settings.vision, provider: "openai-compatible", endpoint: "https://fiction.invalid/v1/chat/completions",
+    apiKey: "fixture-health-token", model: "fixture-health-model", healthScreenshotDisclosureAccepted: true };
+  openHealthScreenshot({ app: {} as App, store, settings, register: vi.fn(), refreshViews: async () => {}, saveLocalOperation: save,
+    recognizeHealthScreenshot });
+  const content = windowState.content as Element;
+  const field = content.children.find(el => el.tag === "input")!;
+  const png = Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10);
+  field.files = [{ path: import.meta.filename, size: png.length, arrayBuffer: async () => png.buffer }];
+  field.onchange();
+  await content.children.find(el => el.textContent === "发送并识别")!.onclick();
+  return content;
 }
 
 beforeEach(() => { notices.length = 0; });
@@ -145,22 +164,29 @@ it.each(["location", "permission"] as const)("rechecks health CSV %s inside the 
   expect(notices.at(-1)).toContain(changed === "location" ? "重新核对" : "已排除");
 });
 
+it("blocks conflicting sleep choices until the displayed date has one value", async () => {
+  const sample = fixture();
+  const date = "2026-05-25";
+  const content = await readScreenshot(sample, async () =>
+    healthRows(JSON.stringify({ rows: [{ date, steps: 8000, sleepHours: 7.5, sleepMinutes: 480 }] })));
+  const confirm = content.children.find(el => el.textContent === "确认并保存")!;
+  await confirm.onclick();
+  expect(sample.save).not.toHaveBeenCalled();
+  expect(content.children.some(el => el.textContent.includes("睡眠小时有不同数值"))).toBe(true);
+  const choices = content.children.filter(el => el.tag === "fieldset").map(field =>
+    field.children.find(el => el.textContent.startsWith("保存此条"))!.children[0]);
+  choices[2].checked = false;
+  await confirm.onclick();
+  expect(sample.save).toHaveBeenCalledOnce();
+  expect(sample.write).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ date, steps: 8000, sleepHours: 7.5 }));
+});
+
 it.each([
   [false, "location"], [true, "location"], [false, "permission"], [true, "permission"]
 ] as const)("keeps a health screenshot in scope (queued: %s, change: %s)", async (queued, changed) => {
   const { store, save, write } = fixture();
-  const settings = structuredClone(DEFAULT_SETTINGS);
-  settings.privacy!.plaintextCredentialStorageAccepted = true;
-  settings.vision = { ...settings.vision, provider: "openai-compatible", endpoint: "https://fiction.invalid/v1/chat/completions",
-    apiKey: "fixture-health-token", model: "fixture-health-model", healthScreenshotDisclosureAccepted: true };
-  openHealthScreenshot({ app: {} as App, store, settings, register: vi.fn(), refreshViews: async () => {}, saveLocalOperation: save,
-    recognizeHealthScreenshot: async () => [{ date: "2026-05-25", steps: 8000 }] });
-  const content = windowState.content as Element;
-  const field = content.children.find(el => el.tag === "input")!;
-  const png = Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10);
-  field.files = [{ path: import.meta.filename, size: png.length, arrayBuffer: async () => png.buffer }];
-  field.onchange();
-  await content.children.find(el => el.textContent === "发送并识别")!.onclick();
+  const content = await readScreenshot({ store, save },
+    async () => [{ date: "2026-05-25", steps: 8000 }]);
   const confirm = content.children.find(el => el.textContent === "确认并保存")!;
   const changeScope = () => {
     if (changed === "location") store.settings.folders.health = "虚构扫描期间新目录";

@@ -353,6 +353,21 @@ it("saves compatible readings from the same screenshot day in one operation and 
   expect(await readHealthDay(store, previous)).toEqual({ date: previous });
 });
 
+it("uses minutes when the screenshot's alternate hour field is empty", () => {
+  const rows = [{ date, sleepHours: null, sleepMinutes: 450, steps: 0 },
+    { date: previous, sleepHours: 7.5, sleepMinutes: 450 }];
+  expect(healthRows(JSON.stringify({ rows }))).toEqual([
+    { date, sleepHours: 7.5, steps: 0 }, { date: previous, sleepHours: 7.5 }
+  ]);
+});
+
+it("lets the user resolve conflicting sleep units without losing other screenshot metrics", () => {
+  const rows = healthRows(JSON.stringify({ rows: [{ date, sleepHours: 7, sleepMinutes: 480, steps: 4200 }] }));
+  expect(rows).toEqual([{ date, steps: 4200 }, { date, sleepHours: 7 }, { date, sleepHours: 8 }]);
+  expect(() => combineHealthScreenshotDays(rows)).toThrow(`${date} 的睡眠小时有不同数值`);
+  expect(combineHealthScreenshotDays([rows[0], rows[2]])).toEqual([{ date, steps: 4200, sleepHours: 8 }]);
+});
+
 it("requires health-specific disclosure and validates extracted dates and numerical fields", async () => {
   const image = readScreenshotImage(Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10, 0));
   const raw = JSON.stringify({ rows: [{ date: "2026-02-30", runningKm: 2.4, sleepMinutes: 430, weightKg: -56,

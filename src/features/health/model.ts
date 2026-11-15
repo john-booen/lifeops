@@ -50,15 +50,22 @@ export function healthRows(content: string): HealthDay[] {
     if (!row || typeof row !== "object" || Array.isArray(row)) return [];
     const entries: Partial<Record<HealthMetric, number>> = {};
     for (const key of healthMetricKeys) {
-      const raw = key === "sleepHours" && row.sleepHours === undefined && typeof row.sleepMinutes === "number"
-        ? row.sleepMinutes / 60 : row[key];
-      const value = healthMetricValue(key, raw);
+      if (key === "sleepHours") continue;
+      const value = healthMetricValue(key, row[key]);
       if (value !== undefined) entries[key] = value;
     }
-    if (!Object.keys(entries).length) return [];
+    const hours = healthMetricValue("sleepHours", row.sleepHours);
+    const hoursFromMinutes = typeof row.sleepMinutes === "number" ? healthMetricValue("sleepHours", row.sleepMinutes / 60) : undefined;
     // A missing screenshot date is filled by the user on the confirmation card.
     const date = typeof row.date === "string" && /^\d{4}-\d{2}-\d{2}$/u.test(row.date) && normalizeJournalDate(row.date) === row.date ? row.date : "";
-    return [{ date, ...entries }];
+    if (hours !== undefined && hoursFromMinutes !== undefined && hours !== hoursFromMinutes) {
+      // Preserve the other readings whichever sleep value the user selects.
+      const sleepChoices = [{ date, sleepHours: hours }, { date, sleepHours: hoursFromMinutes }];
+      return Object.keys(entries).length ? [{ date, ...entries }, ...sleepChoices] : sleepChoices;
+    }
+    const sleepHours = hours ?? hoursFromMinutes;
+    if (sleepHours !== undefined) entries.sleepHours = sleepHours;
+    return Object.keys(entries).length ? [{ date, ...entries }] : [];
   });
 }
 
