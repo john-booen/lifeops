@@ -393,6 +393,36 @@ describe("realtime stage terminal contract", () => {
     expect(socket.sent.filter(s => s.type === "response.create")).toHaveLength(1);
     expect(responseRuns(runs)).toHaveLength(1); expect(responseRuns(runs)[0].run.status).toBe("cancelled"); client.close();
   });
+  it.each(["throw", "callback"] as const)("clears the response on cancellation send failure from %s", async failure => {
+    const onTransportError = vi.fn(), onResponseDone = vi.fn();
+    const { client, socket, runs } = await opened({ onTransportError, onResponseDone });
+    socket.message({ type: "session.updated" });
+    client.createResponse();
+    socket.message({ type: "response.created", response: { id: "fictional-cancelled" } });
+    const error = new Error("虚构取消发送失败");
+    let completeSend: ((error?: Error) => void) | undefined;
+    vi.spyOn(socket, "send").mockImplementationOnce((_value, callback) => {
+      if (failure === "throw") throw error;
+      completeSend = callback;
+    });
+    try {
+      expect(() => client.cancelResponse()).not.toThrow();
+      if (failure === "callback") {
+        expect(completeSend).toBeTypeOf("function");
+        completeSend?.(error);
+      }
+      expect(socket.readyState).toBe(ws.Socket.CLOSED);
+      expect(onTransportError).toHaveBeenCalledExactlyOnceWith(UNCONFIRMED_VOICE_CANCEL_MESSAGE);
+      expect(vi.getTimerCount()).toBe(0);
+      client.createResponse();
+      socket.message({ type: "response.done", response: { id: "fictional-cancelled", status: "completed" } });
+      expect(onResponseDone).not.toHaveBeenCalled();
+      expect(socket.sent.filter(event => event.type === "response.create")).toHaveLength(1);
+      expect(responseRuns(runs)).toMatchObject([{ run: { status: "cancelled" } }]);
+    } finally {
+      client.close();
+    }
+  });
   it("reports an unconfirmed cancel when closing the response's socket fails", async () => {
     const onTransportError = vi.fn(), onResponseCreated = vi.fn();
     const { client, socket } = await opened({ onTransportError, onResponseCreated });

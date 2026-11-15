@@ -400,7 +400,8 @@ export class BailianRealtimeClient {
   }
 
   cancelResponse(cause?: ProviderErrorCode): void {
-    if (this.intentionalClose || !this.socket) return;
+    const socket = this.socket;
+    if (this.intentionalClose || !socket) return;
     // Tool-derived history retires as before. Ordinary interruption keeps its
     // source owners; a cancelled response never erases those sources.
     if (this.toolOutputs.protected) {
@@ -421,7 +422,12 @@ export class BailianRealtimeClient {
       this.responseIdentity.retire(this.responseIdentity.active);
     }
     this.responseCancelPending = Boolean(this.responseIdentity.active || this.responseRequestPending);
-    this.send({ type: "response.cancel" });
+    const generation = this.responseGeneration;
+    this.send({ type: "response.cancel" }, () => {
+      if (this.socket === socket && generation === this.responseGeneration && this.responseCancelPending) {
+        this.notifyUnconfirmedCancellation();
+      }
+    });
     if (this.responseCancelPending) {
       this.clearResponseCancelTimer();
       this.responseCancelTimer = window.setTimeout(() => {
@@ -838,16 +844,21 @@ export class BailianRealtimeClient {
       if (this.callbacks.onDisconnected) this.callbacks.onDisconnected({ code: 1006, reason });
       else this.callbacks.onError?.(reason);
     };
-    try { this.send(payload, error => { if (error) fail(); }); }
-    catch { fail(); }
+    this.send(payload, fail);
   }
 
-  private send(payload: Record<string, unknown>, onSent?: (error?: Error) => void): void {
+  private send(payload: Record<string, unknown>, onFailure?: () => void): void {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
     if (this.settings.model.trim() === "qwen3.8-omni-flash-realtime" && !payload.event_id) {
       payload = { ...payload, event_id: `event_${randomUUID()}` };
     }
-    this.socket.send(JSON.stringify(payload), onSent);
+    const frame = JSON.stringify(payload);
+    if (!onFailure) {
+      this.socket.send(frame);
+      return;
+    }
+    try { this.socket.send(frame, error => { if (error) onFailure(); }); }
+    catch { onFailure(); }
   }
 
   private isOmniE2e(): boolean {
@@ -1004,10 +1015,7 @@ export class BailianRealtimeClient {
     // Without the cancelled response's ID, the next created event could still
     // belong to that old request. A new request on this socket cannot be owned.
     if (this.responseCancelPending && this.responseRequestPending && !this.responseIdentity.active) {
-      this.retireForLocalNotification();
-      if (this.callbacks.onTransportError) this.callbacks.onTransportError(UNCONFIRMED_VOICE_CANCEL_MESSAGE);
-      else if (this.callbacks.onDisconnected) this.callbacks.onDisconnected({code: 1000, reason: UNCONFIRMED_VOICE_CANCEL_MESSAGE});
-      else this.callbacks.onError?.(UNCONFIRMED_VOICE_CANCEL_MESSAGE);
+      this.notifyUnconfirmedCancellation();
       return;
     }
     this.responseIdentity.clear();
@@ -1017,6 +1025,15 @@ export class BailianRealtimeClient {
     this.responseOutput.clearText();
     this.modelRetry.reset();
     this.flushQueuedResponseCreate();
+  }
+
+  private notifyUnconfirmedCancellation(): void {
+    this.responseCancelPending = false;
+    this.retireForLocalNotification();
+    const reason = UNCONFIRMED_VOICE_CANCEL_MESSAGE;
+    if (this.callbacks.onTransportError) this.callbacks.onTransportError(reason);
+    else if (this.callbacks.onDisconnected) this.callbacks.onDisconnected({ code: 1000, reason });
+    else this.callbacks.onError?.(reason);
   }
 
   private settleFailedResponse(event: Record<string, unknown>): void {
