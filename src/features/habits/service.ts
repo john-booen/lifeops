@@ -84,7 +84,9 @@ export async function acceptPunishments(this: LocalOperationHost): Promise<void>
   await this.refreshViews();
 }
 
-export async function correctYesterdayHabit(host: LocalOperationHost, taskId: string, value?: number, now = new Date()): Promise<void> {
+export async function correctYesterdayHabit(host: LocalOperationHost, taskId: string,
+  { value, now = new Date(), expectedHabitRevision }: { value?: number; now?: Date; expectedHabitRevision?: string } = {}
+): Promise<void> {
   const date = formatDate(now), yesterday = addDays(date, -1);
   await host.saveLocalOperation("local_correctYesterdayHabit", { taskId, date: yesterday, value }, async store => {
     const tasks = await store.readTaskDb({ readOnly: true });
@@ -96,6 +98,7 @@ export async function correctYesterdayHabit(host: LocalOperationHost, taskId: st
     const db = await store.readHabitDb();
     const habit = db.habits.find(row => row.id === penalty.habitId);
     if (!habit || habit.source === "trades") throw Error("这项习惯无法手动补记。");
+    assertRecordRevision(habit, expectedHabitRevision);
     if ([store.habitDbPath(), store.taskDbPath()].some(path => isVaultPathExcluded(path, store.settings.privacy?.excludedVaultPrefixes))) {
       throw Error("习惯或任务记录不可用。");
     }
@@ -123,11 +126,12 @@ export async function confirmYesterdayHabit(this: HabitCheckinHost, store: Store
   const task = (await store.readTaskDb({ readOnly: true })).tasks.find(row => row.id === taskId);
   const habit = (await store.readHabitDb()).habits.find(row => row.id === task?.habitPunishment?.habitId);
   if (!habit || task?.status !== "active") throw Error("这条补偿已变更，请刷新后再核对。");
-  if (habit.target?.kind !== "number") return correctYesterdayHabit(this, taskId);
+  const expectedHabitRevision = recordRevision(habit);
+  if (habit.target?.kind !== "number") return correctYesterdayHabit(this, taskId, { expectedHabitRevision });
   const date = task.habitPunishment!.judgedDate;
   new HabitCheckinModal(this.app, habit, async entry => {
     if (entry.status !== "done" || entry.date !== date) throw Error("请填写昨晚完成的实际数值。");
-    await correctYesterdayHabit(this, taskId, entry.value);
+    await correctYesterdayHabit(this, taskId, { value: entry.value, expectedHabitRevision });
   }, { status: "done", date }).open();
 }
 

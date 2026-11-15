@@ -14,6 +14,15 @@ import type { StoreHost } from "../src/store/settingsSlice";
 import type { HabitCheckin, HabitDefinition, HabitInput, PunishmentRule } from "../src/types";
 import { buildTaskFromInput } from "../src/vaultApi";
 
+const yesterdayForm = vi.hoisted(() => ({ submit: undefined as ((entry: { status: "done"; date: string; value: number }) => Promise<void>) | undefined }));
+vi.mock("../src/modals", async importOriginal => ({
+  ...await importOriginal<typeof import("../src/modals")>(),
+  HabitCheckinModal: class {
+    constructor(_app: unknown, _habit: unknown, private readonly submit: typeof yesterdayForm.submit) {}
+    open() { yesterdayForm.submit = this.submit; }
+  }
+}));
+
 vi.mock("obsidian", () => ({
   App: class {}, Modal: class {}, Setting: class {}, Notice: class {}, TFile: class {}, TFolder: class {},
   normalizePath: (path: string) => path.replace(/\\/g, "/").replace(/\/{2,}/g, "/")
@@ -23,7 +32,7 @@ const { LifeOpsStore } = await import("../src/store");
 const { AgentRuntime } = await import("../src/agentRuntime");
 const { DiskVault } = await import("./helpers/diskVault");
 const { planHabitPunishments } = await import("../src/features/habits/punishments");
-const { correctYesterdayHabit, runScheduledPunishmentCheck } = await import("../src/features/habits/service");
+const { confirmYesterdayHabit, correctYesterdayHabit, runScheduledPunishmentCheck } = await import("../src/features/habits/service");
 
 const sunday = new Date(2026, 10, 15, 21, 0);
 const date = formatDate(sunday);
@@ -338,6 +347,30 @@ describe("habit changes through the real store and operation ledger", () => {
     await runScheduledPunishmentCheck(host, store, morning, () => {});
     expect((await store.readTaskDb()).tasks).toMatchObject([{ habitPunishment: { habitId: target.id, judgedDate: addDays(date, -7) } }]);
     expect((await store.readHabitDb()).habitPunishmentCheckedThrough).toEqual({ [target.id]: addDays(date, -1) });
+  });
+
+  it("requires a fresh ‘did it last night’ form after the goal unit changes", async () => {
+    const input: HabitInput = { name: "虚构每日统计", frequencyUnit: "day", frequencyInterval: 1, targetCount: 1,
+      startDate: date, punishment: config(reflection), target: { kind: "number", perDay: 2, unit: "公里" } };
+    const habit = await store.createHabit(input);
+    const morning = new Date(2026, 10, 16, 8);
+    vi.setSystemTime(morning);
+    await runScheduledPunishmentCheck(host, store, morning, () => {});
+    const [task] = (await store.readTaskDb()).tasks;
+    try {
+      await confirmYesterdayHabit.call({ ...host, app: store.app }, store, task.id);
+      await store.updateHabitDetails(habit.id, { ...input, target: { kind: "number", perDay: 2, unit: "分钟" } });
+      const entry = { status: "done" as const, date, value: 2 };
+      await expect(yesterdayForm.submit!(entry)).rejects.toThrow("重新打开");
+      expect((await store.readHabitDb()).checkins).toEqual([]);
+      expect((await store.readTaskDb()).tasks).toMatchObject([{ id: task.id, status: "active" }]);
+      await confirmYesterdayHabit.call({ ...host, app: store.app }, store, task.id);
+      await yesterdayForm.submit!(entry);
+      expect((await store.readHabitDb()).checkins).toMatchObject([{ habitId: habit.id, date, value: 2, valueUnit: "分钟" }]);
+      expect((await store.readTaskDb()).tasks).toMatchObject([{ id: task.id, status: "abandoned" }]);
+    } finally {
+      yesterdayForm.submit = undefined;
+    }
   });
 
   it("accrues money and words for three days, records payment once, and restores the debt on undo", async () => {
