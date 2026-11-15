@@ -18,6 +18,7 @@ import {
 import { normalizeRealtimeAsrLanguage } from "./voice/realtimeAsrOptions";
 import { ProtectedOmniResponses } from "./voice/omniE2e/protectedResponses";
 import { OmniResponseOutput } from "./voice/omniE2e/responseOutput";
+import { isRetryableOmniModelError, OmniModelRetry } from "./voice/omniE2e/modelRetry";
 import { OmniInitialInstructions, RealtimeConnectionContextError } from "./voice/omniE2e/initialInstructions";
 import { prepareOmniResponseContext } from "./voice/omniE2e/contextSources";
 
@@ -120,7 +121,7 @@ export class BailianRealtimeClient {
   private transcript = "";
   private readonly responseOutput: OmniResponseOutput;
   private intentionalClose = false;
-  private modelRetries = 0;
+  private readonly modelRetry = new OmniModelRetry();
   private speechStartTimestamp = 0;
   private speechStartAudioMs = 0;
   private currentSpeechItemId = "";
@@ -382,6 +383,7 @@ export class BailianRealtimeClient {
       this.queuedResponseCreate = true;
       return;
     }
+    if (this.modelRetry.pending) this.responseRun?.finish("cancelled", "cancelled");
     this.prepareResponseTracking();
     this.requestResponse();
   }
@@ -757,7 +759,7 @@ export class BailianRealtimeClient {
       const doneText = this.responseOutput.completed();
       this.callbacks.onResponseDone?.(doneText, responseEvent);
       this.responseOutput.clearText();
-      this.modelRetries = 0;
+      this.modelRetry.reset();
       this.clearActiveResponse(event);
       this.flushQueuedResponseCreate();
       return;
@@ -884,11 +886,12 @@ export class BailianRealtimeClient {
 
   private prepareResponseTracking(): void {
     this.responseOutput.reset();
-    this.modelRetries = 0;
+    this.modelRetry.reset();
     this.handledToolCallIds.clear();
   }
 
   private invalidatePendingResponseWork(): void {
+    this.modelRetry.cancel();
     this.responsePreparationPending = false;
     this.responseGeneration += 1;
     this.protectedResponses.cancelYield();
@@ -1061,7 +1064,7 @@ export class BailianRealtimeClient {
     this.responseCancelPending = false;
     this.responseHasToolCall = false;
     this.responseOutput.clearText();
-    this.modelRetries = 0;
+    this.modelRetry.reset();
     this.flushQueuedResponseCreate();
   }
 
@@ -1092,14 +1095,14 @@ export class BailianRealtimeClient {
   }
 
   private maybeRetryModelError(message: string): boolean {
-    if (!this.isOmniE2e() || !this.responseRun || this.responseRun.settled || !/ModelServingError|model serving|internal/i.test(message)) return false;
+    const run = this.responseRun;
+    if (!this.isOmniE2e() || !run || run.settled || !isRetryableOmniModelError(message)) return false;
     // Restart only an attempt that has not emitted content or executed tools.
     // Once output exists, the existing failure path owns recovery.
     if (this.responseOutput.hasOutput || this.responseHasToolCall) return false;
-    const maxRetries = Math.min(MODEL_RETRY_DELAYS_MS.length, Math.max(0, this.options.maxModelRetries ?? MODEL_RETRY_DELAYS_MS.length));
-    if (this.modelRetries >= maxRetries) return false;
-    this.modelRetries += 1;
-    const delayMs = MODEL_RETRY_DELAYS_MS[this.modelRetries - 1];
+    if (this.modelRetry.pending) return true;
+    const delay = this.modelRetry.next(this.options.maxModelRetries);
+    if (!delay) return false;
     const retryOfResponseId = this.activeResponseId || this.requestedRetryOfResponseId;
     const toolContinuation = this.requestedToolContinuation;
     if (this.activeResponseId) this.rememberIgnoredResponse(this.activeResponseId);
@@ -1107,17 +1110,12 @@ export class BailianRealtimeClient {
     this.responseRequestPending = false;
     this.invalidatePendingResponseWork();
     const isCurrent = this.capturePendingResponseGuard();
-    const run = this.responseRun;
-    this.callbacks.onModelRetry?.({
-      attempt: this.modelRetries,
-      delayMs,
-      message
-    });
-    window.setTimeout(() => {
-      if (isCurrent() && !run.settled) {
+    this.modelRetry.schedule(delay.delayMs, () => {
+      if (isCurrent() && this.responseRun === run && !run.settled && !this.activeResponseId && !this.responseRequestPending) {
         this.requestResponse(toolContinuation, retryOfResponseId);
       }
-    }, delayMs);
+    });
+    this.callbacks.onModelRetry?.({ ...delay, message });
     return true;
   }
 
@@ -1235,8 +1233,6 @@ export class BailianRealtimeClient {
     return true;
   }
 }
-
-const MODEL_RETRY_DELAYS_MS = [500, 1_000, 2_000, 4_000, 8_000] as const;
 
 function decodedBase64Bytes(value: string): number {
   const clean = value.replace(/\s/g, "");

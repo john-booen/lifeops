@@ -290,9 +290,36 @@ describe("realtime stage terminal contract", () => {
   it("cancel while retry waits and unscoped late errors cannot create another response", async () => {
     const { client, socket, runs } = await opened(); socket.message({ type: "session.updated" }); client.createResponse();
     socket.message({ type: "error", error: { message: "ModelServingError" } }); client.cancelResponse();
+    expect(vi.getTimerCount()).toBe(0);
     socket.message({ type: "error", error: { message: "ModelServingError" } }); await vi.advanceTimersByTimeAsync(10_000);
     expect(socket.sent.filter(s => s.type === "response.create")).toHaveLength(1);
     expect(responseRuns(runs)).toHaveLength(1); expect(responseRuns(runs)[0].run.status).toBe("cancelled"); client.close();
+  });
+  it("retires the scheduled retry when a new native response is requested", async () => {
+    const { client, socket, runs } = await opened();
+    socket.message({ type: "session.updated" });
+    client.createResponse();
+    socket.message({ type: "error", error: { message: "ModelServingError" } });
+    client.createResponse();
+    socket.message({ type: "response.created", response: { id: "fictional-new" } });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(socket.sent.filter(event => event.type === "response.create")).toHaveLength(2);
+    expect(responseRuns(runs).map(event => event.run.status)).toEqual(["cancelled"]);
+    client.close();
+  });
+  it("keeps one retry when the same failed attempt emits duplicate server errors", async () => {
+    const onModelRetry = vi.fn();
+    const { client, socket } = await opened({ onModelRetry });
+    socket.message({ type: "session.updated" });
+    client.createResponse();
+    const failure = { type: "error", error: { message: "ModelServingError" } };
+    socket.message(failure);
+    socket.message(failure);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(onModelRetry).toHaveBeenCalledExactlyOnceWith({ attempt: 1, delayMs: 500, message: "ModelServingError" });
+    expect(socket.sent.filter(event => event.type === "response.create")).toHaveLength(2);
+    client.close();
+    expect(vi.getTimerCount()).toBe(0);
   });
   it("reconnect closes old pending run once; old socket done cannot contaminate the new request", async () => {
     const { client, socket, runs } = await opened(); socket.message({ type: "session.updated" }); client.createResponse();
