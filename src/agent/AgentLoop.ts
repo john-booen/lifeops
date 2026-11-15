@@ -243,7 +243,7 @@ export class AgentLoop {
         if (ideaTitle) {
           await waitForFactOperations(this.host.store, { signal: input.signal, assertCurrent: assertPolicy });
           const [result] = await this.executeRegular(input, state, this.scopedCalls([
-            { name: "list_ideas", arguments: { query: ideaTitle } }
+            { name: "list_ideas", arguments: { query: ideaTitle, exactTitle: true } }
           ], state.id, 0));
           assertProviderActive(input.signal);
           assertPolicy();

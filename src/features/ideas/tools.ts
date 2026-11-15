@@ -8,6 +8,7 @@ export const IDEA_TOOLS: LifeOpsToolDefinition[] = [
     description: "查想法、停滞和下一步。用户明确要拆成任务时，按标题查并设 draftAdvance=true，唯一匹配后用 advance_idea。",
     parameters: { type: "object", additionalProperties: false, properties: {
       query: { type: "string", description: "想法标题或关键词。" },
+      exactTitle: { type: "boolean", description: "按完整标题查单条想法时设为 true。" },
       draftAdvance: { type: "boolean", description: "明确要把指定想法拆成任务时才填 true。" }
     } },
     async execute(args, context) {
@@ -15,7 +16,9 @@ export const IDEA_TOOLS: LifeOpsToolDefinition[] = [
       const { ideaIsStalled, ideaRemindersSinceProgress } = await import("./progress");
       const query = typeof args.query === "string" ? ideaTitleKey(args.query) : "";
       const date = formatDate(new Date());
-      const items = (await listIdeas(context.store)).filter(idea => !query || ideaTitleKey(idea.title + " " + idea.description).includes(query));
+      const items = (await listIdeas(context.store)).filter(idea => args.exactTitle === true
+        ? ideaTitleKey(idea.title) === query
+        : !query || ideaTitleKey(idea.title + " " + idea.description).includes(query));
       return { success: true, output: JSON.stringify({ total: items.length, ideas: items.slice(0, 40).map(idea => ({
         id: idea.ideaId, title: idea.title, status: idea.status, description: idea.description.slice(0, 200), nextAction: idea.nextAction,
         nextReview: idea.nextReview, lastProgress: idea.lastProgress, daysStalled: ideaDaysStalled(idea.lastProgress, date),

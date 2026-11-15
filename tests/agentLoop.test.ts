@@ -1588,6 +1588,14 @@ it.each(["text", "voice"] as const)("reads the status, idle days and next step o
     }, "fictional-idea-probe"), "kimi");
     expect(created.success).toBe(true);
     vi.setSystemTime(now);
+    const date = formatDate(now);
+    for (let index = 0; index < 42; index += 1) {
+      const similar = `${title}的虚构分支 ${index}`;
+      const fields = { lifeops: "idea", status: "seed", created: date, lastProgress: date, nextReview: addDays(date, 14),
+        nextAction: "检查另一张虚构纸样", sources: [] };
+      await store.writeFile(store.path(store.settings.folders.ideas, similar + ".md"),
+        `---\n${JSON.stringify(fields)}\n---\n\n# ${similar}\n\n虚构正文。\n`);
+    }
     responses.push(reply("", [tool("list_ideas", { query: title, draftAdvance: true })]), reply("先给你安排几件事。"));
     result = await new AgentLoop(host).run(input({ source, message: `${title}现在什么情况？多久没进展了，记录的下一步是什么？` }));
   } finally { vi.useRealTimers(); }
