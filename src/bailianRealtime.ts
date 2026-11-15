@@ -863,7 +863,7 @@ export class BailianRealtimeClient {
     else this.callbacks.onError?.(reason);
   }
 
-  private send(payload: Record<string, unknown>, onFailure?: () => void): void {
+  private send(payload: Record<string, unknown>, onFailure?: () => void, onSent?: () => void): void {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
     if (this.settings.model.trim() === "qwen3.8-omni-flash-realtime" && !payload.event_id) {
       payload = { ...payload, event_id: `event_${randomUUID()}` };
@@ -873,7 +873,7 @@ export class BailianRealtimeClient {
       this.socket.send(frame);
       return;
     }
-    try { this.socket.send(frame, error => { if (error) onFailure(); }); }
+    try { this.socket.send(frame, error => { if (error) onFailure(); else onSent?.(); }); }
     catch { onFailure(); }
   }
 
@@ -1190,11 +1190,13 @@ export class BailianRealtimeClient {
             call_id: callId,
             output: retained.text || "工具已执行，但没有额外输出。"
           }
+        }, () => {
+          if (isCurrent()) this.stopAfterActiveSendFailure("百炼实时语音工具结果发送失败，连接已中断。");
+        }, () => {
+          if (!isCurrent()) return;
+          if (this.toolCalls.markCallSent(accepted)) this.requestToolContinuationWhenReady();
+          else this.createResponse();
         });
-        if (this.isOmniE2e() && this.toolCalls.markCallSent(accepted)) {
-          this.requestToolContinuationWhenReady();
-        } else if (this.isOmniE2e()) this.createResponse();
-        else if (!this.usesServerVad()) this.requestResponse();
       })().catch((error) => {
         if (!isCurrent()) return;
         if(this.hasProtectedContextSources() || error instanceof Error && /身份|范围/.test(error.message)){

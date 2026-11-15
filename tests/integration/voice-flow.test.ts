@@ -130,8 +130,9 @@ const websocketMock = vi.hoisted(() => {
       }
     }
 
-    send(payload: string): void {
+    send(payload: string, callback?: (error?: Error) => void): void {
       this.sent.push(payload);
+      callback?.();
     }
 
     close(code = 1000, reason = Buffer.alloc(0)): void {

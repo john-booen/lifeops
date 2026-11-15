@@ -10,7 +10,7 @@ const ws = vi.hoisted(() => {
     on(name:string,fn:Function){this.handlers.set(name,[...(this.handlers.get(name)??[]),fn]);return this;}
     emit(name:string,...args:any[]){if(name === "open")this.readyState=1;if(name === "close")this.readyState=3;for(const fn of this.handlers.get(name)??[])fn(...args);}
     message(event:unknown){this.emit("message",JSON.stringify(event));}
-    send(value:string){this.sent.push(JSON.parse(value));}
+    send(value: string, callback?: (error?: Error) => void) { this.sent.push(JSON.parse(value)); callback?.(); }
     close(){this.emit("close",1000,Buffer.alloc(0));} terminate(){this.readyState=3;}
   }
   const sockets:Socket[]=[];return {Socket,sockets};

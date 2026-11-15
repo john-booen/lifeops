@@ -13,7 +13,7 @@ const ws=vi.hoisted(()=>{
   on(name:string,fn:Function){this.handlers.set(name,[...(this.handlers.get(name)??[]),fn]);return this;}
   emit(name:string,...args:any[]){if(name==="open")this.readyState=1;if(name==="close")this.readyState=3;for(const fn of this.handlers.get(name)??[])fn(...args);}
   message(value:unknown){this.emit("message",JSON.stringify(value));}
-  send(value:string){this.sent.push(JSON.parse(value));}
+  send(value: string, callback?: (error?: Error) => void) { this.sent.push(JSON.parse(value)); callback?.(); }
   close(){this.emit("close",1000,Buffer.alloc(0));}terminate(){this.readyState=3;}
  }
  const sockets:Socket[]=[];return {Socket,sockets};
@@ -72,6 +72,39 @@ it("holds unchanged query data after tool send and after final completion until 
  socket.message({type:"response.done",response:{id:"fiction-answer",status:"completed"}});
  await flush();expect(client.hasProtectedToolOutputs()).toBe(true);await client.assertToolOutputsCurrent();
  client.close();expect(client.hasProtectedToolOutputs()).toBe(false);
+});
+
+it.each([false, true])("waits for the protected tool output send before continuing (failed: %s)", async failed => {
+  const onToolContextError = vi.fn();
+  const host = view();
+  const { client, socket } = await opened((toolCall: Parameters<typeof executeOmniE2eToolCall>[1]) =>
+    executeOmniE2eToolCall(host, toolCall, true), {}, { onToolContextError });
+  host.agentRealtimeClient = client;
+  const send = socket.send.bind(socket);
+  let completeOutput: ((error?: Error) => void) | undefined;
+  vi.spyOn(socket, "send").mockImplementation((frame, callback) => {
+    if (JSON.parse(frame).item?.type === "function_call_output") {
+      completeOutput = callback;
+      send(frame);
+    } else send(frame, callback);
+  });
+  call(socket);
+  await vi.waitFor(() => expect(sent(socket, "conversation.item.create")).toHaveLength(1));
+  planningDone(socket);
+  await flush();
+  expect(sent(socket, "response.create")).toHaveLength(1);
+  expect(completeOutput).toBeTypeOf("function");
+  completeOutput?.(failed ? new Error("虚构工具结果没有送达") : undefined);
+  if (failed) {
+    expect(onToolContextError).toHaveBeenCalledOnce();
+    expect(client.hasProtectedToolOutputs()).toBe(false);
+    planningDone(socket);
+    await flush();
+    expect(sent(socket, "response.create")).toHaveLength(1);
+  } else {
+    await vi.waitFor(() => expect(sent(socket, "response.create")).toHaveLength(2));
+    expect(onToolContextError).not.toHaveBeenCalled();
+  }
 });
 it.each(["cancel","close"])("disposes late returned capabilities after %s and never resumes a new response",async how=>{
  let release!:()=>void,returned!:()=>void;const host=view(),ready=new Promise<void>(yes=>returned=yes),gate=new Promise<void>(yes=>release=yes);

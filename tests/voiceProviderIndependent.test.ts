@@ -19,7 +19,7 @@ const ws = vi.hoisted(() => {
       for (const fn of this.handlers.get(name) ?? []) fn(...args);
     }
     message(value: unknown) { this.emit("message", JSON.stringify(value)); }
-    send(value: string) { this.sent.push(JSON.parse(value)); }
+    send(value: string, callback?: (error?: Error) => void) { this.sent.push(JSON.parse(value)); callback?.(); }
     close() { this.emit("close", 1000, Buffer.alloc(0)); }
     terminate() { this.readyState = 3; }
   }

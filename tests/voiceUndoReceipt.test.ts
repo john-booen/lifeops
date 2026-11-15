@@ -11,7 +11,7 @@ import {factRecoveryPath} from "../src/dataFoundation/factOperation";
 import {produceRealtimeToolOutput,RealtimeToolOutputs} from "../src/voice/realtimeToolOutput";
 const ws=vi.hoisted(()=>{
  const sockets:any[]=[];
- class Socket {static OPEN=1;readyState=0;sent:any[]=[];handlers=new Map<string,Function[]>();constructor(){sockets.push(this);}on(name:string,fn:Function){this.handlers.set(name,[...(this.handlers.get(name)??[]),fn]);return this;}emit(name:string,...args:any[]){if(name==="open")this.readyState=1;if(name==="close")this.readyState=3;for(const fn of this.handlers.get(name)??[])fn(...args);}message(value:unknown){this.emit("message",JSON.stringify(value));}send(text:string){this.sent.push(JSON.parse(text));}close(){this.readyState=3;this.emit("close");}}
+ class Socket {static OPEN=1;readyState=0;sent:any[]=[];handlers=new Map<string,Function[]>();constructor(){sockets.push(this);}on(name:string,fn:Function){this.handlers.set(name,[...(this.handlers.get(name)??[]),fn]);return this;}emit(name:string,...args:any[]){if(name==="open")this.readyState=1;if(name==="close")this.readyState=3;for(const fn of this.handlers.get(name)??[])fn(...args);}message(value:unknown){this.emit("message",JSON.stringify(value));}send(text:string,callback?:(error?:Error)=>void){this.sent.push(JSON.parse(text));callback?.();}close(){this.readyState=3;this.emit("close");}}
  return {Socket,sockets};
 });
 vi.mock("ws",()=>({default:ws.Socket}));
