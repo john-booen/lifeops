@@ -119,8 +119,9 @@ class TradeScreenshotImportModal extends Modal {
         list.createEl("li", { text: `第 ${row.line} 笔 · 不保存 · ${row.reason}` });
         continue;
       }
-      const { draft, multiplier } = row;
-      const time = draft.openedAtPrecision ? draft.openedAt.slice(0, 10) : draft.openedAt.replace("T", " ");
+      const { draft, multiplier, printedOpeningDateOffset } = row;
+      const dateZone = printedOpeningDateOffset ? `，截图时区 UTC${printedOpeningDateOffset}` : "";
+      const time = draft.openedAtPrecision === "date" ? `${draft.openedAt.slice(0, 10)}（仅日期${dateZone}）` : draft.openedAt.replace("T", " ");
       const item = list.createEl("li", { text: [`第 ${row.line} 笔`, row.kind === "duplicate" ? "重复，跳过" : "可保存",
         draft.symbol, draft.market, `币种 ${draft.currency}`, draft.direction === "long" ? "多" : "空", `开仓 ${time}`, draft.closedAt && `平仓 ${draft.closedAt.replace("T", " ")}`,
         `数量 ${draft.qty ?? "未知"}${draft.qtyUnit ? " " + draft.qtyUnit : ""}`, `${draft.entry ?? "?"} → ${draft.exit ?? "?"}`,

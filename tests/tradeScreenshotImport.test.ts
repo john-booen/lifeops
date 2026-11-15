@@ -240,6 +240,32 @@ it("shows the accounting currency on an open position even without profit and lo
   } finally { ui.root.empty(); await rm(root, { recursive: true, force: true }); }
 });
 
+it("shows the printed opening zone even when only the date is visible", async () => {
+  const root = await mkdtemp(join(tmpdir(), "lifeops-trade-screenshot-opening-zone-"));
+  const store = new LifeOpsStore(createFsApp(root), settings()) as unknown as StoreHost;
+  const { bytes } = await readFixture("equity-match");
+  const image = new File([new Uint8Array(bytes)], "fictional.png", { type: "image/png" });
+  const save = vi.fn<LocalOperationHost["saveLocalOperation"]>();
+  const dateOnly = { openedAt: "2026-11-12", openClockShown: false, closedAt: undefined };
+  try {
+    await store.initializeVault();
+    openTradeScreenshotImport({ app: store.app, store, settings: store.settings, register: () => {}, saveLocalOperation: save,
+      refreshViews: async () => {}, recognizeTradeScreenshot: async () => [
+        { ...cases["equity-match"], ...dateOnly, openedZone: "EST" },
+        { ...cases["equity-match"], ...dateOnly, symbol: "FICT-B", openedZone: undefined },
+        { ...cases["crypto-open"], ...dateOnly, openedZone: undefined }
+      ] }, image);
+    await vi.waitFor(() => expect(ui.elements().some(el => el.textContent === "确认保存 0 笔")).toBe(true));
+    const [printed, inferred, unknown] = ui.elements().filter(el => el.tag === "li");
+    expect(printed.textContent).toContain("开仓 2026-11-12（仅日期，截图时区 UTC-05:00）");
+    expect(inferred.textContent).toContain("开仓 2026-11-12（仅日期）");
+    expect(inferred.children.some(el => el.textContent.includes("时区按市场推定"))).toBe(true);
+    expect(unknown.textContent).toContain("开仓 2026-11-12（仅日期）");
+    expect(unknown.children.some(el => el.textContent.includes("时区按市场推定"))).toBe(false);
+    expect(save).not.toHaveBeenCalled();
+  } finally { ui.root.empty(); await rm(root, { recursive: true, force: true }); }
+});
+
 it("rebuilds a stale trade confirmation and asks again only for changed selections", async () => {
   const root = await mkdtemp(join(tmpdir(), "lifeops-trade-screenshot-refresh-"));
   const store = new LifeOpsStore(createFsApp(root), settings()) as unknown as StoreHost;

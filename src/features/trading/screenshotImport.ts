@@ -36,7 +36,7 @@ export function parseTradeScreenshotRows(content: string): ModelRow[] {
 
 export type ScreenshotPreviewRow = { line: number; kind: "invalid"; reason: string }
   | { line: number; kind: "ready" | "duplicate"; draft: TradeDraft; computedPnl?: number; screenshotPnl?: number;
-      mismatch: boolean; multiplier: number; inferredTimeZone?: string };
+      mismatch: boolean; multiplier: number; inferredTimeZone?: string; printedOpeningDateOffset?: string };
 export interface TradeScreenshotPreview {
   rows: ScreenshotPreviewRow[];
   ready: number;
@@ -98,7 +98,8 @@ function screenshotTimestamp(value: unknown, printedZone: unknown, marketZone?: 
   return { timestamp, ...(!explicit ? { inferred: marketZone } : {}) };
 }
 
-function screenshotOpening(row: ModelRow, marketZone?: string): Pick<TradeDraft, "openedAt" | "openedAtPrecision"> & { inferred?: string } {
+function screenshotOpening(row: ModelRow, marketZone?: string): Pick<TradeDraft, "openedAt" | "openedAtPrecision">
+  & { inferred?: string; printedOpeningDateOffset?: string } {
   const date = row.openedAt;
   if (row.openClockShown !== false) {
     const open = screenshotTimestamp(date, row.openedZone, marketZone);
@@ -115,7 +116,7 @@ function screenshotOpening(row: ModelRow, marketZone?: string): Pick<TradeDraft,
   const offset = inferred ? offsetForLocalClock(date, "00:00:00", inferred) : printed;
   // The ledger uses midnight to store a date. Keep it in the source market to
   // avoid rejecting a same-day close when the computer is in another zone.
-  return { openedAt: `${date}T00:00:00${offset}`, openedAtPrecision: "date" as const, inferred };
+  return { openedAt: `${date}T00:00:00${offset}`, openedAtPrecision: "date", inferred, printedOpeningDateOffset: printed };
 }
 
 function screenshotDraft(row: ModelRow, digest: string, multipliers?: Record<string, number>) {
@@ -125,7 +126,7 @@ function screenshotDraft(row: ModelRow, digest: string, multipliers?: Record<str
     throw Error("缺少可核对的品种、市场、持仓方向或币种。");
   }
   const marketZone = marketTimeZones[market] ?? (market === "期货" && row.currency === "CNY" ? "Asia/Shanghai" : undefined);
-  const { inferred: openingZone, ...open } = screenshotOpening(row, marketZone);
+  const { inferred: openingZone, printedOpeningDateOffset, ...open } = screenshotOpening(row, marketZone);
   const close = row.closedAt === undefined ? undefined : screenshotTimestamp(row.closedAt, row.closedZone, marketZone);
   const inferredTimeZone = openingZone || close?.inferred;
   const draft: TradeDraft = {
@@ -146,7 +147,7 @@ function screenshotDraft(row: ModelRow, digest: string, multipliers?: Record<str
     else if (mismatch) draft.notes = reported + "。按本地重算值入账。";
   }
   if (inferredTimeZone) draft.notes = [draft.notes, "截图时区按市场推定为 " + inferredTimeZone + "。"].filter(Boolean).join(" ");
-  return { draft, computedPnl, screenshotPnl, mismatch, multiplier, inferredTimeZone };
+  return { draft, computedPnl, screenshotPnl, mismatch, multiplier, inferredTimeZone, printedOpeningDateOffset };
 }
 
 function sameScreenshotOpening(left: TradeDraft, right: TradeDraft): boolean {
