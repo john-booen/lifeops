@@ -128,6 +128,24 @@ it.each(["server error", "Omni timeout", "cascade timeout"])("reports failed ini
   client.close();
 });
 
+it.each([false, true])("stops a cascade session rejected during startup only (acknowledged: %s)", async acknowledged => {
+  const onInitialContextError = vi.fn(), onError = vi.fn(), onCascadeCapture = vi.fn();
+  const { client, socket, runs } = await opened({ onInitialContextError, onError, onCascadeCapture }, { mode: "cascade" });
+  if (acknowledged) socket.message({ type: "session.updated" });
+  try {
+    socket.message({ type: "error", error: { code: "invalid_request_error", message: "虚构会话设置拒绝" } });
+    expect(runs).toMatchObject([{ stage: "voice_connection", run: { status: acknowledged ? "success" : "failed" } }]);
+    expect(socket.readyState).toBe(acknowledged ? ws.Socket.OPEN : ws.Socket.CLOSED);
+    expect(onInitialContextError).toHaveBeenCalledTimes(acknowledged ? 0 : 1);
+    expect(onError).toHaveBeenCalledTimes(acknowledged ? 1 : 0);
+    socket.message({ type: "conversation.item.input_audio_transcription.completed", item_id: "fictional", transcript: "虚构语音" });
+    expect(onCascadeCapture.mock.calls.some(([event]) => event.type === "final")).toBe(acknowledged);
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    client.close();
+  }
+});
+
 describe("accepted response usage through the actual client", () => {
   it.each(["response.done", "response.completed"])("records counters once at %s, without response content or server IDs in logs", async type => {
     const onResponseDone = vi.fn(), onAudioDelta = vi.fn();

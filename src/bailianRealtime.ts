@@ -266,10 +266,7 @@ export class BailianRealtimeClient {
             if (slot && this.initialInstructions.slot === slot) this.initialInstructions.fail(slot, socket, "timeout");
             else {
               connectionRun.finish("failed", "timeout");
-              if (!this.isOmniE2e()) {
-                this.retireForLocalNotification();
-                this.callbacks.onInitialContextError?.("百炼未确认语音会话，已停止。请重新开始语音。");
-              }
+              if (!this.isOmniE2e()) this.stopUnconfirmedCascadeSession();
             }
           }, 12_000);
           if (slot) slot.sent = true;
@@ -589,6 +586,13 @@ export class BailianRealtimeClient {
     }
   }
 
+  private stopUnconfirmedCascadeSession(): void {
+    this.retireForLocalNotification();
+    const message = "百炼未确认语音会话，已停止。请重新开始语音。";
+    if (this.callbacks.onInitialContextError) this.callbacks.onInitialContextError(message);
+    else this.callbacks.onError?.(message);
+  }
+
   private handleEvent(event:Record<string,unknown>):void{
 
     const type = String(event.type ?? "");
@@ -619,8 +623,13 @@ export class BailianRealtimeClient {
       const error = event.error as { message?: string } | undefined;
       const message = redactSensitiveText(error?.message || "百炼 Realtime 返回错误。", [this.settings.apiKey]);
       const failure = realtimeProviderError(error);
+      const awaitingSession = this.connectionRun && !this.connectionRun.settled;
       window.clearTimeout(this.connectionAckTimer);
       this.connectionRun?.finish("failed", failure.code, undefined, failure.httpStatus);
+      if (awaitingSession && !this.isOmniE2e()) {
+        this.stopUnconfirmedCascadeSession();
+        return;
+      }
       if (!responseEventId(event) && this.responseRun?.settled) return;
       this.responseRun?.failAttempt(failure.code, failure.httpStatus);
       if (!responseEventId(event) && this.maybeRetryModelError(message)) return;
