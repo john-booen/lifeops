@@ -6,13 +6,13 @@ import { OperationLedger } from "../../dataFoundation/operationLedger";
 import { configuredCredentials, redactSensitiveText } from "../../credentialSecurity";
 import { todayString } from "../../date";
 import type { LifeOpsEventBus } from "../../lifeOpsEventBus";
-import { newLocalOperationId, recordRevision } from "../../operationIdentity";
+import { recordRevision } from "../../operationIdentity";
 import { isVaultPathExcluded } from "../../privacy";
 import { ProviderRunFailure } from "../../providerRun";
 import { parentFolder, type StoreHost } from "../../store/settingsSlice";
 import type { AgentActionSuggestion, AgentResponse } from "../../types";
 import {
-  PHONE_INBOX_PATH, PHONE_INBOX_STATE, isPhoneInboxAction, isPhoneInboxTool, parsePhoneInbox, phoneInboxLabels,
+  PHONE_INBOX_PATH, PHONE_INBOX_STATE, isPhoneInboxAction, isPhoneInboxTool, parsePhoneInbox, phoneInboxLabels, phoneInboxWriteId,
   validPhoneInboxDocument, type PhoneInboxDecision, type PhoneInboxDocument, type PhoneInboxLine, type PhoneInboxReceipt, type PhoneInboxRecord,
   type PhoneInboxSnapshot, type PhoneInboxTurn
 } from "./model";
@@ -145,9 +145,15 @@ export class PhoneInbox {
         && (textAiReadiness(store.settings).ready || !!phoneInboxReviewReason(store, line));
       const scanDate = todayString();
       const lines = (await this.lines(scope, includeUnterminated, scanDate)).filter(eligible);
+      const batch = lines.slice(0, MAX_BATCH_LINES).map<{ queued: PhoneInboxLine; receipt: PhoneInboxRecord }>(queued => ({ queued, receipt: {
+        id: queued.id, line: queued.line, status: "processing", message: "上次处理未读回回执，请核对最近操作。",
+        pendingOperationId: phoneInboxWriteId(queued.id)
+      } }));
+      // The operation can outlive a receipt removed by synchronization.
+      await this.restoreReceipts(scope, batch.map(({ receipt }) => receipt));
       const added: PhoneInboxRecord[] = [];
       let pausedBySave = false;
-      for (const queued of lines.slice(0, MAX_BATCH_LINES)) {
+      for (const { queued, receipt } of batch) {
         if (!this.enabled || store !== this.host.store()) break;
         if (await hasPendingFactOperation(store)) {
           pausedBySave = true;
@@ -166,8 +172,13 @@ export class PhoneInbox {
           break;
         }
         const invalid = phoneInboxReviewReason(store, line);
+        receipt.line = line.line;
+        if (receipt.status === "saved") {
+          if (await this.write(scope, [receipt])) added.push(receipt);
+          continue;
+        }
         if (!invalid && !textAiReadiness(store.settings).ready) continue;
-        const row = await this.process(scope, line, invalid);
+        const row = await this.process(scope, line, invalid, receipt);
         if (row) added.push(row);
       }
       if (added.length) this.host.notify(summarizePhoneInbox(added));
@@ -217,14 +228,14 @@ export class PhoneInbox {
     });
   }
 
-  private async process(scope: PhoneInboxScope, line: PhoneInboxLine, invalid: string): Promise<PhoneInboxRecord | undefined> {
-    const row: PhoneInboxRecord = { id: line.id, line: line.line, status: "processing", message: "上次处理未读回回执，请核对最近操作。" };
+  private async process(scope: PhoneInboxScope, line: PhoneInboxLine, invalid: string,
+    row: PhoneInboxRecord): Promise<PhoneInboxRecord | undefined> {
     if (invalid) {
       row.status = "review";
       row.message = invalid;
+      delete row.pendingOperationId;
       return await this.write(scope, [row]) ? row : undefined;
     }
-    row.pendingOperationId = `${newLocalOperationId("agent-turn")}:phone`;
     if (!await this.write(scope, [row])) return;
     const revision = recordRevision(row);
     const turn = this.turn(scope, line, revision, row.pendingOperationId);

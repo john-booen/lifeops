@@ -94,6 +94,13 @@ export function isPhoneInboxAction(value: unknown): value is AgentActionSuggesti
     && typeof action.title === "string" && typeof action.description === "string" && typeof action.content === "string";
 }
 
+export function phoneInboxWriteId(lineId: string): string {
+  const hash = fileRevision(`phone-inbox:${lineId}`);
+  // Keep the format readable by older releases after a rollback.
+  const id = [hash.slice(0, 8), hash.slice(8, 12), hash.slice(12, 16), hash.slice(16, 20), hash.slice(20, 32)].join("-");
+  return `local:agent-turn:${id}:phone`;
+}
+
 export function phoneInboxOperationId(value: unknown): value is string {
   return typeof value === "string" && /^local:agent-turn:[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}:phone$/u.test(value);
 }

@@ -2317,6 +2317,48 @@ it.each(["folder", "store"] as const)("aborts an in-flight phone submission when
   }
 });
 
+it.each(["saved", "undone"] as const)("recovers a %s phone operation after sync removes its receipt", async originalStatus => {
+  const { PhoneInbox } = await import("../src/features/phoneInbox/service");
+  const { PHONE_INBOX_PATH, PHONE_INBOX_STATE } = await import("../src/features/phoneInbox/model");
+  const { LifeOpsEventBus } = await import("../src/lifeOpsEventBus");
+  const statePath = store.path(store.settings.folders.aiReports, "System", PHONE_INBOX_STATE);
+  const source = "[2026-11-12 09:00] 整理虚构紫色纸样\n";
+  const message = reply("", [tool("create_task", { title: "整理虚构紫色纸样" })]);
+  const options = {
+    store: () => store, enabled: () => true,
+    submit: async (text: string, phoneInbox: NonNullable<AgentTurnInput["phoneInbox"]>, signal: AbortSignal) => {
+      const result = await new AgentLoop(host).run(input({ message: text, source: "system", phoneInbox, signal }));
+      return { reply: result.text, receipts: result.receipts, actions: result.confirmations, toolCalls: result.toolCalls };
+    },
+    confirm: async () => {}, undo: (id: string) => runtime.undoOperation(id), notify: () => {}
+  };
+  const original = new PhoneInbox(options, new LifeOpsEventBus());
+  let saved;
+  try {
+    await store.ensureFile(PHONE_INBOX_PATH, source);
+    responses.push(message);
+    await original.scan();
+    [saved] = await original.list();
+    expect(saved.status).toBe("saved");
+    if (originalStatus === "undone") await original.resolve(saved.id, "undo");
+  } finally { original.stop(); }
+
+  await store.writeJson(statePath, { version: 1, records: [] });
+  const reopened = new PhoneInbox(options, new LifeOpsEventBus());
+  try {
+    // The second response would create another task if the same line were submitted again.
+    responses.push(message);
+    await reopened.scan();
+    expect((await store.readTaskDb()).tasks).toHaveLength(originalStatus === "undone" ? 0 : 1);
+    expect(requests).toHaveLength(1);
+    expect((await reopened.list())[0]).toMatchObject({
+      id: saved.id, operationId: saved.operationId, status: "saved",
+      ...(originalStatus === "undone" ? { undone: true } : {})
+    });
+    expect(await store.readPath(PHONE_INBOX_PATH)).toBe(source);
+  } finally { reopened.stop(); }
+});
+
 it("keeps an unrelated receipt that synced while a phone line was processing", async () => {
   const { PhoneInbox } = await import("../src/features/phoneInbox/service");
   const { PHONE_INBOX_PATH, PHONE_INBOX_STATE } = await import("../src/features/phoneInbox/model");
