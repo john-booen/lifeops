@@ -2,7 +2,8 @@ const capacityPhrases = /超载|超负荷|超出|排(?:得)?(?:太|有点)?[多�
 
 export function asksForTodayCapacity(message: string): boolean {
   const question = message.trim().replace(/^请问[，, ]*/u, "").replace(/[。！？!?]+$/u, "");
-  return /^(?:我)?(?:今天|今日)(?:的)?(?:任务|待办|安排)?(?:是不是|有没有|会不会|是否)?(?:排(?:得)?(?:有点|太)?[多满]了?|(?:太多|超载|超负荷)(?:了)?)(?:吗)?$/u.test(question);
+  return /^(?:我)?(?:今天|今日)(?:的)?(?:任务|待办|安排)?(?:是不是|有没有|会不会|是否)?(?:排(?:得)?(?:有点|太)?[多满]了?|(?:太多|超载|超负荷)(?:了)?)(?:吗)?$/u.test(question)
+    || /^(?:我)?(?:今天|今日)(?:的)?(?:任务|待办|安排)(?:还)?(?:(?:能(?:不能|否)?|来得及)(?:都|全部)?(?:做完|完成)|做得完)(?:吗)?$/u.test(question);
 }
 
 interface WorkloadPlan {

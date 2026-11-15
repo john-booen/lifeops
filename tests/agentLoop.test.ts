@@ -621,14 +621,19 @@ describe("unified agent loop", () => {
     expect(requests).toHaveLength(0);
   });
 
-  it.each(["text", "voice"] as const)("answers a direct capacity question using the local plan (%s)", async source => {
+  it.each([
+    { source: "text", message: "今天是不是排多了？" },
+    { source: "voice", message: "今天是不是排多了？" },
+    { source: "text", message: "今天的待办能做完吗？" },
+    { source: "voice", message: "今天的安排来得及完成吗？" }
+  ] as const)("answers a direct capacity question using the local plan ($source, $message)", async ({ source, message }) => {
     const facts = { today: { scheduled: 12 }, capacity: { overloaded: true, typicalCount: 6, suggestDefer: ["can-defer", "unavailable"] },
       scope: "只提供允许读取的记录", tasks: [{ id: "can-defer", title: "整理虚构样品" }, { id: "due", title: "交虚构周报" }] };
     const executeTools = vi.spyOn(host, "executeTools").mockImplementation(async calls => calls.map(call =>
       ({ callId: call.id!, success: true, output: JSON.stringify(facts), actions: [] })));
     const onVoiceText = vi.fn();
     const loop = new AgentLoop(host);
-    const result = await loop.run(input({ source, message: "今天是不是排多了？", onVoiceText }));
+    const result = await loop.run(input({ source, message, onVoiceText }));
     expect(result.text).toBe("按近期记录，今天的待办已超载。今天原排 12 项，常态每天完成约 6 项。可以考虑延后「整理虚构样品」。只统计允许读取的记录。");
     expect(executeTools.mock.calls[0][0]).toMatchObject([{ name: "plan_today", arguments: {} }]);
     if (source === "voice") expect(onVoiceText).toHaveBeenCalledExactlyOnceWith(result.text);
