@@ -668,6 +668,23 @@ describe("unified agent loop", () => {
     expect(requests).toHaveLength(0);
   });
 
+  it.each([
+    { message: "这周睡得怎么样？", source: "text", offline: true },
+    { message: "本周手表记录的睡眠怎么样？", source: "voice", offline: false }
+  ] as const)("reads a bounded device sleep overview ($message)", async ({ message, source, offline }) => {
+    const date = formatDate(now);
+    await store.appendHealthEntry({ date, sleepHours: 7.5 });
+    await store.appendHealthEntry({ date: addDays(date, -1), sleepHours: 5.5 });
+    await store.appendHealthEntry({ date: addDays(date, 1), sleepHours: 20 });
+    if (offline) host.settings.ai = { ...host.settings.ai, provider: "off" };
+    const spoken = vi.fn();
+    const result = await new AgentLoop(host).run(input({ message, source, onVoiceText: spoken }));
+    expect(result.text).toBe(`2026-11-09 至 ${date} 有 2 天设备睡眠记录，平均 6.5 小时。`);
+    expect(result.toolCalls).toEqual([{ name: "get_stats", ok: true }]);
+    expect(requests).toHaveLength(0);
+    if (source === "voice") expect(spoken).toHaveBeenCalledExactlyOnceWith(result.text);
+  });
+
   it("can read one clearly requested device sleep result offline and keeps qualitative analysis in the model path", async () => {
     const date = formatDate(now);
     await store.appendHealthEntry({ date, sleepHours: 7.5 });
@@ -682,7 +699,10 @@ describe("unified agent loop", () => {
     responses.push(reply("虚构问题走一般分析。"));
     const mixed = await new AgentLoop(host).run(input({ message: "这周手表记录的睡眠时长平均是多少，为什么会这样？" }));
     expect(mixed.text).toBe("虚构问题走一般分析。");
-    expect(requests).toHaveLength(1);
+    responses.push(reply("虚构问题需要同时理解日记。"));
+    const subjective = await new AgentLoop(host).run(input({ message: "这周睡得怎么样？" }));
+    expect(subjective.text).toBe("虚构问题需要同时理解日记。");
+    expect(requests).toHaveLength(2);
   });
 
   it("uses measured values, their date coverage, and explicit aggregations for other device questions", async () => {

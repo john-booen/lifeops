@@ -7,8 +7,15 @@ const deviceMetrics: Record<string, HealthMetric> = {
   睡眠时长: "sleepHours", 步数: "steps", 跑步距离: "runningKm", 体重: "weightKg", 静息心率: "restingHeartRate"
 };
 
-export function deviceHealthQuestion(message: string, today = todayString()): HealthReading | undefined {
+export function deviceHealthQuestion(message: string, today = todayString(), allowUnqualifiedSleep = false): HealthReading | undefined {
   const text = message.trim().normalize("NFKC").replace(/(?:只报天数和小时[。！!]?|[。？！?!])$/u, "").replace(/[。？！?!]$/u, "").trim();
+  const deviceSleep = /^([\p{L}\d-]{2,18}?)(?:的)?(?:手表|设备)(?:记录的)?睡眠(?:情况|时长)?(?:怎么样|如何)$/u.exec(text);
+  const sleepOverview = deviceSleep ?? (allowUnqualifiedSleep
+    ? /^([\p{L}\d-]{2,18}?)(?:的)?(?:睡得|睡眠(?:情况)?)(?:怎么样|如何)$/u.exec(text) : null);
+  if (sleepOverview) {
+    const range = metricPeriod(sleepOverview[1], today);
+    if (range) return { metric: "sleepHours", range, aggregate: "average" };
+  }
   const match = /^([\p{L}\d-]{2,18}?)(?:里|的)?(?:手表|设备)(?:记录了?)?的?(睡眠时长|步数|跑步距离|体重|静息心率)(平均|合计|总共|一共)?(?:是)?(?:多少(?:个)?(小时|步|公里|千克|公斤|次\/分)?|(多久))$/u.exec(text);
   if (!match) return;
   const [,period,label,summary,unit,duration] = match;
