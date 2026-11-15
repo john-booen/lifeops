@@ -21,7 +21,7 @@ const ws = vi.hoisted(() => {
       for (const fn of this.handlers.get(name) ?? []) fn(...args);
     }
     message(value: unknown) { this.emit("message", JSON.stringify(value)); }
-    send(value: string) { this.sent.push(JSON.parse(value)); }
+    send(value: string, callback?: (error?: Error) => void) { this.sent.push(JSON.parse(value)); callback?.(); }
     close() { this.emit("close", 1000, Buffer.alloc(0)); }
     terminate() { this.readyState = 3; }
   }
@@ -62,6 +62,48 @@ it.each(["cascade", "omni-e2e"] as const)("ignores non-event JSON and keeps rece
   expect(onTranscriptDone).toHaveBeenCalledExactlyOnceWith("虚构语音");
   expect(onError).not.toHaveBeenCalled();
   client.close();
+});
+
+it.each(["append", "commit"] as const)("retires failed realtime audio input on %s without accepting late speech", async operation => {
+  const onDisconnected = vi.fn(), onCascadeCapture = vi.fn();
+  const { client, socket, runs } = await opened({ onDisconnected, onCascadeCapture }, { mode: "cascade" });
+  socket.message({ type: "session.updated" });
+  if (operation === "commit") client.appendPcm16(pcm);
+  vi.spyOn(socket, "send").mockImplementationOnce(() => { throw new Error(`send failure: ${settings.apiKey}`); });
+
+  const send = operation === "append" ? () => client.appendPcm16(pcm) : () => client.commit();
+  try {
+    expect(send).not.toThrow();
+    expect(onDisconnected).toHaveBeenCalledExactlyOnceWith({ code: 1006, reason: "百炼实时语音音频发送失败，连接已中断。" });
+    expect(socket.readyState).toBe(ws.Socket.CLOSED);
+    socket.message({ type: "conversation.item.input_audio_transcription.completed", item_id: "old", transcript: "虚构旧语音" });
+    expect(onCascadeCapture).not.toHaveBeenCalled();
+    const asr = runs.filter(run => run.stage === "voice_asr");
+    if (operation === "commit") expect(asr).toMatchObject([{ errorCode: "network", run: { status: "failed" } }]);
+    else expect(asr).toHaveLength(0);
+  } finally {
+    client.close();
+  }
+});
+
+it("ignores a delayed send error from an old realtime connection", async () => {
+  const onDisconnected = vi.fn(), onCascadeCapture = vi.fn();
+  const { client, socket } = await opened({ onDisconnected, onCascadeCapture }, { mode: "cascade" });
+  let completeSend: ((error?: Error) => void) | undefined;
+  vi.spyOn(socket, "send").mockImplementationOnce((_value, callback) => { completeSend = callback; });
+  client.appendPcm16(pcm);
+  expect(completeSend).toBeTypeOf("function");
+  const connecting = client.connect(), replacement = ws.sockets.at(-1)!;
+  replacement.emit("open");
+  await connecting;
+  try {
+    completeSend?.(new Error("虚构迟到的发送失败"));
+    expect(onDisconnected).not.toHaveBeenCalled();
+    replacement.message({ type: "conversation.item.input_audio_transcription.completed", item_id: "new", transcript: "虚构新语音" });
+    expect(onCascadeCapture).toHaveBeenCalledWith({ type: "final", itemId: "new", text: "虚构新语音" });
+  } finally {
+    client.close();
+  }
 });
 
 it.each(["server error", "Omni timeout", "cascade timeout"])("reports failed initial context after %s even if disposal fails", async mode => {

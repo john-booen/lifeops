@@ -348,7 +348,7 @@ export class BailianRealtimeClient {
       return;
     }
     this.pendingInputAudioBytes += decodedBase64Bytes(base64Audio);
-    this.send({
+    this.sendAudioInput({
       type: "input_audio_buffer.append",
       audio: base64Audio
     });
@@ -362,7 +362,7 @@ export class BailianRealtimeClient {
       this.unboundAsrRun.beginAttempt();
     }
     this.recordPendingAudioTurn();
-    this.send({ type: "input_audio_buffer.commit" });
+    this.sendAudioInput({ type: "input_audio_buffer.commit" });
     if (this.isOmniE2e()) {
       this.createResponse();
     }
@@ -823,12 +823,31 @@ export class BailianRealtimeClient {
     return transcript || "";
   }
 
-  private send(payload: Record<string, unknown>): void {
+  private sendAudioInput(payload: Record<string, unknown>): void {
+    const socket = this.socket;
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    const fail = () => {
+      if (this.socket !== socket || this.intentionalClose) return;
+      if (this.hasProtectedContextSources()) {
+        this.failToolContext();
+        return;
+      }
+      const reason = "百炼实时语音音频发送失败，连接已中断。";
+      this.finishProviderFailures(reason);
+      this.retireForLocalNotification();
+      if (this.callbacks.onDisconnected) this.callbacks.onDisconnected({ code: 1006, reason });
+      else this.callbacks.onError?.(reason);
+    };
+    try { this.send(payload, error => { if (error) fail(); }); }
+    catch { fail(); }
+  }
+
+  private send(payload: Record<string, unknown>, onSent?: (error?: Error) => void): void {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
     if (this.settings.model.trim() === "qwen3.8-omni-flash-realtime" && !payload.event_id) {
       payload = { ...payload, event_id: `event_${randomUUID()}` };
     }
-    this.socket.send(JSON.stringify(payload));
+    this.socket.send(JSON.stringify(payload), onSent);
   }
 
   private isOmniE2e(): boolean {
