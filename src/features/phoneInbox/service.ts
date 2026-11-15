@@ -141,19 +141,20 @@ export class PhoneInbox {
       if (await this.restoreReceipts(scope, doc.records)) await this.write(scope, doc.records, previous);
       if (!store.getFile(PHONE_INBOX_PATH)) return;
       const known = new Set(doc.records.map(row => row.id));
-      const eligible = (line: PhoneInboxLine) => !known.has(line.id)
-        && (textAiReadiness(store.settings).ready || !!phoneInboxReviewReason(store, line));
       const scanDate = todayString();
-      const lines = (await this.lines(scope, includeUnterminated, scanDate)).filter(eligible);
-      const batch = lines.slice(0, MAX_BATCH_LINES).map<{ queued: PhoneInboxLine; receipt: PhoneInboxRecord }>(queued => ({ queued, receipt: {
+      const lines = (await this.lines(scope, includeUnterminated, scanDate)).filter(line => !known.has(line.id));
+      const candidates = lines.map<{ queued: PhoneInboxLine; receipt: PhoneInboxRecord }>(queued => ({ queued, receipt: {
         id: queued.id, line: queued.line, status: "processing", message: "上次处理未读回回执，请核对最近操作。",
         pendingOperationId: phoneInboxWriteId(queued.id)
       } }));
-      // The operation can outlive a receipt removed by synchronization.
-      await this.restoreReceipts(scope, batch.map(({ receipt }) => receipt));
+      // Recover settled operations before selecting the rows that need a model.
+      await this.restoreReceipts(scope, candidates.map(({ receipt }) => receipt));
+      const aiReady = textAiReadiness(store.settings).ready;
+      const eligible = candidates.filter(({ queued, receipt }) =>
+        receipt.status === "saved" || aiReady || !!phoneInboxReviewReason(store, queued));
       const added: PhoneInboxRecord[] = [];
       let pausedBySave = false;
-      for (const { queued, receipt } of batch) {
+      for (const { queued, receipt } of eligible.slice(0, MAX_BATCH_LINES)) {
         if (!this.enabled || store !== this.host.store()) break;
         if (await hasPendingFactOperation(store)) {
           pausedBySave = true;
@@ -182,7 +183,7 @@ export class PhoneInbox {
         if (row) added.push(row);
       }
       if (added.length) this.host.notify(summarizePhoneInbox(added));
-      if (lines.length > MAX_BATCH_LINES && !pausedBySave && this.enabled && store === this.host.store()) this.schedule();
+      if (eligible.length > MAX_BATCH_LINES && !pausedBySave && this.enabled && store === this.host.store()) this.schedule();
       if (pausedBySave && includeUnterminated) throw new PhoneInboxBusyError();
     });
   }

@@ -2317,7 +2317,11 @@ it.each(["folder", "store"] as const)("aborts an in-flight phone submission when
   }
 });
 
-it.each(["saved", "undone"] as const)("recovers a %s phone operation after sync removes its receipt", async originalStatus => {
+it.each([
+  { state: "saved", undo: false, offline: false },
+  { state: "undone", undo: true, offline: false },
+  { state: "undone with text AI off", undo: true, offline: true }
+])("recovers a phone operation after sync removes its receipt ($state)", async ({ undo, offline }) => {
   const { PhoneInbox } = await import("../src/features/phoneInbox/service");
   const { PHONE_INBOX_PATH, PHONE_INBOX_STATE } = await import("../src/features/phoneInbox/model");
   const { LifeOpsEventBus } = await import("../src/lifeOpsEventBus");
@@ -2340,22 +2344,30 @@ it.each(["saved", "undone"] as const)("recovers a %s phone operation after sync 
     await original.scan();
     [saved] = await original.list();
     expect(saved.status).toBe("saved");
-    if (originalStatus === "undone") await original.resolve(saved.id, "undo");
+    if (undo) await original.resolve(saved.id, "undo");
   } finally { original.stop(); }
 
   await store.writeJson(statePath, { version: 1, records: [] });
+  const unseen = offline ? Array.from({ length: 22 }, (_, index) => `虚构离线待读行 ${index + 1}\n`).join("") : "";
+  const synchronized = unseen + source;
+  if (offline) {
+    store.settings.ai.provider = "off";
+    await store.writeFile(PHONE_INBOX_PATH, synchronized);
+  }
   const reopened = new PhoneInbox(options, new LifeOpsEventBus());
   try {
     // The second response would create another task if the same line were submitted again.
     responses.push(message);
     await reopened.scan();
-    expect((await store.readTaskDb()).tasks).toHaveLength(originalStatus === "undone" ? 0 : 1);
+    expect((await store.readTaskDb()).tasks).toHaveLength(undo ? 0 : 1);
     expect(requests).toHaveLength(1);
-    expect((await reopened.list())[0]).toMatchObject({
-      id: saved.id, operationId: saved.operationId, status: "saved",
-      ...(originalStatus === "undone" ? { undone: true } : {})
-    });
-    expect(await store.readPath(PHONE_INBOX_PATH)).toBe(source);
+    const snapshot = await reopened.snapshot();
+    expect(snapshot.receipts).toMatchObject([{
+      id: saved.id, operationId: saved.operationId, status: "saved", line: offline ? 23 : 1,
+      ...(undo ? { undone: true } : {})
+    }]);
+    expect(snapshot.pending).toBe(offline ? 22 : 0);
+    expect(await store.readPath(PHONE_INBOX_PATH)).toBe(synchronized);
   } finally { reopened.stop(); }
 });
 
