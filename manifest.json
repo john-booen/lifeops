@@ -1,7 +1,7 @@
 {
   "id": "lifeops-assistant",
   "name": "LifeOps Assistant",
-  "version": "0.5.69",
+  "version": "0.5.70",
   "minAppVersion": "1.5.0",
   "description": "Personal data steward for daily planning, habits, trading review, health notes, external capture, and AI summaries.",
   "author": "",
