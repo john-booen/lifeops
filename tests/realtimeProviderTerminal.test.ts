@@ -295,6 +295,26 @@ describe("realtime stage terminal contract", () => {
     expect(socket.sent.filter(s => s.type === "response.create")).toHaveLength(1);
     expect(responseRuns(runs)).toHaveLength(1); expect(responseRuns(runs)[0].run.status).toBe("cancelled"); client.close();
   });
+  it("keeps recently retired identities when an old terminal is delivered again", async () => {
+    const onResponseTextDelta = vi.fn();
+    const { client, socket } = await opened({ onResponseTextDelta });
+    socket.message({ type: "session.updated" });
+    for (let index = 0; index < 512; index += 1) {
+      const id = `fictional-retired-${index}`;
+      client.createResponse();
+      socket.message({ type: "response.created", response: { id } });
+      socket.message({ type: "response.done", response: { id, status: "completed" } });
+    }
+    socket.message({ type: "response.done", response: { id: "fictional-retired-511", status: "completed" } });
+    socket.message({ type: "response.text.delta", response_id: "fictional-retired-0", delta: "迟到的虚构回复" });
+    expect(onResponseTextDelta).not.toHaveBeenCalled();
+
+    client.createResponse();
+    socket.message({ type: "response.created", response: { id: "fictional-current" } });
+    socket.message({ type: "response.text.delta", response_id: "fictional-current", delta: "当前虚构回复" });
+    expect(onResponseTextDelta).toHaveBeenCalledExactlyOnceWith("当前虚构回复", expect.objectContaining({ responseId: "fictional-current" }));
+    client.close();
+  });
   it("retires the scheduled retry when a new native response is requested", async () => {
     const { client, socket, runs } = await opened();
     socket.message({ type: "session.updated" });

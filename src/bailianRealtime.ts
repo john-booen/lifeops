@@ -1014,6 +1014,7 @@ export class BailianRealtimeClient {
   }
 
   private rememberIgnoredResponse(id: string): void {
+    if (this.ignoredResponseIds.has(id)) return;
     if (this.ignoredResponseIds.size >= 512) this.ignoredResponseIds.delete(this.ignoredResponseIds.values().next().value!);
     this.ignoredResponseIds.add(id);
   }
