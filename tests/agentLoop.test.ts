@@ -2214,6 +2214,36 @@ it("aborts the current phone submission when the inbox is disabled and keeps the
   } finally { inbox.stop(); }
 });
 
+it("keeps phone receipts in their original folder when the setting changes during a submission", async () => {
+  const { PhoneInbox } = await import("../src/features/phoneInbox/service");
+  const { PHONE_INBOX_PATH, PHONE_INBOX_STATE } = await import("../src/features/phoneInbox/model");
+  const { LifeOpsEventBus } = await import("../src/lifeOpsEventBus");
+  const originalFolder = store.settings.folders.aiReports;
+  const replacementFolder = "虚构回执目录";
+  const statePath = (folder: string) => store.path(folder, "System", PHONE_INBOX_STATE);
+  const existing = { version: 1, records: [{ id: `${"a".repeat(64)}:1`, line: 1, status: "review", message: "另一目录原有的虚构回执" }] };
+  const inbox = new PhoneInbox({ store: () => store, enabled: () => true,
+    submit: async (_text, turn) => {
+      await turn.assertLineCurrent();
+      store.settings.folders.aiReports = replacementFolder;
+      await turn.assertLineCurrent();
+      return { reply: "迟到的虚构回执", actions: [] };
+    },
+    confirm: async () => {}, undo: async () => true, notify: () => {} }, new LifeOpsEventBus());
+  try {
+    await store.ensureFile(PHONE_INBOX_PATH, "虚构收件内容\n");
+    await store.writeJson(statePath(replacementFolder), existing);
+    const error = await inbox.scan().then(() => undefined, error => error);
+    expect(await store.readJson(statePath(replacementFolder), null)).toEqual(existing);
+    expect(error).toMatchObject({ message: "手机随手记设置已变化。" });
+    expect(await store.readJson(statePath(originalFolder), null)).toMatchObject({ records: [{ status: "processing" }] });
+    expect(await store.readPath(PHONE_INBOX_PATH)).toBe("虚构收件内容\n");
+  } finally {
+    inbox.stop();
+    store.settings.folders.aiReports = originalFolder;
+  }
+});
+
 it("reads an already confirmed phone action from the ledger after the original line is moved away", async () => {
   const { PhoneInbox } = await import("../src/features/phoneInbox/service");
   const { PHONE_INBOX_PATH, PHONE_INBOX_STATE } = await import("../src/features/phoneInbox/model");

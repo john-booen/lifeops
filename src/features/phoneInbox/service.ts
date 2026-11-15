@@ -32,6 +32,12 @@ interface PhoneInboxHost {
   notify(message: string): void;
 }
 
+interface PhoneInboxScope {
+  store: StoreHost;
+  receiptPath: string;
+  assertCurrent(): void;
+}
+
 export class PhoneInbox {
   private running: Promise<void> = Promise.resolve();
   private scheduled?: ReturnType<typeof setTimeout>;
@@ -77,13 +83,14 @@ export class PhoneInbox {
 
   async snapshot(): Promise<PhoneInboxSnapshot> {
     if (!this.enabled) return { receipts: [], source: "unreadable", pending: 0, unfinished: 0 };
-    const store = this.host.store();
-    const doc = await this.read(store);
+    const scope = this.scope();
+    const { store } = scope;
+    const doc = await this.read(scope);
     const exists = !!store.getFile(PHONE_INBOX_PATH);
-    const lines = exists ? await this.lines(store, true).catch(() => undefined) : undefined;
+    const lines = exists ? await this.lines(scope, true).catch(() => undefined) : undefined;
     const positions = new Map(lines?.map(line => [line.id, line]));
-    await this.restoreReceipts(store, doc.records);
-    this.assertCurrent(store);
+    await this.restoreReceipts(scope, doc.records);
+    scope.assertCurrent();
     const receipts = doc.records.slice().reverse().map(row => {
       const source = positions.get(row.id);
       if (!source) return { ...row, sourceUnavailable: true as const };
@@ -101,8 +108,8 @@ export class PhoneInbox {
   }
 
   async createFile(): Promise<void> {
-    const store = this.host.store();
-    this.assertCurrent(store);
+    const { store, assertCurrent } = this.scope();
+    assertCurrent();
     await store.ensureFile(PHONE_INBOX_PATH, EMPTY_NOTE);
     this.schedule();
   }
@@ -110,20 +117,21 @@ export class PhoneInbox {
   scan(includeUnterminated = false): Promise<void> {
     return this.serialize(async () => {
       if (!this.enabled) return;
-      const store = this.host.store();
+      const scope = this.scope();
+      const { store } = scope;
       if (await hasPendingFactOperation(store)) {
         this.schedule(10_000);
         if (includeUnterminated) throw new PhoneInboxBusyError();
         return;
       }
-      const doc = await this.read(store);
-      if (await this.restoreReceipts(store, doc.records)) await this.write(store, doc);
+      const doc = await this.read(scope);
+      if (await this.restoreReceipts(scope, doc.records)) await this.write(scope, doc);
       if (!store.getFile(PHONE_INBOX_PATH)) return;
       const known = new Set(doc.records.map(row => row.id));
       const eligible = (line: PhoneInboxLine) => !known.has(line.id)
         && (textAiReadiness(store.settings).ready || !!phoneInboxReviewReason(store, line));
       const scanDate = todayString();
-      const lines = (await this.lines(store, includeUnterminated, scanDate)).filter(eligible);
+      const lines = (await this.lines(scope, includeUnterminated, scanDate)).filter(eligible);
       const added: PhoneInboxRecord[] = [];
       let pausedBySave = false;
       for (const queued of lines.slice(0, MAX_BATCH_LINES)) {
@@ -135,7 +143,7 @@ export class PhoneInbox {
         }
         // A sync may have edited or reopened a later line during processing.
         if (!store.getFile(PHONE_INBOX_PATH)) break;
-        const currentLines = await this.lines(store, includeUnterminated, scanDate).catch(error => {
+        const currentLines = await this.lines(scope, includeUnterminated, scanDate).catch(error => {
           if (store.getFile(PHONE_INBOX_PATH)) throw error;
           return [];
         });
@@ -146,7 +154,7 @@ export class PhoneInbox {
         }
         const invalid = phoneInboxReviewReason(store, line);
         if (!invalid && !textAiReadiness(store.settings).ready) continue;
-        added.push(await this.process(store, doc, line, invalid));
+        added.push(await this.process(scope, doc, line, invalid));
       }
       if (added.length) this.host.notify(summarizePhoneInbox(added));
       if (added.length === MAX_BATCH_LINES && lines.length > added.length) this.schedule();
@@ -156,13 +164,13 @@ export class PhoneInbox {
 
   resolve(id: string, decision: "confirm" | "dismiss" | "undo"): Promise<void> {
     return this.serialize(async () => {
-      const store = this.host.store();
-      this.assertCurrent(store);
-      const doc = await this.read(store);
+      const scope = this.scope();
+      const doc = await this.read(scope);
       const row = doc.records.find(record => record.id === id);
       if (!row) throw Error("找不到这条手机记录。");
-      const changed = await this.restoreReceipts(store, [row]);
-      if (changed) await this.write(store, doc);
+      const changed = await this.restoreReceipts(scope, [row]);
+      if (changed) await this.write(scope, doc);
+      scope.assertCurrent();
       if (changed && decision === "confirm" && row.status === "saved") return;
       if (decision === "undo" && row.operationId && !row.undone) {
         if (!await this.host.undo(row.operationId)) throw Error("撤销暂时未完成。");
@@ -172,31 +180,31 @@ export class PhoneInbox {
         delete row.action;
         delete row.pendingOperationId;
       } else if (decision === "confirm" && row.status === "confirm" && row.action) {
-        const line = await this.findLine(store, id);
+        const line = await this.findLine(scope, id);
         if (requiresPhoneLineEnding(row) && !line.terminated) throw Error("这一行已回到编辑状态，请等它写完。");
-        const turn = this.turn(store, line);
+        const turn = this.turn(scope, line);
         await this.host.confirm(row.action, turn);
         row.operationId = `confirmed:${row.action.id}`;
         row.status = "saved";
         row.message = `已确认并核验 · ${row.action.content}`.slice(0, 2000);
         delete row.action;
       } else throw Error("这条回执已变化，请重新打开核对。");
-      await this.write(store, doc);
+      await this.write(scope, doc);
     });
   }
 
-  private async process(store: StoreHost, doc: PhoneInboxDocument, line: PhoneInboxLine, invalid: string): Promise<PhoneInboxRecord> {
+  private async process(scope: PhoneInboxScope, doc: PhoneInboxDocument, line: PhoneInboxLine, invalid: string): Promise<PhoneInboxRecord> {
     const row: PhoneInboxRecord = { id: line.id, line: line.line, status: "processing", message: "上次处理未读回回执，请核对最近操作。" };
     doc.records.push(row);
     if (invalid) {
       row.status = "review";
       row.message = invalid;
-      await this.write(store, doc);
+      await this.write(scope, doc);
       return row;
     }
     row.pendingOperationId = `${newLocalOperationId("agent-turn")}:phone`;
-    await this.write(store, doc);
-    const turn = this.turn(store, line, row.pendingOperationId);
+    await this.write(scope, doc);
+    const turn = this.turn(scope, line, row.pendingOperationId);
     const submission = new AbortController();
     this.activeSubmission = submission;
     try {
@@ -221,7 +229,8 @@ export class PhoneInbox {
       }
       row.message = response.reply.trim().slice(0, 2000) || "请核对对应的保存记录。";
     } catch (error) {
-      if (!this.enabled || store !== this.host.store()) throw Error("手机随手记已停止。");
+      if (!this.enabled || scope.store !== this.host.store()) throw Error("手机随手记已停止。");
+      scope.assertCurrent();
       row.status = "review";
       row.message = error instanceof ProviderRunFailure && error.code === "network"
         ? "文字模型暂时连不上。原文保留，请先核对「最近操作」。"
@@ -229,11 +238,12 @@ export class PhoneInbox {
     } finally {
       if (this.activeSubmission === submission) this.activeSubmission = undefined;
     }
-    await this.write(store, doc);
+    await this.write(scope, doc);
     return row;
   }
 
-  private async restoreReceipts(store: StoreHost, records: PhoneInboxRecord[]): Promise<boolean> {
+  private async restoreReceipts(scope: PhoneInboxScope, records: PhoneInboxRecord[]): Promise<boolean> {
+    const { store } = scope;
     const candidates = records.flatMap(row => {
       const id = row.operationId ?? row.pendingOperationId ?? (row.action && `confirmed:${row.action.id}`);
       return id && !row.undone ? [{ row, id }] : [];
@@ -246,7 +256,7 @@ export class PhoneInbox {
       if (await hasPendingFactOperation(store)) return false;
       const { reverted, verified } = await ledger.readSettledOperations(candidates.map(({ id }) => id));
       if (await hasPendingFactOperation(store) || !allowed()) return false;
-      this.assertCurrent(store);
+      scope.assertCurrent();
       let changed = false;
       for (const { row, id } of candidates) {
         const receipt = verified.get(id);
@@ -266,46 +276,46 @@ export class PhoneInbox {
     } catch { return false; }
   }
 
-  private turn(store: StoreHost, line: PhoneInboxLine, operationId?: string): PhoneInboxTurn {
+  private turn(scope: PhoneInboxScope, line: PhoneInboxLine, operationId?: string): PhoneInboxTurn {
     return {
       date: line.date,
       operationId,
       assertCurrent: () => {
-        this.assertCurrent(store);
-        if (hasCredential(store, line.text)) throw Error("这一行疑似含密钥。请去掉密钥后另追加一行。");
+        scope.assertCurrent();
+        if (hasCredential(scope.store, line.text)) throw Error("这一行疑似含密钥。请去掉密钥后另追加一行。");
       },
       assertLineCurrent: async () => {
-        const current = await this.findLine(store, line.id);
+        const current = await this.findLine(scope, line.id);
         if (line.terminated && !current.terminated) throw Error("这一行已回到编辑状态，请等它写完。");
       }
     };
   }
 
-  private async findLine(store: StoreHost, id: string): Promise<PhoneInboxLine> {
-    const line = (await this.lines(store, true)).find(item => item.id === id);
+  private async findLine(scope: PhoneInboxScope, id: string): Promise<PhoneInboxLine> {
+    const line = (await this.lines(scope, true)).find(item => item.id === id);
     if (!line) throw Error("这一行已经修改或移除，请核对收件箱。");
     return line;
   }
 
-  private async lines(store: StoreHost, includeUnterminated: boolean, referenceDate = todayString()): Promise<PhoneInboxLine[]> {
-    this.assertCurrent(store);
-    const text = await readScopedMarkdown(store, PHONE_INBOX_PATH);
-    this.assertCurrent(store);
+  private async lines(scope: PhoneInboxScope, includeUnterminated: boolean, referenceDate = todayString()): Promise<PhoneInboxLine[]> {
+    scope.assertCurrent();
+    const text = await readScopedMarkdown(scope.store, PHONE_INBOX_PATH);
+    scope.assertCurrent();
     return parsePhoneInbox(text, referenceDate, includeUnterminated);
   }
 
-  private async read(store: StoreHost): Promise<PhoneInboxDocument> {
-    this.assertCurrent(store);
-    const doc = await store.readJson<PhoneInboxDocument>(this.statePath(store), { version: 1, records: [] });
-    this.assertCurrent(store);
+  private async read(scope: PhoneInboxScope): Promise<PhoneInboxDocument> {
+    scope.assertCurrent();
+    const doc = await scope.store.readJson<PhoneInboxDocument>(scope.receiptPath, { version: 1, records: [] });
+    scope.assertCurrent();
     if (!validPhoneInboxDocument(doc)) throw Error("手机随手记回执格式需要核对。");
     return doc;
   }
 
-  private async write(store: StoreHost, doc: PhoneInboxDocument): Promise<void> {
-    this.assertCurrent(store);
+  private async write(scope: PhoneInboxScope, doc: PhoneInboxDocument): Promise<void> {
+    scope.assertCurrent();
     if (!validPhoneInboxDocument(doc)) throw Error("手机随手记回执格式需要核对。");
-    await store.writeJson(this.statePath(store), doc);
+    await scope.store.writeJson(scope.receiptPath, doc);
   }
 
   private statePath(store: StoreHost): string {
@@ -317,8 +327,18 @@ export class PhoneInbox {
     return !isVaultPathExcluded(PHONE_INBOX_PATH, prefixes) && !isVaultPathExcluded(this.statePath(store), prefixes);
   }
 
-  private assertCurrent(store: StoreHost): void {
-    if (!this.enabled || store !== this.host.store()) throw Error("手机随手记设置已变化。");
+  private scope(): PhoneInboxScope {
+    const store = this.host.store();
+    const receiptPath = this.statePath(store);
+    return {
+      store,
+      receiptPath,
+      assertCurrent: () => {
+        if (!this.enabled || store !== this.host.store() || receiptPath !== this.statePath(store)) {
+          throw Error("手机随手记设置已变化。");
+        }
+      }
+    };
   }
 
   private serialize(work: () => Promise<void>): Promise<void> {
