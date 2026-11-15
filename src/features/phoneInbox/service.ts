@@ -5,14 +5,14 @@ import { OperationLedger } from "../../dataFoundation/operationLedger";
 import { configuredCredentials, redactSensitiveText } from "../../credentialSecurity";
 import { todayString } from "../../date";
 import type { LifeOpsEventBus } from "../../lifeOpsEventBus";
-import { newLocalOperationId } from "../../operationIdentity";
+import { newLocalOperationId, recordRevision } from "../../operationIdentity";
 import { isVaultPathExcluded } from "../../privacy";
 import { ProviderRunFailure } from "../../providerRun";
 import type { StoreHost } from "../../store/settingsSlice";
 import type { AgentActionSuggestion, AgentResponse } from "../../types";
 import {
   PHONE_INBOX_PATH, PHONE_INBOX_STATE, isPhoneInboxAction, isPhoneInboxTool, parsePhoneInbox, phoneInboxLabels,
-  validPhoneInboxDocument, type PhoneInboxDocument, type PhoneInboxLine, type PhoneInboxReceipt, type PhoneInboxRecord,
+  validPhoneInboxDocument, type PhoneInboxDecision, type PhoneInboxDocument, type PhoneInboxLine, type PhoneInboxReceipt, type PhoneInboxRecord,
   type PhoneInboxSnapshot, type PhoneInboxTurn
 } from "./model";
 
@@ -104,7 +104,11 @@ export class PhoneInbox {
       if (row.terminated) pending++;
       else unfinished++;
     }
-    return { receipts, source: lines ? "available" : exists ? "unreadable" : "missing", pending, unfinished };
+    const revisions = new Map(doc.records.map(row => [row.id, recordRevision(row)]));
+    return {
+      receipts, source: lines ? "available" : exists ? "unreadable" : "missing", pending, unfinished,
+      resolve: (id, decision) => this.resolveReceipt(id, decision, scope, revisions.get(id))
+    };
   }
 
   async createFile(): Promise<void> {
@@ -162,15 +166,20 @@ export class PhoneInbox {
     });
   }
 
-  resolve(id: string, decision: "confirm" | "dismiss" | "undo"): Promise<void> {
+  resolve(id: string, decision: PhoneInboxDecision): Promise<void> {
+    return this.resolveReceipt(id, decision);
+  }
+
+  private resolveReceipt(id: string, decision: PhoneInboxDecision, capturedScope?: PhoneInboxScope, expectedRevision?: string): Promise<void> {
     return this.serialize(async () => {
-      const scope = this.scope();
+      const scope = capturedScope ?? this.scope();
       const doc = await this.read(scope);
       const row = doc.records.find(record => record.id === id);
       if (!row) throw Error("找不到这条手机记录。");
       const changed = await this.restoreReceipts(scope, [row]);
       if (changed) await this.write(scope, doc);
       scope.assertCurrent();
+      if (capturedScope && expectedRevision !== recordRevision(row)) throw Error("这条回执已变化，请重新打开核对。");
       if (changed && decision === "confirm" && row.status === "saved") return;
       if (decision === "undo" && row.operationId && !row.undone) {
         if (!await this.host.undo(row.operationId)) throw Error("撤销暂时未完成。");

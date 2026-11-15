@@ -45,12 +45,14 @@ export interface PhoneInboxDocument {
 }
 
 export type PhoneInboxReceipt = PhoneInboxRecord & { sourceUnavailable?: true; sourceEditing?: true };
+export type PhoneInboxDecision = "confirm" | "dismiss" | "undo";
 
 export interface PhoneInboxSnapshot {
   receipts: PhoneInboxReceipt[];
   source: "available" | "missing" | "unreadable";
   pending: number;
   unfinished: number;
+  resolve?: (id: string, decision: PhoneInboxDecision) => Promise<void>;
 }
 
 export const phoneInboxLabels: Record<PhoneInboxTool, string> = {

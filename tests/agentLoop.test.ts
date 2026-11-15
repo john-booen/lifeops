@@ -1863,11 +1863,11 @@ it("waits for a complete phone inbox line while mobile sync updates an unfinishe
   const inbox = new PhoneInbox({ store: () => store, enabled: () => true, submit: saved,
     confirm: async () => {}, undo: async () => true, notify: () => {} }, events);
   try {
-    expect(await inbox.snapshot()).toEqual({ source: "missing", receipts: [], pending: 0, unfinished: 0 });
+    expect(await inbox.snapshot()).toMatchObject({ source: "missing", receipts: [], pending: 0, unfinished: 0 });
     const note = await store.ensureFile(PHONE_INBOX_PATH, "# 手机随手记\n明天去");
     await inbox.scan();
     expect(saved).not.toHaveBeenCalled();
-    expect(await inbox.snapshot()).toEqual({ source: "available", receipts: [], pending: 0, unfinished: 1 });
+    expect(await inbox.snapshot()).toMatchObject({ source: "available", receipts: [], pending: 0, unfinished: 1 });
     await store.app.vault.modify(note, "# 手机随手记\n明天去拿蓝纸\n另一个未完");
     expect(await inbox.snapshot()).toMatchObject({ pending: 1, unfinished: 1 });
     await inbox.scan();
@@ -2238,6 +2238,39 @@ it("keeps phone receipts in their original folder when the setting changes durin
     expect(error).toMatchObject({ message: "手机随手记设置已变化。" });
     expect(await store.readJson(statePath(originalFolder), null)).toMatchObject({ records: [{ status: "processing" }] });
     expect(await store.readPath(PHONE_INBOX_PATH)).toBe("虚构收件内容\n");
+  } finally {
+    inbox.stop();
+    store.settings.folders.aiReports = originalFolder;
+  }
+});
+
+it.each(["folder", "record"] as const)("requires a fresh phone confirmation after a %s change", async kind => {
+  const { PhoneInbox } = await import("../src/features/phoneInbox/service");
+  const { PHONE_INBOX_PATH, PHONE_INBOX_STATE } = await import("../src/features/phoneInbox/model");
+  const { LifeOpsEventBus } = await import("../src/lifeOpsEventBus");
+  const originalFolder = store.settings.folders.aiReports;
+  const replacementFolder = kind === "folder" ? "虚构回执新目录" : originalFolder;
+  const statePath = (folder: string) => store.path(folder, "System", PHONE_INBOX_STATE);
+  const confirm = vi.fn(async () => {});
+  const inbox = new PhoneInbox({ store: () => store, enabled: () => true, confirm, undo: async () => true, notify: () => {},
+    submit: async () => ({ reply: "核对后删除虚构卡片。", actions: [{ id: "proposal:local:agent-turn:fixture", type: "delete_task",
+      date: "2026-11-12", title: "虚构旧卡片", description: "待确认", content: "删除虚构旧卡片" }] }) }, new LifeOpsEventBus());
+  try {
+    await store.ensureFile(PHONE_INBOX_PATH, "删除虚构卡片\n");
+    await inbox.scan();
+    const snapshot = await inbox.snapshot();
+    const [shown] = snapshot.receipts;
+    expect(shown.status).toBe("confirm");
+    const replacement = { ...shown, action: { ...shown.action!, id: "proposal:local:agent-turn:other", content: "删除虚构新卡片" } };
+    await store.writeJson(statePath(replacementFolder), { version: 1, records: [replacement] });
+    store.settings.folders.aiReports = replacementFolder;
+
+    await expect(snapshot.resolve!(shown.id, "confirm")).rejects.toThrow(kind === "folder" ? "手机随手记设置已变化" : "这条回执已变化");
+    expect(confirm).not.toHaveBeenCalled();
+    expect(await store.readJson(statePath(replacementFolder), null)).toMatchObject({ records: [replacement] });
+    const refreshed = await inbox.snapshot();
+    await refreshed.resolve!(shown.id, "confirm");
+    expect(confirm).toHaveBeenCalledExactlyOnceWith(replacement.action, expect.anything());
   } finally {
     inbox.stop();
     store.settings.folders.aiReports = originalFolder;

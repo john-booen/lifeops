@@ -1,5 +1,5 @@
 import { App, Modal, Notice } from "obsidian";
-import { PHONE_INBOX_PATH, type PhoneInboxReceipt } from "./model";
+import { PHONE_INBOX_PATH, type PhoneInboxReceipt, type PhoneInboxSnapshot } from "./model";
 import { PhoneInboxBusyError, summarizePhoneInbox, type PhoneInbox } from "./service";
 
 export class PhoneInboxModal extends Modal {
@@ -39,20 +39,20 @@ export class PhoneInboxModal extends Modal {
       finally { status.setText(""); }
     });
     try {
-      const { receipts, source, pending, unfinished } = await this.inbox.snapshot();
+      const { receipts, source, pending, unfinished, resolve } = await this.inbox.snapshot();
       if (generation !== this.generation) return;
       if (source === "unreadable") host.createEl("p", { text: "当前无法读取收件箱原文，已有回执仍可查看。" });
       if (pending) host.createEl("p", { text: `${pending} 条完整记录待检查。` });
       if (unfinished) host.createEl("p", { text: "最后一行还没有换行。写完后换行，或确认内容完整后点「检查新记录」。" });
       host.createEl("p", { text: receipts.length ? summarizePhoneInbox(receipts) : "暂无回执。" });
       const list = host.createEl("ol");
-      for (const row of receipts) this.renderRow(list, row);
+      if (resolve) for (const row of receipts) this.renderRow(list, row, resolve);
     } catch {
       if (generation === this.generation) host.createEl("p", { text: "回执暂时无法安全读取。" });
     }
   }
 
-  private renderRow(list: HTMLElement, row: PhoneInboxReceipt): void {
+  private renderRow(list: HTMLElement, row: PhoneInboxReceipt, resolve: NonNullable<PhoneInboxSnapshot["resolve"]>): void {
     const item = list.createEl("li");
     const label = row.undone ? "已撤销" : { processing: "待核对", saved: "已保存", review: "待核对", confirm: "待确认", dismissed: "已归档" }[row.status];
     item.createEl("strong", { text: row.sourceUnavailable ? `原行待核对 · ${label}` : `第 ${row.line} 行 · ${label}` });
@@ -60,12 +60,12 @@ export class PhoneInboxModal extends Modal {
     if (row.status === "confirm" && row.action) {
       item.createEl("p", { text: [row.action.title, row.action.content, row.action.description].join(" · ") });
       if (row.sourceEditing) item.createEl("p", { text: "原行正在编辑中。写完后换行，再检查新记录。" });
-      else if (!row.sourceUnavailable) this.button(item, "确认执行", () => this.inbox.resolve(row.id, "confirm"));
+      else if (!row.sourceUnavailable) this.button(item, "确认执行", () => resolve(row.id, "confirm"));
     }
     if (["confirm", "review", "processing"].includes(row.status)) {
-      this.button(item, row.status === "confirm" ? "取消操作" : "归档回执", () => this.inbox.resolve(row.id, "dismiss"));
+      this.button(item, row.status === "confirm" ? "取消操作" : "归档回执", () => resolve(row.id, "dismiss"));
     }
-    if (row.operationId && !row.undone) this.button(item, "撤销这条", () => this.inbox.resolve(row.id, "undo"));
+    if (row.operationId && !row.undone) this.button(item, "撤销这条", () => resolve(row.id, "undo"));
   }
 
   private button(host: HTMLElement, text: string, action: () => Promise<void>, refresh = true): void {
