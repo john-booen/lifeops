@@ -178,8 +178,13 @@ export class BailianStreamingAsr {
     connection.capture?.run.finish(outcome, code, undefined, status);
     this.auditAudio(connection);
     if (!connection.connected) connection.reject(new Error(code === "timeout" ? "百炼热词识别连接超时。" : "百炼热词识别未连接。"));
-    if (connection.socket.readyState === WebSocket.OPEN) connection.socket.close(1000);
-    else if (connection.socket.readyState === WebSocket.CONNECTING) connection.socket.terminate();
+    const socket = connection.socket;
+    if (socket.readyState === WebSocket.OPEN) {
+      try { socket.close(1000); return; }
+      catch { /* Fall back to terminating this retired socket. */ }
+    } else if (socket.readyState !== WebSocket.CONNECTING) return;
+    try { socket.terminate(); }
+    catch { /* Keep the disconnect notification and new connection available. */ }
   }
 
   private newRun(stage: RealtimeProviderStage): RealtimeProviderRun {

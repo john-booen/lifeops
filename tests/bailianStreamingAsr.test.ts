@@ -99,3 +99,30 @@ it("keeps the old endpoint by default, and never sends hotwords without consent 
   expect(JSON.stringify(socket.sent)).not.toContain("沈知禾");
   old.close();
 });
+
+it("reports a hotword disconnect and can reconnect when socket closing fails", async () => {
+  const onDisconnected = vi.fn();
+  const client = new BailianRealtimeClient(settings, { onDisconnected });
+  const start = client.connect();
+  const socket = sockets[0];
+  socket.open();
+  const id = JSON.parse(String(socket.sent[0])).header.task_id;
+  socket.message({ header: { task_id: id, event: "task-started" } });
+  await start;
+
+  vi.spyOn(socket, "close").mockImplementation(() => { throw new Error("Fictional socket close failure"); });
+  const terminate = vi.spyOn(socket, "terminate").mockImplementation(() => { socket.readyState = 3; });
+  socket.message({ header: { task_id: id, event: "task-failed" } });
+  expect(terminate).toHaveBeenCalledOnce();
+  expect(onDisconnected).toHaveBeenCalledOnce();
+
+  const restart = client.connect();
+  const replacement = sockets[1];
+  replacement.open();
+  const replacementId = JSON.parse(String(replacement.sent[0])).header.task_id;
+  replacement.message({ header: { task_id: replacementId, event: "task-started" } });
+  await restart;
+  socket.message({ header: { task_id: id, event: "task-failed" } });
+  expect(onDisconnected).toHaveBeenCalledOnce();
+  client.close();
+});
