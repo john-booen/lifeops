@@ -204,6 +204,24 @@ it("allows the same trade screenshot selection to be retried after a transient s
   } finally { ui.root.empty(); await rm(root, { recursive: true, force: true }); }
 });
 
+it("shows the accounting currency on an open position even without profit and loss", async () => {
+  const root = await mkdtemp(join(tmpdir(), "lifeops-trade-screenshot-open-currency-"));
+  const store = new LifeOpsStore(createFsApp(root), settings()) as unknown as StoreHost;
+  const { bytes } = await readFixture("crypto-open");
+  const image = new File([new Uint8Array(bytes)], "fictional.png", { type: "image/png" });
+  const save = vi.fn<LocalOperationHost["saveLocalOperation"]>();
+  try {
+    await store.initializeVault();
+    openTradeScreenshotImport({ app: store.app, store, settings: store.settings, register: () => {}, saveLocalOperation: save,
+      refreshViews: async () => {}, recognizeTradeScreenshot: async () => [cases["crypto-open"]] }, image);
+    await vi.waitFor(() => expect(ui.elements().some(el => el.textContent === "确认保存 0 笔")).toBe(true));
+    const row = ui.elements().find(el => el.tag === "li" && el.textContent.includes("FICT-COIN"));
+    expect(row?.textContent).toContain("币种 USD");
+    expect(ui.elements().some(el => el.textContent.includes("截图净盈亏：未知"))).toBe(true);
+    expect(save).not.toHaveBeenCalled();
+  } finally { ui.root.empty(); await rm(root, { recursive: true, force: true }); }
+});
+
 it("rebuilds a stale trade confirmation and asks again only for changed selections", async () => {
   const root = await mkdtemp(join(tmpdir(), "lifeops-trade-screenshot-refresh-"));
   const store = new LifeOpsStore(createFsApp(root), settings()) as unknown as StoreHost;

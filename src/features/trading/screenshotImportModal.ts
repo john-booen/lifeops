@@ -122,7 +122,7 @@ class TradeScreenshotImportModal extends Modal {
       const { draft, multiplier } = row;
       const time = draft.openedAtPrecision ? draft.openedAt.slice(0, 10) : draft.openedAt.replace("T", " ");
       const item = list.createEl("li", { text: [`第 ${row.line} 笔`, row.kind === "duplicate" ? "重复，跳过" : "可保存",
-        draft.symbol, draft.market, draft.direction === "long" ? "多" : "空", `开仓 ${time}`, draft.closedAt && `平仓 ${draft.closedAt.replace("T", " ")}`,
+        draft.symbol, draft.market, `币种 ${draft.currency}`, draft.direction === "long" ? "多" : "空", `开仓 ${time}`, draft.closedAt && `平仓 ${draft.closedAt.replace("T", " ")}`,
         `数量 ${draft.qty ?? "未知"}${draft.qtyUnit ? " " + draft.qtyUnit : ""}`, `${draft.entry ?? "?"} → ${draft.exit ?? "?"}`,
         `费用 ${draft.fees ?? "未显示，重算按 0"}`, `乘数 ${multiplier}`].filter(Boolean).join(" · ") });
       if (row.inferredTimeZone) item.createEl("p", { text: "时区按市场推定 · " + row.inferredTimeZone, cls: "lifeops-warning" });
