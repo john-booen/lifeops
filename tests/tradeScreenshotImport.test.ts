@@ -122,6 +122,24 @@ it("asks for an explicit offset when a US local time occurs twice", () => {
   expect(previewTradeScreenshot([data], "a".repeat(64), []).rows[0]).toMatchObject({ kind: "invalid", reason: expect.stringContaining("夏令时") });
 });
 
+it("distinguishes two occurrences of the same clock time when a US stock screenshot prints EDT and EST", () => {
+  const row = { ...cases["equity-match"], openedAt: "2026-11-01T01:30 EDT", openedZone: "EDT",
+    closedAt: "2026-11-01T01:30 EST", closedZone: "EST" };
+  const preview = (value: typeof row) => previewTradeScreenshot([value], "a".repeat(64), []).rows[0];
+  expect(preview(row)).toMatchObject({ kind: "ready", inferredTimeZone: undefined,
+    draft: { openedAt: "2026-11-01T01:30-04:00", closedAt: "2026-11-01T01:30-05:00" } });
+  expect(preview({ ...row, closedZone: "EDT" })).toMatchObject({
+    kind: "invalid", reason: expect.stringContaining("时区无效或互相冲突")
+  });
+  expect(preview({ ...row, market: "forex" })).toMatchObject({ kind: "invalid", reason: expect.stringContaining("时区") });
+});
+
+it("preserves the date-only precision of an explicitly labeled Eastern opening date", () => {
+  const row = { ...cases["equity-match"], openedAt: "2026-11-12", openClockShown: false, openedZone: "EST", closedAt: undefined };
+  expect(previewTradeScreenshot([row], "a".repeat(64), []).rows[0]).toMatchObject({ kind: "ready", inferredTimeZone: undefined,
+    draft: { openedAt: "2026-11-12T00:00:00-05:00", openedAtPrecision: "date" } });
+});
+
 it("does not turn a conflicting screenshot reading into a precise opening time", () => {
   const input = { ...cases["equity-match"], openClockShown: false };
   expect(previewTradeScreenshot([input], "a".repeat(64), []).rows[0]).toMatchObject({

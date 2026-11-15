@@ -9,7 +9,7 @@ const extraction = [
   "market: a-share, us-stock, futures, forex, crypto. direction: long or short; do not infer position direction from an isolated order leg.",
   "currency: CNY or USD. For openedAt and closedAt copy the displayed date and time exactly, without adding or changing a zone.",
   "openClockShown is true when an opening clock time is visible and false only for a date with no time. Do not omit the clock to hide a missing zone.",
-  "openedZone and closedZone are separate exact copies of the visible numeric UTC offsets, UTC or GMT. If not visibly printed, set the zone to null. Never assume UTC or infer a zone from the market.",
+  "openedZone and closedZone are separate exact copies of any visibly printed time-zone label, such as a numeric UTC offset, UTC, GMT, EST, or EDT. If none is visibly printed, set the zone to null. Never assume UTC or infer a zone from the market.",
   "Omit closedAt for open positions. Do not guess the exchange, currency, date, time zone, or any missing value.",
   "Output numbers as JSON numbers. displayedPnl is the screenshot's displayed net P&L, not your calculation; omit it when gross, ambiguous or absent.",
   "Ignore balances, names, account IDs, notes, links and other screen content. Use null for missing fields. If no trades are readable, return {\"rows\":[]}.",

@@ -50,18 +50,23 @@ const finiteField = (row: ModelRow, field: ScreenshotFields): number | undefined
   return value;
 };
 
-function explicitOffset(value: unknown): string | undefined {
+const usEasternZone = "America/New_York";
+const marketTimeZones: Partial<Record<TradeMarket, string>> = { 美股: usEasternZone, A股: "Asia/Shanghai" };
+
+function explicitOffset(value: unknown, marketZone?: string): string | undefined {
   if (typeof value !== "string") return;
   const zone = value.toUpperCase().trim().replace("−", "-");
   if (zone === "Z" || zone === "UTC" || zone === "GMT") return "+00:00";
+  if (marketZone === usEasternZone) {
+    if (zone === "EST") return "-05:00";
+    if (zone === "EDT") return "-04:00";
+  }
   const match = /^(?:UTC|GMT)?([+-])((?:0\d|1[0-4])):?([0-5]\d)$/u.exec(zone)
     ?? /^(?:UTC|GMT)([+-])([0-9]|0\d|1[0-4])(?::([0-5]\d))?$/u.exec(zone);
   if (!match) return;
   const [, sign, hours, minutes = "00"] = match;
   if (hours !== "14" || minutes === "00") return `${sign}${hours.padStart(2, "0")}:${minutes}`;
 }
-
-const marketTimeZones: Partial<Record<TradeMarket, string>> = { 美股: "America/New_York", A股: "Asia/Shanghai" };
 
 function offsetForLocalClock(date: string, time: string, timeZone: string): string {
   const normalized = time.length === 5 ? time + ":00" : time;
@@ -80,8 +85,8 @@ function screenshotTimestamp(value: unknown, printedZone: unknown, marketZone?: 
   const text = typeof value === "string" ? value : "";
   const clock = /^(\d{4}-\d{2}-\d{2})[ T]((?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?)(?:\s*(\S+))?$/iu.exec(text);
   if (!clock) throw Error("缺少截图上明确显示的日期或时刻。");
-  const printed = explicitOffset(printedZone);
-  const suffix = explicitOffset(clock[3]);
+  const printed = explicitOffset(printedZone, marketZone);
+  const suffix = explicitOffset(clock[3], marketZone);
   if (printedZone && !printed || clock[3] && !suffix || printed && suffix && suffix !== printed) {
     throw Error("截图上显示的时区无效或互相冲突。");
   }
@@ -102,7 +107,7 @@ function screenshotOpening(row: ModelRow, marketZone?: string): Pick<TradeDraft,
   if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/u.test(date)) {
     throw Error("识别结果对开仓时间的描述互相冲突，请重新识别。");
   }
-  const printed = explicitOffset(row.openedZone);
+  const printed = explicitOffset(row.openedZone, marketZone);
   if (row.openedZone && !printed) throw Error("截图上显示的时区无效。");
   if (printed === undefined && marketZone === undefined) return tradeTime(date);
   if (normalizeJournalDate(date) !== date) throw Error("截图中的日期无效。");
