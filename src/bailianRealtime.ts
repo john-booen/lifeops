@@ -12,13 +12,13 @@ import { voiceVadSilenceMs, type CascadeCaptureEvent } from "./voice/continuousI
 import { BailianStreamingAsr } from "./voice/bailianStreamingAsr";
 import {
   buildOmniSessionUpdate,
-  mergeOmniToolArguments, normalizeOmniToolCall, readOmniTerminalResponse,
-  responseEventId, responseLifecycleEvent
+  readOmniTerminalResponse, responseEventId, responseLifecycleEvent
 } from "./voice/omniE2e/protocol";
 import { normalizeRealtimeAsrLanguage } from "./voice/realtimeAsrOptions";
 import { ProtectedOmniResponses } from "./voice/omniE2e/protectedResponses";
 import { OmniResponseOutput } from "./voice/omniE2e/responseOutput";
 import { isRetryableOmniModelError, OmniModelRetry } from "./voice/omniE2e/modelRetry";
+import { OmniToolCalls } from "./voice/omniE2e/toolCalls";
 import { OmniInitialInstructions, RealtimeConnectionContextError } from "./voice/omniE2e/initialInstructions";
 import { prepareOmniResponseContext } from "./voice/omniE2e/contextSources";
 
@@ -134,18 +134,11 @@ export class BailianRealtimeClient {
   private responseGeneration = 0;
   private instructionsBoundary: RealtimeInstructionsBoundary | undefined;
   private responsePreparationPending = false;
-  private toolResponseContinuation: {
-    responseId: string;
-    callIds: Set<string>;
-    pendingCallIds: Set<string>;
-    responseDone: boolean;
-  } | null = null;
+  private readonly toolCalls = new OmniToolCalls();
   private requestedToolContinuation: BailianRealtimeResponseEvent["toolContinuation"] = undefined;
   private requestedRetryOfResponseId: string | undefined;
   private pendingInputAudioBytes = 0;
   private static readonly MIN_SPEECH_DURATION_MS = 300;
-  private readonly toolArgumentBuffers = new Map<string, string>();
-  private readonly handledToolCallIds = new Set<string>();
   private readonly ignoredInputItemIds = new Set<string>();
   private readonly retiredAsrItemIds = new Set<string>();
   private readonly ignoredResponseIds = new Set<string>();
@@ -379,7 +372,7 @@ export class BailianRealtimeClient {
 
   createResponse(): void {
     if (!this.isOmniE2e()) return;
-    if (this.initialInstructions.slot || this.activeResponseId || this.responseRequestPending || this.responseCancelPending || this.toolResponseContinuation) {
+    if (this.initialInstructions.slot || this.activeResponseId || this.responseRequestPending || this.responseCancelPending || this.toolCalls.hasContinuation) {
       this.queuedResponseCreate = true;
       return;
     }
@@ -714,7 +707,7 @@ export class BailianRealtimeClient {
     }
     if (type.startsWith("response.") && this.responseOutput.accept(event, this.activeResponseId, this.settings.ttsSampleRate)) return;
     if (type === "response.function_call_arguments.delta") {
-      this.accumulateToolArguments(event);
+      this.toolCalls.accumulate(event);
       return;
     }
     if (type === "response.function_call_arguments.done" || type === "response.output_item.done") {
@@ -746,9 +739,7 @@ export class BailianRealtimeClient {
       this.responseRun?.finish(this.responseHasToolCall || this.responseOutput.hasOutput ? "success" : "failed", "invalid_response", this.responseReportedModel ?? this.reportedModel);
       if (responseEvent.responseId) this.rememberIgnoredResponse(responseEvent.responseId);
       if (this.responseHasToolCall) {
-        if (this.toolResponseContinuation?.responseId === responseEvent.responseId) {
-          this.toolResponseContinuation.responseDone = true;
-        }
+        this.toolCalls.markResponseDone(responseEvent.responseId);
         if (responseEvent.responseId) this.rememberIgnoredResponse(responseEvent.responseId);
         this.clearActiveResponse(event);
         this.responseHasToolCall = false;
@@ -887,7 +878,7 @@ export class BailianRealtimeClient {
   private prepareResponseTracking(): void {
     this.responseOutput.reset();
     this.modelRetry.reset();
-    this.handledToolCallIds.clear();
+    this.toolCalls.clearHandledCalls();
   }
 
   private invalidatePendingResponseWork(): void {
@@ -895,8 +886,7 @@ export class BailianRealtimeClient {
     this.responsePreparationPending = false;
     this.responseGeneration += 1;
     this.protectedResponses.cancelYield();
-    this.toolArgumentBuffers.clear();
-    this.toolResponseContinuation = null;
+    this.toolCalls.invalidate();
     this.requestedToolContinuation = undefined;
     this.requestedRetryOfResponseId = undefined;
   }
@@ -974,17 +964,13 @@ export class BailianRealtimeClient {
   }
 
   private requestToolContinuationWhenReady(): void {
-    const continuation = this.toolResponseContinuation;
-    if (!continuation || !continuation.responseDone || continuation.pendingCallIds.size > 0
-      || this.activeResponseId || this.responseRequestPending || this.responseCancelPending
+    if (this.activeResponseId || this.responseRequestPending || this.responseCancelPending
       || this.intentionalClose || this.socket?.readyState !== WebSocket.OPEN) return;
-    this.toolResponseContinuation = null;
+    const continuation = this.toolCalls.takeReadyContinuation();
+    if (!continuation) return;
     this.queuedResponseCreate = false;
     this.prepareResponseTracking();
-    this.requestResponse({
-      previousResponseId: continuation.responseId,
-      callIds: [...continuation.callIds]
-    });
+    this.requestResponse(continuation);
   }
 
   private handleResponseCreated(event: Record<string, unknown>): void {
@@ -1080,7 +1066,7 @@ export class BailianRealtimeClient {
   }
 
   private flushQueuedResponseCreate(): void {
-    if (!this.queuedResponseCreate || this.initialInstructions.slot || this.activeResponseId || this.responseRequestPending || this.responseCancelPending || this.toolResponseContinuation) {
+    if (!this.queuedResponseCreate || this.initialInstructions.slot || this.activeResponseId || this.responseRequestPending || this.responseCancelPending || this.toolCalls.hasContinuation) {
       return;
     }
     this.queuedResponseCreate = false;
@@ -1164,25 +1150,12 @@ export class BailianRealtimeClient {
     }
   }
 
-  private accumulateToolArguments(event: Record<string, unknown>): void {
-    mergeOmniToolArguments(this.toolArgumentBuffers, event);
-  }
-
   private handleToolCallEvent(event: Record<string, unknown>): boolean {
-    const toolCall = normalizeOmniToolCall(event, this.toolArgumentBuffers);
-    if (!toolCall || !this.callbacks.onToolCall) return false;
-    if (toolCall.id && this.handledToolCallIds.has(toolCall.id)) return true;
-    if (toolCall.id) this.handledToolCallIds.add(toolCall.id);
-    if (toolCall.id) this.toolArgumentBuffers.delete(toolCall.id);
-    const responseId = responseEventId(event) || this.activeResponseId;
-    if (responseId && toolCall.id) {
-      this.toolResponseContinuation ??= {
-        responseId, callIds: new Set(), pendingCallIds: new Set(), responseDone: false
-      };
-      this.toolResponseContinuation.callIds.add(toolCall.id);
-      this.toolResponseContinuation.pendingCallIds.add(toolCall.id);
-    }
-    const continuation = this.toolResponseContinuation;
+    if (!this.callbacks.onToolCall) return false;
+    const accepted = this.toolCalls.accept(event, this.activeResponseId);
+    if (!accepted) return false;
+    if (accepted.duplicate) return true;
+    const { toolCall, responseId } = accepted;
     const isCurrent = this.capturePendingResponseGuard();
     void (async()=>{
         if(this.hasProtectedContextSources())await this.assertContextSourcesCurrent();
@@ -1218,8 +1191,7 @@ export class BailianRealtimeClient {
             output: retained.text || "工具已执行，但没有额外输出。"
           }
         });
-        if (this.isOmniE2e() && continuation?.responseId === responseId) {
-          continuation.pendingCallIds.delete(callId);
+        if (this.isOmniE2e() && this.toolCalls.markCallSent(accepted)) {
           this.requestToolContinuationWhenReady();
         } else if (this.isOmniE2e()) this.createResponse();
         else if (!this.usesServerVad()) this.requestResponse();
