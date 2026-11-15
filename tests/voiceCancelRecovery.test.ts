@@ -78,7 +78,7 @@ it.each([false,true])('original View releases ambiguous old connection, keeps re
  const{client,socket}=await start();const append=vi.spyOn(plugin,'appendAgentConversation');const bubble=vi.spyOn(view,'appendAgentMessage');await request(client,socket);
  socket.message({type:'input_audio_buffer.speech_started',item_id:'interrupt'});
  socket.message({type:'conversation.item.input_audio_transcription.delta',item_id:'interrupt',delta:'等一下'});
- await vi.waitFor(()=>expect(client.responseCancelPending).toBe(true));
+ await vi.waitFor(()=>expect(socket.sent.filter(frame => frame.type === 'response.cancel')).toHaveLength(1));
  if(queued){socket.message({type:'conversation.item.input_audio_transcription.completed',item_id:'next-before-cancel-ack',transcript:'请回答另一个虚构问题'});await vi.waitFor(()=>expect(client.queuedResponseCreate).toBe(true));}
  await vi.advanceTimersByTimeAsync(2000);
  expect(socket.readyState).toBe(3);expect(socket.sent.filter(p=>p.type==='response.create')).toHaveLength(1);
