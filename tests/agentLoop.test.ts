@@ -8,6 +8,17 @@ import { addDays, formatDate, todayString } from "../src/date";
 import type { StoreHost } from "../src/store/settingsSlice";
 import type { AgentLoopHost, AgentTurnInput } from "../src/agent/AgentLoop";
 import type { AgentModelRole } from "../src/agent/models";
+import type { HealthEntry } from "../src/types";
+import type { FactOperationOptions } from "../src/dataFoundation/factOperation";
+
+const healthForm = vi.hoisted(() => ({ submit: undefined as ((entry: HealthEntry) => Promise<void>) | undefined }));
+vi.mock("../src/modals", async importOriginal => ({
+  ...await importOriginal<typeof import("../src/modals")>(),
+  HealthEntryModal: class {
+    constructor(_app: unknown, private readonly submit: (entry: HealthEntry) => Promise<void>) {}
+    open() { healthForm.submit = this.submit; }
+  }
+}));
 
 vi.mock("obsidian", () => ({
   App: class {}, Plugin: class {}, TFile: class {}, TFolder: class {}, WorkspaceLeaf: class {}, ItemView: class {},
@@ -2212,6 +2223,29 @@ it("aborts the current phone submission when the inbox is disabled and keeps the
     expect((await inbox.list())[0]).toMatchObject({ status: "processing" });
     expect((await store.readTaskDb()).tasks).toEqual([]);
   } finally { inbox.stop(); }
+});
+
+it.each([false, true])("requires a fresh manual health form after its location changes (queued: %s)", async queued => {
+  const originalFolder = store.settings.folders.health;
+  const newFolder = "虚构健康新目录";
+  const entry = { date: "2026-11-12", steps: 320 };
+  const saveLocalOperation = vi.fn(async (name: string, args: Record<string, unknown>, action: (scope: StoreHost) => Promise<unknown>,
+    options?: FactOperationOptions) => {
+    if (queued) store.settings.folders.health = newFolder;
+    const saved = await runtime.executeLocalOperation(name, args, action, undefined, options);
+    if (!saved.success) throw Error(saved.output);
+  });
+  try {
+    Plugin.prototype.openHealthEntryModal.call({ app: store.app, store, saveLocalOperation, refreshViews: async () => {} });
+    if (!queued) store.settings.folders.health = newFolder;
+    await expect(healthForm.submit!(entry)).rejects.toThrow("健康记录目录已变化");
+    expect(saveLocalOperation).toHaveBeenCalledTimes(queued ? 1 : 0);
+    expect(store.getFile(store.path(originalFolder, entry.date + ".md"))).toBeNull();
+    expect(store.getFile(store.path(newFolder, entry.date + ".md"))).toBeNull();
+  } finally {
+    healthForm.submit = undefined;
+    store.settings.folders.health = originalFolder;
+  }
 });
 
 it("keeps phone receipts in their original folder when the setting changes during a submission", async () => {

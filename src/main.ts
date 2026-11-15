@@ -42,7 +42,7 @@ import { type RealtimeToolOutput } from "./voice/realtimeToolOutput";
 import { openHealthScreenshot, type HealthScreenshotHost } from "./features/health/modal";
 import { openHealthCsvImport } from "./features/health/csvImportModal";
 import { recognizeHealthScreenshot } from "./features/health/screenshot";
-import { recordHealthEntries } from "./features/health/store";
+import { healthPathAllowed, recordHealthEntries } from "./features/health/store";
 import type { ScreenshotImage } from "./features/screenshots/image";
 import { todayString } from "./date";
 import { DEFAULT_SETTINGS } from "./defaults";
@@ -772,12 +772,21 @@ export default class LifeOpsPlugin extends Plugin {
   }
 
   openHealthEntryModal(): void {
+    const owner = this.store;
+    const folder = owner.settings.folders.health;
     new HealthEntryModal(this.app, async (entry) => {
       const data = { ...entry, date: entry.date || todayString() };
+      const assertCurrent = () => {
+        if (this.store !== owner || owner.settings.folders.health !== folder) {
+          throw Error("健康记录目录已变化，请重新打开表单核对。");
+        }
+        if (!healthPathAllowed(owner as unknown as StoreHost, data.date)) throw Error("这天的健康记录已排除，无法保存。");
+      };
+      assertCurrent();
       let saved = 0;
       await this.saveLocalOperation("local_appendHealthEntry", { arguments: [data] }, async store => {
         saved = await recordHealthEntries(store, [data]);
-      });
+      }, { assertCurrent });
       await this.refreshViews().catch(() => undefined);
       new Notice(saved ? "LifeOps 已保存健康记录" : "没有需要更新的健康记录。");
     }).open();
