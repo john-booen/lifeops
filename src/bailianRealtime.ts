@@ -227,7 +227,7 @@ export class BailianRealtimeClient {
       const timeout = window.setTimeout(() => {
         connectionRun.finish("failed", "timeout");
         reject(opening && this.initialInstructions.slot ? new RealtimeConnectionContextError() : new BailianConnectionTimeoutError());
-        if (this.socket === socket) this.close();
+        if (this.socket === socket) this.retireForLocalNotification();
       }, 12_000);
       this.cancelConnecting = () => {
         window.clearTimeout(timeout);
@@ -280,8 +280,11 @@ export class BailianRealtimeClient {
         };
         const failOpen = (error: unknown) => {
           window.clearTimeout(timeout);
-          reject(this.options.initialInstructions ? new RealtimeConnectionContextError() : error);
-          if (this.connectionRun === connectionRun && this.socket === socket) this.close();
+          const reason = this.options.initialInstructions ? new RealtimeConnectionContextError() : error;
+          const failure = realtimeProviderError(reason);
+          connectionRun.finish("failed", failure.code, undefined, failure.httpStatus);
+          reject(reason);
+          if (this.connectionRun === connectionRun && this.socket === socket) this.retireForLocalNotification();
         };
         try {
           this.initialInstructions.assertCurrent();

@@ -258,6 +258,40 @@ describe("realtime stage terminal contract", () => {
     expect((await promise).name).toBe("AbortError"); expect(socket.sent).toEqual([]);
     expect(runs).toHaveLength(1); expect(runs[0].run.status).toBe("cancelled");
   });
+  it("settles a connection that never opens even if socket termination fails", async () => {
+    const onOpen = vi.fn();
+    const client = new BailianRealtimeClient(settings, { onOpen });
+    const rejected = expect(client.connect()).rejects.toThrow("百炼 Realtime 连接超时");
+    const socket = ws.sockets[0];
+    vi.spyOn(socket, "terminate").mockImplementationOnce(() => { throw Error("虚构连接终止失败"); });
+
+    await vi.advanceTimersByTimeAsync(12_000);
+    await rejected;
+    socket.emit("open");
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(socket.sent).toEqual([]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it("reports initial source validation failure as failed when socket disposal also fails", async () => {
+    let sourceIsCurrent = true;
+    const onProviderRun = vi.fn(), dispose = vi.fn();
+    const client = new BailianRealtimeClient(settings, { onProviderRun }, { initialInstructions: {
+      instructions: "虚构首次资料", baseInstructions: "虚构基础提示", dispose,
+      assertCurrent: () => { if (!sourceIsCurrent) throw Error("虚构资料已经变化"); }
+    } });
+    const rejected = expect(client.connect()).rejects.toMatchObject({ name: "RealtimeConnectionContextError" });
+    const socket = ws.sockets[0];
+    vi.spyOn(socket, "close").mockImplementationOnce(() => { throw Error("虚构连接关闭失败"); });
+    vi.spyOn(socket, "terminate").mockImplementationOnce(() => { throw Error("虚构连接终止失败"); });
+    sourceIsCurrent = false;
+
+    socket.emit("open");
+    await rejected;
+    expect(onProviderRun).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ run: expect.objectContaining({ status: "failed" }) }));
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(socket.sent).toEqual([]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
   it("only successful response terminal assigns actual model and ignores duplicate or late response events", async () => {
     const onResponseDone = vi.fn(); const { client, socket, runs } = await opened({ onResponseDone });
     socket.message({ type: "session.updated" }); client.createResponse();
