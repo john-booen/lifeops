@@ -12,12 +12,12 @@ import { voiceVadSilenceMs, type CascadeCaptureEvent } from "./voice/continuousI
 import { BailianStreamingAsr } from "./voice/bailianStreamingAsr";
 import {
   buildOmniSessionUpdate,
-  isSuccessfulResponseStatus, mergeOmniToolArguments, normalizeOmniToolCall, normalizeSampleRate,
+  isSuccessfulResponseStatus, mergeOmniToolArguments, normalizeOmniToolCall,
   responseEventId, responseFailureMessage, responseLifecycleEvent
 } from "./voice/omniE2e/protocol";
 import { normalizeRealtimeAsrLanguage } from "./voice/realtimeAsrOptions";
 import { ProtectedOmniResponses } from "./voice/omniE2e/protectedResponses";
-import { OmniResponseText } from "./voice/omniE2e/responseText";
+import { OmniResponseOutput } from "./voice/omniE2e/responseOutput";
 import { OmniInitialInstructions, RealtimeConnectionContextError } from "./voice/omniE2e/initialInstructions";
 import { prepareOmniResponseContext } from "./voice/omniE2e/contextSources";
 
@@ -116,10 +116,9 @@ export class BailianRealtimeClient {
   private connectionAckTimer = 0;
   private reportedModel: string | undefined;
   private responseReportedModel: string | undefined;
-  private responseHasOutput = false;
   private socket: WebSocket | null = null;
   private transcript = "";
-  private readonly responseText = new OmniResponseText();
+  private readonly responseOutput: OmniResponseOutput;
   private intentionalClose = false;
   private modelRetries = 0;
   private speechStartTimestamp = 0;
@@ -156,6 +155,7 @@ export class BailianRealtimeClient {
     private readonly callbacks: BailianRealtimeCallbacks = {},
     private readonly options: BailianRealtimeOptions = {}
   ) {
+    this.responseOutput = new OmniResponseOutput(callbacks);
     if (!this.isOmniE2e() && settings.asrEngine === "streaming-hotwords") {
       this.streamingAsr = new BailianStreamingAsr(settings, callbacks, options.providerContext);
     }
@@ -701,29 +701,7 @@ export class BailianRealtimeClient {
       this.responseRun.responseId ||= responseEventId(event);
       this.responseReportedModel = providerIdentifier(realtimeReportedModel(event)) ?? this.responseReportedModel;
     }
-    const responseText = this.responseText.update(event);
-    if (responseText !== undefined) {
-      this.responseHasOutput = true;
-      if (responseText !== null) this.callbacks.onResponseTextDelta?.(responseText, responseLifecycleEvent(event, this.activeResponseId));
-      return;
-    }
-    if (type === "response.text.delta") return;
-    if (type === "response.audio.delta") {
-      const delta = typeof event.delta === "string" ? event.delta : "";
-      if (delta) {
-        this.responseHasOutput = true;
-        this.callbacks.onAudioDelta?.(
-          delta,
-          normalizeSampleRate(this.settings.ttsSampleRate),
-          responseLifecycleEvent(event, this.activeResponseId)
-        );
-      }
-      return;
-    }
-    if (type === "response.audio.done" || type === "response.audio.completed") {
-      this.callbacks.onResponseAudioDone?.(responseLifecycleEvent(event, this.activeResponseId));
-      return;
-    }
+    if (type.startsWith("response.") && this.responseOutput.accept(event, this.activeResponseId, this.settings.ttsSampleRate)) return;
     if (type === "response.function_call_arguments.delta") {
       this.accumulateToolArguments(event);
       return;
@@ -760,7 +738,7 @@ export class BailianRealtimeClient {
         this.settleFailedResponse(event);
         return;
       }
-      this.responseRun?.finish(this.responseHasToolCall || this.responseHasOutput ? "success" : "failed", "invalid_response", this.responseReportedModel ?? this.reportedModel);
+      this.responseRun?.finish(this.responseHasToolCall || this.responseOutput.hasOutput ? "success" : "failed", "invalid_response", this.responseReportedModel ?? this.reportedModel);
       if (responseEvent.responseId) this.rememberIgnoredResponse(responseEvent.responseId);
       if (this.responseHasToolCall) {
         if (this.toolResponseContinuation?.responseId === responseEvent.responseId) {
@@ -773,9 +751,9 @@ export class BailianRealtimeClient {
         this.flushQueuedResponseCreate();
         return;
       }
-      const doneText = this.responseText.completed();
+      const doneText = this.responseOutput.completed();
       this.callbacks.onResponseDone?.(doneText, responseEvent);
-      this.responseText.reset();
+      this.responseOutput.clearText();
       this.modelRetries = 0;
       this.clearActiveResponse(event);
       this.flushQueuedResponseCreate();
@@ -902,8 +880,7 @@ export class BailianRealtimeClient {
   }
 
   private prepareResponseTracking(): void {
-    this.responseHasOutput = false;
-    this.responseText.reset();
+    this.responseOutput.reset();
     this.modelRetries = 0;
     this.handledToolCallIds.clear();
   }
@@ -1080,7 +1057,7 @@ export class BailianRealtimeClient {
     this.responseRequestPending = false;
     this.responseCancelPending = false;
     this.responseHasToolCall = false;
-    this.responseText.reset();
+    this.responseOutput.clearText();
     this.modelRetries = 0;
     this.flushQueuedResponseCreate();
   }
@@ -1092,7 +1069,7 @@ export class BailianRealtimeClient {
     this.responseRequestPending = false;
     this.responseCancelPending = false;
     this.responseHasToolCall = false;
-    this.responseText.reset();
+    this.responseOutput.clearText();
     this.flushQueuedResponseCreate();
   }
 
@@ -1115,7 +1092,7 @@ export class BailianRealtimeClient {
     if (!this.isOmniE2e() || !this.responseRun || this.responseRun.settled || !/ModelServingError|model serving|internal/i.test(message)) return false;
     // Restart only an attempt that has not emitted content or executed tools.
     // Once output exists, the existing failure path owns recovery.
-    if (this.responseHasOutput || this.responseHasToolCall) return false;
+    if (this.responseOutput.hasOutput || this.responseHasToolCall) return false;
     const maxRetries = Math.min(MODEL_RETRY_DELAYS_MS.length, Math.max(0, this.options.maxModelRetries ?? MODEL_RETRY_DELAYS_MS.length));
     if (this.modelRetries >= maxRetries) return false;
     this.modelRetries += 1;

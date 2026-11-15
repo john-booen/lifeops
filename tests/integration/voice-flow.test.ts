@@ -1239,6 +1239,30 @@ describe("voice integration flow", () => {
     expect(callbacks.onError).toHaveBeenCalledWith("ModelServingError: overloaded");
   });
 
+  it("does not resubmit an Omni response after its audio was delivered", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout });
+    const callbacks = { onAudioDelta: vi.fn(), onModelRetry: vi.fn(), onError: vi.fn() };
+    const client = new BailianRealtimeClient({ ...TEST_REALTIME_SETTINGS,
+      mode: "omni-e2e", apiKey: "test-key", endpoint: "wss://example.test/realtime", model: "qwen-test"
+    }, callbacks, { mode: "omni-e2e" });
+    const connecting = client.connect();
+    const socket = websocketMock.instances[0];
+    socket.emit("open");
+    await connecting;
+    client.createResponse();
+    socket.emit("message", JSON.stringify({ type: "response.created", response: { id: "fictional-audio" } }));
+    socket.emit("message", JSON.stringify({ type: "response.audio.delta", response_id: "fictional-audio", delta: "AQACAA==" }));
+    socket.emit("message", JSON.stringify({ type: "error", error: { message: "ModelServingError: overloaded" } }));
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(callbacks.onAudioDelta).toHaveBeenCalledOnce();
+    expect(callbacks.onError).toHaveBeenCalledWith("ModelServingError: overloaded");
+    expect(callbacks.onModelRetry).not.toHaveBeenCalled();
+    expect(socket.sent.filter(payload => JSON.parse(payload).type === "response.create")).toHaveLength(1);
+    client.close();
+  });
+
   it("settles a cancelled Omni turn immediately so an interruption can be sent", () => {
     const cancelResponse = vi.fn();
     const setAgentBusy = vi.fn();
