@@ -149,3 +149,26 @@ it("settles a hotword connection if sending the initial task throws", async () =
     client.close();
   }
 });
+
+it.each(["audio", "finish"])("settles an active hotword connection when sending %s throws", async kind => {
+  const onDisconnected = vi.fn(), onCascadeCapture = vi.fn();
+  const client = new BailianRealtimeClient(settings, { onDisconnected, onCascadeCapture });
+  const start = client.connect();
+  const socket = sockets[0];
+  socket.open();
+  const taskId = JSON.parse(String(socket.sent[0])).header.task_id;
+  socket.message({ header: { task_id: taskId, event: "task-started" } });
+  await start;
+  vi.spyOn(socket, "send").mockImplementationOnce(() => { throw Error("虚构发送失败"); });
+  const send = kind === "audio" ? () => client.appendPcm16(audio.toString("base64")) : () => client.commit();
+  try {
+    expect(send).not.toThrow();
+    expect(socket.readyState).toBe(3);
+    expect(onDisconnected).toHaveBeenCalledTimes(kind === "audio" ? 1 : 0);
+    socket.message({ header: { task_id: taskId, event: "result-generated" },
+      payload: { output: { sentence: { text: "虚构迟到句子", sentence_end: true, end_time: 300 } } } });
+    expect(onCascadeCapture).not.toHaveBeenCalled();
+  } finally {
+    client.close();
+  }
+});

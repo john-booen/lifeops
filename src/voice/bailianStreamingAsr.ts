@@ -67,8 +67,7 @@ export class BailianStreamingAsr {
       socket.on("open", () => {
         if (this.connection !== connection) return;
         this.audit("realtime_connection", Buffer.byteLength(request));
-        try { socket.send(request, error => { if (error) this.fail(connection, "network"); }); }
-        catch { this.fail(connection, "network"); }
+        this.send(connection, request);
       });
       socket.on("message", data => this.receive(connection, data));
       socket.on("unexpected-response", (_request, response) => {
@@ -88,19 +87,31 @@ export class BailianStreamingAsr {
     const audio = Buffer.from(base64Audio, "base64");
     if (!audio.length) return;
     connection.audioBytes += audio.length;
-    connection.socket.send(audio, { binary: true }, error => { if (error) this.fail(connection, "network"); });
+    this.send(connection, audio);
   }
 
   commit(): void {
     const connection = this.connection;
     if (!connection?.connected || connection.finishing || connection.socket.readyState !== WebSocket.OPEN) return;
     connection.finishing = true;
-    connection.socket.send(JSON.stringify({ header: { action: "finish-task", task_id: connection.taskId, streaming: "duplex" },
-      payload: { input: {} } }), error => { if (error) this.fail(connection, "network"); });
+    this.send(connection, JSON.stringify({ header: { action: "finish-task", task_id: connection.taskId, streaming: "duplex" },
+      payload: { input: {} } }));
   }
 
   close(): void {
     if (this.connection) this.retire(this.connection, "cancelled");
+  }
+
+  private send(connection: StreamingConnection, payload: string | Buffer): void {
+    const onSent = (error?: Error) => {
+      if (error) this.fail(connection, "network");
+    };
+    try {
+      if (typeof payload === "string") connection.socket.send(payload, onSent);
+      else connection.socket.send(payload, { binary: true }, onSent);
+    } catch {
+      this.fail(connection, "network");
+    }
   }
 
   private receive(connection: StreamingConnection, data: WebSocket.RawData): void {
