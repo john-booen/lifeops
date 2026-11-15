@@ -90,8 +90,7 @@ export class BailianRealtimeTtsClient {
         socket = new WebSocket(url, { headers: { Authorization: `Bearer ${apiKey}` } });
         request.socket = socket;
       } catch (error) {
-        const failure = realtimeProviderError(error);
-        this.finish(request, "failed", failure.code, error instanceof Error ? error.message : undefined, failure.httpStatus);
+        this.failTransport(request, error);
         return;
       }
       request.timer = window.setTimeout(() => {
@@ -107,18 +106,13 @@ export class BailianRealtimeTtsClient {
         try {
           for (const payload of requestPayloads) this.send(request, payload);
         } catch (error) {
-          const failure = realtimeProviderError(error);
-          this.finish(request, "failed", failure.code, error instanceof Error ? error.message : undefined, failure.httpStatus);
+          this.failTransport(request, error);
           return;
         }
-        this.callbacks.onOpen?.();
+        if (this.isCurrent(request)) this.callbacks.onOpen?.();
       });
       socket.on("message", (data) => this.handleMessage(request, data));
-      socket.on("error", (error) => {
-        if (!this.isCurrent(request)) return;
-        const failure = realtimeProviderError(error);
-        this.finish(request, "failed", failure.code, error instanceof Error ? error.message : undefined, failure.httpStatus);
-      });
+      socket.on("error", (error) => this.failTransport(request, error));
       socket.on("close", (code, reason) => {
         if (!this.isCurrent(request)) return;
         const message = reason.toString("utf8") || `连接关闭：${code}`;
@@ -245,7 +239,13 @@ export class BailianRealtimeTtsClient {
 
   private send(request: TtsRequest, payload: Record<string, unknown>): void {
     if (!this.isCurrent(request) || request.socket?.readyState !== WebSocket.OPEN) return;
-    request.socket.send(JSON.stringify(payload));
+    request.socket.send(JSON.stringify(payload), error => { if (error) this.failTransport(request, error); });
+  }
+
+  private failTransport(request: TtsRequest, error: unknown): void {
+    if (!this.isCurrent(request)) return;
+    const failure = realtimeProviderError(error);
+    this.finish(request, "failed", failure.code, error instanceof Error ? error.message : undefined, failure.httpStatus);
   }
 }
 

@@ -24,7 +24,7 @@ const sockets = vi.hoisted(() => {
       for (const handler of this.handlers.get(event) ?? []) handler(...args);
     }
     message(value: unknown) { this.emit("message", JSON.stringify(value)); }
-    send(value: string) { this.sent.push(JSON.parse(value)); }
+    send(value: string, callback?: (error?: Error) => void) { this.sent.push(JSON.parse(value)); callback?.(); }
     close(code = 1000) { this.emit("close", code, Buffer.alloc(0)); }
     terminate() { this.readyState = FakeWebSocket.CLOSED; }
   }
@@ -54,6 +54,62 @@ beforeEach(() => {
 afterEach(() => { setProviderEgressSink(null); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe("TTS provider completion contract", () => {
+  it.each(["session.update", "input_text_buffer.commit"])("reports asynchronous TTS send failure at %s before the timeout", async frameType => {
+    const { client, events, callbacks } = setup();
+    const speaking = client.speak("虚构朗读输入");
+    const finished = speaking.catch(error => error);
+    const socket = sockets.instances[0];
+    const send = socket.send.bind(socket);
+    let completeSend: ((error?: Error) => void) | undefined;
+    vi.spyOn(socket, "send").mockImplementation((frame, callback) => {
+      if (JSON.parse(frame).type === frameType) {
+        completeSend = callback;
+        send(frame);
+      } else send(frame, callback);
+    });
+    try {
+      socket.emit("open");
+      expect(completeSend).toBeTypeOf("function");
+      completeSend?.(new Error("虚构音频发送失败 synthetic-secret"));
+      expect(socket.readyState).toBe(sockets.FakeWebSocket.CLOSED);
+      expect(await finished).toMatchObject({ code: "network" });
+      expect(callbacks.onError).toHaveBeenCalledExactlyOnceWith("虚构音频发送失败 [REDACTED]");
+      expect(events).toMatchObject([{ stage: "tts", errorCode: "network", run: { status: "failed" } }]);
+      socket.message({ type: "response.audio.delta", delta: audio });
+      socket.message({ type: "response.done", response: { status: "completed" } });
+      expect(callbacks.onAudioDelta).not.toHaveBeenCalled();
+      expect(callbacks.onResponseDone).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      client.cancel();
+      await finished;
+    }
+  });
+
+  it("ignores an asynchronous TTS send failure from a replaced request", async () => {
+    const { client, events, callbacks } = setup();
+    const old = client.speak("虚构旧答复").catch(error => error);
+    const oldSocket = sockets.instances[0];
+    let completeOldSend: ((error?: Error) => void) | undefined;
+    vi.spyOn(oldSocket, "send").mockImplementationOnce((_frame, callback) => { completeOldSend = callback; });
+    try {
+      oldSocket.emit("open");
+      expect(completeOldSend).toBeTypeOf("function");
+      const current = client.speak("虚构新答复");
+      const socket = sockets.instances[1];
+      socket.emit("open");
+      completeOldSend?.(new Error("虚构旧的发送失败"));
+      expect(socket.readyState).toBe(sockets.FakeWebSocket.OPEN);
+      expect(callbacks.onError).not.toHaveBeenCalled();
+      socket.message({ type: "response.audio.delta", delta: audio });
+      socket.message({ type: "response.done", response: { status: "completed" } });
+      await current;
+      expect(await old).toMatchObject({ name: "AbortError" });
+      expect(events.map(event => event.run.status)).toEqual(["cancelled", "success"]);
+    } finally {
+      client.cancel();
+    }
+  });
 
   describe("documented TTS request", () => {
     it("sends unique event IDs and audits the exact UTF-8 request payloads", async () => {
