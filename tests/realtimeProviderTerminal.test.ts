@@ -444,6 +444,60 @@ describe("realtime stage terminal contract", () => {
     expect(socket.sent.filter(s => s.type === "response.create")).toHaveLength(1);
     expect(responseRuns(runs)).toHaveLength(1); expect(responseRuns(runs)[0].run.status).toBe("cancelled"); client.close();
   });
+  it.each(["throw", "callback"] as const)("retires the Omni connection on response send failure from %s", async failure => {
+    const onDisconnected = vi.fn(), onResponseDone = vi.fn();
+    const { client, socket, runs } = await opened({ onDisconnected, onResponseDone });
+    socket.message({ type: "session.updated" });
+    let completeSend: ((error?: Error) => void) | undefined;
+    const error = new Error("虚构回复请求发送失败");
+    vi.spyOn(socket, "send").mockImplementationOnce((_raw, callback) => {
+      if (failure === "throw") throw error;
+      completeSend = callback;
+    });
+    try {
+      expect(() => client.createResponse()).not.toThrow();
+      if (failure === "callback") {
+        expect(completeSend).toBeTypeOf("function");
+        completeSend?.(error);
+      }
+      expect(socket.readyState).toBe(ws.Socket.CLOSED);
+      expect(onDisconnected).toHaveBeenCalledExactlyOnceWith({ code: 1006,
+        reason: "百炼实时语音回复请求发送失败，连接已中断。" });
+      expect(responseRuns(runs)).toMatchObject([{ errorCode: "network", run: { status: "failed" } }]);
+      socket.message({ type: "response.created", response: { id: "fictional-old" } });
+      socket.message({ type: "response.done", response: { id: "fictional-old", status: "completed" } });
+      expect(onResponseDone).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      client.close();
+    }
+  });
+
+  it("ignores a reply send failure from an earlier response attempt", async () => {
+    const onDisconnected = vi.fn(), onResponseDone = vi.fn();
+    const { client, socket, runs } = await opened({ onDisconnected, onResponseDone });
+    socket.message({ type: "session.updated" });
+    let completeFirstSend: ((error?: Error) => void) | undefined;
+    vi.spyOn(socket, "send").mockImplementationOnce((_raw, callback) => { completeFirstSend = callback; });
+    try {
+      client.createResponse();
+      expect(completeFirstSend).toBeTypeOf("function");
+      socket.message({ type: "error", error: { message: "ModelServingError" } });
+      await vi.advanceTimersByTimeAsync(500);
+      expect(socket.sent.filter(frame => frame.type === "response.create")).toHaveLength(1);
+      completeFirstSend?.(new Error("虚构迟到的发送失败"));
+      expect(socket.readyState).toBe(ws.Socket.OPEN);
+      expect(onDisconnected).not.toHaveBeenCalled();
+      socket.message({ type: "response.created", response: { id: "fictional-retry" } });
+      socket.message({ type: "response.text.delta", response_id: "fictional-retry", delta: "虚构重试答复" });
+      socket.message({ type: "response.done", response: { id: "fictional-retry", status: "completed" } });
+      expect(onResponseDone).toHaveBeenCalledExactlyOnceWith("虚构重试答复", expect.objectContaining({ responseId: "fictional-retry" }));
+      expect(responseRuns(runs)).toMatchObject([{ run: { status: "success", fallbackUsed: true } }]);
+    } finally {
+      client.close();
+    }
+  });
+
   it.each(["throw", "callback"] as const)("clears the response on cancellation send failure from %s", async failure => {
     const onTransportError = vi.fn(), onResponseDone = vi.fn();
     const { client, socket, runs } = await opened({ onTransportError, onResponseDone });

@@ -846,19 +846,21 @@ export class BailianRealtimeClient {
   private sendAudioInput(payload: Record<string, unknown>): void {
     const socket = this.socket;
     if (!socket || socket.readyState !== WebSocket.OPEN) return;
-    const fail = () => {
+    this.send(payload, () => {
       if (this.socket !== socket || this.intentionalClose) return;
-      if (this.hasProtectedContextSources()) {
-        this.failToolContext();
-        return;
-      }
-      const reason = "百炼实时语音音频发送失败，连接已中断。";
-      this.finishProviderFailures(reason);
-      this.retireForLocalNotification();
-      if (this.callbacks.onDisconnected) this.callbacks.onDisconnected({ code: 1006, reason });
-      else this.callbacks.onError?.(reason);
-    };
-    this.send(payload, fail);
+      this.stopAfterActiveSendFailure("百炼实时语音音频发送失败，连接已中断。");
+    });
+  }
+
+  private stopAfterActiveSendFailure(reason: string): void {
+    if (this.hasProtectedContextSources()) {
+      this.failToolContext();
+      return;
+    }
+    this.finishProviderFailures(reason);
+    this.retireForLocalNotification();
+    if (this.callbacks.onDisconnected) this.callbacks.onDisconnected({ code: 1006, reason });
+    else this.callbacks.onError?.(reason);
   }
 
   private send(payload: Record<string, unknown>, onFailure?: () => void): void {
@@ -944,11 +946,17 @@ export class BailianRealtimeClient {
     this.requestedToolContinuation = toolContinuation;
     this.requestedRetryOfResponseId = retryOfResponseId;
     const current = this.capturePendingResponseGuard();
+    const run = this.responseRun;
     const sendResponse = () => {
       this.assertContextSourcesCurrentNow();
       this.responsePreparationPending = false;
-      this.responseRun!.beginAttempt();
-      this.send({ type: "response.create" });
+      run.beginAttempt();
+      const attempt = run.run.attempts.length;
+      this.send({ type: "response.create" }, () => {
+        if (!current() || this.responseRun !== run || run.settled || !this.responseRequestPending
+          || run.run.attempts.length !== attempt) return;
+        this.stopAfterActiveSendFailure("百炼实时语音回复请求发送失败，连接已中断。");
+      });
     };
     if (!this.instructionsBoundary && !this.hasProtectedContextSources()) { sendResponse(); return; }
     this.responsePreparationPending = true;
