@@ -958,7 +958,7 @@ export class BailianRealtimeClient {
 
   private handleResponseCreated(event: Record<string, unknown>): void {
     const responseId = responseEventId(event);
-    if (!this.responseIdentity.bindCreated(responseId, this.responseCancelPending)) return;
+    if (!this.responseIdentity.bindCreated(responseId)) return;
     const toolContinuation = this.responseRequestPending ? this.requestedToolContinuation : undefined;
     const retryOfResponseId = this.responseRequestPending ? this.requestedRetryOfResponseId : undefined;
     this.responseRequestPending = false;
@@ -990,7 +990,7 @@ export class BailianRealtimeClient {
   private handleIgnoredResponseDone(event: Record<string, unknown>): void {
     const responseId = responseEventId(event);
     if (responseId) this.responseIdentity.retire(responseId);
-    if (this.responseCancelPending && (!responseId || responseId === this.responseIdentity.active)) {
+    if (this.responseCancelPending && responseId === this.responseIdentity.active) {
       this.settleCancelledResponse();
     }
   }

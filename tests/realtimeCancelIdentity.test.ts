@@ -67,3 +67,25 @@ it("does not treat a terminal frame without response identity as permission to r
  const onTransportError=vi.fn(),{socket}=await opened({onTransportError});client.createResponse();await flush();client.cancelResponse();client.createResponse();
  socket.message({type:"response.done",response:{status:"cancelled"}});await flush();expect(socket.readyState).toBe(3);expect(creates(socket)).toHaveLength(1);expect(onTransportError).toHaveBeenCalledOnce();
 });
+
+it("keeps a known cancellation bound to the original response", async () => {
+  const onResponseDone = vi.fn(), onTransportError = vi.fn();
+  const { socket } = await opened({ onResponseDone, onTransportError });
+  client.createResponse();
+  await flush();
+  socket.message(created("cancelled-owner"));
+  client.cancelResponse();
+  client.createResponse();
+
+  socket.message(created("unrequested"));
+  socket.message(done("unrequested", "cancelled"));
+  expect(creates(socket)).toHaveLength(1);
+  socket.message({ type: "response.done", response: { status: "cancelled" } });
+  expect(creates(socket)).toHaveLength(1);
+  socket.message(done("cancelled-owner", "cancelled"));
+  expect(creates(socket)).toHaveLength(2);
+  socket.message(created("queued-owner"));
+  await output(socket, "queued-owner", "虚构后续答复");
+  expect(onResponseDone).toHaveBeenCalledExactlyOnceWith("虚构后续答复", expect.objectContaining({ responseId: "queued-owner" }));
+  expect(onTransportError).not.toHaveBeenCalled();
+});

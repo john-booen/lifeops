@@ -15,8 +15,8 @@ export class OmniResponseIdentity {
     this.retired.add(id);
   }
 
-  bindCreated(id: string, cancelling: boolean): boolean {
-    if (!id || this.isRetired(id) || this.current && !cancelling && id !== this.current) return false;
+  bindCreated(id: string): boolean {
+    if (!id || this.isRetired(id) || this.current && id !== this.current) return false;
     this.current = id;
     return true;
   }
