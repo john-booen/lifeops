@@ -1,4 +1,5 @@
 import { Modal, Notice, Setting, type App } from "obsidian";
+import { recordRevision } from "../../operationIdentity";
 import { assertSelectedFileAllowed } from "../screenshots/file";
 import type { StoreHost } from "../../store/settingsSlice";
 import type { LifeOpsSettings } from "../../types";
@@ -103,7 +104,8 @@ class TradeScreenshotImportModal extends Modal {
     });
   }
 
-  private confirm(rows: ReturnType<typeof parseTradeScreenshotRows>, digest: string, preview: TradeScreenshotPreview, current: () => void): void {
+  private confirm(rows: ReturnType<typeof parseTradeScreenshotRows>, digest: string, preview: TradeScreenshotPreview,
+    current: () => void, checked: ReadonlySet<number> = new Set()): void {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.createEl("h2", { text: "确认截图里的交易" });
@@ -126,6 +128,7 @@ class TradeScreenshotImportModal extends Modal {
       if (row.inferredTimeZone) item.createEl("p", { text: "时区按市场推定 · " + row.inferredTimeZone, cls: "lifeops-warning" });
       if (row.kind === "ready") {
         const select = item.createEl("input", { attr: { type: "checkbox", "aria-label": `保存第 ${row.line} 笔 ${draft.symbol}` } });
+        select.checked = checked.has(row.line);
         select.onchange = () => updateButton();
         choices.set(row.line, select);
       }
@@ -151,7 +154,11 @@ class TradeScreenshotImportModal extends Modal {
           current();
           if (!feedback.isConnected) return;
           const fresh = previewTradeScreenshot(rows, digest, trades, this.host.settings.tradingContractMultipliers);
-          this.confirm(rows, digest, fresh, current);
+          const selected = new Map(preview.rows.filter(row => choices.get(row.line)?.checked)
+            .map(row => [row.line, recordRevision(row)]));
+          const carried = new Set(fresh.rows.filter(row => row.kind === "ready" && selected.get(row.line) === recordRevision(row))
+            .map(row => row.line));
+          this.confirm(rows, digest, fresh, current, carried);
         } catch (error) {
           if (feedback.isConnected) feedback.setText(error instanceof Error ? error.message : "暂时无法重新核对。");
         } finally {
