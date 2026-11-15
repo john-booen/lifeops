@@ -109,18 +109,26 @@ it("cannot forge a committed write from a copied receipt object",async()=>{
  call(socket);await vi.waitFor(()=>expect(onToolContextError).toHaveBeenCalledOnce());
  expect(onToolCommitted).not.toHaveBeenCalled();expect(sent(socket,"conversation.item.create")).toHaveLength(0);
 });
-it("preserves a newly committed real task, ends capture and emits only its private Runtime receipt",async()=>{
+it.each(["normal close", "failed close", "failed close and terminate"])("preserves a committed task and emits its private Runtime receipt after %s", async closeMode => {
  const {host,client,socket}=await queried({}, {}, "请查询后创建任务：纯虚构语音回执任务");finishable(host);
  Object.assign(host,{clearVoiceWarmupTimer:vi.fn(),clearVoiceLocalEndpointTimer:vi.fn(),clearVoiceNoTranscriptTimer:vi.fn(),cleanupAgentMedia:vi.fn()});
  handleOmniE2eResponseCreated(host,{eventType:"response.created",responseId:"fiction-planning",status:"in_progress"});
  plugin.recordConversationMemory=vi.fn(async()=>{});let settled:Promise<void>|undefined;
  (client as any).callbacks.onToolCommitted=(text:string,response:any)=>{settled=settleCommittedOmniTool(host,text,response);};
+ const terminate = vi.spyOn(socket, "terminate");
+ if (closeMode !== "normal close") vi.spyOn(socket, "close").mockImplementationOnce(() => { throw Error("虚构底层关闭故障"); });
+ if (closeMode === "failed close and terminate") terminate.mockImplementationOnce(() => { throw Error("虚构底层终止故障"); });
  socket.message({type:"response.function_call_arguments.done",response_id:"fiction-planning",call_id:"fiction-real-save",name:"create_task",arguments:JSON.stringify({title:"纯虚构语音回执任务"})});
  await vi.waitFor(()=>expect(settled).toBeDefined());await settled;
  expect((await store.readTaskDb()).tasks.some(task=>task.title==="纯虚构语音回执任务")).toBe(true);
  expect(host.agentReply).toContain("纯虚构语音回执任务");expect(host.agentReply).not.toContain(original);
  expect(host.agentRecording).toBe(false);expect(host.cleanupAgentMedia).toHaveBeenCalledOnce();expect(host.agentRealtimeClient).toBeNull();
  expect(sent(socket,"response.create")).toHaveLength(1);expect(client.hasProtectedToolOutputs()).toBe(false);
+ expect(terminate).toHaveBeenCalledTimes(closeMode === "normal close" ? 0 : 1);
+ socket.message({ type: "response.function_call_arguments.done", response_id: "fiction-planning", call_id: "fiction-late-save",
+   name: "create_task", arguments: JSON.stringify({ title: "虚构迟到的任务" }) });
+ await flush();
+ expect((await store.readTaskDb()).tasks.some(task => task.title === "虚构迟到的任务")).toBe(false);
  expect(host.transitionVoiceSession).toHaveBeenCalledWith("idle",expect.any(String));
 });
 it("keeps a protected query as text when native audio is absent without another TTS connection",async()=>{

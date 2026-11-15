@@ -489,7 +489,14 @@ export class BailianRealtimeClient {
     const socket=this.socket;this.socket=null;
     let failed=false,failure:unknown;
     for(const dispose of[
-      ()=>{if(socket&&socket.readyState===WebSocket.OPEN)socket.close(1000);else socket?.terminate();},
+      () => {
+        if (!socket) return;
+        if (socket.readyState === WebSocket.OPEN) {
+          try { socket.close(1000); return; }
+          catch { /* Force-close this retired socket when graceful close fails. */ }
+        }
+        socket.terminate();
+      },
       ()=>this.toolOutputs.dispose(),()=>this.protectedResponses.reset()
     ])try{dispose();}catch(error){if(!failed){failed=true;failure=error;}}
     this.asrRuns.clear();
@@ -1192,7 +1199,11 @@ export class BailianRealtimeClient {
         if(retained.committed){
           // Runtime's private commit evidence wins over the now-outdated read.
           // Retire server history; never ask another model to reinterpret a write.
-          this.close();
+          try { this.close(); }
+          catch (error) {
+            if (!this.intentionalClose || this.socket) throw error;
+            // Transport cleanup cannot undo a committed operation.
+          }
           const response=responseLifecycleEvent(event,responseId);
           if(this.callbacks.onToolCommitted)this.callbacks.onToolCommitted(retained.text,response);
           else this.callbacks.onResponseDone?.(retained.text,response);
