@@ -80,6 +80,19 @@ it.each(["cancel","close"])("disposes late returned capabilities after %s and ne
  if(how==="cancel")client.cancelResponse();else client.close();release();await flush();
  expect(sent(socket,"conversation.item.create")).toHaveLength(0);expect(offref).toHaveBeenCalledTimes(on.mock.calls.length);
 });
+it.each(["cancel", "transport error"])("reports a protected connection stop after %s even if transport disposal fails", async mode => {
+  const onToolSessionRetired = vi.fn(), onToolContextError = vi.fn();
+  const { client, socket } = await queried({ onToolSessionRetired, onToolContextError });
+  vi.spyOn(socket, "close").mockImplementationOnce(() => { throw Error("虚构关闭失败"); });
+  vi.spyOn(socket, "terminate").mockImplementationOnce(() => { throw Error("虚构终止失败"); });
+  const stop = mode === "cancel" ? () => client.cancelResponse() : () => socket.emit("error", Error("虚构连接故障"));
+  expect(stop).not.toThrow();
+  expect(mode === "cancel" ? onToolSessionRetired : onToolContextError).toHaveBeenCalledOnce();
+  expect(client.hasProtectedToolOutputs()).toBe(false);
+  planningDone(socket);
+  await flush();
+  expect(sent(socket, "response.create")).toHaveLength(1);
+});
 it("rejects a copied opaque result even when its visible text matches",async()=>{
  const onToolContextError=vi.fn(),host=view(),{socket}=await opened(async(call:any)=>{
   const output=await executeOmniE2eToolCall(host,call,true);looseOutputs.push(output);return {...output as object};

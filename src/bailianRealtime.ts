@@ -439,7 +439,11 @@ export class BailianRealtimeClient {
     if (this.intentionalClose || !this.socket) return;
     // Tool-derived history retires as before. Ordinary interruption keeps its
     // source owners; a cancelled response never erases those sources.
-    if(this.toolOutputs.protected){this.close();this.callbacks.onToolSessionRetired?.();return;}
+    if (this.toolOutputs.protected) {
+      this.retireForLocalNotification();
+      this.callbacks.onToolSessionRetired?.();
+      return;
+    }
     const preparing = this.responsePreparationPending;
     this.responseRun?.finish(cause && cause !== "cancelled" ? "failed" : "cancelled", cause ?? "cancelled");
     this.invalidatePendingResponseWork();
@@ -604,9 +608,17 @@ export class BailianRealtimeClient {
   private failToolContext(message="本次语音查询的资料或权限已变化或暂时无法核对，已停止使用旧结果；请重新开始语音。已保存的操作保留，请勿重复保存。"):void{
     this.responseRun?.finish("failed","invalid_response");
     if(this.failRoutedRestore())return;
-    this.close();
+    this.retireForLocalNotification();
     if(this.callbacks.onToolContextError)this.callbacks.onToolContextError(message);
     else this.callbacks.onError?.(message);
+  }
+
+  private retireForLocalNotification(): void {
+    try { this.close(); }
+    catch (error) {
+      if (!this.intentionalClose || this.socket) throw error;
+      // The old connection has lost ownership. Its cleanup cannot block the local result.
+    }
   }
 
   /** Main still owns a possible committed receipt during restore. A general
@@ -1151,11 +1163,7 @@ export class BailianRealtimeClient {
         if(retained.committed){
           // Runtime's private commit evidence wins over the now-outdated read.
           // Retire server history; never ask another model to reinterpret a write.
-          try { this.close(); }
-          catch (error) {
-            if (!this.intentionalClose || this.socket) throw error;
-            // Transport cleanup cannot undo a committed operation.
-          }
+          this.retireForLocalNotification();
           const response=responseLifecycleEvent(event,responseId);
           if(this.callbacks.onToolCommitted)this.callbacks.onToolCommitted(retained.text,response);
           else this.callbacks.onResponseDone?.(retained.text,response);
