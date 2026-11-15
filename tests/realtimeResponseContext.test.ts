@@ -1,7 +1,7 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {DEFAULT_SETTINGS} from "../src/defaults";
 import {BailianRealtimeClient} from "../src/bailianRealtime";
-import type {RealtimeInstructionsSnapshot} from "../src/voice/realtimeInstructionsBoundary";
+import type {RealtimeInstructionsSnapshot} from "../src/voice/omniE2e/instructionsBoundary";
 import {VoiceSessionController} from "../src/voice/voiceRuntime";
 const ws = vi.hoisted(() => {
   class Socket {

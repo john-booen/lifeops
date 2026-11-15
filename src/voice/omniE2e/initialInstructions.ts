@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { ProviderErrorCode } from "../../types";
-import type { RealtimeInstructionsSnapshot } from "../realtimeInstructionsBoundary";
+import type { RealtimeInstructionsSnapshot } from "./instructionsBoundary";
 import { realtimeProviderError } from "../realtimeProviderRun";
 
 export class RealtimeConnectionContextError extends Error {

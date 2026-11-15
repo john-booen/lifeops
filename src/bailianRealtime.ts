@@ -6,7 +6,7 @@ import { assertCredentialStorageAccepted, redactSensitiveText } from "./credenti
 import { providerDisclosureRequired, recordProviderEgress, utf8RequestBytes } from "./privacy";
 import { providerIdentifier } from "./providerRun";
 import { RealtimeProviderRun, realtimeProviderError, realtimeReportedModel, type RealtimeProviderContext, type RealtimeProviderRunEvent, type RealtimeProviderStage } from "./voice/realtimeProviderRun";
-import { RealtimeInstructionsBoundary, type RealtimeInstructionsSnapshot } from "./voice/realtimeInstructionsBoundary";
+import { RealtimeInstructionsBoundary, type RealtimeInstructionsSnapshot } from "./voice/omniE2e/instructionsBoundary";
 import {RealtimeToolOutputs,disposeRealtimeToolOutput,type RealtimeToolOutput} from "./voice/realtimeToolOutput";
 import { voiceVadSilenceMs, type CascadeCaptureEvent } from "./voice/continuousInput";
 import { BailianStreamingAsr } from "./voice/bailianStreamingAsr";

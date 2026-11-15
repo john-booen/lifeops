@@ -1,5 +1,5 @@
 import type { BailianRealtimeClient } from "../../bailianRealtime";
-import type { RealtimeInstructionsBoundary } from "../realtimeInstructionsBoundary";
+import type { RealtimeInstructionsBoundary } from "./instructionsBoundary";
 import type { VoiceSessionController } from "../voiceRuntime";
 
 export const CONTEXT_CHANGED_MESSAGE = "语音资料刚刚变化，旧回复已停止。请重新查询。";

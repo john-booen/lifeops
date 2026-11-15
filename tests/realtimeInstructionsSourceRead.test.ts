@@ -5,7 +5,7 @@ import type {App} from "obsidian";
 import {beforeEach,afterEach,it,expect,vi} from "vitest";
 import {DEFAULT_SETTINGS} from "../src/defaults";
 import {todayString} from "../src/date";
-import {RealtimeInstructionsBoundary,type RealtimeInstructionsSnapshot} from "../src/voice/realtimeInstructionsBoundary";
+import {RealtimeInstructionsBoundary,type RealtimeInstructionsSnapshot} from "../src/voice/omniE2e/instructionsBoundary";
 import {BailianRealtimeClient} from "../src/bailianRealtime";
 import type {StoreHost} from "../src/store/settingsSlice";
 const ws=vi.hoisted(()=>{

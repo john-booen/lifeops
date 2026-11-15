@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RealtimeInstructionsBoundary, RealtimeInstructionsBoundaryError,
-  type RealtimeInstructionsBoundaryOptions, type RealtimeInstructionsSnapshot } from "../src/voice/realtimeInstructionsBoundary";
+  type RealtimeInstructionsBoundaryOptions, type RealtimeInstructionsSnapshot } from "../src/voice/omniE2e/instructionsBoundary";
 
 interface Update { type: string; event_id: string; session: { instructions: string } }
 class FakeSocket {
