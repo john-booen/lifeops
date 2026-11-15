@@ -109,6 +109,14 @@ it("cannot forge a committed write from a copied receipt object",async()=>{
  call(socket);await vi.waitFor(()=>expect(onToolContextError).toHaveBeenCalledOnce());
  expect(onToolCommitted).not.toHaveBeenCalled();expect(sent(socket,"conversation.item.create")).toHaveLength(0);
 });
+it("redacts the configured credential from a thrown tool error before showing it", async () => {
+  const onError = vi.fn();
+  const { socket } = await opened(() => { throw Error("虚构工具暂不可用 (synthetic)"); }, {}, { onError });
+  call(socket);
+  await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
+  expect(onError).toHaveBeenCalledWith("虚构工具暂不可用 ([REDACTED])");
+  expect(sent(socket, "conversation.item.create")).toHaveLength(0);
+});
 it.each(["normal close", "failed close", "failed close and terminate"])("preserves a committed task and emits its private Runtime receipt after %s", async closeMode => {
  const {host,client,socket}=await queried({}, {}, "请查询后创建任务：纯虚构语音回执任务");finishable(host);
  Object.assign(host,{clearVoiceWarmupTimer:vi.fn(),clearVoiceLocalEndpointTimer:vi.fn(),clearVoiceNoTranscriptTimer:vi.fn(),cleanupAgentMedia:vi.fn()});

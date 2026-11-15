@@ -1200,7 +1200,8 @@ export class BailianRealtimeClient {
         if(this.hasProtectedContextSources() || error instanceof Error && /身份|范围/.test(error.message)){
           this.failToolContext(error instanceof Error && /范围已满/.test(error.message)?"本次语音查询范围已满，连接已结束；请重新开启语音。":undefined);return;
         }
-        this.callbacks.onError?.(error instanceof Error ? error.message : "工具调用执行失败。");
+        const message = error instanceof Error ? error.message : "工具调用执行失败。";
+        this.callbacks.onError?.(redactSensitiveText(message, this.auditCredentials()));
       });
     return true;
   }
