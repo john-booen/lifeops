@@ -3,9 +3,22 @@ import type { StoreHost } from "../../store/settingsSlice";
 
 export const ideaIsActive = (idea: IdeaNote) => idea.status !== "parked" && idea.status !== "dropped";
 
+const ideaStatusSuffix = /(?:这[个项]想法\s*)?(?:(?:现在什么情况|目前进展如何|现在进展如何)[？?，,]\s*)?(?:多久没进展了?(?:[？?，,]\s*记录的下一步是什么)?|记录的下一步是什么)[。？?]?$/u;
+const titleQuoteEnds: Record<string, string | undefined> = { "「": "」", "『": "』", "“": "”", '"': '"' };
+
 export function ideaStatusQuestion(message: string): string | undefined {
-  const match = /^(?:请问[，, ]*)?([^？?，,。；;\r\n]{1,80}?)(?:(?:这[个项]想法)\s*)?(?:(?:现在什么情况|目前进展如何|现在进展如何)[？?，,]\s*)?(?:多久没进展了?(?:[？?，,]\s*记录的下一步是什么)?|记录的下一步是什么)[。？?]?$/u.exec(message.trim());
-  return match?.[1].trim().replace(/^[「『“"]|[」』”"]$/gu, "").trim() || undefined;
+  const question = message.trim().replace(/^请问[，, ]*/u, "");
+  const suffix = ideaStatusSuffix.exec(question);
+  if (!suffix) return;
+  const subject = question.slice(0, suffix.index).trim();
+  const closingQuote = titleQuoteEnds[subject[0]];
+  if (closingQuote && subject.endsWith(closingQuote)) {
+    const literal = subject.slice(1, -1).trim();
+    return /^[^\r\n]{1,80}$/u.test(literal) ? literal : undefined;
+  }
+  if (/^[^？?，,。；;\r\n]{1,80}$/u.test(subject)) {
+    return subject.replace(/^[「『“"]|[」』”"]$/gu, "").trim() || undefined;
+  }
 }
 
 export function formatIdeaStatus(output: string, title: string): string {

@@ -1577,12 +1577,15 @@ it("blocks a model-proposed undo for a named voice deletion", async () => {
   expect((await new OperationLedger(store).readSettledOperations([original.callId])).verified.has(original.callId)).toBe(true);
 });
 
-it.each(["text", "voice"] as const)("reads the status, idle days and next step of an exact idea without proposing tasks (%s)", async source => {
+it.each([
+  { source: "text", title: "虚构纸模目录", referencedTitle: "虚构纸模目录" },
+  { source: "voice", title: "虚构纸模目录", referencedTitle: "虚构纸模目录" },
+  { source: "text", title: "虚构纸模目录，冬版", referencedTitle: "「虚构纸模目录，冬版」" }
+] as const)("reads the status, idle days and next step of an exact idea ($source, $referencedTitle)", async ({ source, title, referencedTitle }) => {
   vi.useFakeTimers({ toFake: ["Date"] });
   let result: Awaited<ReturnType<InstanceType<typeof AgentLoop>["run"]>>;
   try {
     vi.setSystemTime(new Date(2026, 9, 28, 12));
-    const title = "虚构纸模目录";
     const created = await runtime.executeAiToolCall(tool("upsert_idea", {
       title, description: "用彩纸做目录", nextAction: "核对同类纸样"
     }, "fictional-idea-probe"), "kimi");
@@ -1597,7 +1600,7 @@ it.each(["text", "voice"] as const)("reads the status, idle days and next step o
         `---\n${JSON.stringify(fields)}\n---\n\n# ${similar}\n\n虚构正文。\n`);
     }
     responses.push(reply("", [tool("list_ideas", { query: title, draftAdvance: true })]), reply("先给你安排几件事。"));
-    result = await new AgentLoop(host).run(input({ source, message: `${title}现在什么情况？多久没进展了，记录的下一步是什么？` }));
+    result = await new AgentLoop(host).run(input({ source, message: `${referencedTitle}现在什么情况？多久没进展了，记录的下一步是什么？` }));
   } finally { vi.useRealTimers(); }
   expect(result.text).toContain("15 天");
   expect(result.text).toContain("核对同类纸样");
