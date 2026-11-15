@@ -9,7 +9,7 @@ import type { LifeOpsEventBus } from "../../lifeOpsEventBus";
 import { newLocalOperationId, recordRevision } from "../../operationIdentity";
 import { isVaultPathExcluded } from "../../privacy";
 import { ProviderRunFailure } from "../../providerRun";
-import type { StoreHost } from "../../store/settingsSlice";
+import { parentFolder, type StoreHost } from "../../store/settingsSlice";
 import type { AgentActionSuggestion, AgentResponse } from "../../types";
 import {
   PHONE_INBOX_PATH, PHONE_INBOX_STATE, isPhoneInboxAction, isPhoneInboxTool, parsePhoneInbox, phoneInboxLabels,
@@ -261,8 +261,7 @@ export class PhoneInbox {
     } finally {
       if (this.activeSubmission === submission) this.activeSubmission = undefined;
     }
-    await this.write(scope, [row], new Map([[row.id, revision]]));
-    return row;
+    return await this.write(scope, [row], new Map([[row.id, revision]]), "preserve") ? row : undefined;
   }
 
   private async restoreReceipts(scope: PhoneInboxScope, records: PhoneInboxRecord[]): Promise<boolean> {
@@ -342,18 +341,31 @@ export class PhoneInbox {
   }
 
   private async write(scope: PhoneInboxScope, records: readonly PhoneInboxRecord[],
-    previous: ReadonlyMap<string, string> = new Map()): Promise<boolean> {
+    previous: ReadonlyMap<string, string> = new Map(), concurrentUpdate: "reject" | "preserve" = "reject"): Promise<boolean> {
     scope.assertCurrent();
     const changes = records.filter(row => recordRevision(row) !== previous.get(row.id));
     if (!changes.length) return false;
     const { store, receiptPath } = scope;
-    const file = store.getFile(receiptPath);
+    const contract = jsonDataContract(receiptPath, store.settings.folders);
+    let file = store.getFile(receiptPath);
     if (!file) {
       if (changes.some(row => previous.has(row.id))) throw Error(RECEIPT_CHANGED);
-      await store.writeJson(receiptPath, { version: 1, records: changes });
-      return true;
+      await store.ensureFolder(parentFolder(receiptPath));
+      scope.assertCurrent();
+      file = store.getFile(receiptPath);
+      if (!file) {
+        const initial = serializeJsonData({ version: 1, records: changes });
+        parseJsonData(initial, receiptPath, contract);
+        try {
+          await store.app.vault.create(receiptPath, initial);
+          return true;
+        } catch (error) {
+          // A synchronized receipt file may have appeared during creation.
+          file = store.getFile(receiptPath);
+          if (!file) throw error;
+        }
+      }
     }
-    const contract = jsonDataContract(receiptPath, store.settings.folders);
     let applied = false;
     await store.app.vault.process(file, current => {
       scope.assertCurrent();
@@ -364,7 +376,10 @@ export class PhoneInbox {
         const existing = rows.get(row.id);
         const revision = previous.get(row.id);
         if (existing && revision === undefined) continue;
-        if ((existing && recordRevision(existing)) !== revision) throw Error(RECEIPT_CHANGED);
+        if ((existing && recordRevision(existing)) !== revision) {
+          if (existing && concurrentUpdate === "preserve") continue;
+          throw Error(RECEIPT_CHANGED);
+        }
         rows.set(row.id, row);
         applied = true;
       }

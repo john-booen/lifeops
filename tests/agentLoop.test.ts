@@ -1,3 +1,4 @@
+import { writeFileSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -2338,30 +2339,77 @@ it("keeps an unrelated receipt that synced while a phone line was processing", a
   } finally { inbox.stop(); }
 });
 
-it("stops a phone write when the claimed receipt is changed by sync", async () => {
+it.each([false, true])("preserves synced phone receipts and stops if the claimed receipt disappeared (%s)", async removed => {
   const { PhoneInbox } = await import("../src/features/phoneInbox/service");
   const { PHONE_INBOX_PATH, PHONE_INBOX_STATE } = await import("../src/features/phoneInbox/model");
   const { LifeOpsEventBus } = await import("../src/lifeOpsEventBus");
   const path = store.path(store.settings.folders.aiReports, "System", PHONE_INBOX_STATE);
   const execute = vi.fn();
   const inbox = new PhoneInbox({ store: () => store, enabled: () => true,
-    submit: async (_text, turn) => {
+    submit: async (text, turn) => {
+      if (text === "虚构后续原文") return { reply: "虚构后续回执", actions: [] };
       const doc = await store.readJson(path, { version: 1, records: [] as import("../src/features/phoneInbox/model").PhoneInboxRecord[] });
       const row = doc.records[0];
       row.status = "dismissed";
       row.message = "同步的新虚构回执";
       delete row.pendingOperationId;
-      await store.writeJson(path, doc);
+      await store.writeJson(path, removed ? { ...doc, records: [] } : doc);
       await turn.assertLineCurrent();
       execute();
       return { reply: "旧虚构回执", actions: [] };
     }, confirm: async () => {}, undo: async () => true, notify: () => {} }, new LifeOpsEventBus());
   try {
-    await store.ensureFile(PHONE_INBOX_PATH, "虚构收件原文\n");
-    await expect(inbox.scan()).rejects.toThrow("回执已变化");
+    const source = "虚构收件原文\n虚构后续原文\n";
+    await store.ensureFile(PHONE_INBOX_PATH, source);
+    if (removed) {
+      await expect(inbox.scan()).rejects.toThrow("回执已变化");
+      expect(await store.readJson(path, null)).toMatchObject({ records: [] });
+    } else {
+      await inbox.scan();
+      expect(await store.readJson(path, null)).toMatchObject({ records: [
+        { status: "dismissed", message: "同步的新虚构回执" }, { status: "review", message: "虚构后续回执" }
+      ] });
+    }
     expect(execute).not.toHaveBeenCalled();
-    expect(await store.readJson(path, null)).toMatchObject({ records: [{ status: "dismissed", message: "同步的新虚构回执" }] });
+    expect(await store.readPath(PHONE_INBOX_PATH)).toBe(source);
   } finally { inbox.stop(); }
+});
+
+it.each(["lookup", "create"] as const)("preserves the first phone receipt when sync wins the %s race", async stage => {
+  const { PhoneInbox } = await import("../src/features/phoneInbox/service");
+  const { PHONE_INBOX_PATH, PHONE_INBOX_STATE, parsePhoneInbox } = await import("../src/features/phoneInbox/model");
+  const { LifeOpsEventBus } = await import("../src/lifeOpsEventBus");
+  const folder = store.path(store.settings.folders.aiReports, "System");
+  const path = store.path(folder, PHONE_INBOX_STATE);
+  await store.ensureFolder(folder);
+  const source = "虚构首条原文\n虚构后续原文\n";
+  const [, later] = parsePhoneInbox(source, todayString());
+  const synchronized = { id: later.id, line: later.line, status: "dismissed", message: "虚构同步回执" };
+  const writeSyncedDocument = () => writeFileSync(join(root, path), JSON.stringify({ version: 1, records: [synchronized] }));
+  const lookup = store.getFile.bind(store);
+  const create = store.app.vault.create.bind(store.app.vault);
+  let missingReads = 0;
+  const getFile = vi.spyOn(store, "getFile").mockImplementation(filePath => {
+    const file = lookup(filePath);
+    if (stage === "lookup" && filePath === path && !file && ++missingReads === 2) writeSyncedDocument();
+    return file;
+  });
+  const createFile = vi.spyOn(store.app.vault, "create").mockImplementation((filePath, content, options) => {
+    if (stage === "create" && filePath === path && !lookup(path)) writeSyncedDocument();
+    return create(filePath, content, options);
+  });
+  const submit = vi.fn(async () => ({ reply: "虚构首条回执", actions: [] }));
+  const inbox = new PhoneInbox({ store: () => store, enabled: () => true, submit,
+    confirm: async () => {}, undo: async () => true, notify: () => {} }, new LifeOpsEventBus());
+  try {
+    await store.ensureFile(PHONE_INBOX_PATH, source);
+    await inbox.scan();
+    expect(submit).toHaveBeenCalledExactlyOnceWith("虚构首条原文", expect.anything(), expect.any(AbortSignal));
+    expect(await store.readJson(path, null)).toMatchObject({ records: [
+      synchronized, expect.objectContaining({ status: "review", message: "虚构首条回执" })
+    ] });
+    expect(await store.readPath(PHONE_INBOX_PATH)).toBe(source);
+  } finally { inbox.stop(); createFile.mockRestore(); getFile.mockRestore(); }
 });
 
 it("skips a later phone receipt that synced mid-batch and keeps draining the inbox", async () => {
