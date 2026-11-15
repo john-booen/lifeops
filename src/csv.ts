@@ -4,6 +4,7 @@ import { healthDay, healthMetricKeys, healthRating } from "./features/health/mod
 const HEALTH_COLUMN_NAMES = {
   date: ["date", "日期", "day"],
   sleepHours: ["sleepHours", "睡眠小时", "sleep", "睡眠"],
+  sleepMinutes: ["sleepMinutes", "睡眠分钟"],
   weightKg: ["weightKg", "体重", "weight"],
   steps: ["steps", "步数"],
   runningKm: ["runningKm", "跑步距离"],
@@ -38,6 +39,9 @@ export function parseHealthCsv(text: string): HealthEntry[] {
     if (provided.length > 1) throw Error(`表头中的「${provided.join("、")}」指向同一个字段，请保留一列。`);
     if (provided.length) columns.set(field as keyof typeof HEALTH_COLUMN_NAMES, provided[0]);
   }
+  if (columns.has("sleepHours") && columns.has("sleepMinutes")) {
+    throw Error("睡眠时长只能用一列，请保留小时或分钟列。");
+  }
   return rows.flatMap((row, index) => {
     if (Object.values(row).every(value => !value)) return [];
     try {
@@ -45,8 +49,12 @@ export function parseHealthCsv(text: string): HealthEntry[] {
         const name = columns.get(field);
         return name ? row[name] : undefined;
       };
+      const sleepMinutes = numberFrom(read("sleepMinutes"), "睡眠分钟", /\s*(?:分钟|分|mins?)$/iu);
+      const sleepHours = sleepMinutes === undefined
+        ? numberFrom(read("sleepHours"), "睡眠小时", /\s*(?:小时|hrs?|h)$/iu)
+        : sleepMinutes / 60;
       const entry = healthDay(read("date") || "", {
-        sleepHours: numberFrom(read("sleepHours"), "睡眠小时", /\s*(?:小时|hrs?|h)$/iu),
+        sleepHours,
         weightKg: numberFrom(read("weightKg"), "体重", /\s*(?:公斤|千克|kg)$/iu),
         steps: numberFrom(read("steps"), "步数", /\s*(?:步|steps?)$/iu),
         runningKm: numberFrom(read("runningKm"), "跑步距离", /\s*(?:公里|千米|km)$/iu),

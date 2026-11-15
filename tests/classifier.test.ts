@@ -50,6 +50,18 @@ describe("parseAiClassification", () => {
 });
 
 describe("parseHealthCsv", () => {
+  it("converts explicitly labeled sleep minutes to the same values as screenshot imports", () => {
+    const entries = parseHealthCsv("日期,睡眠分钟,步数\n2026-05-25,455 分钟,8000\n2026-05-26,0,42\n2026-05-27,—,5");
+    expect(entries.map(({ sleepHours }) => sleepHours)).toEqual([7.58, 0, undefined]);
+    expect(parseHealthCsv("date,sleepMinutes\n2026-05-25,450 min")[0]?.sleepHours).toBe(7.5);
+  });
+
+  it("requires unambiguous sleep columns and checks bounds after conversion", () => {
+    expect(() => parseHealthCsv("date,sleepHours,sleepMinutes\n2026-05-25,7,480")).toThrow("睡眠时长");
+    expect(() => parseHealthCsv("date,sleepMinutes\n2026-05-25,1441")).toThrow("第 1 条健康记录");
+    expect(() => parseHealthCsv("date,sleepMinutes\n2026-05-25,7 小时")).toThrow("睡眠分钟");
+  });
+
   it("stops on blank or duplicate column headings instead of discarding a measurement", () => {
     expect(() => parseHealthCsv("日期,步数,步数\n2026-05-25,9000,1000")).toThrow("重复列名");
     expect(() => parseHealthCsv("日期,,步数\n2026-05-25,9000,1000")).toThrow("空白");

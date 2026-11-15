@@ -40,7 +40,7 @@ export class HealthCsvImportModal extends Modal {
     parent.empty();
     this.setTitle("导入健康 CSV");
     parent.createEl("p", {
-      text: "支持日期、睡眠小时、步数、跑步距离、体重、静息心率，以及主观运动、疲劳、精力和备注。英文列名见使用指南。"
+      text: "支持日期、睡眠时长、步数、跑步距离、体重、静息心率，以及运动、疲劳、精力和备注。睡眠时长可用小时或分钟列。英文列名见使用指南。"
     });
     const textarea = parent.createEl("textarea", { attr: {
       rows: "10", "aria-label": "健康 CSV", placeholder: "date,sleepHours,steps\n2026-05-25,7.5,8000"
