@@ -10,7 +10,7 @@ import type { TradeDraft } from "../src/features/trading/types";
 import type { StoreHost } from "../src/store/settingsSlice";
 
 vi.mock("obsidian", () => ({
-  App: class {}, Notice: class {}, TFile: class {}, TFolder: class {},
+  App: class {}, Modal: class {}, Notice: class {}, TFile: class {}, TFolder: class {},
   normalizePath: (path: string) => path.replace(/\\/g, "/").replace(/\/{2,}/g, "/")
 }));
 const { LifeOpsStore } = await import("../src/store");
@@ -19,6 +19,7 @@ const { DiskVault } = await import("./helpers/diskVault");
 const { readTradeDatabase, recordTradeDrafts, tradeDatabasePath } = await import("../src/features/trading/persistence");
 const { readTradeCsv, previewTradeCsv, confirmTradeCsv } = await import("../src/features/trading/csvImport");
 const { confirmTradeBackfill, listTradeBackfillNotes, previewTradeBackfill, scanTradeBackfill } = await import("../src/features/trading/backfill");
+const { runScheduledPunishmentCheck } = await import("../src/features/habits/service");
 
 const folder = DEFAULT_SETTINGS.folders.tradingReviews;
 const database = tradeDatabasePath(DEFAULT_SETTINGS.folders);
@@ -226,15 +227,26 @@ it("uses the real trade count for daily goals, undo and the 21:00 compensation c
   const second = await save([{ ...long, symbol: "第二笔虚构交易" }]);
   expect(second.success, second.output).toBe(true);
   expect(await goal()).toMatchObject({ periodDone: 2, status: "done", streak: 1 });
-  const check = (hour: number) => runtime.executeLocalOperation("check_trade_goal", { hour }, scope => scope.checkPunishments(new Date(2026, 10, 7, hour)));
-  expect((await check(21)).success).toBe(true);
+  const saveCheck = vi.spyOn(localHost, "saveLocalOperation");
+  const check = (hour: number) => runScheduledPunishmentCheck(localHost, store, new Date(2026, 10, 7, hour), () => {});
+  await check(20);
+  expect(saveCheck).not.toHaveBeenCalled();
+  await check(21);
   expect((await store.readTaskDb()).tasks).toEqual([]);
+  await check(22);
+  expect(saveCheck).toHaveBeenCalledTimes(1);
   await runtime.undoOperation(second.callId);
   expect(await goal()).toMatchObject({ periodDone: 1, status: "pending" });
-  expect((await check(20)).success).toBe(true);
+  const privacy = store.settings.privacy;
+  store.settings.privacy = { ...privacy, excludedVaultPrefixes: [database] };
+  await check(23);
+  expect(saveCheck).toHaveBeenCalledTimes(1);
   expect((await store.readTaskDb()).tasks).toEqual([]);
-  expect((await check(21)).success).toBe(true);
-  expect((await check(21)).success).toBe(true);
+  store.settings.privacy = privacy;
+  await check(23);
+  expect(saveCheck).toHaveBeenCalledTimes(2);
+  await check(23);
+  saveCheck.mockRestore();
   expect((await store.readTaskDb()).tasks).toMatchObject([{ category: "punishment", dueDate: "2026-11-08",
     habitPunishment: { habitId: habit.id, judgedDate: "2026-11-07" } }]);
   expect((await store.readHabitDb()).checkins).toEqual([]);

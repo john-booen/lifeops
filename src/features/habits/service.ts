@@ -9,7 +9,8 @@ import type { StoreHost } from "../../store/settingsSlice";
 import type { HabitCheckin, HabitCheckinStatus, HabitDashboardItem, HabitDefinition, HabitInput } from "../../types";
 import type { LocalOperationHost } from "../serviceHost";
 import { advanceCompensationDebt } from "./compensationDebt";
-import { firstUncheckedHabitDay, habitDayGoalMet } from "./punishments";
+import { firstUncheckedHabitDay, habitDayGoalMet, planHabitPunishments } from "./punishments";
+import { automaticHabitProgress } from "./tradeProgress";
 
 type HabitUiHost = Pick<LifeOpsPlugin, "app" | "createHabit" | "updateHabit">;
 type HabitCheckinHost = Pick<LifeOpsPlugin, "app"> & LocalOperationHost;
@@ -157,9 +158,20 @@ export async function runScheduledPunishmentCheck(
   if (habitRecordsExcluded(store)) return;
   const date = formatDate(now), db = await store.readHabitDb();
   const through = now.getHours() >= 21 ? date : addDays(date, -1);
-  if (!db.habits.some(habit => habit.punishment?.enabled && !isHealthHabitSource(habit.source) && firstUncheckedHabitDay(db, habit, date) <= through)
-    && !(await store.readTaskDb({ readOnly: true })).tasks.some(task => task.status === "active"
-      && task.habitPunishment?.rule && task.habitPunishment.debt?.appliedOn !== date)) return;
+  const eligible = db.habits.filter(habit => habit.punishment?.enabled && !isHealthHabitSource(habit.source));
+  if (!eligible.some(habit => firstUncheckedHabitDay(db, habit, date) <= through)) {
+    const { tasks } = await store.readTaskDb({ readOnly: true });
+    const needsDebtUpdate = tasks.some(task => task.status === "active"
+      && task.habitPunishment?.rule && task.habitPunishment.debt?.appliedOn !== date);
+    if (!needsDebtUpdate) {
+      if (through !== date) return;
+      const tradeHabits = eligible.filter(habit => habit.source === "trades" && db.habitPunishmentCheckedThrough?.[habit.id] === date);
+      if (!tradeHabits.length) return;
+      const progress = await automaticHabitProgress(store, { ...db, habits: tradeHabits }, true);
+      // Trading records can change after the first check. Open a transaction only for a new penalty.
+      if (progress.unavailable || !planHabitPunishments(tradeHabits, progress.checkins, tasks, now).length) return;
+    }
+  }
   await host.saveLocalOperation("local_checkHabitPunishments", { date }, scope => scope.checkPunishments(now), { assertCurrent });
   await host.refreshViews();
 }
