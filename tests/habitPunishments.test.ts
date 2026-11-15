@@ -373,6 +373,26 @@ describe("habit changes through the real store and operation ledger", () => {
     }
   });
 
+  it.each(["task", "habit"] as const)("stops a yesterday correction before reading the excluded %s records", async excluded => {
+    await store.createHabit({ name: "虚构排除测试", frequencyUnit: "day", frequencyInterval: 1, targetCount: 1,
+      startDate: date, punishment: config(reflection) });
+    const morning = new Date(2026, 10, 16, 8);
+    vi.setSystemTime(morning);
+    await runScheduledPunishmentCheck(host, store, morning, () => {});
+    const [task] = (await store.readTaskDb()).tasks;
+    store.settings.privacy = { ...store.settings.privacy,
+      excludedVaultPrefixes: [excluded === "task" ? store.taskDbPath() : store.habitDbPath()] };
+    const readTasks = vi.spyOn(store, "readTaskDb"), readHabits = vi.spyOn(store, "readHabitDb");
+    try {
+      await expect(confirmYesterdayHabit.call({ ...host, app: store.app }, store, task.id)).rejects.toThrow("习惯或任务记录不可用");
+      expect(readTasks).not.toHaveBeenCalled();
+      expect(readHabits).not.toHaveBeenCalled();
+    } finally {
+      readTasks.mockRestore();
+      readHabits.mockRestore();
+    }
+  });
+
   it("accrues money and words for three days, records payment once, and restores the debt on undo", async () => {
     await store.createHabit({ ...habit("虚构存钱"), punishment: config(money) });
     await store.createHabit({ ...habit("虚构反思"), punishment: config({ ...reflection, dailyIncrease: 40 }) });

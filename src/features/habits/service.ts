@@ -84,11 +84,17 @@ export async function acceptPunishments(this: LocalOperationHost): Promise<void>
   await this.refreshViews();
 }
 
+function habitRecordsExcluded(store: StoreHost): boolean {
+  const excluded = store.settings.privacy?.excludedVaultPrefixes;
+  return [store.habitDbPath(), store.taskDbPath()].some(path => isVaultPathExcluded(path, excluded));
+}
+
 export async function correctYesterdayHabit(host: LocalOperationHost, taskId: string,
   { value, now = new Date(), expectedHabitRevision }: { value?: number; now?: Date; expectedHabitRevision?: string } = {}
 ): Promise<void> {
   const date = formatDate(now), yesterday = addDays(date, -1);
   await host.saveLocalOperation("local_correctYesterdayHabit", { taskId, date: yesterday, value }, async store => {
+    if (habitRecordsExcluded(store)) throw Error("习惯或任务记录不可用。");
     const tasks = await store.readTaskDb({ readOnly: true });
     const task = tasks.tasks.find(row => row.id === taskId);
     const penalty = task?.habitPunishment;
@@ -99,9 +105,6 @@ export async function correctYesterdayHabit(host: LocalOperationHost, taskId: st
     const habit = db.habits.find(row => row.id === penalty.habitId);
     if (!habit || habit.source === "trades") throw Error("这项习惯无法手动补记。");
     assertRecordRevision(habit, expectedHabitRevision);
-    if ([store.habitDbPath(), store.taskDbPath()].some(path => isVaultPathExcluded(path, store.settings.privacy?.excludedVaultPrefixes))) {
-      throw Error("习惯或任务记录不可用。");
-    }
     if (!habitDayGoalMet(habit, db.checkins, yesterday)) {
       await store.recordHabitStatus(habit.id, "done", yesterday, "昨晚补记", value);
       if (habit.target?.kind !== "number") {
@@ -123,8 +126,14 @@ export async function correctYesterdayHabit(host: LocalOperationHost, taskId: st
 }
 
 export async function confirmYesterdayHabit(this: HabitCheckinHost, store: StoreHost, taskId: string): Promise<void> {
+  const assertReadable = () => {
+    if (habitRecordsExcluded(store)) throw Error("习惯或任务记录不可用。");
+  };
+  assertReadable();
   const task = (await store.readTaskDb({ readOnly: true })).tasks.find(row => row.id === taskId);
+  assertReadable();
   const habit = (await store.readHabitDb()).habits.find(row => row.id === task?.habitPunishment?.habitId);
+  assertReadable();
   if (!habit || task?.status !== "active") throw Error("这条补偿已变更，请刷新后再核对。");
   const expectedHabitRevision = recordRevision(habit);
   if (habit.target?.kind !== "number") return correctYesterdayHabit(this, taskId, { expectedHabitRevision });
@@ -138,8 +147,7 @@ export async function confirmYesterdayHabit(this: HabitCheckinHost, store: Store
 export async function runScheduledPunishmentCheck(
   host: LocalOperationHost, store: StoreHost, now: Date, assertCurrent: () => void
 ): Promise<void> {
-  const excluded = store.settings.privacy?.excludedVaultPrefixes;
-  if ([store.habitDbPath(), store.taskDbPath()].some(path => isVaultPathExcluded(path, excluded))) return;
+  if (habitRecordsExcluded(store)) return;
   const date = formatDate(now), db = await store.readHabitDb();
   const through = now.getHours() >= 21 ? date : addDays(date, -1);
   if (!db.habits.some(habit => habit.punishment?.enabled && !isHealthHabitSource(habit.source) && firstUncheckedHabitDay(db, habit, date) <= through)
