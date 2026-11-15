@@ -555,7 +555,9 @@ export class BailianRealtimeClient {
     const text = typeof data === "string" ? data : data.toString("utf8");
     let event: Record<string, unknown>;
     try {
-      event = JSON.parse(text) as Record<string, unknown>;
+      const decoded: unknown = JSON.parse(text);
+      if (!isRecord(decoded) || typeof decoded.type !== "string" || !decoded.type) return;
+      event = decoded;
     } catch {
       return;
     }

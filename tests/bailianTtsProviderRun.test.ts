@@ -172,6 +172,19 @@ describe("TTS provider completion contract", () => {
     expect(callbacks.onResponseDone).not.toHaveBeenCalled();
   });
 
+  it.each([null, {}, { type: {} }])("settles an invalid TTS event %j and clears the playback request", async event => {
+    const { client, events, callbacks } = setup();
+    const rejection = expect(client.speak("合成输入")).rejects.toMatchObject({ code: "invalid_response" });
+    const socket = sockets.instances[0];
+    socket.emit("open");
+    socket.message(event);
+    await rejection;
+    expect(events).toHaveLength(1);
+    expect(callbacks.onError).toHaveBeenCalledOnce();
+    expect(callbacks.onResponseDone).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("does not treat session.finished as success even after audio", async () => {
     const { client, events } = setup();
     const rejection = expect(client.speak("合成输入")).rejects.toMatchObject({ code: "invalid_response" });

@@ -52,6 +52,18 @@ const responseUsage = { input_tokens: 336, output_tokens: 41, total_tokens: 377,
   input_tokens_details: { text_tokens: 228, audio_tokens: 108 },
   output_tokens_details: { text_tokens: 9, audio_tokens: 32 } };
 
+it.each(["cascade", "omni-e2e"] as const)("ignores non-event JSON and keeps receiving transcripts in %s mode", async mode => {
+  const onTranscriptDone = vi.fn(), onError = vi.fn();
+  const { client, socket } = await opened({ onTranscriptDone, onError }, { mode });
+  socket.message(null);
+  socket.message([]);
+  socket.message({ transcript: "虚构占位文本" });
+  socket.message({ type: "conversation.item.input_audio_transcription.completed", item_id: "example", transcript: "虚构语音" });
+  expect(onTranscriptDone).toHaveBeenCalledExactlyOnceWith("虚构语音");
+  expect(onError).not.toHaveBeenCalled();
+  client.close();
+});
+
 describe("accepted response usage through the actual client", () => {
   it.each(["response.done", "response.completed"])("records counters once at %s, without response content or server IDs in logs", async type => {
     const onResponseDone = vi.fn(), onAudioDelta = vi.fn();

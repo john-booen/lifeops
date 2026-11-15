@@ -158,13 +158,13 @@ export class BailianRealtimeTtsClient {
     let event: Record<string, unknown>;
     try {
       event = JSON.parse(text) as Record<string, unknown>;
-      if (!event || typeof event !== "object" || Array.isArray(event)) throw new Error("Invalid event");
+      if (!event || typeof event !== "object" || typeof event.type !== "string" || !event.type) throw new Error("Invalid event");
     } catch {
       this.finish(request, "failed", "invalid_response", "百炼实时语音回复格式无效。");
       return;
     }
 
-    const type = String(event.type ?? "");
+    const type = event.type;
     const response = event.response && typeof event.response === "object" ? event.response as Record<string, unknown> : undefined;
     const responseId = response?.id ?? event.response_id;
     if (typeof responseId === "string" && responseId) {
