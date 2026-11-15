@@ -1032,7 +1032,7 @@ export class BailianRealtimeClient {
     // Without the cancelled response's ID, the next created event could still
     // belong to that old request. A new request on this socket cannot be owned.
     if (this.responseCancelPending && this.responseRequestPending && !this.responseIdentity.active) {
-      this.close();
+      this.retireForLocalNotification();
       if (this.callbacks.onTransportError) this.callbacks.onTransportError(UNCONFIRMED_VOICE_CANCEL_MESSAGE);
       else if (this.callbacks.onDisconnected) this.callbacks.onDisconnected({code: 1000, reason: UNCONFIRMED_VOICE_CANCEL_MESSAGE});
       else this.callbacks.onError?.(UNCONFIRMED_VOICE_CANCEL_MESSAGE);

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "../src/defaults";
-import { BailianRealtimeClient } from "../src/bailianRealtime";
+import { BailianRealtimeClient, UNCONFIRMED_VOICE_CANCEL_MESSAGE } from "../src/bailianRealtime";
 import type { RealtimeProviderRunEvent } from "../src/voice/realtimeProviderRun";
 import { VoiceSessionController, VoiceRuntimeJournal } from "../src/voice/voiceRuntime";
 import { createVoiceSession } from "../src/voiceSession";
@@ -294,6 +294,24 @@ describe("realtime stage terminal contract", () => {
     socket.message({ type: "error", error: { message: "ModelServingError" } }); await vi.advanceTimersByTimeAsync(10_000);
     expect(socket.sent.filter(s => s.type === "response.create")).toHaveLength(1);
     expect(responseRuns(runs)).toHaveLength(1); expect(responseRuns(runs)[0].run.status).toBe("cancelled"); client.close();
+  });
+  it("reports an unconfirmed cancel when closing the response's socket fails", async () => {
+    const onTransportError = vi.fn(), onResponseCreated = vi.fn();
+    const { client, socket } = await opened({ onTransportError, onResponseCreated });
+    socket.message({ type: "session.updated" });
+    client.createResponse();
+    client.cancelResponse();
+    client.createResponse();
+    vi.spyOn(socket, "close").mockImplementationOnce(() => { throw Error("虚构关闭失败"); });
+    vi.spyOn(socket, "terminate").mockImplementationOnce(() => { throw Error("虚构终止失败"); });
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(onTransportError).toHaveBeenCalledExactlyOnceWith(UNCONFIRMED_VOICE_CANCEL_MESSAGE);
+    expect(vi.getTimerCount()).toBe(0);
+    socket.message({ type: "response.created", response: { id: "fictional-cancelled" } });
+    expect(onResponseCreated).not.toHaveBeenCalled();
+    expect(socket.sent.filter(event => event.type === "response.create")).toHaveLength(1);
+    client.close();
   });
   it("keeps recently retired identities when an old terminal is delivered again", async () => {
     const onResponseTextDelta = vi.fn();
