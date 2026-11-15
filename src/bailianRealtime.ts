@@ -254,7 +254,7 @@ export class BailianRealtimeClient {
           if (this.isOmniE2e() && this.options.prepareInstructions) {
             this.instructionsBoundary = new RealtimeInstructionsBoundary({
               prepare: this.options.prepareInstructions,
-              send: payload => this.send(payload),
+              send: (payload, onFailure) => this.send(payload, onFailure),
               isCurrent: () => this.socket === socket && socket.readyState === WebSocket.OPEN && !this.intentionalClose,
               audit: async bytes => { await recordProviderEgress({capability: "voice", provider: "bailian-realtime", model: this.settings.model,
                 purpose: "realtime_context_update", requestBytes: bytes, sourceCount: 0}, this.auditCredentials()); }

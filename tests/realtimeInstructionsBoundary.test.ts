@@ -89,6 +89,33 @@ describe("Realtime instructions response boundary", () => {
     expect(source.dispose).toHaveBeenCalledOnce(); expect(vi.getTimerCount()).toBe(0);
   });
 
+  it("settles an asynchronously failed update and leaves the next update available", async () => {
+    const old = snapshot("虚构旧资料"), next = snapshot("虚构新资料");
+    const updates: Record<string, unknown>[] = [], failSends: (() => void)[] = [];
+    const { boundary } = harness([old, next], { send: (payload, onFailure?: () => void) => {
+      updates.push(payload);
+      if (onFailure) failSends.push(onFailure);
+    } });
+    const first = boundary.prepareForResponse(() => true).catch(error => error);
+    await flush();
+    expect(failSends).toHaveLength(1);
+    failSends[0]();
+    expect(await first).toMatchObject({ code: "failed", message: "Realtime instructions failed." });
+    expect(old.dispose).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+
+    const second = boundary.prepareForResponse(() => true);
+    await flush();
+    expect(updates).toHaveLength(2);
+    failSends[0]();
+    expect(boundary.acceptSessionEvent({ type: "session.updated", session: updates[1].session })).toBe(true);
+    failSends[1]();
+    const token = await second;
+    expect(token.instructions).toBe(next.instructions);
+    token.dispose();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it.each(["connection", "response"])("denies a stale %s before preparing any source", async kind => {
     const { boundary, socket, prepare } = harness([snapshot()], { isCurrent: () => kind !== "connection" });
     await expect(boundary.prepareForResponse(() => kind !== "response")).rejects.toMatchObject({ code: "stale" });

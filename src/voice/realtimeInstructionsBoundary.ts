@@ -12,7 +12,7 @@ export interface RealtimeInstructionsSnapshot {
 
 export interface RealtimeInstructionsBoundaryOptions {
   prepare: () => Promise<RealtimeInstructionsSnapshot>;
-  send: (payload: Record<string, unknown>) => void;
+  send: (payload: Record<string, unknown>, onFailure: () => void) => void;
   isCurrent: () => boolean;
   audit?: (bytes: number) => Promise<void>;
   timeoutMs?: number;
@@ -223,12 +223,20 @@ export class RealtimeInstructionsBoundary {
       });
       // Reserve before send: a synchronous FakeSocket ACK is valid too.
       managed.revision = ++this.issuedRevision;
-      try { this.options.send(payload); }
-      catch {
+      const failSend = () => {
         const error = new RealtimeInstructionsBoundaryError("failed");
+        const pending = this.handshake;
         operation.abort(error);
-        this.handshake?.reject(error);
-      }
+        if (pending?.operation === operation) {
+          this.handshake = undefined;
+          pending.reject(error);
+        }
+      };
+      try {
+        this.options.send(payload, () => {
+          if (this.handshake?.operation === operation) failSend();
+        });
+      } catch { failSend(); }
       await ack;
       operation.assertCurrent();
       if (managed.assertSourcesCurrent) await managed.assertSourcesCurrent();
