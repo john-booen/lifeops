@@ -266,11 +266,17 @@ export class BailianRealtimeClient {
             if (slot && this.initialInstructions.slot === slot) this.initialInstructions.fail(slot, socket, "timeout");
             else {
               connectionRun.finish("failed", "timeout");
-              if (!this.isOmniE2e()) this.stopUnconfirmedCascadeSession();
+              if (!this.isOmniE2e()) this.stopUnconfirmedSession();
             }
           }, 12_000);
           if (slot) slot.sent = true;
-          this.sendSessionUpdate();
+          this.sendSessionUpdate(() => {
+            if (this.connectionRun !== connectionRun || this.socket !== socket || this.intentionalClose || connectionRun.settled) return;
+            connectionRun.finish("failed", "network");
+            reject(new Error("百炼实时语音会话发送失败。"));
+            if (slot) this.initialInstructions.fail(slot, socket, "network");
+            else this.stopUnconfirmedSession();
+          });
           if (this.socket !== socket || this.intentionalClose) throw new RealtimeConnectionContextError();
           this.callbacks.onOpen?.();
           resolve();
@@ -477,9 +483,9 @@ export class BailianRealtimeClient {
     return url.toString();
   }
 
-  private sendSessionUpdate(): void {
+  private sendSessionUpdate(onFailure: () => void): void {
     this.initialInstructions.assertCurrent();
-    this.send(this.buildSessionUpdatePayload());
+    this.send(this.buildSessionUpdatePayload(), onFailure);
   }
 
   private buildSessionUpdatePayload(): Record<string, unknown> {
@@ -584,7 +590,7 @@ export class BailianRealtimeClient {
     }
   }
 
-  private stopUnconfirmedCascadeSession(): void {
+  private stopUnconfirmedSession(): void {
     this.retireForLocalNotification();
     const message = "百炼未确认语音会话，已停止。请重新开始语音。";
     if (this.callbacks.onInitialContextError) this.callbacks.onInitialContextError(message);
@@ -625,7 +631,7 @@ export class BailianRealtimeClient {
       window.clearTimeout(this.connectionAckTimer);
       this.connectionRun?.finish("failed", failure.code, undefined, failure.httpStatus);
       if (awaitingSession && !this.isOmniE2e()) {
-        this.stopUnconfirmedCascadeSession();
+        this.stopUnconfirmedSession();
         return;
       }
       if (!responseEventId(event) && this.responseRun?.settled) return;

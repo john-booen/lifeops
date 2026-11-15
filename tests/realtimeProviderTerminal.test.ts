@@ -147,6 +147,36 @@ it.each([false, true])("stops a cascade session rejected during startup only (ac
   }
 });
 
+it.each(["cascade", "omni-e2e", "acknowledged"] as const)("owns the async initial session send failure in %s", async mode => {
+  const onInitialContextError = vi.fn(), onTranscriptDone = vi.fn(), dispose = vi.fn();
+  const runs: RealtimeProviderRunEvent[] = [];
+  const client = new BailianRealtimeClient(settings, { onInitialContextError, onTranscriptDone, onProviderRun: event => runs.push(event) },
+    mode === "omni-e2e" ? { initialInstructions: {
+      instructions: "虚构首次资料", baseInstructions: "虚构基础资料", assertCurrent: vi.fn(), dispose
+    } } : { mode: "cascade" });
+  const connecting = client.connect();
+  const socket = ws.sockets.at(-1)!;
+  const send = socket.send.bind(socket);
+  let completeUpdate: ((error?: Error) => void) | undefined;
+  vi.spyOn(socket, "send").mockImplementationOnce((value, callback) => { completeUpdate = callback; send(value); });
+  try {
+    socket.emit("open");
+    await connecting;
+    if (mode === "acknowledged") socket.message({ type: "session.updated" });
+    expect(completeUpdate).toBeTypeOf("function");
+    completeUpdate?.(new Error("虚构首次请求发送失败"));
+    expect(socket.readyState).toBe(mode === "acknowledged" ? ws.Socket.OPEN : ws.Socket.CLOSED);
+    expect(onInitialContextError).toHaveBeenCalledTimes(mode === "acknowledged" ? 0 : 1);
+    expect(dispose).toHaveBeenCalledTimes(mode === "omni-e2e" ? 1 : 0);
+    expect(runs).toMatchObject([{ stage: "voice_connection", run: { status: mode === "acknowledged" ? "success" : "failed" } }]);
+    socket.message({ type: "conversation.item.input_audio_transcription.completed", item_id: "fictional", transcript: "虚构语音" });
+    expect(onTranscriptDone).toHaveBeenCalledTimes(mode === "acknowledged" ? 1 : 0);
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    client.close();
+  }
+});
+
 it("releases a cascade capture after transcription fails and delivers the next capture once", async () => {
   const endpoint = new ServerVoiceEndpoint(), ready: string[] = [];
   const onCascadeCapture = vi.fn((event: CascadeCaptureEvent) => {
