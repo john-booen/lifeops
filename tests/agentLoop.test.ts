@@ -2102,6 +2102,16 @@ it("submits phone inbox entries without sending Markdown properties, comments or
   } finally { inbox.stop(); }
 });
 
+function interruptSavedPhoneReceipt(stateName: string, message: string) {
+  const vault = store.app.vault;
+  const process = vault.process.bind(vault);
+  return vi.spyOn(vault, "process").mockImplementation((file, transform) => process(file, current => {
+    const next = transform(current);
+    if (file.path.endsWith(stateName) && JSON.parse(next).records?.[0]?.status === "saved") throw Error(message);
+    return next;
+  }));
+}
+
 it("recovers a committed phone write whose receipt was interrupted without sending the line again", async () => {
   const { PhoneInbox } = await import("../src/features/phoneInbox/service");
   const { PHONE_INBOX_PATH, PHONE_INBOX_STATE } = await import("../src/features/phoneInbox/model");
@@ -2114,13 +2124,7 @@ it("recovers a committed phone write whose receipt was interrupted without sendi
   const options = { store: () => store, enabled: () => true, submit, confirm: async () => {},
     undo: (id: string) => runtime.undoOperation(id), notify: () => {} };
   const inbox = new PhoneInbox(options, new LifeOpsEventBus());
-  const writeJson = store.writeJson.bind(store);
-  const put = vi.spyOn(store, "writeJson").mockImplementation(async (path, value, opts) => {
-    if (path.endsWith(PHONE_INBOX_STATE) && (value as { records?: Array<{ status: string }> }).records?.[0]?.status === "saved") {
-      throw Error("虚构回执写入中断");
-    }
-    await writeJson(path, value, opts);
-  });
+  const put = interruptSavedPhoneReceipt(PHONE_INBOX_STATE, "虚构回执写入中断");
   try {
     await store.ensureFile(PHONE_INBOX_PATH, "新增虚构色卡任务\n");
     responses.push(reply("", [tool("create_task", { title: "虚构色卡任务" })]));
@@ -2312,6 +2316,54 @@ it.each(["folder", "store"] as const)("aborts an in-flight phone submission when
   }
 });
 
+it("keeps an unrelated receipt that synced while a phone line was processing", async () => {
+  const { PhoneInbox } = await import("../src/features/phoneInbox/service");
+  const { PHONE_INBOX_PATH, PHONE_INBOX_STATE } = await import("../src/features/phoneInbox/model");
+  const { LifeOpsEventBus } = await import("../src/lifeOpsEventBus");
+  const path = store.path(store.settings.folders.aiReports, "System", PHONE_INBOX_STATE);
+  const synchronized = { id: `${"a".repeat(64)}:1`, line: 9, status: "review", message: "同步进来的另一条虚构回执" };
+  const inbox = new PhoneInbox({ store: () => store, enabled: () => true,
+    submit: async () => {
+      const doc = await store.readJson(path, { version: 1, records: [] as unknown[] });
+      await store.writeJson(path, { ...doc, records: [...doc.records, synchronized] });
+      return { reply: "当前虚构记录的回执", actions: [] };
+    }, confirm: async () => {}, undo: async () => true, notify: () => {} }, new LifeOpsEventBus());
+  try {
+    await store.ensureFile(PHONE_INBOX_PATH, "虚构手机原文\n");
+    await inbox.scan();
+    expect(await store.readJson(path, null)).toMatchObject({ records: expect.arrayContaining([
+      synchronized, expect.objectContaining({ status: "review", message: "当前虚构记录的回执" })
+    ]) });
+    expect(await store.readPath(PHONE_INBOX_PATH)).toBe("虚构手机原文\n");
+  } finally { inbox.stop(); }
+});
+
+it("stops a phone write when the claimed receipt is changed by sync", async () => {
+  const { PhoneInbox } = await import("../src/features/phoneInbox/service");
+  const { PHONE_INBOX_PATH, PHONE_INBOX_STATE } = await import("../src/features/phoneInbox/model");
+  const { LifeOpsEventBus } = await import("../src/lifeOpsEventBus");
+  const path = store.path(store.settings.folders.aiReports, "System", PHONE_INBOX_STATE);
+  const execute = vi.fn();
+  const inbox = new PhoneInbox({ store: () => store, enabled: () => true,
+    submit: async (_text, turn) => {
+      const doc = await store.readJson(path, { version: 1, records: [] as import("../src/features/phoneInbox/model").PhoneInboxRecord[] });
+      const row = doc.records[0];
+      row.status = "dismissed";
+      row.message = "同步的新虚构回执";
+      delete row.pendingOperationId;
+      await store.writeJson(path, doc);
+      await turn.assertLineCurrent();
+      execute();
+      return { reply: "旧虚构回执", actions: [] };
+    }, confirm: async () => {}, undo: async () => true, notify: () => {} }, new LifeOpsEventBus());
+  try {
+    await store.ensureFile(PHONE_INBOX_PATH, "虚构收件原文\n");
+    await expect(inbox.scan()).rejects.toThrow("回执已变化");
+    expect(execute).not.toHaveBeenCalled();
+    expect(await store.readJson(path, null)).toMatchObject({ records: [{ status: "dismissed", message: "同步的新虚构回执" }] });
+  } finally { inbox.stop(); }
+});
+
 it.each(["folder", "record"] as const)("requires a fresh phone confirmation after a %s change", async kind => {
   const { PhoneInbox } = await import("../src/features/phoneInbox/service");
   const { PHONE_INBOX_PATH, PHONE_INBOX_STATE } = await import("../src/features/phoneInbox/model");
@@ -2363,13 +2415,7 @@ it("reads an already confirmed phone action from the ledger after the original l
     confirm, undo: (id: string) => runtime.undoOperation(id), notify: () => {}
   };
   const inbox = new PhoneInbox(options, new LifeOpsEventBus());
-  const writeJson = store.writeJson.bind(store);
-  const put = vi.spyOn(store, "writeJson").mockImplementation(async (path, value, opts) => {
-    if (path.endsWith(PHONE_INBOX_STATE) && (value as { records?: Array<{ status: string }> }).records?.[0]?.status === "saved") {
-      throw Error("虚构确认回执写入中断");
-    }
-    await writeJson(path, value, opts);
-  });
+  const put = interruptSavedPhoneReceipt(PHONE_INBOX_STATE, "虚构确认回执写入中断");
   try {
     const note = await store.ensureFile(PHONE_INBOX_PATH, "删除虚构旧色卡\n");
     responses.push(reply("", [tool("delete_task", { taskIdOrTitle: "虚构旧色卡" })]));

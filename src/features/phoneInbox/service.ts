@@ -1,5 +1,6 @@
 import { textAiReadiness } from "../../capabilityReadiness";
 import { hasPendingFactOperation } from "../../dataFoundation/factOperation";
+import { jsonDataContract, parseJsonData, serializeJsonData } from "../../dataFoundation/jsonDataGuard";
 import { readScopedMarkdown } from "../../dataFoundation/markdownSources";
 import { OperationLedger } from "../../dataFoundation/operationLedger";
 import { configuredCredentials, redactSensitiveText } from "../../credentialSecurity";
@@ -18,6 +19,11 @@ import {
 
 const EMPTY_NOTE = "# 手机随手记\n";
 const MAX_BATCH_LINES = 20;
+const RECEIPT_CHANGED = "手机随手记回执已变化，请重新打开核对。";
+
+function receiptRevisions(records: readonly PhoneInboxRecord[]): Map<string, string> {
+  return new Map(records.map(row => [row.id, recordRevision(row)]));
+}
 
 export class PhoneInboxBusyError extends Error {
   constructor() { super("另一个保存还没结束，待处理记录暂缓检查。"); }
@@ -106,7 +112,7 @@ export class PhoneInbox {
       if (row.terminated) pending++;
       else unfinished++;
     }
-    const revisions = new Map(doc.records.map(row => [row.id, recordRevision(row)]));
+    const revisions = receiptRevisions(doc.records);
     return {
       receipts, source: lines ? "available" : exists ? "unreadable" : "missing", pending, unfinished,
       resolve: (id, decision) => this.resolveReceipt(id, decision, scope, revisions.get(id))
@@ -131,7 +137,8 @@ export class PhoneInbox {
         return;
       }
       const doc = await this.read(scope);
-      if (await this.restoreReceipts(scope, doc.records)) await this.write(scope, doc);
+      const previous = receiptRevisions(doc.records);
+      if (await this.restoreReceipts(scope, doc.records)) await this.write(scope, doc.records, previous);
       if (!store.getFile(PHONE_INBOX_PATH)) return;
       const known = new Set(doc.records.map(row => row.id));
       const eligible = (line: PhoneInboxLine) => !known.has(line.id)
@@ -160,7 +167,7 @@ export class PhoneInbox {
         }
         const invalid = phoneInboxReviewReason(store, line);
         if (!invalid && !textAiReadiness(store.settings).ready) continue;
-        added.push(await this.process(scope, doc, line, invalid));
+        added.push(await this.process(scope, line, invalid));
       }
       if (added.length) this.host.notify(summarizePhoneInbox(added));
       if (added.length === MAX_BATCH_LINES && lines.length > added.length) this.schedule();
@@ -178,12 +185,17 @@ export class PhoneInbox {
       const doc = await this.read(scope);
       const row = doc.records.find(record => record.id === id);
       if (!row) throw Error("找不到这条手机记录。");
+      const previous = receiptRevisions([row]);
       const changed = await this.restoreReceipts(scope, [row]);
-      if (changed) await this.write(scope, doc);
+      if (changed) {
+        await this.write(scope, [row], previous);
+        previous.set(id, recordRevision(row));
+      }
       scope.assertCurrent();
       if (capturedScope && expectedRevision !== recordRevision(row)) throw Error("这条回执已变化，请重新打开核对。");
       if (changed && decision === "confirm" && row.status === "saved") return;
       if (decision === "undo" && row.operationId && !row.undone) {
+        await this.assertReceiptCurrent(scope, id, previous.get(id)!);
         if (!await this.host.undo(row.operationId)) throw Error("撤销暂时未完成。");
         row.undone = true;
       } else if (decision === "dismiss" && (row.status === "confirm" || row.status === "review" || row.status === "processing")) {
@@ -193,29 +205,29 @@ export class PhoneInbox {
       } else if (decision === "confirm" && row.status === "confirm" && row.action) {
         const line = await this.findLine(scope, id);
         if (requiresPhoneLineEnding(row) && !line.terminated) throw Error("这一行已回到编辑状态，请等它写完。");
-        const turn = this.turn(scope, line);
+        const turn = this.turn(scope, line, previous.get(id)!);
         await this.host.confirm(row.action, turn);
         row.operationId = `confirmed:${row.action.id}`;
         row.status = "saved";
         row.message = `已确认并核验 · ${row.action.content}`.slice(0, 2000);
         delete row.action;
       } else throw Error("这条回执已变化，请重新打开核对。");
-      await this.write(scope, doc);
+      await this.write(scope, [row], previous);
     });
   }
 
-  private async process(scope: PhoneInboxScope, doc: PhoneInboxDocument, line: PhoneInboxLine, invalid: string): Promise<PhoneInboxRecord> {
+  private async process(scope: PhoneInboxScope, line: PhoneInboxLine, invalid: string): Promise<PhoneInboxRecord> {
     const row: PhoneInboxRecord = { id: line.id, line: line.line, status: "processing", message: "上次处理未读回回执，请核对最近操作。" };
-    doc.records.push(row);
     if (invalid) {
       row.status = "review";
       row.message = invalid;
-      await this.write(scope, doc);
+      await this.write(scope, [row]);
       return row;
     }
     row.pendingOperationId = `${newLocalOperationId("agent-turn")}:phone`;
-    await this.write(scope, doc);
-    const turn = this.turn(scope, line, row.pendingOperationId);
+    await this.write(scope, [row]);
+    const revision = recordRevision(row);
+    const turn = this.turn(scope, line, revision, row.pendingOperationId);
     const submission = { controller: new AbortController(), scope };
     this.activeSubmission = submission;
     try {
@@ -249,7 +261,7 @@ export class PhoneInbox {
     } finally {
       if (this.activeSubmission === submission) this.activeSubmission = undefined;
     }
-    await this.write(scope, doc);
+    await this.write(scope, [row], new Map([[row.id, revision]]));
     return row;
   }
 
@@ -287,7 +299,7 @@ export class PhoneInbox {
     } catch { return false; }
   }
 
-  private turn(scope: PhoneInboxScope, line: PhoneInboxLine, operationId?: string): PhoneInboxTurn {
+  private turn(scope: PhoneInboxScope, line: PhoneInboxLine, expectedRevision: string, operationId?: string): PhoneInboxTurn {
     return {
       date: line.date,
       operationId,
@@ -298,6 +310,7 @@ export class PhoneInbox {
       assertLineCurrent: async () => {
         const current = await this.findLine(scope, line.id);
         if (line.terminated && !current.terminated) throw Error("这一行已回到编辑状态，请等它写完。");
+        await this.assertReceiptCurrent(scope, line.id, expectedRevision);
       }
     };
   }
@@ -323,10 +336,37 @@ export class PhoneInbox {
     return doc;
   }
 
-  private async write(scope: PhoneInboxScope, doc: PhoneInboxDocument): Promise<void> {
+  private async assertReceiptCurrent(scope: PhoneInboxScope, id: string, revision: string): Promise<void> {
+    const latest = (await this.read(scope)).records.find(row => row.id === id);
+    if (!latest || recordRevision(latest) !== revision) throw Error(RECEIPT_CHANGED);
+  }
+
+  private async write(scope: PhoneInboxScope, records: readonly PhoneInboxRecord[],
+    previous: ReadonlyMap<string, string> = new Map()): Promise<void> {
     scope.assertCurrent();
-    if (!validPhoneInboxDocument(doc)) throw Error("手机随手记回执格式需要核对。");
-    await scope.store.writeJson(scope.receiptPath, doc);
+    const changes = records.filter(row => recordRevision(row) !== previous.get(row.id));
+    if (!changes.length) return;
+    const { store, receiptPath } = scope;
+    const file = store.getFile(receiptPath);
+    if (!file) {
+      if (changes.some(row => previous.has(row.id))) throw Error(RECEIPT_CHANGED);
+      await store.writeJson(receiptPath, { version: 1, records: changes });
+      return;
+    }
+    const contract = jsonDataContract(receiptPath, store.settings.folders);
+    await store.app.vault.process(file, current => {
+      scope.assertCurrent();
+      const doc = parseJsonData(current, receiptPath, contract) as PhoneInboxDocument;
+      const rows = new Map(doc.records.map(row => [row.id, row]));
+      for (const row of changes) {
+        const existing = rows.get(row.id);
+        if ((existing && recordRevision(existing)) !== previous.get(row.id)) throw Error(RECEIPT_CHANGED);
+        rows.set(row.id, row);
+      }
+      const result: PhoneInboxDocument = { ...doc, records: [...rows.values()] };
+      if (!validPhoneInboxDocument(result)) throw Error("手机随手记回执格式需要核对。");
+      return serializeJsonData(result);
+    });
   }
 
   private statePath(store: StoreHost): string {
