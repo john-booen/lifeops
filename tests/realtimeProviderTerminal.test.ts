@@ -4,6 +4,7 @@ import { BailianRealtimeClient, UNCONFIRMED_VOICE_CANCEL_MESSAGE } from "../src/
 import type { RealtimeProviderRunEvent } from "../src/voice/realtimeProviderRun";
 import { VoiceSessionController, VoiceRuntimeJournal } from "../src/voice/voiceRuntime";
 import { createVoiceSession } from "../src/voiceSession";
+import { ServerVoiceEndpoint, type CascadeCaptureEvent } from "../src/voice/continuousInput";
 import { setProviderEgressSink } from "../src/privacy";
 import { serializeQualityLogEntry } from "../src/qualityLog";
 import { finishOmniE2eVoiceTurn, handleOmniE2eAudioOutputEvent, interruptManagedVoiceTurn, recordVoiceProviderRun,
@@ -141,6 +142,38 @@ it.each([false, true])("stops a cascade session rejected during startup only (ac
     socket.message({ type: "conversation.item.input_audio_transcription.completed", item_id: "fictional", transcript: "虚构语音" });
     expect(onCascadeCapture.mock.calls.some(([event]) => event.type === "final")).toBe(acknowledged);
     expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    client.close();
+  }
+});
+
+it("releases a cascade capture after transcription fails and delivers the next capture once", async () => {
+  const endpoint = new ServerVoiceEndpoint(), ready: string[] = [];
+  const onCascadeCapture = vi.fn((event: CascadeCaptureEvent) => {
+    const capture = endpoint.accept(event);
+    if (capture?.ready !== undefined) ready.push(capture.ready);
+  });
+  const onError = vi.fn();
+  const { client, socket, runs } = await opened({ onCascadeCapture, onError }, { mode: "cascade" });
+  socket.message({ type: "session.updated" });
+  const started = (id: string) => socket.message({ type: "input_audio_buffer.speech_started", item_id: id, audio_start_ms: 100 });
+  const stopped = (id: string) => socket.message({ type: "input_audio_buffer.speech_stopped", item_id: id, audio_end_ms: 800 });
+  const final = (id: string, transcript: string) => socket.message({
+    type: "conversation.item.input_audio_transcription.completed", item_id: id, transcript
+  });
+  try {
+    started("failed-item");
+    stopped("failed-item");
+    expect(endpoint.awaitingTranscript).toBe(true);
+    socket.message({ type: "conversation.item.input_audio_transcription.failed", item_id: "failed-item", error: { message: "虚构转写失败" } });
+    expect(endpoint.awaitingTranscript).toBe(false);
+    expect(onError).toHaveBeenCalledExactlyOnceWith("虚构转写失败");
+    final("failed-item", "虚构过期转写");
+    started("next-item");
+    stopped("next-item");
+    final("next-item", "虚构下一条转写");
+    expect(ready).toEqual(["虚构下一条转写"]);
+    expect(runs.filter(event => event.stage === "voice_asr").map(event => event.run.status)).toEqual(["failed", "success"]);
   } finally {
     client.close();
   }

@@ -651,8 +651,13 @@ export class BailianRealtimeClient {
       const error = event.error as { message?: string } | undefined;
       const message = redactSensitiveText(error?.message || "百炼 Realtime 转写失败。", [this.settings.apiKey]);
       const failure = realtimeProviderError(error);
-      if (type === "conversation.item.input_audio_transcription.failed") this.asrRunForEvent(event, true)?.finish("failed", failure.code, undefined, failure.httpStatus);
-      else this.responseRun?.failAttempt(failure.code, failure.httpStatus);
+      if (type === "conversation.item.input_audio_transcription.failed") {
+        this.asrRunForEvent(event, true)?.finish("failed", failure.code, undefined, failure.httpStatus);
+        if (!this.isOmniE2e()) {
+          if (asrItemId === this.currentSpeechItemId) this.transcript = "";
+          this.callbacks.onCascadeCapture?.({ type: "rejected", itemId: asrItemId });
+        }
+      } else this.responseRun?.failAttempt(failure.code, failure.httpStatus);
       if (!type.startsWith("response.") && this.maybeRetryModelError(message)) return;
       if (type.startsWith("response.")) {
         this.responseRun?.finish("failed", failure.code, undefined, failure.httpStatus);
