@@ -167,6 +167,22 @@ describe("real-file operation boundary", () => {
     expect((await ledger()).records[0].status).toBe("failed");
     expect(JSON.parse(await vault.bytes(factRecoveryPath(store))).status).toBe("rolled_back");
   });
+  it("rolls back a prior write when a later vault mutation bypasses the journal", async () => {
+    const path = note("unsupported-mutation");
+    await vault.seed(path, "虚构原文");
+    const result = await operation(async scope => {
+      await scope.writeFile(path, "虚构已暂存");
+      const file = scope.getFile(path);
+      if (!file) throw Error("缺少虚构测试文件");
+      await scope.app.vault.append(file, "不应直接追加");
+    });
+    expect(result.success).toBe(false);
+    expect(result.output).toContain("不支持这种文件修改方式");
+    expect(await vault.bytes(path)).toBe("虚构原文");
+    expect((await ledger()).records[0].status).toBe("failed");
+    expect(JSON.parse(await vault.bytes(factRecoveryPath(store))).status).toBe("rolled_back");
+  });
+
   it("removes a newly created note if a later step throws", async () => {
     const path = note("new");
     expect((await operation(async scope => { await scope.writeFile(path, "new data"); throw new Error("later step failed"); })).success).toBe(false);

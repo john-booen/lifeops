@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   OperationLedger,
   operationFingerprint,
@@ -24,6 +24,14 @@ class MemoryLedgerHost implements OperationLedgerHost {
 }
 
 describe("operation ledger", () => {
+  it.each(["{", '{"version":2,"records":[]}'])("refuses to compact unreadable or incompatible history (%s)", async start => {
+    const ledger = new OperationLedger(new MemoryLedgerHost());
+    const raw = start.padEnd(13 * 1024 * 1024);
+    const replace = vi.fn(async () => undefined);
+    await expect(ledger.compactRevertedSnapshots(async () => raw, replace)).rejects.toThrow("操作历史格式无法安全读取");
+    expect(replace).not.toHaveBeenCalled();
+  });
+
   it("does not fabricate receipts when a write was never claimed", async () => {
     const host = new MemoryLedgerHost(), ledger = new OperationLedger(host);
     await expect(ledger.verify("missing-write", { success: true, output: "虚构", actions: [] })).rejects.toThrow("未找到操作记录");
