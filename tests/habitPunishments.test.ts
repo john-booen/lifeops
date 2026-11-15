@@ -349,7 +349,7 @@ describe("habit changes through the real store and operation ledger", () => {
     expect((await store.readHabitDb()).habitPunishmentCheckedThrough).toEqual({ [target.id]: addDays(date, -1) });
   });
 
-  it("requires a fresh ‘did it last night’ form after the goal unit changes", async () => {
+  it.each(["unit", "check-in"] as const)("requires a fresh ‘did it last night’ form after the %s changes", async changed => {
     const input: HabitInput = { name: "虚构每日统计", frequencyUnit: "day", frequencyInterval: 1, targetCount: 1,
       startDate: date, punishment: config(reflection), target: { kind: "number", perDay: 2, unit: "公里" } };
     const habit = await store.createHabit(input);
@@ -359,14 +359,17 @@ describe("habit changes through the real store and operation ledger", () => {
     const [task] = (await store.readTaskDb()).tasks;
     try {
       await confirmYesterdayHabit.call({ ...host, app: store.app }, store, task.id);
-      await store.updateHabitDetails(habit.id, { ...input, target: { kind: "number", perDay: 2, unit: "分钟" } });
+      const unit = changed === "unit" ? "分钟" : "公里";
+      if (changed === "unit") await store.updateHabitDetails(habit.id, { ...input, target: { kind: "number", perDay: 2, unit } });
+      else await store.recordHabitStatus(habit.id, "done", date, "虚构同步打卡", 1.5);
+      const before = (await store.readHabitDb()).checkins;
       const entry = { status: "done" as const, date, value: 2 };
       await expect(yesterdayForm.submit!(entry)).rejects.toThrow("重新打开");
-      expect((await store.readHabitDb()).checkins).toEqual([]);
+      expect((await store.readHabitDb()).checkins).toEqual(before);
       expect((await store.readTaskDb()).tasks).toMatchObject([{ id: task.id, status: "active" }]);
       await confirmYesterdayHabit.call({ ...host, app: store.app }, store, task.id);
-      await yesterdayForm.submit!(entry);
-      expect((await store.readHabitDb()).checkins).toMatchObject([{ habitId: habit.id, date, value: 2, valueUnit: "分钟" }]);
+      await yesterdayForm.submit!({ ...entry, value: changed === "unit" ? 2 : 0.5 });
+      expect((await store.readHabitDb()).checkins).toMatchObject([{ habitId: habit.id, date, value: 2, valueUnit: unit }]);
       expect((await store.readTaskDb()).tasks).toMatchObject([{ id: task.id, status: "abandoned" }]);
     } finally {
       yesterdayForm.submit = undefined;

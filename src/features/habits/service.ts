@@ -6,7 +6,7 @@ import { addDays, formatDate } from "../../date";
 import { assertRecordRevision, recordRevision } from "../../operationIdentity";
 import { isVaultPathExcluded } from "../../privacy";
 import type { StoreHost } from "../../store/settingsSlice";
-import type { HabitCheckinStatus, HabitDashboardItem, HabitDefinition, HabitInput } from "../../types";
+import type { HabitCheckin, HabitCheckinStatus, HabitDashboardItem, HabitDefinition, HabitInput } from "../../types";
 import type { LocalOperationHost } from "../serviceHost";
 import { advanceCompensationDebt } from "./compensationDebt";
 import { firstUncheckedHabitDay, habitDayGoalMet } from "./punishments";
@@ -89,8 +89,12 @@ function habitRecordsExcluded(store: StoreHost): boolean {
   return [store.habitDbPath(), store.taskDbPath()].some(path => isVaultPathExcluded(path, excluded));
 }
 
+function habitCorrectionState(habit: HabitDefinition, checkins: readonly HabitCheckin[], date: string) {
+  return { habit, checkin: checkins.find(row => row.habitId === habit.id && row.date === date) ?? null };
+}
+
 export async function correctYesterdayHabit(host: LocalOperationHost, taskId: string,
-  { value, now = new Date(), expectedHabitRevision }: { value?: number; now?: Date; expectedHabitRevision?: string } = {}
+  { value, now = new Date(), expectedRevision }: { value?: number; now?: Date; expectedRevision?: string } = {}
 ): Promise<void> {
   const date = formatDate(now), yesterday = addDays(date, -1);
   await host.saveLocalOperation("local_correctYesterdayHabit", { taskId, date: yesterday, value }, async store => {
@@ -104,7 +108,7 @@ export async function correctYesterdayHabit(host: LocalOperationHost, taskId: st
     const db = await store.readHabitDb();
     const habit = db.habits.find(row => row.id === penalty.habitId);
     if (!habit || habit.source === "trades") throw Error("这项习惯无法手动补记。");
-    assertRecordRevision(habit, expectedHabitRevision);
+    assertRecordRevision(habitCorrectionState(habit, db.checkins, yesterday), expectedRevision);
     if (!habitDayGoalMet(habit, db.checkins, yesterday)) {
       await store.recordHabitStatus(habit.id, "done", yesterday, "昨晚补记", value);
       if (habit.target?.kind !== "number") {
@@ -131,16 +135,19 @@ export async function confirmYesterdayHabit(this: HabitCheckinHost, store: Store
   };
   assertReadable();
   const task = (await store.readTaskDb({ readOnly: true })).tasks.find(row => row.id === taskId);
+  const penalty = task?.habitPunishment;
+  if (!penalty || task.status !== "active") throw Error("这条补偿已变更，请刷新后再核对。");
   assertReadable();
-  const habit = (await store.readHabitDb()).habits.find(row => row.id === task?.habitPunishment?.habitId);
+  const db = await store.readHabitDb();
   assertReadable();
-  if (!habit || task?.status !== "active") throw Error("这条补偿已变更，请刷新后再核对。");
-  const expectedHabitRevision = recordRevision(habit);
-  if (habit.target?.kind !== "number") return correctYesterdayHabit(this, taskId, { expectedHabitRevision });
-  const date = task.habitPunishment!.judgedDate;
+  const habit = db.habits.find(row => row.id === penalty.habitId);
+  if (!habit) throw Error("这条补偿已变更，请刷新后再核对。");
+  const date = penalty.judgedDate;
+  const expectedRevision = recordRevision(habitCorrectionState(habit, db.checkins, date));
+  if (habit.target?.kind !== "number") return correctYesterdayHabit(this, taskId, { expectedRevision });
   new HabitCheckinModal(this.app, habit, async entry => {
     if (entry.status !== "done" || entry.date !== date) throw Error("请填写昨晚完成的实际数值。");
-    await correctYesterdayHabit(this, taskId, { value: entry.value, expectedHabitRevision });
+    await correctYesterdayHabit(this, taskId, { value: entry.value, expectedRevision });
   }, { status: "done", date }).open();
 }
 
