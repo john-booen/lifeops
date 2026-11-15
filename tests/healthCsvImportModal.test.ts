@@ -128,22 +128,26 @@ it.each(["store", "folder"] as const)("requires a fresh health CSV preview after
   expect(write).toHaveBeenCalledOnce();
 });
 
-it("rechecks the destination inside the queued confirmation", async () => {
+it.each(["location", "permission"] as const)("rechecks health CSV %s inside the queued confirmation", async changed => {
   const { save, fill, write, button, store, replaceStore } = fixture();
-  const original = save.getMockImplementation()!;
-  save.mockImplementationOnce(async (...args) => {
-    replaceStore({ ...store });
-    await original(...args);
+  save.mockImplementationOnce(async (_name, _args, action, options) => {
+    const scope = { ...store, settings: structuredClone(store.settings) };
+    if (changed === "location") replaceStore({ ...store });
+    else store.settings.privacy = { excludedVaultPrefixes: ["Health/2026-05-25.md"] };
+    options?.assertCurrent?.();
+    await action(scope);
   });
   fill(valid);
   await button("核对导入内容").onclick();
   await button("确认导入 1 条").onclick();
   expect(save).toHaveBeenCalledOnce();
   expect(write).not.toHaveBeenCalled();
-  expect(notices.at(-1)).toContain("重新核对");
+  expect(notices.at(-1)).toContain(changed === "location" ? "重新核对" : "已排除");
 });
 
-it.each([false, true])("binds the health screenshot to the destination during preview and save (queued: %s)", async queued => {
+it.each([
+  [false, "location"], [true, "location"], [false, "permission"], [true, "permission"]
+] as const)("keeps a health screenshot in scope (queued: %s, change: %s)", async (queued, changed) => {
   const { store, save, write } = fixture();
   const settings = structuredClone(DEFAULT_SETTINGS);
   settings.privacy!.plaintextCredentialStorageAccepted = true;
@@ -158,13 +162,21 @@ it.each([false, true])("binds the health screenshot to the destination during pr
   field.onchange();
   await content.children.find(el => el.textContent === "发送并识别")!.onclick();
   const confirm = content.children.find(el => el.textContent === "确认并保存")!;
-  const switchFolder = () => { store.settings.folders.health = "虚构扫描期间新目录"; };
+  const changeScope = () => {
+    if (changed === "location") store.settings.folders.health = "虚构扫描期间新目录";
+    else store.settings.privacy = { excludedVaultPrefixes: ["Health/2026-05-25.md"] };
+  };
   if (queued) {
-    const original = save.getMockImplementation()!;
-    save.mockImplementationOnce(async (...args) => { switchFolder(); await original(...args); });
-  } else switchFolder();
+    save.mockImplementationOnce(async (_name, _args, action, options) => {
+      const scope = { ...store, settings: structuredClone(store.settings) };
+      changeScope();
+      options?.assertCurrent?.();
+      await action(scope);
+    });
+  } else changeScope();
   await confirm.onclick();
   expect(save).toHaveBeenCalledTimes(queued ? 1 : 0);
   expect(write).not.toHaveBeenCalled();
-  expect(content.children.some(el => el.textContent.includes("重新选图"))).toBe(true);
+  const message = changed === "location" ? "重新选图" : "已排除";
+  expect(content.children.some(el => el.textContent.includes(message))).toBe(true);
 });

@@ -4,7 +4,7 @@ import type { StoreHost } from "../../store/settingsSlice";
 import type { HealthEntry } from "../../types";
 import type { LocalOperationHost } from "../serviceHost";
 import { HEALTH_METRICS, healthMetricKeys } from "./model";
-import { recordHealthEntries } from "./store";
+import { assertHealthEntriesAllowed, recordHealthEntries } from "./store";
 
 interface CsvImportHost extends LocalOperationHost {
   app: App;
@@ -80,6 +80,7 @@ export class HealthCsvImportModal extends Modal {
         if (generation !== this.generation || this.host.store() !== owner || owner.settings.folders.health !== folder) {
           throw Error("导入窗口或健康记录位置已变化，请返回修改并重新核对。");
         }
+        assertHealthEntriesAllowed(owner, entries);
       };
       current();
       let saved = 0;

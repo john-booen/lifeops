@@ -7,7 +7,7 @@ import { assertSelectedFileAllowed } from "../screenshots/file";
 import { readScreenshotImage, SCREENSHOT_MAX_BYTES, type ScreenshotImage } from "../screenshots/image";
 import { combineHealthScreenshotDays, healthDay, healthMetricKeys, HEALTH_METRICS, type HealthDay } from "./model";
 import { assertHealthScreenshotReady } from "./screenshot";
-import { recordHealthEntries } from "./store";
+import { assertHealthEntriesAllowed, recordHealthEntries } from "./store";
 
 export interface HealthScreenshotHost extends LocalOperationHost {
   app: App;
@@ -100,11 +100,16 @@ class HealthScreenshotModal extends Modal {
           throw Error("请勾选至少一条有指标的记录，并核对日期。");
         }
         const entries = combineHealthScreenshotDays(selected);
+        const assertCurrent = () => {
+          current();
+          assertHealthEntriesAllowed(this.host.store, entries);
+        };
+        assertCurrent();
         let saved = 0;
         await this.host.saveLocalOperation("manual_health_screenshot", { digest, entries }, async store => {
-          current();
+          assertCurrent();
           saved = await recordHealthEntries(store, entries);
-        }, { assertCurrent: current });
+        }, { assertCurrent });
         await this.host.refreshViews().catch(() => undefined);
         new Notice(saved ? `已核对并保存 ${saved} 天的健康记录。可在「最近操作」撤销。` : "所选记录与已有数据一致。");
         if (!this.request.signal.aborted) this.close();

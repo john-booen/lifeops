@@ -15,6 +15,12 @@ export function healthPathAllowed(store: StoreHost, date: string): boolean {
   return !isVaultPathExcluded(healthNotePath(store, date), store.settings.privacy?.excludedVaultPrefixes);
 }
 
+export function assertHealthEntriesAllowed(store: StoreHost, entries: readonly Pick<HealthEntry, "date">[]): void {
+  if (entries.some(({ date }) => !healthPathAllowed(store, date))) {
+    throw Error("有选中的健康记录已排除，无法保存。");
+  }
+}
+
 export async function readHealthDay(store: StoreHost, date: string): Promise<HealthDay> {
   return (await checkHealthNote(store, date)).day;
 }
