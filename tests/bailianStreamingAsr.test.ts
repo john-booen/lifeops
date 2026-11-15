@@ -126,3 +126,26 @@ it("reports a hotword disconnect and can reconnect when socket closing fails", a
   expect(onDisconnected).toHaveBeenCalledOnce();
   client.close();
 });
+
+it("settles a hotword connection if sending the initial task throws", async () => {
+  const onOpen = vi.fn();
+  const client = new BailianRealtimeClient(settings, { onOpen });
+  const first = client.connect().catch(error => error);
+  const socket = sockets[0];
+  vi.spyOn(socket, "send").mockImplementationOnce(() => { throw Error("虚构首次发送失败"); });
+  try {
+    expect(() => socket.open()).not.toThrow();
+    expect(await first).toMatchObject({ message: "百炼热词识别未连接。" });
+    expect(onOpen).not.toHaveBeenCalled();
+
+    const next = client.connect();
+    const replacement = sockets[1];
+    replacement.open();
+    const taskId = JSON.parse(String(replacement.sent[0])).header.task_id;
+    replacement.message({ header: { task_id: taskId, event: "task-started" } });
+    await next;
+    expect(onOpen).toHaveBeenCalledOnce();
+  } finally {
+    client.close();
+  }
+});

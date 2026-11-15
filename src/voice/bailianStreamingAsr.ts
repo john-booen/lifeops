@@ -67,7 +67,8 @@ export class BailianStreamingAsr {
       socket.on("open", () => {
         if (this.connection !== connection) return;
         this.audit("realtime_connection", Buffer.byteLength(request));
-        socket.send(request, error => { if (error) this.fail(connection, "network"); });
+        try { socket.send(request, error => { if (error) this.fail(connection, "network"); }); }
+        catch { this.fail(connection, "network"); }
       });
       socket.on("message", data => this.receive(connection, data));
       socket.on("unexpected-response", (_request, response) => {
