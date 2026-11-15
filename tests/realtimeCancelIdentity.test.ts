@@ -49,6 +49,22 @@ it("keeps known-ID timeout continuation while rejecting old content",async()=>{
  expect(callbacks.onResponseDone).toHaveBeenCalledOnce();expect(callbacks.onResponseDone.mock.calls[0][0]).toBe("NEW_REPLY");expect(callbacks.onAudioDelta).toHaveBeenCalledOnce();expect(callbacks.onTransportError).not.toHaveBeenCalled();
 });
 
+it("keeps the first cancellation deadline when asked to cancel again", async () => {
+  const onTransportError = vi.fn();
+  const { socket } = await opened({ onTransportError });
+  client.createResponse();
+  client.cancelResponse();
+  await vi.advanceTimersByTimeAsync(1_900);
+  client.cancelResponse();
+  client.createResponse();
+  expect(socket.sent.filter(frame => frame.type === "response.cancel")).toHaveLength(1);
+  await vi.advanceTimersByTimeAsync(100);
+  expect(socket.readyState).toBe(3);
+  expect(creates(socket)).toHaveLength(1);
+  expect(onTransportError).toHaveBeenCalledOnce();
+  expect(vi.getTimerCount()).toBe(0);
+});
+
 it("continues after the cancelled response is identified and acknowledged before timeout",async()=>{
  const callbacks={onResponseDone:vi.fn(),onTransportError:vi.fn()};const{socket}=await opened(callbacks);
  client.createResponse();await flush();client.cancelResponse();client.createResponse();socket.message(created("now-known-old"));socket.message(done("now-known-old","cancelled"));await flush();

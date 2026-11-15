@@ -1,4 +1,4 @@
-import { UNCONFIRMED_VOICE_CANCEL_MESSAGE } from "../../bailianRealtime";
+import { UNCONFIRMED_VOICE_CANCEL_MESSAGE } from "./responseCancellation";
 import type { AgentConversationMessage } from "../../types";
 import type { VoiceSessionController } from "../voiceRuntime";
 import { normalizeVoiceTriggerText } from "../voiceTrigger";
