@@ -166,6 +166,40 @@ function proactivePress(button: Element) { return button.listeners.click[0]({});
 async function settleFeedback() { await new Promise(resolve => setTimeout(resolve, 0)); }
 
 describe("proactive feedback button outcomes", () => {
+  it("offers the exact yesterday correction from today's morning brief and removes it when the debt clears", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const morning = new Date(2026, 8, 23, 8);
+    vi.setSystemTime(morning);
+    try {
+      const host = view();
+      const brief = { ...candidate, steward: true, kind: "daily_brief", title: "早间简报", createdAt: morning.toISOString() };
+      const oldBrief = { ...brief, id: "older", createdAt: new Date(2026, 8, 22, 8).toISOString() };
+      const penalty = { id: "fictional-one", status: "active", category: "punishment",
+        habitPunishment: { habitId: "read", period: "day", judgedDate: "2026-09-22" } };
+      const habits = [{ habit: { id: "read", name: "虚构阅读" } }, { habit: { id: "auto", name: "虚构步数", source: "health:steps" } }];
+      const automatic = { ...penalty, id: "fictional-auto", habitPunishment: { ...penalty.habitPunishment, habitId: "auto" } };
+      host.stewardLastBoard = { ...board, habits, tasks: [penalty, automatic] };
+      host.proactiveCandidates = [brief, oldBrief];
+      let finish!: () => void;
+      const correct = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
+      host.controller.correctYesterdayHabit = correct;
+      const { root } = suggestions(host);
+      const buttons = () => root.querySelectorAll("button").filter(button => button.textContent.startsWith("昨晚其实做了"));
+      expect(buttons().map(button => button.textContent)).toEqual(["昨晚其实做了 · 虚构阅读"]);
+      const button = buttons()[0];
+      const pending = button.click();
+      button.click();
+      expect(correct).toHaveBeenCalledExactlyOnceWith("fictional-one");
+      finish();
+      await pending;
+      host.stewardLastBoard.tasks = [automatic];
+      host.refreshAgentSuggestions();
+      expect(buttons()).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it.each(proactiveChoices)("reports %s failure and retains a working retry", async (label, decision) => {
     const host = view(); host.proactiveCandidates = [candidate];
     host.controller.respondToProactiveCandidate.mockRejectedValueOnce(new Error("synthetic private failure"));

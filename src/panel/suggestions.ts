@@ -2,7 +2,8 @@ import { ItemView, Notice, setIcon, WorkspaceLeaf } from "obsidian";
 import { BailianRealtimeClient } from "../bailianRealtime";
 import { BailianRealtimeTtsClient } from "../bailianTtsRealtime";
 import type { AiToolCall } from "../ai";
-import { addDays, todayString, weekDates } from "../date";
+import { addDays, formatDate, todayString, weekDates } from "../date";
+import { correctableYesterdayHabit } from "../features/today/model";
 import {
   addEchoText,
   clearEchoMemories,
@@ -70,7 +71,20 @@ const suggestionPopupCleanup = new WeakMap<object, () => void>();
 const suggestionCleanupRegistered = new WeakSet<object>();
 let suggestionPopoverId = 0;
 function suggestionState(host: ViewHost): string {
-  return JSON.stringify([host.pendingAgentActions, host.proactiveCandidates]);
+  const { pendingAgentActions, proactiveCandidates } = host;
+  const corrections = proactiveCandidates.map(candidate => morningCorrections(host, candidate));
+  return JSON.stringify([pendingAgentActions, proactiveCandidates, corrections]);
+}
+
+function morningCorrections(host: ViewHost, candidate: ProactiveCandidate) {
+  const board = host.stewardLastBoard;
+  const today = todayString();
+  if (!candidate.steward || candidate.kind !== "daily_brief" || formatDate(new Date(candidate.createdAt)) !== today
+    || board?.date !== today || !host.controller.correctYesterdayHabit) return [];
+  return board.tasks.flatMap(task => {
+    const habit = correctableYesterdayHabit(board, task, today);
+    return habit ? [{ taskId: task.id, name: habit.name }] : [];
+  });
 }
 
 export const LIFEOPS_VIEW_TYPE = "lifeops-assistant-view";
@@ -180,6 +194,7 @@ export interface LifeOpsViewController {
   respondToProactiveCandidate(candidateId: string, decision: ProactiveFeedbackDecision): Promise<void>;
   openStewardSummary?(path: string): Promise<void>;
   openStewardLearningPlan?(): void;
+  correctYesterdayHabit?(taskId: string): Promise<void>;
 }
 type ViewConstructor = { prototype: object };
 interface ViewHost {
@@ -204,6 +219,7 @@ interface ViewHost {
   agentVoiceConversation: boolean;
   pendingAgentActions: AgentActionSuggestion[];
   proactiveCandidates: ProactiveCandidate[];
+  stewardLastBoard?: TaskDashboardData | null;
   agentRecorder: MediaRecorder | null;
   agentStream: MediaStream | null;
   agentAudioChunks: BlobPart[];
@@ -448,6 +464,20 @@ const suggestionsPanel = {
             card.createDiv({ text: "接受后生成草稿，后续步骤由你确认。", cls: "lifeops-agent-proactive-meta" });
           }
           const actions = card.createDiv({ cls: "lifeops-agent-proactive-actions" });
+          for (const { taskId, name } of morningCorrections(this, candidate)) {
+            const button = actions.createEl("button", { text: `昨晚其实做了 · ${name}`, attr: { type: "button" } });
+            button.onclick = async () => {
+              if (button.disabled || !section.contains(button)) return;
+              button.disabled = true;
+              try {
+                await this.controller.correctYesterdayHabit?.(taskId);
+              } catch {
+                new Notice("补记未完成，请重试或查看操作记录。");
+              } finally {
+                button.disabled = false;
+              }
+            };
+          }
           if (candidate.summaryPath && this.controller.openStewardSummary) {
             const button = actions.createEl("button", { text: "查看周摘要", attr: { type: "button" } });
             button.onclick = () => { void this.controller.openStewardSummary?.(candidate.summaryPath!).catch(() => new Notice("周摘要暂时无法打开。")); };

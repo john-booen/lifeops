@@ -7,6 +7,7 @@ import { currentSignalValues, type JournalSignal, type SignalField, type SignalS
 import { todayTaskCounts } from "../stats/stats";
 import { todayTaskPlan } from "../tasks/priority";
 import { compensationDaysLate, compensationDueLabel, compensationSummaryLine, summarizeCompensationDebt } from "../habits/compensationDebt";
+import { isHealthHabitSource } from "../health/habitSources";
 
 export interface JournalPlanChoice {
   title: string;
@@ -73,6 +74,14 @@ const STATUS_FIELDS: Array<{ field: SignalField; label: string; unit: string }> 
   { field: "sleepQuality", label: "睡眠质量", unit: "/5" }
 ];
 
+export function correctableYesterdayHabit(board: TaskDashboardData, task: LifeOpsTask, today: string) {
+  const penalty = task.habitPunishment;
+  if (task.status !== "active" || task.category !== "punishment" || penalty?.period !== "day"
+    || penalty.judgedDate !== addDays(today, -1)) return;
+  const habit = board.habits.find(item => item.habit.id === penalty.habitId)?.habit;
+  if (habit && habit.source !== "trades" && !isHealthHabitSource(habit.source)) return habit;
+}
+
 export function buildTodayCard(board: TaskDashboardData, signals: readonly JournalSignal[], now: Date, health?: HealthDay) {
   const values = currentSignalValues(signals);
   const latest = signals.slice().reverse();
@@ -99,11 +108,9 @@ export function buildTodayCard(board: TaskDashboardData, signals: readonly Journ
     penalties: board.tasks.filter(task => task.status === "active" && task.category === "punishment" && task.habitPunishment)
       .map(task => {
         const penalty = task.habitPunishment!;
-        const habit = board.habits.find(item => item.habit.id === penalty.habitId)?.habit;
         return { id: task.id, title: task.title, dueDate: task.dueDate, evidence: penalty.evidence,
           due: compensationDueLabel(penalty), daysLate: compensationDaysLate(penalty, today),
-          canCorrectYesterday: !!habit && habit.source !== "trades" && penalty.period === "day"
-            && penalty.judgedDate === addDays(today, -1) };
+          canCorrectYesterday: !!correctableYesterdayHabit(board, task, today) };
       }),
     plans: journalPlanChoices(signals).map(plan => ({ plan, added: !!existingJournalPlanTask(board.tasks, plan) }))
   };
