@@ -64,6 +64,28 @@ it.each(["cascade", "omni-e2e"] as const)("ignores non-event JSON and keeps rece
   client.close();
 });
 
+it.each(["server error", "Omni timeout", "cascade timeout"])("reports failed initial context after %s even if disposal fails", async mode => {
+  const onInitialContextError = vi.fn(), dispose = vi.fn();
+  const initialInstructions = {
+    instructions: "虚构首次语音资料", baseInstructions: "虚构基础提示", assertCurrent: vi.fn(), dispose
+  };
+  const options = mode === "cascade timeout" ? { mode: "cascade" } : { initialInstructions };
+  const { client, socket } = await opened({ onInitialContextError }, options);
+  client.createResponse();
+  const update = socket.sent.find(event => event.type === "session.update");
+  vi.spyOn(socket, "close").mockImplementationOnce(() => { throw Error("虚构关闭失败"); });
+  vi.spyOn(socket, "terminate").mockImplementationOnce(() => { throw Error("虚构终止失败"); });
+
+  if (mode === "server error") socket.message({ type: "error", error: { message: "虚构会话拒绝" } });
+  else await vi.advanceTimersByTimeAsync(12_000);
+  expect(onInitialContextError).toHaveBeenCalledOnce();
+  expect(dispose).toHaveBeenCalledTimes(mode === "cascade timeout" ? 0 : 1);
+  socket.message({ type: "session.updated", session: { instructions: update.session.instructions } });
+  expect(socket.sent.filter(event => event.type === "response.create")).toHaveLength(0);
+  expect(vi.getTimerCount()).toBe(0);
+  client.close();
+});
+
 describe("accepted response usage through the actual client", () => {
   it.each(["response.done", "response.completed"])("records counters once at %s, without response content or server IDs in logs", async type => {
     const onResponseDone = vi.fn(), onAudioDelta = vi.fn();

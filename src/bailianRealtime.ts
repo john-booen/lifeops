@@ -164,7 +164,7 @@ export class BailianRealtimeClient {
       },
       failed: code => {
         this.connectionRun?.finish("failed", code);
-        this.close();
+        this.retireForLocalNotification();
         try { this.callbacks.onInitialContextError?.("首次语音资料未获当前确认，已停止连接；请重新开始语音。"); }
         catch { /* The closed session cannot retry a callback. */ }
       }
@@ -267,7 +267,7 @@ export class BailianRealtimeClient {
             else {
               connectionRun.finish("failed", "timeout");
               if (!this.isOmniE2e()) {
-                this.close();
+                this.retireForLocalNotification();
                 this.callbacks.onInitialContextError?.("百炼未确认语音会话，已停止。请重新开始语音。");
               }
             }
