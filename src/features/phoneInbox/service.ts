@@ -167,10 +167,11 @@ export class PhoneInbox {
         }
         const invalid = phoneInboxReviewReason(store, line);
         if (!invalid && !textAiReadiness(store.settings).ready) continue;
-        added.push(await this.process(scope, line, invalid));
+        const row = await this.process(scope, line, invalid);
+        if (row) added.push(row);
       }
       if (added.length) this.host.notify(summarizePhoneInbox(added));
-      if (added.length === MAX_BATCH_LINES && lines.length > added.length) this.schedule();
+      if (lines.length > MAX_BATCH_LINES && !pausedBySave && this.enabled && store === this.host.store()) this.schedule();
       if (pausedBySave && includeUnterminated) throw new PhoneInboxBusyError();
     });
   }
@@ -216,16 +217,15 @@ export class PhoneInbox {
     });
   }
 
-  private async process(scope: PhoneInboxScope, line: PhoneInboxLine, invalid: string): Promise<PhoneInboxRecord> {
+  private async process(scope: PhoneInboxScope, line: PhoneInboxLine, invalid: string): Promise<PhoneInboxRecord | undefined> {
     const row: PhoneInboxRecord = { id: line.id, line: line.line, status: "processing", message: "上次处理未读回回执，请核对最近操作。" };
     if (invalid) {
       row.status = "review";
       row.message = invalid;
-      await this.write(scope, [row]);
-      return row;
+      return await this.write(scope, [row]) ? row : undefined;
     }
     row.pendingOperationId = `${newLocalOperationId("agent-turn")}:phone`;
-    await this.write(scope, [row]);
+    if (!await this.write(scope, [row])) return;
     const revision = recordRevision(row);
     const turn = this.turn(scope, line, revision, row.pendingOperationId);
     const submission = { controller: new AbortController(), scope };
@@ -342,31 +342,38 @@ export class PhoneInbox {
   }
 
   private async write(scope: PhoneInboxScope, records: readonly PhoneInboxRecord[],
-    previous: ReadonlyMap<string, string> = new Map()): Promise<void> {
+    previous: ReadonlyMap<string, string> = new Map()): Promise<boolean> {
     scope.assertCurrent();
     const changes = records.filter(row => recordRevision(row) !== previous.get(row.id));
-    if (!changes.length) return;
+    if (!changes.length) return false;
     const { store, receiptPath } = scope;
     const file = store.getFile(receiptPath);
     if (!file) {
       if (changes.some(row => previous.has(row.id))) throw Error(RECEIPT_CHANGED);
       await store.writeJson(receiptPath, { version: 1, records: changes });
-      return;
+      return true;
     }
     const contract = jsonDataContract(receiptPath, store.settings.folders);
+    let applied = false;
     await store.app.vault.process(file, current => {
       scope.assertCurrent();
       const doc = parseJsonData(current, receiptPath, contract) as PhoneInboxDocument;
       const rows = new Map(doc.records.map(row => [row.id, row]));
+      applied = false;
       for (const row of changes) {
         const existing = rows.get(row.id);
-        if ((existing && recordRevision(existing)) !== previous.get(row.id)) throw Error(RECEIPT_CHANGED);
+        const revision = previous.get(row.id);
+        if (existing && revision === undefined) continue;
+        if ((existing && recordRevision(existing)) !== revision) throw Error(RECEIPT_CHANGED);
         rows.set(row.id, row);
+        applied = true;
       }
+      if (!applied) return current;
       const result: PhoneInboxDocument = { ...doc, records: [...rows.values()] };
       if (!validPhoneInboxDocument(result)) throw Error("手机随手记回执格式需要核对。");
       return serializeJsonData(result);
     });
+    return applied;
   }
 
   private statePath(store: StoreHost): string {

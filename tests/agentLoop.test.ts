@@ -2364,6 +2364,38 @@ it("stops a phone write when the claimed receipt is changed by sync", async () =
   } finally { inbox.stop(); }
 });
 
+it("skips a later phone receipt that synced mid-batch and keeps draining the inbox", async () => {
+  const { PhoneInbox } = await import("../src/features/phoneInbox/service");
+  const { PHONE_INBOX_PATH, PHONE_INBOX_STATE, parsePhoneInbox } = await import("../src/features/phoneInbox/model");
+  const { LifeOpsEventBus } = await import("../src/lifeOpsEventBus");
+  const path = store.path(store.settings.folders.aiReports, "System", PHONE_INBOX_STATE);
+  const inputLines = Array.from({ length: 22 }, (_, index) => `虚构手机行 ${index + 1}`);
+  const source = `${inputLines.join("\n")}\n`;
+  const [, second] = parsePhoneInbox(source, todayString());
+  const submit = vi.fn(async (text: string) => {
+    if (text === inputLines[0]) {
+      const doc = await store.readJson(path, { version: 1, records: [] as unknown[] });
+      await store.writeJson(path, { ...doc, records: [...doc.records,
+        { id: second.id, line: second.line, status: "review", message: "已从虚构同步得到回执" }] });
+    }
+    return { reply: "虚构回执", actions: [] };
+  });
+  const inbox = new PhoneInbox({ store: () => store, enabled: () => true, submit,
+    confirm: async () => {}, undo: async () => true, notify: () => {} }, new LifeOpsEventBus());
+  const schedule = vi.spyOn(inbox, "schedule").mockImplementation(() => undefined);
+  try {
+    await store.ensureFile(PHONE_INBOX_PATH, source);
+    await inbox.scan();
+    expect(submit.mock.calls.map(([text]) => text)).toEqual([inputLines[0], ...inputLines.slice(2, 20)]);
+    expect(schedule).toHaveBeenCalledOnce();
+    await inbox.scan();
+    expect(submit.mock.calls.map(([text]) => text)).toEqual([inputLines[0], ...inputLines.slice(2)]);
+    expect((await inbox.list()).find(row => row.id === second.id)?.message).toBe("已从虚构同步得到回执");
+    expect((await inbox.list())).toHaveLength(22);
+    expect(await store.readPath(PHONE_INBOX_PATH)).toBe(source);
+  } finally { inbox.stop(); }
+});
+
 it.each(["folder", "record"] as const)("requires a fresh phone confirmation after a %s change", async kind => {
   const { PhoneInbox } = await import("../src/features/phoneInbox/service");
   const { PHONE_INBOX_PATH, PHONE_INBOX_STATE } = await import("../src/features/phoneInbox/model");
