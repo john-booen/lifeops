@@ -12,8 +12,8 @@ import { voiceVadSilenceMs, type CascadeCaptureEvent } from "./voice/continuousI
 import { BailianStreamingAsr } from "./voice/bailianStreamingAsr";
 import {
   buildOmniSessionUpdate,
-  isSuccessfulResponseStatus, mergeOmniToolArguments, normalizeOmniToolCall,
-  responseEventId, responseFailureMessage, responseLifecycleEvent
+  mergeOmniToolArguments, normalizeOmniToolCall, readOmniTerminalResponse,
+  responseEventId, responseLifecycleEvent
 } from "./voice/omniE2e/protocol";
 import { normalizeRealtimeAsrLanguage } from "./voice/realtimeAsrOptions";
 import { ProtectedOmniResponses } from "./voice/omniE2e/protectedResponses";
@@ -715,19 +715,13 @@ export class BailianRealtimeClient {
       }
     }
     if (type === "response.done" || type === "response.completed") {
-      const terminal = isRecord(event.response) ? event.response : undefined;
-      // Metadata must belong to the bound response. Never infer ownership from
-      // a fallback ID, and do not bypass cancellation/old-socket guards above.
-      if (typeof terminal?.id === "string" && terminal.id && terminal.id === usageOwnerId
-        && terminal.id === this.responseRun?.responseId
-        && (event.response_id === undefined || event.response_id === terminal.id)
-        && (event.responseId === undefined || event.responseId === terminal.id)) {
-        this.responseRun.observeResponseUsage(terminal.usage);
-      }
-      const responseEvent = responseLifecycleEvent(event, this.activeResponseId);
-      if (!isSuccessfulResponseStatus(responseEvent.status)) {
+      const terminal = readOmniTerminalResponse(event, this.activeResponseId,
+        usageOwnerId === this.responseRun?.responseId ? usageOwnerId : undefined);
+      const responseEvent = terminal.response;
+      if ("usage" in terminal) this.responseRun?.observeResponseUsage(terminal.usage);
+      if (terminal.failureMessage !== undefined) {
         if(this.hasProtectedContextSources()){this.failToolContext();return;}
-        const message = redactSensitiveText(responseFailureMessage(event, responseEvent.status), [this.settings.apiKey]);
+        const message = redactSensitiveText(terminal.failureMessage, [this.settings.apiKey]);
         const failure = realtimeProviderError(message);
         const code = responseEvent.status === "cancelled" ? "cancelled" : failure.code === "network" ? "invalid_response" : failure.code;
         this.responseRun?.finish(code === "cancelled" ? "cancelled" : "failed", code, undefined, failure.httpStatus);

@@ -145,11 +145,25 @@ export function responseLifecycleEvent(
   };
 }
 
-export function isSuccessfulResponseStatus(status: string): boolean {
+export function readOmniTerminalResponse(event: Record<string, unknown>, fallbackResponseId: string, usageOwnerId?: string) {
+  const response = responseLifecycleEvent(event, fallbackResponseId);
+  const terminal = isRecord(event.response) ? event.response : undefined;
+  // Usage cannot establish ownership on the same packet or borrow a fallback ID.
+  const ownsUsage = typeof terminal?.id === "string" && terminal.id && terminal.id === usageOwnerId
+    && (event.response_id === undefined || event.response_id === terminal.id)
+    && (event.responseId === undefined || event.responseId === terminal.id);
+  return {
+    response,
+    failureMessage: isSuccessfulResponseStatus(response.status) ? undefined : responseFailureMessage(event, response.status),
+    ...(ownsUsage ? { usage: terminal.usage } : {})
+  };
+}
+
+function isSuccessfulResponseStatus(status: string): boolean {
   return !status || status === "completed" || status === "succeeded" || status === "success";
 }
 
-export function responseFailureMessage(event: Record<string, unknown>, status: string): string {
+function responseFailureMessage(event: Record<string, unknown>, status: string): string {
   const response = isRecord(event.response) ? event.response : {};
   const eventError = isRecord(event.error) ? event.error : {};
   const responseError = isRecord(response.error) ? response.error : {};
