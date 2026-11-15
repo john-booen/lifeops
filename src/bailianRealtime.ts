@@ -109,7 +109,6 @@ export class BailianRealtimeClient {
     fail: message => this.failToolContext(message)
   });
   private readonly initialInstructions: OmniInitialInstructions;
-  private routedInitialReady?:{resolve():void;reject(error:unknown):void};
   private connectionRun: RealtimeProviderRun | undefined;
   private responseRun: RealtimeProviderRun | undefined;
   private readonly asrRuns = new Map<string, RealtimeProviderRun>();
@@ -162,11 +161,9 @@ export class BailianRealtimeClient {
         this.connectionRun?.finish("success", undefined, model);
         this.initialInstructions.release();
         this.flushQueuedResponseCreate();
-        this.routedInitialReady?.resolve();
       },
       failed: code => {
         this.connectionRun?.finish("failed", code);
-        if (this.failRoutedRestore()) return;
         this.close();
         try { this.callbacks.onInitialContextError?.("首次语音资料未获当前确认，已停止连接；请重新开始语音。"); }
         catch { /* The closed session cannot retry a callback. */ }
@@ -301,7 +298,6 @@ export class BailianRealtimeClient {
           reject(new Error("百炼 Realtime 连接已关闭。"));
           return;
         }
-        if(this.failRoutedRestore()){reject(new Error("保存后的语音连接恢复失败。"));return;}
         if(this.hasProtectedContextSources()){this.failToolContext();reject(new Error("语音查询连接已停止。"));return;}
         this.finishProviderFailures(error);
         window.clearTimeout(this.connectionAckTimer); this.initialInstructions.release();
@@ -317,7 +313,6 @@ export class BailianRealtimeClient {
           reject(new Error("百炼 Realtime 连接已关闭。"));
           return;
         }
-        if(this.failRoutedRestore()){reject(new Error("保存后的语音连接恢复失败。"));return;}
         if(this.hasProtectedContextSources()){this.failToolContext();reject(new Error("语音查询连接已停止。"));return;}
         this.finishProviderFailures(reason.toString("utf8") || `连接关闭：${code}`);
         window.clearTimeout(this.connectionAckTimer); this.initialInstructions.release();
@@ -397,40 +392,6 @@ export class BailianRealtimeClient {
     });
   }
 
-  /** Retire all server history before Main writes. A new connection must read
-   * new original sources and receive its own exact initial ACK; no old fact
-   * watcher, Ledger/WAL certificate or server conversation is rebased. */
-  async suspendForRoutedWrite(current:()=>boolean):Promise<()=>Promise<void>> {
-    if(!current()||!this.options.prepareInstructions||!this.hasProtectedContextSources())throw Error("语音保存交接尚未就绪。");
-    await this.assertContextSourcesCurrent();
-    if(!current())throw Error("这轮语音已经结束，未派发保存。");
-    this.assertContextSourcesCurrentNow();
-    this.close();
-    const generation=this.responseGeneration;
-    let used=false;
-    return async()=>{
-      if(used)throw Error("语音保存交接不能重复使用。");used=true;
-      let live=true,ownedSocket:WebSocket|null=null,timer:ReturnType<typeof setTimeout>|undefined;
-      const suspended=()=>live&&current()&&this.intentionalClose&&this.socket===null&&this.responseGeneration===generation;
-      const ready={resolve:()=>{},reject:(_error:unknown)=>{}};
-      const accepted=new Promise<void>((resolve,reject)=>{ready.resolve=resolve;ready.reject=reject;});
-      // Attach rejection immediately: a cancellation may happen during prepare.
-      void accepted.catch(()=>undefined);
-      const work=async()=>{
-        if(!suspended())throw Error("语音保存交接已经结束。");
-        const snapshot=await this.options.prepareInstructions!();
-        if(!suspended()){snapshot.dispose?.();throw Error("语音保存交接已经结束。");}
-        this.initialInstructions.replace(snapshot);this.routedInitialReady=ready;
-        const connecting=this.connect();ownedSocket=this.socket;
-        await connecting;await accepted;
-        if(!live||!current()||this.socket!==ownedSocket||this.intentionalClose)throw Error("新的语音资料连接已经结束。");
-      };
-      try{await Promise.race([work(),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(Error("语音保存后的重新连接超时，请重新开始语音。")),12_000);})]);}
-      catch(error){live=false;if(ownedSocket&&this.socket===ownedSocket)this.close();throw error;}
-      finally{live=false;if(timer!==undefined)clearTimeout(timer);if(this.routedInitialReady===ready)this.routedInitialReady=undefined;}
-    };
-  }
-
   resetTranscript(): void {
     this.transcript = "";
   }
@@ -468,7 +429,6 @@ export class BailianRealtimeClient {
 
   close(): void {
     if (this.streamingAsr) return this.streamingAsr.close();
-    this.routedInitialReady?.reject(Error("语音资料连接已经结束。"));
     this.initialInstructions.release();
     this.instructionsBoundary?.cancel();
     this.instructionsBoundary = undefined;
@@ -607,7 +567,6 @@ export class BailianRealtimeClient {
   async assertToolOutputsCurrent():Promise<void>{this.toolOutputs.assertCurrent();}
   private failToolContext(message="本次语音查询的资料或权限已变化或暂时无法核对，已停止使用旧结果；请重新开始语音。已保存的操作保留，请勿重复保存。"):void{
     this.responseRun?.finish("failed","invalid_response");
-    if(this.failRoutedRestore())return;
     this.retireForLocalNotification();
     if(this.callbacks.onToolContextError)this.callbacks.onToolContextError(message);
     else this.callbacks.onError?.(message);
@@ -619,15 +578,6 @@ export class BailianRealtimeClient {
       if (!this.intentionalClose || this.socket) throw error;
       // The old connection has lost ownership. Its cleanup cannot block the local result.
     }
-  }
-
-  /** Main still owns a possible committed receipt during restore. A general
-   * View stop/reconnect callback would abort that producer before it can return
-   * the receipt. Reject only this handoff and let its existing owner settle. */
-  private failRoutedRestore():boolean{
-    if(!this.routedInitialReady)return false;
-    this.routedInitialReady.reject(new Error("保存后的语音连接恢复失败，请核对实际执行回执。"));
-    this.close();return true;
   }
 
   private handleEvent(event:Record<string,unknown>):void{

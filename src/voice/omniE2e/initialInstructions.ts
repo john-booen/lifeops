@@ -33,12 +33,6 @@ export class OmniInitialInstructions {
 
   constructor(private snapshot: RealtimeInstructionsSnapshot | undefined, private readonly host: InitialInstructionsHost) {}
 
-  replace(snapshot: RealtimeInstructionsSnapshot): void {
-    this.release();
-    this.snapshot = snapshot;
-    this.consumed = false;
-  }
-
   capture(enabled: boolean, required: boolean): void {
     if (!enabled) { this.release(); return; }
     const snapshot = this.snapshot;
