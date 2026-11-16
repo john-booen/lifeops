@@ -1764,6 +1764,7 @@ describe("phone inbox", () => {
   it("runs five offline-captured lines once, preserves raw input, and supports approval and targeted undo", async () => {
     const { PhoneInbox, summarizePhoneInbox } = await import("../src/features/phoneInbox/service");
     const { PHONE_INBOX_PATH } = await import("../src/features/phoneInbox/model");
+    const { listIdeas } = await import("../src/features/ideas/notes");
     const { LifeOpsEventBus } = await import("../src/lifeOpsEventBus");
     const staleTask = await runtime.executeAiToolCall(tool("create_task", { title: "撤掉旧样品" }, "inbox-stale"), "kimi");
     expect(staleTask.success).toBe(true);
@@ -1809,6 +1810,7 @@ describe("phone inbox", () => {
       expect(requests[3].at(-1)?.content).toBe(notes[3]);
       expect(await store.readPath(store.dailyNotePath(phoneDate, "晚"))).toContain(notes[3]);
       expect((await store.readHabitDb()).checkins).toContainEqual(expect.objectContaining({ date: phoneDate, value: 5 }));
+      expect(await listIdeas(store)).toEqual([expect.objectContaining({ title: "园艺地图", description: "做一张园艺地图" })]);
       expect((await store.readTaskDb()).tasks).toContainEqual(expect.objectContaining({ title: "带样品", date: "2026-01-10", time: "15:00" }));
       expect((await store.readTaskDb()).tasks.map(task => task.title)).toContain("撤掉旧样品");
       inbox.stop();
@@ -1820,9 +1822,13 @@ describe("phone inbox", () => {
         expect((await store.readTaskDb()).tasks.map(task => task.title)).not.toContain("撤掉旧样品");
         await reopened.resolve(rows[0].id, "undo");
         expect(rows[4].operationId).toBeDefined();
-        await runtime.undoOperation(rows[4].operationId!);
-        expect((await reopened.list()).find(row => row.id === rows[4].id)?.undone).toBe(true);
-        expect(summarizePhoneInbox(await reopened.list())).toContain("已撤销 2 条");
+        const beforeUndo = await reopened.snapshot();
+        const firstLineId = rows[4].id;
+        await beforeUndo.resolve!(firstLineId, "undo");
+        const afterUndo = await reopened.list();
+        expect(afterUndo.find(row => row.id === firstLineId)?.undone).toBe(true);
+        expect(afterUndo.filter(row => row.id !== firstLineId)).toEqual(beforeUndo.receipts.filter(row => row.id !== firstLineId));
+        expect(summarizePhoneInbox(afterUndo)).toContain("已撤销 2 条");
         expect((await store.readTaskDb()).tasks.map(task => task.title)).toEqual(["撤掉旧样品"]);
         expect(await store.readPath(PHONE_INBOX_PATH)).toBe(original);
       } finally { reopened.stop(); }
