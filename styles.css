@@ -7192,6 +7192,10 @@ SOFTWARE.
 .lifeops-neural-affairs .lifeops-panel-title,
 .lifeops-neural-affairs .lifeops-content-header h3 { font-weight: 500; }
 .lifeops-neural-affairs .lifeops-task-card { border-radius: 11px; box-shadow: none; background: rgba(225,229,219,.025); }
+.lifeops-neural-affairs :is(
+  .lifeops-task-card, .lifeops-task-group, .lifeops-quadrant,
+  .lifeops-calendar-event, .lifeops-calendar-detail-task
+):hover { transform: none; }
 .lifeops-neural-affairs .lifeops-task-title,
 .lifeops-neural-affairs .lifeops-habit-name { font-weight: 500; overflow-wrap: anywhere; }
 .lifeops-neural-affairs .lifeops-task-note { white-space: pre-wrap; overflow-wrap: anywhere; }
