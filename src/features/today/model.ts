@@ -7,7 +7,7 @@ import { currentSignalValues, type JournalSignal, type SignalField, type SignalS
 import { todayTaskCounts } from "../stats/stats";
 import { todayTaskPlan } from "../tasks/priority";
 import { compensationDaysLate, compensationDueLabel, compensationSummaryLine, summarizeCompensationDebt } from "../habits/compensationDebt";
-import { isHealthHabitSource } from "../health/habitSources";
+import { isManualHabitSource } from "../habits/targets";
 
 export interface JournalPlanChoice {
   title: string;
@@ -79,7 +79,7 @@ export function correctableYesterdayHabit(board: TaskDashboardData, task: LifeOp
   if (task.status !== "active" || task.category !== "punishment" || penalty?.period !== "day"
     || penalty.judgedDate !== addDays(today, -1)) return;
   const habit = board.habits.find(item => item.habit.id === penalty.habitId)?.habit;
-  if (habit && habit.source !== "trades" && !isHealthHabitSource(habit.source)) return habit;
+  if (habit && isManualHabitSource(habit.source)) return habit;
 }
 
 export function buildTodayCard(board: TaskDashboardData, signals: readonly JournalSignal[], now: Date, health?: HealthDay) {

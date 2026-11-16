@@ -396,6 +396,27 @@ describe("habit changes through the real store and operation ledger", () => {
     }
   });
 
+  it.each(["open", "save"] as const)("rejects yesterday correction at %s after the habit switches to health records", async entry => {
+    const input: HabitInput = { name: "虚构每日跑步", frequencyUnit: "day", frequencyInterval: 1, targetCount: 1,
+      startDate: date, punishment: config(reflection), target: { kind: "number", perDay: 2, unit: "公里" } };
+    const habit = await store.createHabit(input);
+    const morning = new Date(2026, 10, 16, 8);
+    vi.setSystemTime(morning);
+    await runScheduledPunishmentCheck(host, store, morning, () => {});
+    const [task] = (await store.readTaskDb()).tasks;
+    expect(task).toMatchObject({ status: "active", habitPunishment: { habitId: habit.id, judgedDate: date } });
+    await store.updateHabitDetails(habit.id, { ...input, source: "health:runningKm" });
+    const before = await store.readHabitDb();
+    try {
+      const correction = entry === "open" ? confirmYesterdayHabit.call({ ...host, app: store.app }, store, task.id)
+        : correctYesterdayHabit(host, task.id, { value: 2, now: morning });
+      await expect(correction).rejects.toThrow("这项习惯无法手动补记");
+      expect(yesterdayForm.submit).toBeUndefined();
+      expect(await store.readHabitDb()).toEqual(before);
+      expect((await store.readTaskDb()).tasks).toEqual([task]);
+    } finally { yesterdayForm.submit = undefined; }
+  });
+
   it("accrues money and words for three days, records payment once, and restores the debt on undo", async () => {
     await store.createHabit({ ...habit("虚构存钱"), punishment: config(money) });
     await store.createHabit({ ...habit("虚构反思"), punishment: config({ ...reflection, dailyIncrease: 40 }) });

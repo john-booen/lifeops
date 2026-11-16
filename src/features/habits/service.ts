@@ -10,6 +10,7 @@ import type { HabitCheckin, HabitCheckinStatus, HabitDashboardItem, HabitDefinit
 import type { LocalOperationHost } from "../serviceHost";
 import { advanceCompensationDebt } from "./compensationDebt";
 import { firstUncheckedHabitDay, habitDayGoalMet, planHabitPunishments } from "./punishments";
+import { isManualHabitSource } from "./targets";
 import { automaticHabitProgress } from "./tradeProgress";
 
 type HabitUiHost = Pick<LifeOpsPlugin, "app" | "createHabit" | "updateHabit">;
@@ -108,7 +109,7 @@ export async function correctYesterdayHabit(host: LocalOperationHost, taskId: st
     }
     const db = await store.readHabitDb();
     const habit = db.habits.find(row => row.id === penalty.habitId);
-    if (!habit || habit.source === "trades") throw Error("这项习惯无法手动补记。");
+    if (!habit || !isManualHabitSource(habit.source)) throw Error("这项习惯无法手动补记。");
     assertRecordRevision(habitCorrectionState(habit, db.checkins, yesterday), expectedRevision);
     if (!habitDayGoalMet(habit, db.checkins, yesterday)) {
       await store.recordHabitStatus(habit.id, "done", yesterday, "昨晚补记", value);
@@ -143,6 +144,7 @@ export async function confirmYesterdayHabit(this: HabitCheckinHost, store: Store
   assertReadable();
   const habit = db.habits.find(row => row.id === penalty.habitId);
   if (!habit) throw Error("这条补偿已变更，请刷新后再核对。");
+  if (!isManualHabitSource(habit.source)) throw Error("这项习惯无法手动补记。");
   const date = penalty.judgedDate;
   const expectedRevision = recordRevision(habitCorrectionState(habit, db.checkins, date));
   if (habit.target?.kind !== "number") return correctYesterdayHabit(this, taskId, { expectedRevision });

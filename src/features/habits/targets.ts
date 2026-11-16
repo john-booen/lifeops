@@ -89,6 +89,10 @@ export function habitRecordedAmount(habit: HabitDefinition, checkin: HabitChecki
   return Math.max(1, checkin.count || 1);
 }
 
+export function isManualHabitSource(source: HabitDefinition["source"]): boolean {
+  return source !== "trades" && !isHealthHabitSource(source);
+}
+
 export function automaticHabitDayDisplay(habit: HabitDefinition, checkin?: HabitCheckin): { status: "done" | "pending"; label: string } | undefined {
   const fromDevice = isHealthHabitSource(habit.source);
   if (!fromDevice && habit.source !== "trades") return undefined;
