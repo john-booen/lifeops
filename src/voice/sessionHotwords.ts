@@ -33,7 +33,8 @@ export async function collectSessionHotwords(store: StoreHost, configured: strin
   const segmenter = new Intl.Segmenter("zh", { granularity: "word" });
   const stopwords = new Set(["今天", "明天", "任务", "确认", "安排", "整理", "完成", "跟进", "一下", "需要", "准备", "继续"]);
   const keywords = tasks.status === "fulfilled" ? tasks.value.tasks
-    .filter(task => [task.date, task.createdAt.slice(0, 10), task.updatedAt.slice(0, 10)].some(day => day >= from && day <= today))
+    .filter(task => [task.date, formatDate(new Date(task.createdAt)), formatDate(new Date(task.updatedAt))]
+      .some(day => day >= from && day <= today))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .filter(task => safeHotword(task.title, credentials))
     .flatMap(task => [...segmenter.segment(task.title)].filter(({ isWordLike, segment }) =>

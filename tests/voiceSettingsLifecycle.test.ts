@@ -259,6 +259,26 @@ describe("ordinary voice and text mode cycles", () => {
     expect(getUserMedia).toHaveBeenCalledOnce();
   });
 
+  it.each(["created", "updated"] as const)("uses the local day for recently %s task hotwords", async change => {
+    const capture = captureFixture();
+    vi.setSystemTime(new Date(2026, 10, 11, 23, 50));
+    await plugin.store.createTask({ title: "核对 OLDBOUNDARY", date: "" });
+    const task = change === "updated" ? await plugin.store.createTask({ title: "虚构旧文件", date: "" }) : undefined;
+    vi.setSystemTime(new Date(2026, 10, 12, 0, 10));
+    if (task) await plugin.store.updateTaskDetails(task.id, { title: "核对 LOCALBOUNDARY" });
+    else await plugin.store.createTask({ title: "核对 LOCALBOUNDARY", date: "" });
+    vi.setSystemTime(new Date(2026, 10, 18, 8));
+
+    view.agentMode = "voice";
+    await startBailianRealtimeRecording(view);
+    const client = capture.connects.mock.contexts[0] as unknown as { settings: LifeOpsSettings["realtimeVoice"] };
+    expect(client.settings.asrEngine).toBe("streaming-hotwords");
+    const words = client.settings.asrHotwords!.split("\n");
+    expect(words).toContain("LOCALBOUNDARY");
+    expect(words).not.toContain("OLDBOUNDARY");
+    expect(getUserMedia).toHaveBeenCalledOnce();
+  });
+
   it("falls back from automatic hotwords on connection failure without reopening the microphone", async () => {
     const capture = captureFixture();
     plugin.settings.realtimeVoice.asrHotwords = "虚构手填词";
