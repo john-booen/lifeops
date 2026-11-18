@@ -1002,6 +1002,43 @@ describe("unified agent loop", () => {
     expect(await store.readPath(path)).toBe(diary);
   });
 
+  it("keeps generated underlined headings and code inside the evening draft", async () => {
+    const date = formatDate(now), path = store.dailyNotePath(date, "晚");
+    const code = "~~~markdown\n原话\n----\n~~~";
+    const content = "整理标题\n=====\n\n原话\n----\n\n虚构整理内容。\n\n***\n---\n\n" + code;
+    const original = "保留虚构原话。\n原话\n----";
+    const result = await runtime.executeAiToolCall(tool("append_journal_entry",
+      { date, period: "晚", content }, "journal-setext-draft"), "kimi", original);
+    expect(result.success, result.output).toBe(true);
+    const diary = await store.readPath(path);
+    const [draft, recorded] = diary.split("\n## 原话\n");
+    expect(draft).toContain("### 整理标题");
+    expect(draft).toContain("### 原话");
+    expect(draft).toContain("\n\n***\n---\n\n" + code);
+    expect(recorded).toContain("~~~\n" + original + "\n~~~");
+    expect(recorded).not.toContain("虚构整理内容");
+  });
+
+  it("appends into an existing underlined original section and preserves the hand-written note", async () => {
+    const date = formatDate(now), path = store.dailyNotePath(date, "晚");
+    const before = "\uFEFF# 虚构晚间日记\n\n## 整理\n\n已有整理。\n\n原话\n----\n\n~~~\n昨天的原话  \n~~~\n\n## 手写尾记\n\n原有尾记。\n";
+    const original = "今天的虚构原话，逐字保存。";
+    await store.writeFile(path, before);
+    const result = await runtime.executeAiToolCall(tool("append_journal_entry",
+      { date, period: "晚", content: "今天的整理稿。" }, "journal-setext-existing"), "kimi", original);
+    expect(result.success, result.output).toBe(true);
+    const diary = await store.readPath(path);
+    const [draft, remainder] = diary.split("\n原话\n----\n");
+    const [recorded, end] = remainder.split("\n## 手写尾记\n");
+    expect(diary).not.toContain("\n## 原话\n");
+    expect(draft).toContain("今天的整理稿。");
+    expect(recorded).toContain("~~~\n昨天的原话  \n~~~");
+    expect(recorded).toContain("~~~\n" + original + "\n~~~");
+    expect(end).toBe("\n原有尾记。\n");
+    await runtime.undoOperation(result.receipt!.operationId);
+    expect(await store.readPath(path)).toBe(before);
+  });
+
   it("keeps a second evening diary draft without a chat message outside existing original words", async () => {
     const date = formatDate(now), path = store.dailyNotePath(date, "晚");
     const original = "昨天的虚构原话。\n逐字保留  ";
