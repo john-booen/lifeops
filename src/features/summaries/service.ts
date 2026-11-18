@@ -4,8 +4,8 @@ import { addDays, formatDate, normalizeJournalDate } from "../../date";
 import { fileRevision } from "../../operationIdentity";
 import type { StoreHost } from "../../store/settingsSlice";
 import type { LocalOperationHost } from "../serviceHost";
-import { healthSummaryLine, localSummaryText, summaryMessages, validSummaryText } from "./analysis";
-import { collectChildSummaries, collectSummaryData } from "./data";
+import { healthSummaryLine, localSummaryText, summaryMessages, validSummaryText, weeklySummaryHighlights } from "./analysis";
+import { collectChildSummaries, collectSummaryData, readSummaryTradeTotals, sameSummaryTradeTotals } from "./data";
 import { readSummary, readSummaryScope, renderSummary, summaryPath, summaryPathAllowed, type SummaryKind } from "./notes";
 import { scheduledSummaryPeriods, summaryBackfillPeriods, summaryFolders, summaryPeriod, type SummaryLevel, type SummaryPeriod } from "./periods";
 
@@ -75,7 +75,14 @@ async function generateSummary(host: SummaryHost, store: StoreHost, period: Summ
   const canRefresh = old && !old.edited && (old.properties.through < through
     || !old.properties.complete && complete || old.properties.inputCount < inputCount
     || old.properties.generatedBy === "local" && providerReady(store.settings));
-  if (store.getFile(path) && !canRefresh) return { path, status: "existing", generatedBy: old?.properties.generatedBy };
+  const range = { from: period.from, to: through };
+  if (store.getFile(path) && !canRefresh) {
+    const existing = { path, status: "existing" as const, generatedBy: old?.properties.generatedBy };
+    if (period.level !== "week" || !old || old.edited) return existing;
+    const totals = await readSummaryTradeTotals(store, range, now);
+    assertStore();
+    if (!totals || sameSummaryTradeTotals(totals, old.properties.metrics)) return existing;
+  }
   return host.observeProvider("daily_review", "text", async (request, _store, ai, providerCurrent, onCommitted) => {
     const current = () => {
       assertStore();
@@ -89,6 +96,17 @@ async function generateSummary(host: SummaryHost, store: StoreHost, period: Summ
       current();
     };
     const data = await collectSummaryData(store, period, now, scope.protect, children);
+    let operationStore: StoreHost | undefined;
+    const assertInput = async () => {
+      await assertScope();
+      if (period.level !== "week") return;
+      if (!operationStore) throw Error("周摘要保存未能核对交易统计。");
+      const totals = await readSummaryTradeTotals(operationStore, range, now);
+      current();
+      if (Boolean(totals) !== Boolean(data.stats.trades) || totals && !sameSummaryTradeTotals(totals, data.metrics)) {
+        throw Error("交易统计在摘要生成期间有变化，请重新生成周摘要。");
+      }
+    };
     const fallback = localSummaryText(period, data);
     let local = false;
     const options = { ...request, beforeTextRequest: assertScope, assertTextRequestCurrent: current,
@@ -111,16 +129,19 @@ async function generateSummary(host: SummaryHost, store: StoreHost, period: Summ
       const health = healthSummaryLine(data);
       if (health) text += "\n\n" + health;
     }
+    if (period.level === "week") text = weeklySummaryHighlights(data) + "\n\n" + text;
     const generatedBy = local ? "local" : "model";
     const markdown = renderSummary(period, through, scope.hash, data.metrics, inputCount, complete, generatedBy, text);
     const operationName = scheduled ? "scheduled_period_summary" : "generated_period_summary";
     await host.saveLocalOperation(operationName, { level: period.level, key: period.key, path }, async operation => {
-      await assertScope();
+      // Read through the transaction while it holds the vault lock.
+      operationStore = operation;
+      await assertInput();
       const previous = operation.getFile(path) ? fileRevision(await operation.readPath(path)) : undefined;
       if (previous !== old?.revision) throw Error("摘要位置已有新内容，已保留当前笔记。");
       await operation.writeFile(path, markdown);
       current();
-    }, { assertCurrent: current, assertBeforeCommit: assertScope, onCommitted });
+    }, { assertCurrent: current, assertBeforeCommit: assertInput, onCommitted });
     await host.refreshViews().catch(() => undefined);
     return { path, status: "saved", generatedBy };
   }, signal);

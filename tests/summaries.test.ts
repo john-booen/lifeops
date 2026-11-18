@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { App } from "obsidian";
@@ -23,6 +23,11 @@ const { readSummary, readSummaryScope, summaryPath, renderSummary } = await impo
 const { summaryPeriod, summaryBackfillPeriods } = await import("../src/features/summaries/periods");
 const { signalDocumentPath } = await import("../src/features/journal/signalStore");
 const { fileRevision } = await import("../src/operationIdentity");
+const { confirmTradeScreenshot, parseTradeScreenshotRows, previewTradeScreenshot, readTradeScreenshot } = await import("../src/features/trading/screenshotImport");
+const { readTradeDatabase } = await import("../src/features/trading/persistence");
+const { collectTradeReview } = await import("../src/features/trading/reviewData");
+const { renderTradeReview } = await import("../src/features/trading/reviewReport");
+const { OperationLedger } = await import("../src/dataFoundation/operationLedger");
 type SummaryHost = import("../src/features/summaries/service").SummaryHost;
 
 let root: string, vault: InstanceType<typeof DiskVault>, store: StoreHost, runtime: InstanceType<typeof AgentRuntime>, host: SummaryHost;
@@ -85,6 +90,74 @@ it("generates an idempotent daily summary from code metrics, signals and only us
   expect(await vault.bytes(path)).toBe(raw);
   await runtime.undoLatestOperation();
   expect(store.getFile(actual.path)).toBeNull();
+});
+
+async function prepareFictionalScreenshot(currency: "CNY" | "USD") {
+  const stem = currency === "USD" ? "equity-match" : "futures-mismatch";
+  const name = stem + ".png";
+  const image = await readTradeScreenshot(await readFile(join("tests/fixtures/trade-screenshots", name)));
+  const match = currency === "USD";
+  const rows = parseTradeScreenshotRows(JSON.stringify({ rows: [match ? {
+    symbol: "FICT-A", market: "us-stock", direction: "long", currency, openedAt: "2026-10-12T09:30:00-04:00",
+    openedZone: "-04:00", openClockShown: true, closedAt: "2026-10-12T15:30:00-04:00", closedZone: "-04:00",
+    qty: 10, qtyUnit: "shares", entry: 100, exit: 110, fees: 2.5, displayedPnl: 97.5
+  } : {
+    symbol: "FICT-F", market: "futures", direction: "short", currency, openedAt: "2026-10-13T09:30:00+08:00",
+    openedZone: "+08:00", openClockShown: true, closedAt: "2026-10-13T10:05:00+08:00", closedZone: "+08:00",
+    qty: 2, qtyUnit: "contracts", entry: 250, exit: 245, fees: 3, displayedPnl: 94
+  }] }));
+  const preview = previewTradeScreenshot(rows, image.digest, (await readTradeDatabase(store)).trades, store.settings.tradingContractMultipliers);
+  return { preview, confirm: () => confirmTradeScreenshot(host, rows, image.digest, preview, [1], () => {}) };
+}
+
+it("reconciles a same-day weekly summary with English screenshots and their actual computed currencies", async () => {
+  const date = "2026-10-14", point = new Date(2026, 9, 14, 12), period = summaryPeriod("week", date);
+  store.settings.tradingContractMultipliers = { "FICT-F": 10 };
+  const { path } = await generatePeriodSummary(host, period, point);
+  expect((await saved("week", date))?.properties.metrics).toMatchObject({ tradePnlCny: 0, tradePnlUsd: 0 });
+
+  const usd = await prepareFictionalScreenshot("USD");
+  expect(usd.preview.rows[0]).toMatchObject({ kind: "ready", computedPnl: 97.5, draft: { currency: "USD" } });
+  expect((await readTradeDatabase(store)).trades).toEqual([]);
+  await usd.confirm();
+  const cny = await prepareFictionalScreenshot("CNY");
+  expect(cny.preview.rows[0]).toMatchObject({ kind: "ready", screenshotPnl: 94, computedPnl: 97, draft: { currency: "CNY" } });
+  await cny.confirm();
+  const receipt = (await new OperationLedger(store).latestReversible())!.operationId;
+
+  expect((await generatePeriodSummary(host, period, point)).status).toBe("saved");
+  const weekly = (await saved("week", date))!;
+  expect(weekly.properties.metrics).toMatchObject({ tradePnlCny: 97, tradePnlUsd: 97.5 });
+  expect(weekly.text).toContain("交易净盈亏为 CNY 97，USD 97.5。");
+  const tradeReview = await collectTradeReview(store, "week", point);
+  expect(tradeReview.stats).toMatchObject({ count: 2, byCurrency: { CNY: { totalPnl: 97 }, USD: { totalPnl: 97.5 } } });
+  const report = renderTradeReview(tradeReview, { good: [], issues: [], checklist: [], suggestions: [] });
+  expect(report).toMatch(/CNY 1 笔.*总盈亏 97。/u);
+  expect(report).toMatch(/USD 1 笔.*总盈亏 97\.5。/u);
+  expect((await generatePeriodSummary(host, period, point)).status).toBe("existing");
+
+  await runtime.undoOperation(receipt);
+  expect((await generatePeriodSummary(host, period, point)).status).toBe("saved");
+  expect((await saved("week", date))?.properties.metrics).toMatchObject({ tradePnlCny: 0, tradePnlUsd: 97.5 });
+  const edited = (await vault.bytes(path)) + "\n虚构手写补充。\n";
+  await store.writeFile(path, edited);
+  await (await prepareFictionalScreenshot("CNY")).confirm();
+  expect((await generatePeriodSummary(host, period, point)).status).toBe("existing");
+  expect(await vault.bytes(path)).toBe(edited);
+});
+
+it("does not save a weekly summary if a confirmed trade changes its totals during generation", async () => {
+  const date = "2026-10-14", point = new Date(2026, 9, 14, 12), period = summaryPeriod("week", date);
+  const screenshot = await prepareFictionalScreenshot("USD");
+  ask.mockImplementationOnce(async (messages, options) => {
+    await options.beforeTextRequest?.();
+    await screenshot.confirm();
+    return summaryText(JSON.parse(messages[1].content).period.level);
+  });
+  await expect(generatePeriodSummary(host, period, point)).rejects.toThrow("交易统计在摘要生成期间有变化");
+  expect(await saved("week", date)).toBeUndefined();
+  expect((await generatePeriodSummary(host, period, point)).status).toBe("saved");
+  expect((await saved("week", date))?.properties.metrics.tradePnlUsd).toBe(97.5);
 });
 
 it("catches up the previous day, fills the Sunday 21:30 report after the 23:30 daily, and preserves edits", async () => {

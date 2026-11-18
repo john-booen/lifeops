@@ -5,6 +5,7 @@ import { readJournalSignals } from "../journal/signalStore";
 import { currentSignalValues } from "../journal/signals";
 import { taskCompletionEvents } from "../stats/stats";
 import { readStats, statsDomains } from "../stats/tools";
+import type { tradeStats } from "../stats/trades";
 import { readSummary, summaryPathAllowed, type SummaryMetrics } from "./notes";
 import { summaryPeriodsInRange, type SummaryPeriod } from "./periods";
 
@@ -51,6 +52,23 @@ export async function collectChildSummaries(store: StoreHost, period: SummaryPer
 }
 
 const numeric = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : null;
+type TradeTotals = Pick<SummaryMetrics, "tradePnlCny" | "tradePnlUsd">;
+
+function tradeSummaryTotals(stats: ReturnType<typeof tradeStats> | null): TradeTotals {
+  return {
+    tradePnlCny: numeric(stats?.byCurrency.CNY.totalPnl),
+    tradePnlUsd: numeric(stats?.byCurrency.USD.totalPnl)
+  };
+}
+
+export async function readSummaryTradeTotals(store: StoreHost, range: { from: string; to: string }, now: Date): Promise<TradeTotals | undefined> {
+  const result = await readStats(store, { domain: "trades", range }, now);
+  return result.success ? tradeSummaryTotals(JSON.parse(result.output)) : undefined;
+}
+
+export function sameSummaryTradeTotals(a: TradeTotals, b: TradeTotals): boolean {
+  return a.tradePnlCny === b.tradePnlCny && a.tradePnlUsd === b.tradePnlUsd;
+}
 
 export async function collectSummaryData(store: StoreHost, period: SummaryPeriod, now: Date, protect: (text: string) => string,
   summaries: Awaited<ReturnType<typeof collectChildSummaries>>) {
@@ -68,8 +86,7 @@ export async function collectSummaryData(store: StoreHost, period: SummaryPeriod
     taskCompletionPercent: numeric(stats.tasks?.completionPercent),
     tasksCompleted: numeric(stats.tasks?.completedCount),
     energy: numeric(daily?.signalValues.energy ?? stats.journal?.signalAverages.energy),
-    tradePnlCny: numeric(stats.trades?.byCurrency.CNY.totalPnl),
-    tradePnlUsd: numeric(stats.trades?.byCurrency.USD.totalPnl)
+    ...tradeSummaryTotals(stats.trades)
   };
   return { through, stats, daily, summaries, metrics };
 }

@@ -15,7 +15,7 @@ export function summaryMessages(period: SummaryPeriod, data: SummaryData, protec
       "代码已计算指标。直接使用给定数字，分开人民币和美元。缺数据就说明，不用 0 代替未知。",
       "设备健康统计由插件另外附在正文后。只有日记明确记录的主观感受需要在正文引用。",
       "对话只选用户明确说的计划和决定，标明仍是计划。批评必须引用具体事实。",
-      period.level === "week" ? "写出本周数字、做得好的地方、需要直接指出的问题。日摘要不足七份时说明覆盖。最后列出三个具体的下周重点，建议与已定计划分开。"
+      period.level === "week" ? "完成任务数、计划完成率和分币种净盈亏会由插件放在摘要开头，正文不用重复。写做得好的地方和需要直接指出的问题。日摘要不足七份时说明覆盖。最后列出三个具体的下周重点，建议与已定计划分开。"
         : period.level === "month" ? "写出月内主要变化、有效做法和需处理的问题，说明覆盖不足。跨月周摘要只用于辅助理解，月度数字以当月统计为准。"
         : "写出当天已做的事、精力或状态、做得好和可以改进的地方。可以列用户明确说过的下一步。",
       "只输出正文，长度 " + min + " 到 " + max + " 字，不加 YAML、代码块、图片或外部链接。"
@@ -49,15 +49,35 @@ export function healthSummaryLine(data: SummaryData): string {
   return healthLines.join("");
 }
 
+const display = (value: number | null, unit = "") => value === null ? "暂无可靠记录" : String(value) + unit;
+
+function tradePnlLine(data: SummaryData): string {
+  const { tradePnlCny, tradePnlUsd } = data.metrics;
+  const label = data.stats.trades?.scope ? "可读交易" : "交易";
+  return label + "净盈亏为 CNY " + display(tradePnlCny) + "，USD " + display(tradePnlUsd) + "。";
+}
+
+export function weeklySummaryHighlights(data: SummaryData): string {
+  const { tasksCompleted, taskCompletionPercent } = data.metrics;
+  const coverage = data.stats.tasks?.scope ? "可读任务中，" : "";
+  const completed = tasksCompleted === null ? "任务完成数暂不可核对" : "完成任务 " + tasksCompleted + " 项";
+  return [
+    "## 本周数字", "",
+    "截至 " + data.through + "，" + coverage + completed + "，计划完成率 " + display(taskCompletionPercent, "%") + "。",
+    tradePnlLine(data)
+  ].join("\n");
+}
+
 export function localSummaryText(period: SummaryPeriod, data: SummaryData): string {
   const { metrics } = data;
-  const display = (value: number | null, unit = "") => value === null ? "暂无可靠记录" : String(value) + unit;
   const health = healthSummaryLine(data);
+  const energy = "- 精力 " + display(metrics.energy, " / 5") + "。";
   return [
-    "截至 " + data.through + " 的记录",
-    "",
-    "- 完成任务 " + display(metrics.tasksCompleted, " 项") + "。计划任务完成率 " + display(metrics.taskCompletionPercent, "%") + "。",
-    "- 精力 " + display(metrics.energy, " / 5") + "。交易净盈亏为 CNY " + display(metrics.tradePnlCny) + "，USD " + display(metrics.tradePnlUsd) + "。",
+    ...(period.level === "week" ? [energy] : [
+      "截至 " + data.through + " 的记录", "",
+      "- 完成任务 " + display(metrics.tasksCompleted, " 项") + "。计划任务完成率 " + display(metrics.taskCompletionPercent, "%") + "。",
+      energy + tradePnlLine(data)
+    ]),
     ...(health ? ["- " + health] : []),
     ...(period.level === "day" ? ["- 有 " + (data.daily?.signals.length ?? 0) + " 份可用日记信号。"]
       : ["- 有 " + data.summaries.length + " 份可用下级摘要。"])
