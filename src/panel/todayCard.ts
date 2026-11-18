@@ -1,11 +1,15 @@
 import type { JournalPlanChoice, TodayCardData } from "../features/today/model";
 
+const visibleHabitCount = 4;
+
 export function renderTodayCard(
   host: HTMLElement, data: TodayCardData, onAddPlan: (plan: JournalPlanChoice) => Promise<void>, onReviewIdeas?: () => void,
   onCorrectYesterday?: (taskId: string) => Promise<void>
 ): void {
   const document = host.ownerDocument;
   const wasOpen = host.querySelector<HTMLDetailsElement>(".lh-today-state")?.open ?? false;
+  const previousMoreHabits = host.querySelector<HTMLDetailsElement>(".lh-today-more-habits");
+  const refocusMoreHabits = previousMoreHabits?.querySelector("summary") === document.activeElement;
   host.replaceChildren();
   function add<K extends keyof HTMLElementTagNameMap>(parent: HTMLElement, tag: K, cls: string, text?: string) {
     const node = document.createElement(tag);
@@ -54,11 +58,12 @@ export function renderTodayCard(
   const habits = add(grid, "section", "");
   add(habits, "h3", "", "习惯进度");
   if (!data.habits.length) add(habits, "p", "lh-caption", "还没有习惯。");
-  for (const habit of data.habits) {
+  const addHabit = (parent: HTMLElement, habit: TodayCardData["habits"][number]) => {
     const coverage = habit.healthCoveragePartial ? " · 仅可读记录" : "";
     const progress = habit.healthUnrecorded ? "还没有健康记录" : `${habit.done}/${habit.target} ${habit.unit}`;
-    add(habits, "p", "", habit.unavailable ? `${habit.title} · 交易记录暂不可用` : `${habit.title} · ${habit.period} ${progress}${coverage}`);
-  }
+    add(parent, "p", "", habit.unavailable ? `${habit.title} · 交易记录暂不可用` : `${habit.title} · ${habit.period} ${progress}${coverage}`);
+  };
+  for (const habit of data.habits.slice(0, visibleHabitCount)) addHabit(habits, habit);
   for (const penalty of data.penalties) {
     add(habits, "p", "lh-today-overload", [penalty.title, penalty.due, penalty.dueDate && `${penalty.dueDate} 到期`].filter(Boolean).join(" · "));
     if (penalty.daysLate && penalty.due) add(habits, "p", "lh-caption", `这项已经拖了 ${penalty.daysLate} 天，今天把它安排上。`);
@@ -82,6 +87,15 @@ export function renderTodayCard(
         }
       };
     }
+  }
+
+  const additionalHabits = data.habits.slice(visibleHabitCount);
+  if (additionalHabits.length) {
+    const more = add(habits, "details", "lh-today-more-habits");
+    more.open = previousMoreHabits?.open ?? false;
+    const summary = add(more, "summary", "", `查看其余 ${additionalHabits.length} 项习惯`);
+    for (const habit of additionalHabits) addHabit(more, habit);
+    if (refocusMoreHabits) summary.focus({ preventScroll: true });
   }
 
   const plans = add(card, "section", "lh-today-plans");

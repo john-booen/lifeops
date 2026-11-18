@@ -90,16 +90,22 @@ class Element extends EventSurface {
   click() { if (!this.disabled) return this.onclick?.(); }
 }
 
+class CardElement extends Element {
+  set className(value: string) { this.classes = new Set(value.split(" ").filter(Boolean)); }
+  get isConnected() { return this.tag === "main" || this.parent?.contains(this) === true; }
+  append(node: Element) { node.parent = this; this.children.push(node); }
+  replaceChildren() { this.empty(); }
+}
+
+function cardHost() {
+  const host = new CardElement("main");
+  Object.assign(host.ownerDocument, { createElement: (tag: string) => new CardElement(tag, host.ownerDocument) });
+  return host;
+}
+
 describe("today card interaction", () => {
   it("renders the warning and source quote and starts only one add while a click is saving", async () => {
-    class CardElement extends Element {
-      set className(value: string) { this.classes = new Set(value.split(" ").filter(Boolean)); }
-      get isConnected() { return this.tag === "main" || this.parent?.contains(this) === true; }
-      append(node: Element) { node.parent = this; this.children.push(node); }
-      replaceChildren() { this.empty(); }
-    }
-    const host = new CardElement("main");
-    Object.assign(host.ownerDocument, { createElement: (tag: string) => new CardElement(tag, host.ownerDocument) });
+    const host = cardHost();
     const plan = { title: "跑5公里", text: "跑5公里", when: "明天", date: "2026-11-13", journalDate: "2026-11-12",
       source: { path: "虚构日记.md", sha256: "a".repeat(64) } };
     const data: TodayCardData = {
@@ -129,6 +135,37 @@ describe("today card interaction", () => {
     state.open = true;
     renderTodayCard(host as unknown as HTMLElement, { ...data, plans: [{ plan, added: true }] }, add);
     expect(host.querySelector("details").open).toBe(true);
+  });
+
+  it("keeps a long habit list expandable and leaves missed-habit corrections accessible", async () => {
+    const host = cardHost();
+    const data: TodayCardData = {
+      date: "2026-11-19", status: [], completed: 0, total: 0,
+      capacity: { overloaded: false, plannedCount: 0, typicalCount: null, plannedMin: 0, typicalMin: null, suggestDefer: [] },
+      priorities: [], plans: [], compensationSummary: "",
+      habits: Array.from({ length: 6 }, (_, index) => ({
+        id: String(index), title: `虚构习惯 ${index + 1}`, period: "今日", unit: "次", done: 0, target: 1, unavailable: false
+      })),
+      penalties: [{ id: "synthetic-debt", title: "虚构补记", dueDate: "", due: "一条记录", daysLate: 0,
+        evidence: "", canCorrectYesterday: true }]
+    };
+    const add = vi.fn(async () => {});
+    const correct = vi.fn(async () => {});
+    renderTodayCard(host as unknown as HTMLElement, data, add, undefined, correct);
+    const expanded = host.querySelector(".lh-today-more-habits") as Element;
+    expect(expanded.open).toBe(false);
+    expect(expanded.querySelector("summary").text()).toBe("查看其余 2 项习惯");
+    expect(expanded.querySelectorAll("p").map(row => row.textContent)).toEqual(["虚构习惯 5 · 今日 0/1 次", "虚构习惯 6 · 今日 0/1 次"]);
+    expect(expanded.contains(host.querySelector("button"))).toBe(false);
+    await host.querySelector("button").click();
+    expect(correct).toHaveBeenCalledExactlyOnceWith("synthetic-debt");
+    expanded.open = true;
+    expanded.querySelector("summary").focus();
+    const refreshed = { ...data, completed: 1 };
+    renderTodayCard(host as unknown as HTMLElement, refreshed, add, undefined, correct);
+    const more = host.querySelector(".lh-today-more-habits");
+    expect(more.open).toBe(true);
+    expect(host.ownerDocument.activeElement).toBe(more.querySelector("summary"));
   });
 });
 

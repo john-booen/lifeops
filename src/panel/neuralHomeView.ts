@@ -36,17 +36,18 @@ export function mountNeuralHomeView(container: HTMLElement, initial: NeuralHomeO
     const node = el(parent, "button", cls, text); node.type = "button";
     node.onclick = () => { if (!disposed && node.isConnected && element.contains(node)) action(); }; return node;
   }
-  const today = el(element, "div", "lh-today-card-host");
   const header = el(element, "header", "lh-heading");
   const intro = el(header, "div", "");
   const date = el(intro, "p", "lh-eyebrow");
   const actions = el(header, "div", "lh-actions");
   button(actions, "lh-button lh-primary", "记下一件事", () => options.onQuickCapture());
   button(actions, "lh-button", "与管家对话", () => options.onChat());
+  if (options.onRecordPicker) button(actions, "lh-button", "手写与其他记录", () => options.onRecordPicker?.());
 
   const phoneInbox = button(actions, "lh-button", "手机随手记", () => options.onOpenPhoneInbox?.());
   phoneInbox.style.display = options.onOpenPhoneInbox ? "" : "none";
 
+  const today = el(element, "div", "lh-today-card-host");
   const stage = el(element, "div", "lh-stage"); stage.dataset.expanded = "false"; stage.dataset.motion = "stopped";
   const dust = el(stage, "canvas", "lh-dust"); dust.setAttribute("aria-hidden", "true");
   function picture(parent: HTMLElement, cls: string, poster: string) {
@@ -120,7 +121,6 @@ export function mountNeuralHomeView(container: HTMLElement, initial: NeuralHomeO
   const footer = el(element, "footer", "lh-footer");
   const footerActions = el(footer, "div", "lh-actions");
   if (options.onNewTask) button(footerActions, "lh-text-button", "新建任务", () => options.onNewTask?.());
-  if (options.onRecordPicker) button(footerActions, "lh-text-button", "手写与其他记录", () => options.onRecordPicker?.());
   const motionToggle = button(footerActions, "lh-text-button", "暂停动效", () => {
     const paused = !motion.snapshot().paused; motion.setGate({ paused });
     motionToggle.textContent = paused ? "开启动效" : "暂停动效";
