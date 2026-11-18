@@ -7310,9 +7310,9 @@ SOFTWARE.
 .lifeops-neural-chat .lifeops-agent-capability-hint,
 .lifeops-neural-chat .lifeops-steward-conversation-note { line-height: 1.8; overflow-wrap: anywhere; }
 @container lifeops-pane (max-width: 900px) {
-  .lifeops-steward .lifeops-steward-conversation > .lifeops-agent-workspace.lifeops-neural-chat { grid-template-columns: minmax(0,1fr); grid-template-rows: auto auto minmax(360px,1fr); min-height: 100%; height: auto; }
-  .lifeops-steward .lifeops-neural-chat .lifeops-steward-camera { grid-column: 1; grid-row: 2; max-height: min(240px,25vh); }
-  .lifeops-neural-chat .lc-thread { grid-column: 1; grid-row: 3; min-height: 360px; }
+  .lifeops-steward .lifeops-steward-conversation > .lifeops-agent-workspace.lifeops-neural-chat { grid-template-columns: minmax(0,1fr); grid-template-rows: auto minmax(360px,1fr) auto; min-height: 100%; height: auto; }
+  .lifeops-steward .lifeops-neural-chat .lifeops-steward-camera { grid-column: 1; grid-row: 3; max-height: min(240px,25vh); }
+  .lifeops-neural-chat .lc-thread { grid-column: 1; grid-row: 2; min-height: 360px; }
   .lifeops-steward .lifeops-neural-chat .lc-thread > .lifeops-agent-transcript { max-height: min(620px,58vh); }
 }
 @container lifeops-pane (max-width: 600px) {

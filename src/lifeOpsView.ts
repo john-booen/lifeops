@@ -686,11 +686,11 @@ export class LifeOpsView extends ItemView {
     head.createEl("h1", { text: "我们接着聊。" });
     this.stewardSummaryEl = head.createDiv({ cls: "lifeops-muted" });
     this.stewardControlsEl = head.createDiv({ cls: "lifeops-steward-conversation-controls" });
+    const thread = surface.createDiv({ cls: "lc-thread" });
     const visual = surface.createDiv({ cls: "lifeops-steward-camera" });
     this.agentVisualWrapEl = visual;
     this.agentStatusEl = visual.createDiv({ cls: "lifeops-agent-kicker", attr: { role: "status" } });
     this.agentTraceEl = visual.createDiv({ cls: "lifeops-agent-context" });
-    const thread = surface.createDiv({ cls: "lc-thread" });
     this.agentTranscriptEl = thread.createDiv({ cls: "lifeops-agent-transcript", attr: { role: "log", "aria-label": "与管家的对话" } });
     if (this.agentMessages.length === 0) this.renderAgentMessage(this.agentTranscriptEl, { role: "assistant", content: this.agentReply });
     else for (const message of this.agentMessages) this.renderAgentMessage(this.agentTranscriptEl, message);
