@@ -47,6 +47,8 @@ export interface OperationLedgerRecord {
   arguments: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
+  /** Local commit order for recent-operation lookup, independent of wall time. */
+  writeOrder?: number;
   finishedAt?: string;
   revertedAt?: string;
   result?: OperationResultSnapshot;
@@ -138,21 +140,37 @@ export function planLedgerRevertV1(document: OperationLedgerDocument, operationI
     throw new Error("撤销工具的执行记录发生变化，已停止本次撤销。");
   }
   const record: OperationLedgerRecord = { ...existing, status: "reverted", updatedAt: timestamp, revertedAt: timestamp };
-  const next = updatedLedgerDocumentV1(document, [record, ...(own && toolReceipt
-    ? [{ ...own, status: "verified" as const, updatedAt: timestamp, finishedAt: timestamp, result: toolReceipt.result, error: undefined }] : [])]);
+  const updates: OperationLedgerRecord[] = [record, ...(own && toolReceipt
+    ? [{ ...own, status: "verified" as const, updatedAt: timestamp, finishedAt: timestamp, result: toolReceipt.result, error: undefined }] : [])];
+  const next = updatedLedgerDocument(document, updates, (left, right) => left.updatedAt.localeCompare(right.updatedAt));
   return { record, document: next };
 }
 
-function updatedLedgerDocumentV1(document: OperationLedgerDocument, updates: OperationLedgerRecord[]): OperationLedgerDocument {
+function updatedLedgerDocument(document: OperationLedgerDocument, updates: OperationLedgerRecord[],
+  compare: (left: OperationLedgerRecord, right: OperationLedgerRecord) => number): OperationLedgerDocument {
   const ids = new Set(updates.map(record => record.operationId));
   const records = document.records.filter(item => !ids.has(item.operationId));
   records.push(...updates);
-  records.sort((left, right) => left.updatedAt.localeCompare(right.updatedAt));
+  records.sort(compare);
   return { ...document, version: 1,
     revertedOperationHashes: [...new Set([...(document.revertedOperationHashes ?? []),
       ...document.records.filter(item => item.status === "reverted").map(item => operationIdHash(item.operationId)),
       ...updates.filter(record => record.status === "reverted").map(record => operationIdHash(record.operationId))])],
     records: records.slice(-MAX_OPERATION_RECORDS) };
+}
+
+function ledgerWriteOrder({ writeOrder }: OperationLedgerRecord): number | undefined {
+  return typeof writeOrder === "number" && Number.isSafeInteger(writeOrder) && writeOrder > 0 ? writeOrder : undefined;
+}
+
+function compareLedgerWriteOrder(left: OperationLedgerRecord, right: OperationLedgerRecord): number {
+  const leftOrder = ledgerWriteOrder(left) ?? Infinity;
+  const rightOrder = ledgerWriteOrder(right) ?? Infinity;
+  return leftOrder === rightOrder ? left.updatedAt.localeCompare(right.updatedAt) : leftOrder - rightOrder;
+}
+
+export function recentLedgerRecords(document: OperationLedgerDocument): OperationLedgerRecord[] {
+  return [...document.records].sort(compareLedgerWriteOrder).reverse();
 }
 
 export class OperationLedger {
@@ -202,8 +220,7 @@ export class OperationLedger {
         createdAt: existing?.createdAt ?? timestamp,
         updatedAt: timestamp
       };
-      await this.writeRecord(document, record);
-      return { kind: "execute", record };
+      return { kind: "execute", record: await this.writeRecord(document, record) };
     });
   }
 
@@ -233,7 +250,7 @@ export class OperationLedger {
 
   async latestReversible(memoryOnly = false): Promise<OperationLedgerRecord | null> {
     const document = await this.readDocument();
-    for (const record of [...document.records].reverse()) {
+    for (const record of recentLedgerRecords(document)) {
       if (record.status !== "verified" || !record.result?.undo) continue;
       if (memoryOnly) {
         if (record.toolName === "append_memory_note" || record.toolName === "observe_personal_memory_candidate") return record;
@@ -336,8 +353,7 @@ export class OperationLedger {
         result,
         error
       };
-      await this.writeRecord(document, record);
-      return record;
+      return this.writeRecord(document, record);
     });
   }
 
@@ -353,16 +369,16 @@ export class OperationLedger {
     };
   }
 
-  private async writeRecord(document: OperationLedgerDocument, record: OperationLedgerRecord): Promise<void> {
-    await this.writeRecords(document, [record]);
-  }
-
-  private async writeRecords(document: OperationLedgerDocument, updates: OperationLedgerRecord[]): Promise<void> {
-    await this.host.writeJson(this.filePath, this.updatedDocument(document, updates), { compact: true });
-  }
-
-  private updatedDocument(document: OperationLedgerDocument, updates: OperationLedgerRecord[]): OperationLedgerDocument {
-    return updatedLedgerDocumentV1(document, updates);
+  private async writeRecord(document: OperationLedgerDocument, record: OperationLedgerRecord): Promise<OperationLedgerRecord> {
+    const ordered = [...document.records].sort(compareLedgerWriteOrder);
+    let writeOrder = Math.max(0, ...ordered.map(item => ledgerWriteOrder(item) ?? 0));
+    // Give existing history a sequence on the first write. If an older build
+    // wrote after a rollback, its new entries are the only unnumbered ones.
+    const records = ordered.map(item => ledgerWriteOrder(item) ? item : { ...item, writeOrder: ++writeOrder });
+    const next = { ...record, writeOrder: writeOrder + 1 };
+    if (!Number.isSafeInteger(next.writeOrder)) throw new Error("操作历史顺序超出范围，未继续写入。");
+    await this.host.writeJson(this.filePath, updatedLedgerDocument({ ...document, records }, [next], compareLedgerWriteOrder), { compact: true });
+    return next;
   }
 
   private async withLock<T>(operation: () => Promise<T>): Promise<T> {

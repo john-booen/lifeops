@@ -156,6 +156,59 @@ describe("operation ledger", () => {
     expect(operationFingerprint("x", { a: 1, b: 2 })).toBe(operationFingerprint("x", { b: 2, a: 1 }));
   });
 
+  it("retains and undoes the latest completed write when the clock goes back with a full legacy history", async () => {
+    const host = new MemoryLedgerHost();
+    const future = "2027-02-09T12:00:00.000Z", now = "2026-11-19T12:00:00.000Z";
+    const ledger = new OperationLedger(host, () => new Date(now));
+    const result = (taskId: string) => ({
+      success: true, output: "已创建虚构任务", actions: [],
+      undo: { kind: "delete_task" as const, taskId }
+    });
+    const history: OperationLedgerDocument = {
+      version: 1,
+      records: Array.from({ length: 500 }, (_, index) => {
+        const operationId = `legacy-${index}`;
+        return { operationId, toolName: "create_task", source: "system", status: "verified", attempts: 1, arguments: {},
+          fingerprint: operationFingerprint("create_task", {}), createdAt: future, updatedAt: future, result: result(operationId) };
+      })
+    };
+    await host.writeJson(ledger.filePath, history);
+    await ledger.claim({ operationId: "new-task", toolName: "create_task", source: "system", arguments: {} });
+    const settled = await ledger.verify("new-task", result("new-task"));
+    expect(settled.finishedAt).toBe(now);
+
+    const reopened = new OperationLedger(host, () => new Date(now));
+    const claim = await reopened.claim({ operationId: "undo-tool", toolName: "undo_latest_operation", source: "system", arguments: {} });
+    const target = await reopened.latestReversible();
+    expect(target?.operationId).toBe("new-task");
+    const undo = vi.fn(async () => undefined);
+    await reopened.revert(target!.operationId, undo, { claim: claim.record, result: { success: true, output: "已撤销虚构任务", actions: [] } });
+    expect(undo.mock.calls).toHaveLength(1);
+    expect(undo).toHaveBeenCalledWith(result("new-task").undo, expect.any(Object));
+    expect(await reopened.verifiedOperationForReceipt("legacy-499")).toMatchObject(history.records[499]);
+    expect(await reopened.verifiedOperationForReceipt("new-task")).toBeUndefined();
+    expect((await reopened.claim(claim.record)).record.status).toBe("verified");
+    expect((await reopened.latestReversible())?.operationId).toBe("legacy-499");
+  });
+
+  it("recognizes an operation created by an older build after rollback", async () => {
+    const host = new MemoryLedgerHost(), ledger = new OperationLedger(host, () => new Date("2026-11-19T12:00:00.000Z"));
+    await ledger.claim({ operationId: "before-rollback", toolName: "create_task", source: "system", arguments: {} });
+    const result = { success: true, output: "已创建虚构任务", actions: [], undo: { kind: "delete_task" as const, taskId: "fake" } };
+    const settled = await ledger.verify("before-rollback", result);
+    const { writeOrder: _writeOrder, ...olderBuildRecord } = settled;
+    const oldTimestamp = "2026-11-19T11:00:00.000Z";
+    await host.writeJson(ledger.filePath, { version: 1, records: [
+      { ...olderBuildRecord, operationId: "after-rollback", createdAt: oldTimestamp, updatedAt: oldTimestamp, finishedAt: oldTimestamp },
+      settled
+    ] });
+    expect((await ledger.latestReversible())?.operationId).toBe("after-rollback");
+
+    await ledger.claim({ operationId: "automatic", toolName: "scheduled_steward_reminders", source: "system", arguments: {} });
+    await ledger.verify("automatic", result);
+    expect((await ledger.latestReversible())?.operationId).toBe("after-rollback");
+  });
+
   it("records triggers independently of source and leaves an unknown legacy target untouched", async () => {
     const host = new MemoryLedgerHost(), ledger = new OperationLedger(host, () => new Date("2026-11-08T12:00:00.000Z"));
     const save = async (operationId: string, toolName: string) => {

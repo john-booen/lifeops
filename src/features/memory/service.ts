@@ -3,7 +3,7 @@ import { Notice, TFile } from "obsidian";
 import { newLocalOperationId, recordRevision } from "../../operationIdentity";
 import { type InjectedContext } from "../../contextInjection";
 import { UndoCapacityError } from "../../dataFoundation/factOperation";
-import type { OperationLedgerDocument } from "../../dataFoundation/operationLedger";
+import { recentLedgerRecords, type OperationLedgerDocument } from "../../dataFoundation/operationLedger";
 import { type PersonalMemoryRecord, type PersonalMemoryReview } from "../../personalMemory";
 import { isSummaryMemoryRef, readPersonalMemoryWithSources } from "../../personalMemorySources";
 import { openPersonalMemorySourceModal } from "../../personalMemorySourceModal";
@@ -76,7 +76,7 @@ export async function getStewardOperations(this: MemoryHost): Promise<StewardOpe
       scheduled_summary_memories: "从日摘要记下事实", external_vault_index: "重建外部只读索引"
     };
     const reviewFolder = store.path(this.settings.folders.aiReports, "周回顾") + "/";
-    return [...document.records].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)).slice(0, 30)
+    return recentLedgerRecords(document).slice(0, 30)
       .map(record => {
         const undo = record.result?.undo;
         const files = undo?.kind === "restore_guarded_files" ? undo.files : undefined;
