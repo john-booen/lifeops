@@ -25,14 +25,27 @@ function taskDelta(file: GuardedFileChange) {
   return changed;
 }
 
-export function createdTaskForUndo(record: OperationLedgerRecord, taskPath: string): LifeOpsTask | undefined {
+function singleTaskChange(record: OperationLedgerRecord, taskPath: string) {
   const undo = record.result?.undo;
   const change = undo?.kind === "restore_guarded_files" ? undo.files.find(file => file.path === taskPath) : undefined;
   if (!change) return;
   try {
     const rows = taskDelta(change);
-    if (rows?.length === 1 && !rows[0].prior) return rows[0].saved;
+    if (rows?.length === 1) return rows[0];
   } catch { /* The undo operation still validates its saved revisions. */ }
+}
+
+export function createdTaskForUndo(record: OperationLedgerRecord, taskPath: string): LifeOpsTask | undefined {
+  const row = singleTaskChange(record, taskPath);
+  return row && !row.prior ? row.saved : undefined;
+}
+
+export function taskSavedByReceipt(record: OperationLedgerRecord, taskPath: string): LifeOpsTask | undefined {
+  if (record.toolName === "create_task") return createdTaskForUndo(record, taskPath);
+  if (record.toolName === "reschedule_task") {
+    const row = singleTaskChange(record, taskPath);
+    if (row?.prior) return row.saved;
+  }
 }
 
 export async function rebaseTaskRecordUndo(store: StoreHost, descriptor: OperationUndoDescriptor): Promise<GuardedFileChange[] | undefined> {

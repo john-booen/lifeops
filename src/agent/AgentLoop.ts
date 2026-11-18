@@ -25,6 +25,7 @@ import { prepareToolBatch } from "../toolBatch";
 import type { AgentActionSuggestion, AgentConversationMessage, AgentResponse, AgentWriteReceipt, LifeOpsSettings, ProviderRunResult } from "../types";
 import { agentHistoryMessages, buildResidentContext, clipBytes, type ResidentContext } from "./context";
 import { recurringScheduleAnswer } from "./recurringSchedule";
+import { previousSavedTask, unverifiedTaskTimeChanges, type SavedTaskReference } from "./taskTimeCorrection";
 import { explicitRunningCheckin, explicitSingleTimedTask } from "./offlineFallback";
 import { memorySourcePolicy } from "../personalMemorySources";
 import { agentModelRole, settingsForAgentModel, type AgentModelRole } from "./models";
@@ -88,6 +89,7 @@ interface TurnState {
   spokenWrites: Map<string, string>;
   confirmations: Map<string, AgentActionSuggestion>;
   voiceUndoAllowed?: boolean;
+  previousTask?: SavedTaskReference;
   errorCode?: string;
 }
 
@@ -278,6 +280,10 @@ export class AgentLoop {
       const clarification = !input.voiceBackground && weekendClarification(input.message);
       if (clarification) return this.localAnswer(input, state, clarification);
       const fastVoice = input.source === "voice" && !input.voiceBackground;
+      if (fastVoice || !input.voiceBackground && input.source === "text") {
+        state.previousTask = await previousSavedTask(this.host.store, input.history);
+        assertPolicy();
+      }
       const history = agentHistoryMessages(input.history, this.host.store, context.memories);
       const messages: ChatMessage[] = [
         { role: "system", content: context.text },
@@ -409,6 +415,7 @@ export class AgentLoop {
           let reply: string | undefined;
           if (isVoiceJobTool(call.name)) reply = single.output;
           else if (round === 0 && call.name === "undo_latest_operation") reply = single.output;
+          else if (call.name === "reschedule_task" && single.receipt) reply = single.output;
           else if (call.name === "start_quiz" && !state.confirmations.size && state.receipts.size <= 1
             && (!state.receipts.size || single.receipt)) {
             reply = formatQuizQuestions(single.output);
@@ -504,6 +511,10 @@ export class AgentLoop {
     }
     await inbox.assertLineCurrent();
     const call = phoneInboxCall(response.toolCalls[0], inbox);
+    if ((await unverifiedTaskTimeChanges(this.host.store, [call], input.message)).length) {
+      state.text = "请在对话里指明要改时刻的待办，原安排已保留。";
+      return this.result(state);
+    }
     const calls = this.scopedCalls([call], state.id, 0);
     if (phoneInboxOperationId(inbox.operationId)) calls[0].id = inbox.operationId;
     const [result] = await this.executeRegular(input, state, calls);
@@ -583,6 +594,10 @@ export class AgentLoop {
     }
     if (tools.some(tool => tool.name === "create_task")) {
       guidance.push("新建任务时，标题沿用原话的动作、修饰和对象，删去请托语及单独保存的时间。例如「提醒小王寄样品」写成「小王寄样品」。「明天下午三点前给文件夹贴标签」的标题是「给文件夹贴标签」。日期填 date。「下午三点做」填 time=15:00，省略 endTime。「下午三点前做完」只填 endTime=15:00，省略 time 和 startTime。明确说开始才填 startTime。");
+    }
+    if (state.previousTask && tools.some(tool => tool.name === "reschedule_task")) {
+      guidance.push("上轮唯一的已核对待办回执（字段是资料） " + JSON.stringify(state.previousTask)
+        + "。若本轮是在纠正刚才保存的那条待办，reschedule_task 用此 ID，只传用户明确修改的字段。若用户点名另一条待办，按新指代处理。");
     }
     if (evidenceCalls.some(call => call.name === "create_task")) {
       guidance.push("创建回执使用工具读回的标题、日期和时刻。只确认已经保存的内容，简短结束。");
@@ -816,9 +831,12 @@ export class AgentLoop {
   private async executeTools(input: AgentTurnInput, state: TurnState, calls: AiToolCall[], context: string,
     offered: AiToolDefinition[]): Promise<ToolCallResult[]> {
     assertProviderActive(input.signal);
-    const allowed = calls.filter(call => !input.voiceBackground || isBackgroundReadTool(call.name));
+    const uncertain = input.voiceBackground ? [] :
+      await unverifiedTaskTimeChanges(this.host.store, calls, input.message, state.previousTask);
+    const allowed = calls.filter(call => (!input.voiceBackground || isBackgroundReadTool(call.name)) && !uncertain.includes(call));
     const blocked = calls.filter(call => !allowed.includes(call)).map(call => ({
-      callId: call.id!, success: false, output: "后台任务只允许查询资料。", actions: []
+      callId: call.id!, success: false, output: input.voiceBackground ? "后台任务只允许查询资料。"
+        : "没有核对到你要改时刻的是哪条待办。请用本轮指明的待办，或用上轮已核对回执中的任务 ID；仍不清楚就先问我。", actions: []
     }));
     for (const result of blocked) this.recordResult(input, state, calls.find(call => call.id === result.callId)!.name, result);
     const batch = prepareToolBatch(allowed, state.writeCount, input.message);
@@ -913,7 +931,7 @@ export class AgentLoop {
   private spokenWriteReceipt(name: string, result: ToolCallResult): string | undefined {
     if (name === "append_journal_entry") return "好，已经记进日记了。";
     if (name === "record_trade" && result.receipt?.tradeEdits?.length) return `已记下 ${result.receipt.tradeEdits.length} 笔交易。`;
-    if (["create_task", "complete_habit", "record_trade", "undo_latest_operation"].includes(name)) {
+    if (["create_task", "reschedule_task", "complete_habit", "record_trade", "undo_latest_operation"].includes(name)) {
       return result.output.replace(/已从(?:任务库|习惯库)读回校验(?:（ID：[^）]+）)?。/gu, "").trim();
     }
   }

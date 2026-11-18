@@ -1,4 +1,4 @@
-import { formatDate, normalizeJournalDate } from "./date";
+import { addDays, formatDate, normalizeJournalDate, todayString } from "./date";
 import type { LifeOpsTask } from "./types";
 
 type Schedule = Pick<LifeOpsTask, "date" | "endDate" | "time" | "startTime" | "endTime" | "estimateMin">;
@@ -6,6 +6,14 @@ export type TaskTimeGroup = "morning" | "afternoon" | "evening" | "spanning" | "
 
 export function isTaskOnDate(task: Pick<LifeOpsTask, "date" | "endDate">, date: string): boolean {
   return Boolean(task.date && task.date <= date && date <= (task.endDate || task.date));
+}
+
+export function shiftTaskDates(task: Pick<LifeOpsTask, "date" | "endDate" | "dueDate">, days: number) {
+  return {
+    date: addDays(task.date || todayString(), days),
+    endDate: task.endDate ? addDays(task.endDate, days) : "",
+    dueDate: task.dueDate ? addDays(task.dueDate, days) : ""
+  };
 }
 
 export function taskDeadlineDate(task: Pick<LifeOpsTask, "dueDate" | "date" | "endDate">): string {

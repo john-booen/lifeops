@@ -16,7 +16,7 @@ import { automaticHabitProgress } from "../features/habits/tradeProgress";
 import { isHealthHabitSource } from "../features/health/habitSources";
 import { advanceCompensationDebt } from "../features/habits/compensationDebt";
 import { isVaultPathExcluded } from "../privacy";
-import { taskCompletionDay } from "../taskSchedule";
+import { shiftTaskDates, taskCompletionDay } from "../taskSchedule";
 
 type StoreConstructor = { prototype: object };
 
@@ -115,15 +115,7 @@ async moveTaskToQuadrant(this: StoreHost, taskId: string, quadrant: LifeOpsTaskQ
   },
 
 async postponeTask(this: StoreHost, taskId: string, days: number): Promise<void> {
-    await this.updateTask(taskId, (task) => {
-      const baseDate = task.date || todayString();
-      return {
-        ...task,
-        date: addDays(baseDate, days),
-        endDate: task.endDate ? addDays(task.endDate, days) : "",
-        dueDate: task.dueDate ? addDays(task.dueDate, days) : ""
-      };
-    });
+    await this.updateTask(taskId, task => ({ ...task, ...shiftTaskDates(task, days) }));
   },
 
 async postponeTasks(this: StoreHost, taskIds: string[], days: number): Promise<void> {

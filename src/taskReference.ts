@@ -1,5 +1,10 @@
 import { clockFromMatch, clockMatches } from "./clockText";
 
+export function taskNamedInRequest(task: { id: string; title: string }, request: string): boolean {
+  const words = request.normalize("NFKC");
+  return words.includes(task.id) || words.includes(task.title.normalize("NFKC"));
+}
+
 /** Generated task IDs and UUIDs are identities, never title fragments. */
 export function isTaskIdentifierReference(reference: string): boolean {
   // Classify distorted identifiers without using this copy to bind a record.

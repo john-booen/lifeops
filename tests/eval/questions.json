@@ -922,5 +922,17 @@
       "expectWrites": {"tasks.created": 0, "habits.deleted": 0},
       "maxConfirmations": 0
     }
+  },
+  {
+    "id": "voice-correct-task-time-56", "milestone": "M6", "domain": "voice-correction", "mode": "voice",
+    "prelude": ["明天下午3:00提醒我给靛色纸样夹贴标签。"],
+    "input": "不对，刚刚那条改成下午三点十五，日期不变。", "history": [],
+    "checks": {
+      "preludeCreatedTasks": 1, "mustSucceedTools": ["reschedule_task"],
+      "minReceipts": 1, "maxConfirmations": 0,
+      "expectWrites": {"tasks.created": 1, "tasks.deleted": 0, "tasks.rescheduled": 0, "tasks.timeChanged": 0},
+      "createdTask": {"titleIncludes": "给靛色纸样夹贴标签", "date": "2026-11-13", "time": "15:15"},
+      "mustInclude": ["靛色纸样夹", "15:15"], "mustSpeak": ["15:15"]
+    }
   }
 ]

@@ -267,6 +267,66 @@ beforeEach(async () => {
 });
 afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllGlobals(); await rm(root, { recursive: true, force: true }); });
 
+it("binds successive time corrections to the previous saved task and blocks a different guessed title", async () => {
+  const unrelated = await store.createTask({ title: "虚构同一时刻的会议", date: "2026-11-13", time: "15:00" });
+  const loop = new AgentLoop(host);
+  const firstMessage = "明天下午3:00提醒我给靛色纸样夹贴标签。";
+  const first = await loop.run(input({ message: firstMessage }));
+  expect(first.receipts).toHaveLength(1);
+  const task = (await store.readTaskDb()).tasks.find(item => item.title === "给靛色纸样夹贴标签")!;
+  const history: AgentTurnInput["history"] = [
+    { role: "user", content: firstMessage }, { role: "assistant", content: first.text, receipts: first.receipts }
+  ];
+  responses.push(
+    reply("", [tool("reschedule_task", { taskIdOrTitle: unrelated.title, time: "15:15" }, "wrong-task")]),
+    reply("", [tool("reschedule_task", { taskIdOrTitle: task.id, time: "15:15" }, "verified-task")])
+  );
+  const correction = "不对，刚刚那条改成下午三点十五。";
+  const result = await loop.run(input({ message: correction, source: "voice", history }));
+  expect(result.toolCalls).toEqual([{ name: "reschedule_task", ok: false }, { name: "reschedule_task", ok: true }]);
+  expect(result.receipts).toHaveLength(1);
+  expect(result.voiceSpeech).toContain("15:15");
+  expect(requests[0][0].content).toContain(task.id);
+  expect(await store.getTask(unrelated.id)).toEqual(unrelated);
+  expect(await store.getTask(task.id)).toMatchObject({ date: "2026-11-13", time: "15:15" });
+
+  history.push({ role: "user", content: correction }, { role: "assistant", content: result.text, receipts: result.receipts });
+  responses.push(reply("", [tool("reschedule_task", { taskIdOrTitle: task.id, time: "15:30" }, "verified-again")]));
+  const again = await loop.run(input({ message: "刚刚那条再改到下午三点半。", source: "voice", history }));
+  expect(again.voiceSpeech).toContain("15:30");
+  expect(await store.getTask(task.id)).toMatchObject({ date: "2026-11-13", time: "15:30" });
+  await runtime.undoOperation(again.receipts[0].operationId);
+  expect(await store.getTask(task.id)).toMatchObject({ date: "2026-11-13", time: "15:15" });
+});
+
+it("does not substitute the previous saved task for a task the user explicitly names", async () => {
+  const named = await store.createTask({ title: "检查虚构门牌模型", date: "2026-11-13", time: "15:00" });
+  const loop = new AgentLoop(host);
+  const first = await loop.run(input({ message: "明天下午3:00提醒我打包青色纸样。" }));
+  const previous = (await store.readTaskDb()).tasks.find(task => task.title === "打包青色纸样")!;
+  responses.push(
+    reply("", [tool("reschedule_task", { taskIdOrTitle: previous.id, time: "15:15" }, "wrong-previous-task")]),
+    reply("", [tool("reschedule_task", { taskIdOrTitle: named.title, time: "15:15" }, "explicit-task")])
+  );
+  const result = await loop.run(input({ message: "把检查虚构门牌模型改到下午三点十五。", source: "text", history: [
+    { role: "assistant", content: first.text, receipts: first.receipts }
+  ] }));
+  expect(result.toolCalls).toEqual([{ name: "reschedule_task", ok: false }, { name: "reschedule_task", ok: true }]);
+  expect(await store.getTask(previous.id)).toEqual(previous);
+  expect(await store.getTask(named.id)).toMatchObject({ time: "15:15" });
+});
+
+it("keeps an unnamed task unchanged when the previous message has no verified receipt", async () => {
+  const task = await store.createTask({ title: "虚构未被点名任务", date: "2026-11-13", time: "15:00" });
+  responses.push(reply("", [tool("reschedule_task", { taskIdOrTitle: task.id, time: "15:15" })]), reply("请告诉我要修改哪条待办。"));
+  const result = await new AgentLoop(host).run(input({ message: "刚刚那条改到下午三点十五。", source: "voice", history: [
+    { role: "assistant", content: "已记录。", receipts: [{ operationId: "fictional-unverified-operation" }] }
+  ] }));
+  expect(result.receipts).toHaveLength(0);
+  expect(await store.getTask(task.id)).toEqual(task);
+});
+
+
 it.each(["text", "voice"] as const)("presents quiz questions without a model-written answer example in %s", async source => {
   if (source === "text") responses.push(reply("", [tool("load_more_tools", {}, "expand")]));
   responses.push(

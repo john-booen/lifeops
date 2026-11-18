@@ -246,6 +246,12 @@ export class OperationLedger {
     return null;
   }
 
+  async verifiedOperationForReceipt(operationId: string): Promise<OperationLedgerRecord | undefined> {
+    const { records } = await this.readDocument();
+    return records.find(record => record.operationId === operationId && record.status === "verified"
+      && record.result?.success && record.result.undo && (record.trigger ?? operationTrigger(record.toolName, record.arguments)) === "user");
+  }
+
   async readSettledOperations(operationIds: readonly string[]): Promise<{
     reverted: Set<string>;
     verified: Map<string, { toolName: string; output: string }>;

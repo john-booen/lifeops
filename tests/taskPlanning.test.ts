@@ -194,6 +194,65 @@ describe("task planning through real files", () => {
     expect(await store.getTask(original.id)).toMatchObject({ date: today, dueDate: today });
   });
 
+  it("corrects a saved task's point time without adding a task or changing its date", async () => {
+    const original = await store.createTask({ title: "核对虚构纸样", date: today, time: "15:00", dueDate: addDays(today, 1) });
+    const other = await store.createTask({ title: original.title, date: today, time: "16:00" });
+    const result = await runtime.executeAiToolCall({ name: "reschedule_task", arguments: {
+      taskIdOrTitle: original.id, time: "15:15"
+    } }, "kimi", "不对，刚刚那条改成下午三点十五");
+    expect(result.success, result.output).toBe(true);
+    expect(result.output).toContain("15:15");
+    expect((await store.readTaskDb()).tasks).toHaveLength(2);
+    expect(await store.getTask(original.id)).toMatchObject({ date: today, time: "15:15", dueDate: addDays(today, 1) });
+    expect(await store.getTask(other.id)).toEqual(other);
+    expect(parseVaultTasks(await vault.bytes(store.taskMirrorPath())).find(task => task.id === original.id)?.time).toBe("15:15");
+    await runtime.undoOperation(result.receipt!.operationId);
+    expect(await store.getTask(original.id)).toMatchObject({ date: today, time: "15:00" });
+    expect(await store.getTask(other.id)).toEqual(other);
+  });
+
+  it("edits an explicit start without changing the date or inventing an end", async () => {
+    const original = await store.createTask({ title: "查看虚构样张", date: today, startTime: "15:00" });
+    const result = await runtime.executeAiToolCall({ name: "reschedule_task", arguments: {
+      taskIdOrTitle: original.id, time: "15:15"
+    } }, "kimi");
+    expect(result.success, result.output).toBe(true);
+    const saved = await store.getTask(original.id);
+    expect(saved).toMatchObject({ date: today, startTime: "15:15", time: "" });
+    expect(saved.endTime).toBeUndefined();
+  });
+
+  it("applies an updated date and point time together", async () => {
+    const original = await store.createTask({ title: "送虚构标签", date: today, time: "15:00", dueDate: today });
+    const result = await runtime.executeAiToolCall({ name: "reschedule_task", arguments: {
+      taskIdOrTitle: original.id, date: "明天", time: "15:15"
+    } }, "kimi");
+    expect(result.success, result.output).toBe(true);
+    expect(result.output).toContain("15:15");
+    expect(await store.getTask(original.id)).toMatchObject({ date: addDays(today, 1), time: "15:15", dueDate: addDays(today, 1) });
+    await runtime.undoOperation(result.receipt!.operationId);
+    expect(await store.getTask(original.id)).toMatchObject({ date: today, time: "15:00", dueDate: today });
+  });
+
+  it("preserves a saved task if a combined correction has an invalid time", async () => {
+    const original = await store.createTask({ title: "虚构准备任务", date: today, time: "15:00" });
+    const result = await runtime.executeAiToolCall({ name: "reschedule_task", arguments: {
+      taskIdOrTitle: original.id, date: "明天", time: "24:00"
+    } }, "kimi");
+    expect(result.success).toBe(false);
+    expect(await store.getTask(original.id)).toEqual(original);
+  });
+
+  it("does not overwrite an existing interval with a point time correction", async () => {
+    const original = await store.createTask({ title: "虚构安排区间", date: today, startTime: "15:00", endTime: "16:00" });
+    const result = await runtime.executeAiToolCall({ name: "reschedule_task", arguments: {
+      taskIdOrTitle: original.id, date: "明天", time: "15:15"
+    } }, "kimi");
+    expect(result.success).toBe(false);
+    expect(result.output).toContain("计划区间");
+    expect(await store.getTask(original.id)).toEqual(original);
+  });
+
   it("rejects a capacity-aware preview that exceeds the remaining room", async () => {
     const tomorrow = addDays(today, 1);
     await store.createTask({ title: "已有一项", date: tomorrow });

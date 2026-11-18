@@ -3,7 +3,7 @@ import { saveMemoryNote } from "./memoryNoteWrite";
 import { activityNotePath } from "./activityRecords";
 import { linkedNoteName } from "./linkedNoteSettings";
 import { journalDraftContent, journalOriginalBlock } from "./features/journal/entry";
-import { explicitReminderClock, explicitScheduledTaskTitle, isCopiedTaskTitleReference, isTaskIdentifierReference } from "./taskReference";
+import { explicitReminderClock, explicitScheduledTaskTitle, isCopiedTaskTitleReference, isTaskIdentifierReference, taskNamedInRequest } from "./taskReference";
 import type { AiToolDefinition } from "./ai";
 import { assertSafeOperationId, fileRevision, MAX_CONFIRMATION_ACTION_ID_LENGTH, recordRevision } from "./operationIdentity";
 import { OperationLedger, type OperationUndoDescriptor, type OperationResultSnapshot, type OperationLedgerRecord } from "./dataFoundation/operationLedger";
@@ -11,7 +11,7 @@ import { createdTaskForUndo, rebaseTaskRecordUndo } from "./dataFoundation/taskR
 import type { FactOperationOptions, GuardedFileChange } from "./dataFoundation/factOperation";
 import { addDays, normalizeJournalDate, todayString } from "./date";
 import { isVaultPathExcluded } from "./privacy";
-import { taskCompletionDay, taskScheduleLabel, validateTaskSchedule } from "./taskSchedule";
+import { shiftTaskDates, taskCompletionDay, taskScheduleLabel, timeMinutes, validateTaskSchedule } from "./taskSchedule";
 import { createPersonalMemory, findMemorySuppression, personalMemorySourceAssessment, personalMemoryReadSnapshot, reviewPersonalMemoryRecord, upsertPersonalMemoryRecord, type PersonalMemoryKind } from "./personalMemory";
 import type { StoreHost } from "./store/settingsSlice";
 import type { AgentActionSuggestion, HabitDefinition, HabitInput, LifeOpsTask } from "./types";
@@ -305,14 +305,21 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
   },
   {
     name: "reschedule_task",
-    description: "把现有未完成任务改到指定日期，保留任务身份和计划时刻。改期直接执行，禁止另建替代任务。",
+    description: "用户明确改期或改时，直接更改原有未完成任务。对象明确时直接调用，若需查找，list_tasks 用 directReply=false，查完后继续修改。纠正刚保存的任务时优先用回执的 ID。至少提供 date 或 time，未提供字段保留，禁止另建替代任务。",
     safety: "direct-write",
     parameters: { type: "object", additionalProperties: false, properties: {
-      taskIdOrTitle: { type: "string" }, date: { type: "string" }
-    }, required: ["taskIdOrTitle", "date"] },
-    execute: async (args, context) => {
-      const reference = toolArgString(args, "taskIdOrTitle"), date = normalizeJournalDate(toolArgString(args, "date"));
-      if (!reference || !date) return toolError("请明确要改期的任务和日期。");
+      taskIdOrTitle: { type: "string", description: "准确任务 ID 或唯一标题。" },
+      date: { type: "string", description: "新日期，可用相对日期。仅改时刻时省略。" },
+      time: { type: "string", description: "新的单点时刻，24 小时制 HH:mm，例如下午三点十五填 15:15。仅改日期时省略。" }
+    }, required: ["taskIdOrTitle"] },
+    execute: async (args, context, request) => {
+      const reference = toolArgString(args, "taskIdOrTitle");
+      const date = args.date === undefined ? undefined : normalizeJournalDate(toolArgString(args, "date"));
+      const time = args.time === undefined ? undefined : toolArgString(args, "time");
+      if (!reference || date === "" || date === undefined && time === undefined) {
+        return toolError("请明确要修改的任务和有效的新日期或时刻。");
+      }
+      if (time !== undefined && timeMinutes(time) === undefined) return toolError("请提供有效的计划时刻，例如 15:15。");
       const store = context.store, excluded = store.settings.privacy?.excludedVaultPrefixes;
       if (isVaultPathExcluded(store.taskDbPath(), excluded)) return toolError("任务库已排除，请在面板改期。");
       const resolution = await resolveTaskByReference(store, reference, true);
@@ -320,14 +327,34 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
       const task = resolution.item;
       if (task.sourceNotePath && isVaultPathExcluded(task.sourceNotePath, excluded)) return toolError("任务来源已排除，请在面板操作。");
       if (task.status !== "active") return toolError("只能改期尚未完成的任务。");
-      if (task.date === date) return toolReply(`「${task.title}」已在 ${date}。`);
-      const days = (Date.parse(date + "T00:00:00Z") - Date.parse((task.date || todayString()) + "T00:00:00Z")) / 86_400_000;
-      if (!Number.isSafeInteger(days)) return toolError("原任务日期无法核对，已保留原安排。");
-      await store.postponeTask(task.id, days);
+      if (time !== undefined && request.source === "qwen-omni" && !taskNamedInRequest(task, request.userMessage ?? "")) {
+        return toolError("请明确说出要改时刻的待办标题，原安排已保留。");
+      }
+      if (time !== undefined && task.endTime) return toolError("这条任务已有计划结束时刻，请在事务中核对并修改计划区间。");
+      const nextDate = date ?? task.date;
+      const clockField = task.startTime ? "startTime" : "time";
+      const when = [nextDate, time].filter(Boolean).join(" ");
+      if (nextDate === task.date && (time === undefined || time === task[clockField])) {
+        return toolReply(`「${task.title}」已在 ${when}。`);
+      }
+      const dayShift = nextDate === task.date ? 0 :
+        (Date.parse(nextDate + "T00:00:00Z") - Date.parse((task.date || todayString()) + "T00:00:00Z")) / 86_400_000;
+      if (!Number.isSafeInteger(dayShift)) return toolError("原任务日期无法核对，已保留原安排。");
+      const dates = nextDate === task.date ? {} : shiftTaskDates(task, dayShift);
+      const clocks = time === undefined ? {} : { [clockField]: time };
+      const next = { ...task, ...dates, ...clocks };
+      validateTaskSchedule(next);
+      await store.updateTask(task.id, current => {
+        if (recordRevision(current) !== recordRevision(task)) throw Error("这条任务刚发生变化，请核对最新安排后再改。");
+        return next;
+      });
       const verified = await store.getTask(task.id);
-      if (verified.date !== date || verified.title !== task.title) return toolError("改期后的记录校验未通过。");
+      if (verified.date !== nextDate || verified.title !== task.title || verified.endDate !== next.endDate
+        || verified.dueDate !== next.dueDate || verified[clockField] !== next[clockField]) {
+        return toolError("修改后的安排校验未通过。");
+      }
       await context.refreshViews();
-      return toolReply(`已把「${task.title}」改到 ${date}。`, [],
+      return toolReply(`已把「${task.title}」改到 ${when}。`, [],
         { kind: "restore_task", task: structuredClone(task) as unknown as Record<string, unknown> });
     }
   },

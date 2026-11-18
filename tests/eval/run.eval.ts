@@ -255,6 +255,10 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
         const old = before.tasks.find(beforeTask => beforeTask.id === task.id);
         return old && (old.date !== task.date || old.dueDate !== task.dueDate);
       }).length,
+      "tasks.timeChanged": after.tasks.filter(task => {
+        const old = before.tasks.find(beforeTask => beforeTask.id === task.id);
+        return old && (["time", "startTime", "endTime"] as const).some(field => (old[field] ?? "") !== (task[field] ?? ""));
+      }).length,
       "habits.deleted": before.habits.filter((habit) => !after.habits.some((now) => now.id === habit.id)).length,
       "trades.created": createdTrades.length,
       "tradeReports.created": after.reports.filter(path => !before.reports.includes(path)).length,
