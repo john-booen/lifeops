@@ -7,6 +7,7 @@ import { DEFAULT_SETTINGS } from "../src/defaults";
 import { formatDate } from "../src/date";
 import type { FactOperationOptions } from "../src/dataFoundation/factOperation";
 import { LifeOpsEventBus } from "../src/lifeOpsEventBus";
+import { ProactiveLifecycle } from "../src/proactiveLifecycle";
 import { decideProactiveDelivery, emptyProactivePolicyState, recordProactiveDelivery } from "../src/proactivePolicy";
 import { stewardCandidate, type ProactiveCandidate } from "../src/scheduler";
 import type { StoreHost } from "../src/store/settingsSlice";
@@ -81,7 +82,7 @@ it("shares the current debt between home and the morning brief, without writing 
   const before = await vault.bytes(store.taskDbPath());
   const card = buildTodayCard(await store.getTaskDashboard(today), [], point);
   expect(card.compensationSummary).toBe("欠 1 项 · 最长已拖 3 天 · 应存 200 元");
-  startStewardReminders(host, point);
+  startStewardReminders(host);
   await runStewardReminders(host, point);
   const brief = delivered.find(item => item.kind === "daily_brief")!;
   expect(brief).toMatchObject({ voiceEligible: true, reason: expect.stringMatching(/^补偿欠 1 项，最长已拖 3 天，应存 200 元。/u) });
@@ -99,7 +100,7 @@ it("shares the current debt between home and the morning brief, without writing 
   const [task] = (await store.readTaskDb()).tasks;
   await store.completeTask(task.id);
   const next = now(17, 8);
-  const state = { ...emptyProactivePolicyState(), firstOpen: next.toISOString() };
+  const state = emptyProactivePolicyState();
   const after = await collectStewardCandidates(store, state, next, undefined);
   expect(after.find(item => item.kind === "daily_brief")?.reason).toMatch(/^目前没有未完成的补偿。/u);
   store.settings.privacy = { ...store.settings.privacy, excludedVaultPrefixes: [store.settings.folders.tasks] };
@@ -112,7 +113,7 @@ it("uses the same readable device sleep as the today card when sorting the morni
   await store.createTask({ title: "虚构长任务", date, estimateMin: 120, quadrant: "important-not-urgent" });
   await store.createTask({ title: "虚构短任务", date, estimateMin: 30 });
   await store.appendHealthEntry({ date, sleepHours: 5 });
-  const state = { ...emptyProactivePolicyState(), firstOpen: point.toISOString() };
+  const state = emptyProactivePolicyState();
   const brief = async () => (await collectStewardCandidates(store, state, point, undefined))
     .find(item => item.kind === "daily_brief")?.reason;
   expect(await brief()).toContain("设备睡眠 5 小时");
@@ -173,12 +174,67 @@ it("includes a reached weekly goal and reports excused habits separately in even
   expect(review).toContain("习惯已完成 1/1 项。1 项习惯已请假。");
 });
 
+it.each([
+  { startup: "overnight", openedAt: now(12, 20) },
+  { startup: "before dawn", openedAt: now(13, 5, 45) }
+])("delivers one morning brief with an $startup startup, including across wakeups and reopen", async ({ openedAt }) => {
+  const legacyState = { ...emptyProactivePolicyState(), firstOpen: openedAt.toISOString() };
+  await store.writeProactivePolicyState(legacyState);
+  let cycle: Promise<void> | undefined;
+  const lifecycle = new ProactiveLifecycle(() => { cycle = runStewardReminders(host); }, () => () => undefined);
+  Object.assign(host, { proactiveLifecycle: lifecycle });
+  vi.useFakeTimers();
+  vi.setSystemTime(openedAt);
+  lifecycle.setEnabled(true);
+  try {
+    startStewardReminders(host);
+    await vi.advanceTimersByTimeAsync(0);
+    await cycle;
+    vi.setSystemTime(now(13, 6, 54));
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    await cycle;
+    expect(delivered).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    await Promise.all([cycle, runStewardReminders(host)]);
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    await cycle;
+    expect(delivered.map(item => item.dedupeKey)).toEqual(["daily_brief:2026-11-13"]);
+
+    const reopened = { ...host, store: new LifeOpsStore(host.app, host.settings) } as unknown as ReviewHost;
+    vi.setSystemTime(now(13, 8));
+    startStewardReminders(reopened);
+    await runStewardReminders(reopened);
+    expect(delivered.map(item => item.dedupeKey)).toEqual(["daily_brief:2026-11-13"]);
+  } finally {
+    lifecycle.stop();
+  }
+  expect((await store.readProactivePolicyState()).deliveries.map(item => item.dedupeKey))
+    .toEqual(["daily_brief:2026-11-13"]);
+  expect((await store.readProactiveCandidates(10)).map(item => item.dedupeKey))
+    .toEqual(["daily_brief:2026-11-13"]);
+});
+
+it("skips morning brief delivery while disabled and after the window, and keeps evening review", async () => {
+  const firstTick = now(13, 7);
+  host.settings.proactive.enabled = false;
+  startStewardReminders(host);
+  await runStewardReminders(host, firstTick);
+  expect((await store.readProactivePolicyState()).deliveries).toEqual([]);
+
+  host.settings.proactive.enabled = true;
+  await runStewardReminders(host, now(13, 11));
+  expect(delivered).toEqual([]);
+  await runStewardReminders(host, now(13, 21));
+  expect(delivered.map(item => item.dedupeKey)).toEqual(["evening_review:2026-11-13"]);
+});
+
 it("simulates three calendar days with real saved reminders, strict quiet hours, and same-kind cooldown", async () => {
   const older = await seedIdea("虚构旧想法", "2026-10-02", ["2026-11-12"]);
   await seedIdea("虚构较新想法", "2026-10-19");
   await seedCompletedTask(12);
   const priority = await store.createTask({ title: "虚构优先任务", date: "2026-11-13", quadrant: "important-urgent" });
-  startStewardReminders(host, now(13, 6, 30));
+  startStewardReminders(host);
   await runStewardReminders(host, now(13, 6, 59));
   expect(delivered).toEqual([]);
   await runStewardReminders(host, now(13, 7));
@@ -188,9 +244,7 @@ it("simulates three calendar days with real saved reminders, strict quiet hours,
   expect(delivered.map(item => item.kind)).toEqual(["daily_brief", "stalled_idea", "evening_review"]);
   expect(delivered[0].reason).toContain("虚构优先任务");
 
-  startStewardReminders(host, now(14, 5, 45));
   await runStewardReminders(host, now(14, 5, 45));
-  startStewardReminders(host, now(14, 9));
   await runStewardReminders(host, now(14, 9));
   const first = await store.createTask({ title: "虚构首条提醒任务", date: "2026-11-14" });
   queueTaskOverload(host, first.id, "今天已排 5 个，平时大约完成 3 个。", now(14, 14));
@@ -201,26 +255,25 @@ it("simulates three calendar days with real saved reminders, strict quiet hours,
   await store.updateTask(priority.id, previous => ({ ...previous, status: "completed", completedAt: now(14, 15).toISOString() }));
   await runStewardReminders(host, now(14, 15, 30));
   await runStewardReminders(host, now(14, 21));
-  expect(delivered.slice(3).map(item => item.kind)).toEqual(["task_overload", "stalled_idea", "task_overload", "evening_review"]);
-  expect(delivered[5].reason).toContain("今天已排 2 个");
+  expect(delivered.slice(3).map(item => item.kind)).toEqual(["daily_brief", "task_overload", "stalled_idea", "task_overload", "evening_review"]);
+  expect(delivered[6].reason).toContain("今天已排 2 个");
 
-  startStewardReminders(host, now(15, 8));
   await runStewardReminders(host, now(15, 8));
   await runStewardReminders(host, now(15, 14));
   await runStewardReminders(host, now(15, 19, 59));
   await runStewardReminders(host, now(15, 20));
   await runStewardReminders(host, now(15, 21));
-  expect(delivered.slice(7).map(item => item.kind)).toEqual(["daily_brief", "stalled_idea", "weekly_review", "evening_review"]);
-  expect(delivered[8]).toMatchObject({ priority: "high", voiceEligible: true, reason: expect.stringContaining("继续、暂停还是放弃") });
-  expect(delivered[9].reason).toContain("下周学习");
+  expect(delivered.slice(8).map(item => item.kind)).toEqual(["daily_brief", "stalled_idea", "weekly_review", "evening_review"]);
+  expect(delivered[9]).toMatchObject({ priority: "high", voiceEligible: true, reason: expect.stringContaining("继续、暂停还是放弃") });
+  expect(delivered[10].reason).toContain("下周学习");
   const week = summaryPeriod("week", "2026-11-15"), summary = summaryPath(store, week);
   const scope = await readSummaryScope(store);
   await vault.seed(summary, renderSummary(week, week.to, scope.hash,
     { taskCompletionPercent: 25, tasksCompleted: 1, energy: null, tradePnlCny: null, tradePnlUsd: null },
     7, true, "model", "虚构周摘要"));
-  expect(await withWeeklySummary(store, [delivered[9]])).toMatchObject([{ summaryPath: summary, reason: expect.stringContaining("本周摘要已可查看") }]);
+  expect(await withWeeklySummary(store, [delivered[10]])).toMatchObject([{ summaryPath: summary, reason: expect.stringContaining("本周摘要已可查看") }]);
   const state = await store.readProactivePolicyState();
-  expect(state.deliveries).toHaveLength(11);
+  expect(state.deliveries).toHaveLength(12);
   for (const day of [13, 14, 15]) {
     const events = state.deliveries.filter(row => formatDate(new Date(row.deliveredAt)) === formatDate(now(day, 0)));
     expect(events.length).toBeLessThanOrEqual(6);
@@ -230,7 +283,7 @@ it("simulates three calendar days with real saved reminders, strict quiet hours,
   expect(ideas.find(idea => idea.path === older.path)?.ideaReminderDays).toEqual(["2026-11-12", "2026-11-13", "2026-11-14", "2026-11-15"]);
   expect(await vault.bytes(older.path)).toContain(older.original);
   expect(ideas.find(idea => idea.path !== older.path)?.ideaReminderDays).toEqual([]);
-  expect((await store.readProactiveCandidates(20)).filter(item => item.steward)).toHaveLength(11);
+  expect((await store.readProactiveCandidates(20)).filter(item => item.steward)).toHaveLength(12);
 });
 
 it("keeps the Sunday task count current when a weekly summary is still a draft", async () => {
@@ -258,7 +311,7 @@ it.each(["excluded", "malformed"] as const)("delivers both Sunday reminders with
   const original = JSON.stringify({ version: 1, tracks: condition === "malformed" ? "虚构格式错误" : [] });
   await vault.seed(path, original);
   if (condition === "excluded") store.settings.privacy = { ...store.settings.privacy, excludedVaultPrefixes: [path] };
-  startStewardReminders(host, point);
+  startStewardReminders(host);
   await runStewardReminders(host, point);
   expect(delivered.map(candidate => candidate.kind)).toEqual(["evening_review", "weekly_review"]);
   expect(delivered[1].reason).toContain("本周已完成 1 项任务。");
@@ -292,7 +345,7 @@ it.each(["before collection", "before persistence"] as const)("skips delayed ove
   vi.setSystemTime(point);
   await seedCompletedTask(12);
   const task = await store.createTask({ title: "虚构已撤销的超载项", date: "2026-11-15", estimateMin: 120 });
-  startStewardReminders(host, point);
+  startStewardReminders(host);
   queueTaskOverload(host, task.id, "今天已排 1 个，平时大约完成 1 个。", point);
   if (when === "before collection") {
     await store.completeTask(task.id);
@@ -317,7 +370,7 @@ it("does not persist a pending reminder if its lifecycle was disabled during dat
     current.mockReturnValue(false);
     return board;
   });
-  startStewardReminders(host, now(15, 8));
+  startStewardReminders(host);
   await runStewardReminders(host, now(15, 8));
   expect(delivered).toEqual([]);
   expect((await store.readProactivePolicyState()).deliveries).toEqual([]);
@@ -333,7 +386,7 @@ it("rechecks reminders after setup replaces the active store during a save", asy
       host.store = replacement;
     }, options));
   const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-  startStewardReminders(host, point);
+  startStewardReminders(host);
   try {
     await runStewardReminders(host, point);
     expect(pending).toHaveBeenCalledOnce();
@@ -362,7 +415,7 @@ it("caps all steward channels at six reminders and keeps automated writes out of
   expect(decideProactiveDelivery(next, state, { ...DEFAULT_SETTINGS.proactive, dailyLimit: 20 }, point).reason).toBe("daily_limit");
   const userPath = "虚构操作.md";
   await runtime.executeLocalOperation("user_edit", {}, scope => scope.writeFile(userPath, "虚构手动操作"));
-  startStewardReminders(host, now(15, 8));
+  startStewardReminders(host);
   await runStewardReminders(host, now(15, 8));
   await runtime.undoLatestOperation();
   expect(store.getFile(userPath)).toBeNull();

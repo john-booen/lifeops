@@ -54,7 +54,6 @@ export interface ProactivePolicyState {
   deliveries: ProactiveDelivery[];
   feedback: ProactiveFeedback[];
   mutedKinds: ProactiveCandidateKind[];
-  firstOpen?: string;
 }
 
 export interface ProactivePolicyDecision {

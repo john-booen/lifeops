@@ -23,11 +23,11 @@ import { taskCapacity, taskOverloadReason, tasksDueBy } from "../tasks/capacity"
 import type { ReviewHost } from "./service";
 
 interface OverloadAlert { taskId: string; at: Date }
-type Runtime = { openedAt: Date; overload?: OverloadAlert };
+type Runtime = { overload?: OverloadAlert };
 const runtimes = new WeakMap<ReviewHost, Runtime>();
 
-export function startStewardReminders(host: ReviewHost, openedAt = new Date()): void {
-  runtimes.set(host, { openedAt });
+export function startStewardReminders(host: ReviewHost): void {
+  runtimes.set(host, {});
   host.proactiveLifecycle.schedule(0);
 }
 
@@ -36,12 +36,6 @@ export function queueTaskOverload(host: ReviewHost, taskId: string, reason: stri
   if (!runtime || host.unloaded || !host.settings.proactive.enabled || !reason.trim()) return;
   runtime.overload = { taskId, at: now };
   host.proactiveLifecycle.schedule(0);
-}
-
-function firstOpenOnDay(stored: string | undefined, openedAt: Date, now: Date): string | undefined {
-  const today = formatDate(now);
-  if (stored && formatDate(new Date(stored)) === today) return stored;
-  return formatDate(openedAt) === today ? openedAt.toISOString() : stored;
 }
 
 function advice(facts: string, tone: ProactiveTone | undefined, next: string): string {
@@ -138,7 +132,7 @@ async function weeklyPlan(store: StoreHost, now: Date) {
 
 export async function collectStewardCandidates(store: StoreHost, state: ProactivePolicyState, now: Date,
   tone: ProactiveTone | undefined, overload?: OverloadAlert): Promise<ProactiveCandidate[]> {
-  const date = formatDate(now), windows = stewardReminderWindows(now, state.firstOpen);
+  const date = formatDate(now), windows = stewardReminderWindows(now);
   const due = (kind: ProactiveCandidate["kind"], key?: string) => !state.mutedKinds.includes(kind)
     && !state.deliveries.some(row => row.dedupeKey === [kind, date, key].filter(Boolean).join(":"));
   const morning = windows.morning && due("daily_brief"), evening = windows.evening && due("evening_review");
@@ -183,16 +177,13 @@ export async function runStewardReminders(host: ReviewHost, now = new Date()): P
   host.proactiveCycleRunning = true;
   try {
     const prior = await store.readProactivePolicyState();
-    const firstOpen = firstOpenOnDay(prior.firstOpen, runtime.openedAt, now);
     const overload = runtime.overload;
-    const candidates = await collectStewardCandidates(store, { ...prior, firstOpen }, now, host.settings.proactive.tone, overload);
+    const candidates = await collectStewardCandidates(store, prior, now, host.settings.proactive.tone, overload);
     current();
-    if (prior.firstOpen === firstOpen && !candidates.some(item => decideProactiveDelivery(item, prior, host.settings.proactive, now).deliver)) return;
+    if (!candidates.some(item => decideProactiveDelivery(item, prior, host.settings.proactive, now).deliver)) return;
     const delivered: ProactiveCandidate[] = [];
     await host.saveLocalOperation("scheduled_steward_reminders", { date: formatDate(now) }, async scope => {
-      const persisted = await scope.readProactivePolicyState();
-      const started = firstOpenOnDay(persisted.firstOpen, runtime.openedAt, now);
-      let state: ProactivePolicyState = { ...persisted, firstOpen: started };
+      let state = await scope.readProactivePolicyState();
       for (const item of candidates) {
         current();
         const decision = decideProactiveDelivery(item, state, host.settings.proactive, now);
@@ -212,8 +203,10 @@ export async function runStewardReminders(host: ReviewHost, now = new Date()): P
         delivered.push(candidate);
         state = recordProactiveDelivery(state, candidate, decision.channel, now);
       }
-      if (delivered.length) await scope.appendProactiveCandidates(delivered);
-      if (delivered.length || persisted.firstOpen !== started) await scope.writeProactivePolicyState(state);
+      if (delivered.length) {
+        await scope.appendProactiveCandidates(delivered);
+        await scope.writeProactivePolicyState(state);
+      }
     }, { assertCurrent: current });
     current();
     for (const candidate of delivered) {

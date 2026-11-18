@@ -57,12 +57,10 @@ export interface ProactiveCandidate {
   summaryPath?: string;
 }
 
-export function stewardReminderWindows(now: Date, firstOpen?: string) {
-  const opened = firstOpen ? new Date(firstOpen) : undefined;
+export function stewardReminderWindows(now: Date) {
   const hour = now.getHours(), quiet = isInQuietHours(now, 23, 7);
   return {
-    morning: !quiet && hour < 11 && !!opened && formatDate(opened) === formatDate(now)
-      && opened.getHours() >= 6 && opened.getHours() < 11,
+    morning: !quiet && hour < 11,
     evening: !quiet && hour >= 21,
     idea: !quiet && hour >= 14,
     weekly: !quiet && now.getDay() === 0 && hour >= 20,

@@ -147,7 +147,6 @@ export default class LifeOpsPlugin extends Plugin {
   private phoneInbox?: PhoneInbox;
 
   async onload(): Promise<void> {
-    const openedAt = new Date();
     const generation = ++this.lifecycleGeneration;
     this.unloaded = false;
     const current = () => this.isLifecycleCurrent(generation);
@@ -168,7 +167,7 @@ export default class LifeOpsPlugin extends Plugin {
           if (current() && !issues.length) {
             if (this.settings.setupComplete === false) openSetupWizard(this);
             void summaryService.startSummarySchedule(this as unknown as summaryService.SummaryHost);
-            startStewardReminders(this as unknown as reviewService.ReviewHost, openedAt);
+            startStewardReminders(this as unknown as reviewService.ReviewHost);
             void startMemoryMaintenance(this as unknown as memoryService.MemoryHost);
             this.phoneInbox?.schedule();
           }
