@@ -305,12 +305,12 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
   },
   {
     name: "reschedule_task",
-    description: "用户明确改期或改时，直接更改原有未完成任务。对象明确时直接调用，若需查找，list_tasks 用 directReply=false，查完后继续修改。纠正刚保存的任务时优先用回执的 ID。至少提供 date 或 time，未提供字段保留，禁止另建替代任务。",
+    description: "改未完成任务的日期或单点时刻。对象明确就调用。查找用 list_tasks 的 directReply=false，查完继续改。续改用回执 ID。传 date 或 time，省略字段保留。",
     safety: "direct-write",
     parameters: { type: "object", additionalProperties: false, properties: {
       taskIdOrTitle: { type: "string", description: "准确任务 ID 或唯一标题。" },
       date: { type: "string", description: "新日期，可用相对日期。仅改时刻时省略。" },
-      time: { type: "string", description: "新的单点时刻，24 小时制 HH:mm，例如下午三点十五填 15:15。仅改日期时省略。" }
+      time: { type: "string", description: "新单点时刻，24 小时制 HH:mm。仅改日期时省略。" }
     }, required: ["taskIdOrTitle"] },
     execute: async (args, context, request) => {
       const reference = toolArgString(args, "taskIdOrTitle");

@@ -19,7 +19,7 @@ const memoryUsage = new WeakMap<object, Map<string, number>>();
 const PRINCIPLES = [
   "总原则",
   "1. 问日记或情绪先查原文，引一句原话和关键安排。没写原因就说明。",
-  "2. 明确新建一项用 create_task，指定明天某时也直接创建。改原任务用 reschedule_task，可只改日期或单点时刻。接续纠正用上一条回执的任务 ID。写后给回执。",
+  "2. 新建用 create_task。改日期或时刻用 reschedule_task。续改用回执 ID。写后给回执。",
   "3. 仅查清单用 list_tasks(directReply=true)。排序和超载用 plan_today。完成数和完成率用 get_stats。",
   "4. 删除、超过三项的批量修改、改原文及导入，必须给确认卡。",
   "5. 明确记住用 append_memory_note 存原话并填 explicit=true，自动保存不填。同一时间可有多事。查记忆只答有效记忆。",
