@@ -1,5 +1,5 @@
 {
-  "version": "0.5.88",
+  "version": "0.5.89",
   "date": "2026-11-18",
   "passRate": 1,
   "questionIds": [
@@ -57,7 +57,8 @@
     "today-due-and-overdue-52",
     "voice-planned-finish-53",
     "text-planned-finish-54",
-    "device-sleep-55"
+    "device-sleep-55",
+    "voice-correct-task-time-56"
   ],
   "passedIds": [
     "today-unfinished-01",
@@ -114,6 +115,7 @@
     "today-due-and-overdue-52",
     "voice-planned-finish-53",
     "text-planned-finish-54",
-    "device-sleep-55"
+    "device-sleep-55",
+    "voice-correct-task-time-56"
   ]
 }
