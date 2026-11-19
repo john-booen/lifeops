@@ -9,7 +9,7 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 // @ts-expect-error Pure operator-script contracts use recorded/synthetic JSON, not a scanner.
 import { evaluateOsvReport, npmLockPackages } from "../scripts/osv-audit-gate.mjs";
 // @ts-expect-error No downloads or scanner calls occur in this test.
-import { auditEnvironment, databaseMetadata, parseAuditArguments, prepareAudit, runIsolatedAudit, scanArguments, TOOL, verifyDatabasePreparation, verifyPreparation } from "../scripts/offline-osv-audit.mjs";
+import { auditEnvironment, databaseMetadata, parseAuditArguments, prepareAudit, reviewedTool, runIsolatedAudit, scanArguments, verifyDatabasePreparation, verifyPreparation, verifyToolHeader } from "../scripts/offline-osv-audit.mjs";
 // @ts-expect-error Pure operator-script tests use synthetic transports only.
 import { acquireRangeDatabase, crc32cBytes, createRangeTransport, rangeDigests, rangePlan, rangeSnapshot, RANGE_POLICY, runRangeTasks, validateCoverage, validateRange, verifyRangeDatabase } from "../scripts/osv-range-download.mjs";
 
@@ -26,6 +26,37 @@ vi.mock("node:child_process", async importOriginal => {
     if (command === "/usr/bin/curl") { networkGuard.curlCalls++; throw Error("Real curl is forbidden in offline audit unit tests"); }
     return (original.spawn as any)(command, ...args);
   } };
+});
+
+describe("reviewed OSV executable platforms", () => {
+  it.each([
+    { arch: "arm64", asset: "arm64", digest: "d4926ef8da134332543be276dff157e4c170f99ad91fc48e89448a8816bdf70b", cpu: 0x0100000c },
+    { arch: "x64", asset: "amd64", digest: "e82c5df7ab0a42dff29a1cd0660711447b56b4c0483ff66ad8634df10fd81a45", cpu: 0x01000007 }
+  ])("pins the official $arch asset and rejects an executable for the other CPU", ({ arch, asset, digest, cpu }) => {
+    expect(reviewedTool("darwin", arch)).toEqual({ version: "2.7.0", url: `https://github.com/google/osv-scanner/releases/download/v2.7.0/osv-scanner_darwin_${asset}`, sha256: digest });
+    const header = Buffer.alloc(8); header.writeUInt32LE(0xfeedfacf, 0); header.writeUInt32LE(cpu, 4);
+    expect(() => verifyToolHeader(header, arch)).not.toThrow();
+    expect(() => verifyToolHeader(header, arch === "arm64" ? "x64" : "arm64")).toThrow("Mach-O");
+    expect(() => verifyToolHeader(header.subarray(0, 7), arch)).toThrow("Mach-O");
+    header.writeUInt32LE(0x464c457f, 0); expect(() => verifyToolHeader(header, arch)).toThrow("Mach-O");
+  });
+  it.each([{ platform: "linux", arch: "x64" }, { platform: "win32", arch: "arm64" }, { platform: "darwin", arch: "ia32" }, { platform: "darwin", arch: "__proto__" }])("rejects the unreviewed $platform/$arch pair", ({ platform, arch }) => {
+    expect(() => reviewedTool(platform, arch)).toThrow("reviewed");
+  });
+  it("rejects a different host or substituted tool identity before accessing a database", async () => {
+    const work = await mkdtemp(join(tmpdir(), "lifeops-osv-platform-test-"));
+    try {
+      const original = reviewedTool(), otherArch = process.arch === "arm64" ? "x64" : "arm64";
+      const proof = { platform: process.platform, arch: process.arch, tool: original, database: { url: "https://osv-vulnerabilities.storage.googleapis.com/npm/all.zip" } };
+      for (const changed of [
+        { ...proof, arch: otherArch, tool: reviewedTool("darwin", otherArch) },
+        ...[{ version: "unexpected" }, { url: original.url + "?substitution" }, { sha256: "0".repeat(64) }].map(change => ({ ...proof, tool: { ...original, ...change } }))
+      ]) {
+        await writeFile(join(work, "preparation.json"), JSON.stringify(changed));
+        await expect(verifyPreparation(work)).rejects.toThrow("Invalid preparation identity");
+      }
+    } finally { await rm(work, { recursive: true, force: true }); }
+  });
 });
 
 describe("fresh bounded range acquisition", () => {
@@ -158,7 +189,7 @@ describe("fresh bounded range acquisition", () => {
     try {
       const databaseProof = await acquireRangeDatabase(root, database, {}, request), description = "fixed public HEAD and generation-pinned range GET only";
       expect(await verifyDatabasePreparation(root, databaseProof, description)).toEqual(databaseProof);
-      const proof = { platform: "darwin", arch: "arm64", tool: { ...TOOL }, database: databaseProof, preparationRequests: description };
+      const proof = { platform: process.platform, arch: process.arch, tool: { ...reviewedTool() }, database: databaseProof, preparationRequests: description };
       for (const key of ["rangeManifestSha256", "crc32c", "generation", "metageneration"]) {
         await writeFile(join(root, "preparation.json"), JSON.stringify({ ...proof, database: { ...databaseProof, [key]: "changed" } }));
         await expect(verifyPreparation(root)).rejects.toThrow("Range preparation proof mismatch");
@@ -346,7 +377,7 @@ describe("public preparation and OS isolation contracts", () => {
       expect(call.args[call.args.indexOf("--request") + 1]).toBe("GET");
       expect(call.options.timeout).toBe((selected + 10) * 1000);
       expect(call.options.env).toEqual(auditEnvironment(work));
-      expect(call.args.at(-1)).toBe("https://github.com/google/osv-scanner/releases/download/v2.7.0/osv-scanner_darwin_arm64");
+      expect(call.args.at(-1)).toBe(reviewedTool().url);
       await expect(lstat(join(work, "preparation.json"))).rejects.toMatchObject({ code: "ENOENT" });
       expect(await readFile(join(work, "osv-scanner.download-stderr"), "utf8")).toBe("Synthetic public transfer deadline");
     } finally { await rm(root, { recursive: true, force: true }); }

@@ -8,6 +8,7 @@ import { gateFiles } from "./osv-audit-gate.mjs";
 import { acquireRangeDatabase, responseHeaders, verifyRangeDatabase } from "./osv-range-download.mjs";
 
 export const TOOL = Object.freeze({ version: "2.7.0", url: "https://github.com/google/osv-scanner/releases/download/v2.7.0/osv-scanner_darwin_arm64", sha256: "d4926ef8da134332543be276dff157e4c170f99ad91fc48e89448a8816bdf70b" });
+const INTEL_TOOL = Object.freeze({ version: "2.7.0", url: "https://github.com/google/osv-scanner/releases/download/v2.7.0/osv-scanner_darwin_amd64", sha256: "e82c5df7ab0a42dff29a1cd0660711447b56b4c0483ff66ad8634df10fd81a45" });
 export const DATABASE_URL = "https://osv-vulnerabilities.storage.googleapis.com/npm/all.zip";
 export const NETWORK_PROFILE = "(version 1)\n(allow default)\n(deny network*)\n";
 const script = fileURLToPath(import.meta.url);
@@ -38,8 +39,16 @@ export function databaseMetadata(headersText, digests, acquiredAt = new Date().t
   return { url: DATABASE_URL, acquiredAt, lastModified, etag, ...digests, transferIntegrityVerified: true };
 }
 
+export function reviewedTool(platform = process.platform, arch = process.arch) {
+  assert(platform === "darwin" && ["arm64", "x64"].includes(arch), "Only the reviewed macOS arm64/x64 tools/platforms are supported");
+  return arch === "arm64" ? TOOL : INTEL_TOOL;
+}
+export function verifyToolHeader(bytes, arch = process.arch) {
+  reviewedTool("darwin", arch);
+  assert(bytes.length >= 8 && bytes.readUInt32LE(0) === 0xfeedfacf && bytes.readUInt32LE(4) === (arch === "arm64" ? 0x0100000c : 0x01000007), `Tool executable is not Mach-O ${arch}`);
+}
 function requirePlatform() {
-  assert(process.platform === "darwin" && process.arch === "arm64", "Only the reviewed macOS arm64 tool/platform is supported");
+  return reviewedTool();
 }
 function downloadBudget(seconds) {
   assert(Number.isInteger(seconds) && seconds >= 30 && seconds <= 3600, "Invalid public download timeout; expected an integer from 30 to 3600 seconds");
@@ -68,7 +77,7 @@ export function parseAuditArguments(argv) {
 export async function prepareAudit(work, downloadTimeoutSeconds = 300, execute = spawnSync, options = {}) {
   const budget = downloadBudget(downloadTimeoutSeconds); // Validate before any preparation side effect.
   assert(options && typeof options === "object" && Object.keys(options).every(key => ["databaseRanges", "rangeRequest"].includes(key)) && [undefined, false, true].includes(options.databaseRanges) && ["undefined", "function"].includes(typeof options.rangeRequest) && (!options.rangeRequest || options.databaseRanges === true), "Invalid preparation range options");
-  requirePlatform();
+  const tool = requirePlatform();
   await mkdir(work, { mode: 0o700 }); // Existing directories/cache/results are never reused.
   for (const name of ["tmp", "cache/osv-scalibr/npm", "config"]) await mkdir(join(work, name), { recursive: true, mode: 0o700 });
   const env = auditEnvironment(work);
@@ -80,18 +89,18 @@ export async function prepareAudit(work, downloadTimeoutSeconds = 300, execute =
     return readFile(headers, "utf8");
   };
   const binary = join(work, "osv-scanner"), database = join(work, "cache/osv-scalibr/npm/all.zip");
-  await download(TOOL.url, binary);
+  await download(tool.url, binary);
   const binaryDigest = await fileDigests(binary);
-  assert(binaryDigest.sha256 === TOOL.sha256, "Official tool SHA mismatch");
+  assert(binaryDigest.sha256 === tool.sha256, "Official tool SHA mismatch");
   const binaryHeader = (await readFile(binary)).subarray(0, 8);
-  assert(binaryHeader.readUInt32LE(0) === 0xfeedfacf && binaryHeader.readUInt32LE(4) === 0x0100000c, "Tool executable is not Mach-O arm64");
+  verifyToolHeader(binaryHeader);
   await chmod(binary, 0o700);
   let databaseProof;
   if (options.databaseRanges) databaseProof = await acquireRangeDatabase(work, database, env, options.rangeRequest);
   else { const headers = await download(DATABASE_URL, database); databaseProof = databaseMetadata(headers, await fileDigests(database)); }
   await writeFile(join(work, "empty-config.toml"), "# No ignores, overrides, or filters.\n", { flag: "wx", mode: 0o600 });
   await writeFile(join(work, "deny-network.sb"), NETWORK_PROFILE, { flag: "wx", mode: 0o600 });
-  const proof = { schemaVersion: 1, preparedAt: new Date().toISOString(), platform: process.platform, arch: process.arch, tool: { ...TOOL, ...binaryDigest }, database: databaseProof, downloadBudget: budget, preparationRequests: options.databaseRanges ? "fixed public HEAD and generation-pinned range GET only" : "fixed public GET only", privateInventoryRead: false, scanExecuted: false };
+  const proof = { schemaVersion: 1, preparedAt: new Date().toISOString(), platform: process.platform, arch: process.arch, tool: { ...tool, ...binaryDigest }, database: databaseProof, downloadBudget: budget, preparationRequests: options.databaseRanges ? "fixed public HEAD and generation-pinned range GET only" : "fixed public GET only", privateInventoryRead: false, scanExecuted: false };
   await put(join(work, "preparation.json"), proof);
   return proof;
 }
@@ -102,12 +111,13 @@ export function scanArguments(work, lock) {
 }
 export async function verifyPreparation(work, now = Date.now()) {
   const proof = await json(join(work, "preparation.json"));
-  assert(proof.platform === "darwin" && proof.arch === "arm64" && proof.tool?.url === TOOL.url && proof.tool.sha256 === TOOL.sha256 && proof.database?.url === DATABASE_URL, "Invalid preparation identity");
+  const tool = requirePlatform();
+  assert(proof.platform === process.platform && proof.arch === process.arch && proof.tool?.version === tool.version && proof.tool.url === tool.url && proof.tool.sha256 === tool.sha256 && proof.database?.url === DATABASE_URL, "Invalid preparation identity");
   const age = now - Date.parse(proof.database.acquiredAt);
   assert(Number.isFinite(age) && age >= -300_000 && age <= 3600_000, "Preparation is stale; obtain a new public snapshot");
   await verifyDatabasePreparation(work, proof.database, proof.preparationRequests);
   const toolDigest = await fileDigests(join(work, "osv-scanner"));
-  assert(toolDigest.sha256 === TOOL.sha256 && toolDigest.bytes === proof.tool.bytes, "Prepared tool was modified");
+  assert(toolDigest.sha256 === tool.sha256 && toolDigest.bytes === proof.tool.bytes, "Prepared tool was modified");
   assert(await readFile(join(work, "deny-network.sb"), "utf8") === NETWORK_PROFILE && await readFile(join(work, "empty-config.toml"), "utf8") === "# No ignores, overrides, or filters.\n", "Isolation/configuration was modified");
   return proof;
 }
