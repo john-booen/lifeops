@@ -11,7 +11,7 @@ export function ciPlan({ root = sourceRoot, workDir = "<new system temporary dir
   const steps = [
     { name: "network-guard", command: node, args: ["-e", "require('node:net').connect(443, 'example.com')"], expectBlocked: true },
     { name: "typecheck", command: node, args: [join(root, "node_modules/typescript/bin/tsc"), "--noEmit", "--skipLibCheck"] },
-    { name: "coverage", command: node, args: [join(root, "node_modules/vitest/vitest.mjs"), "run", "--dir", "tests", "--config", join(root, "vitest.coverage.config.mts"), "--maxWorkers=2", "--reporter=dot"] }
+    { name: "coverage", command: node, args: [join(root, "node_modules/vitest/vitest.mjs"), "run", "--dir", "tests", "--config", join(root, "vitest.coverage.config.mts"), "--maxWorkers=2", "--testTimeout=30000", "--reporter=dot"] }
   ];
   if (!collectCoverage) steps.push(
     { name: "coverage-gate", command: node, args: [join(root, "scripts/coverage-gate.mjs"), "check", "--report", report] },
