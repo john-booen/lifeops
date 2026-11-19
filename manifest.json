@@ -4,7 +4,7 @@
   "version": "0.5.91",
   "minAppVersion": "1.5.0",
   "description": "Personal data steward for daily planning, habits, trading review, health notes, external capture, and AI summaries.",
-  "author": "",
-  "authorUrl": "",
+  "author": "john-booen",
+  "authorUrl": "https://github.com/john-booen",
   "isDesktopOnly": true
 }

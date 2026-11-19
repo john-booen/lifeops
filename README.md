@@ -8,6 +8,8 @@ LifeOps 是一个 Obsidian 插件。用同一个面板管理任务、打卡、�
 
 安装包和版本说明可从 GitHub 发布页获取。[下载最新版本](https://github.com/john-booen/lifeops/releases/latest)
 
+当前提供桌面端手动安装。社区目录提交步骤见[维护者发布说明](docs/COMMUNITY_RELEASE.md)。
+
 1. 从你信任的发布渠道拿到同一版本的 `main.js`、`manifest.json` 和 `styles.css`。开发者可按下方命令自己构建。
 2. 在一个 Obsidian 库的 `.obsidian/plugins/lifeops-assistant/` 放入这三个文件。打开该库（如果库已经打开，复制完先重载该库）。Obsidian 可能会提示确认仓库来源。自己创建的库和文件来源都确认无误后，按提示操作，再到「设置 → 第三方插件」启用 LifeOps Assistant。
 3. 在命令面板搜索「打开 LifeOps 面板」，首次向导出现后选「开始本地使用」。试建一项任务，再到「最近操作」选择对应条目并点击「撤销这一条」。
