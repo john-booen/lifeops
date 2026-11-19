@@ -110,6 +110,77 @@ async function prepareFictionalScreenshot(currency: "CNY" | "USD") {
   return { preview, confirm: () => confirmTradeScreenshot(host, rows, image.digest, preview, [1], () => {}) };
 }
 
+it.each([
+  { change: "complete", before: { tasksCompleted: 0, taskCompletionPercent: 0 }, after: { tasksCompleted: 1, taskCompletionPercent: 50 } },
+  { change: "add-plan", before: { tasksCompleted: 1, taskCompletionPercent: 50 }, after: { tasksCompleted: 1, taskCompletionPercent: 33.33 } },
+  { change: "reopen", before: { tasksCompleted: 1, taskCompletionPercent: 50 }, after: { tasksCompleted: 0, taskCompletionPercent: 0 } }
+])("refreshes the same-day weekly task figures after $change without another model call when unchanged", async row => {
+  const date = "2026-11-12", point = now(12), period = summaryPeriod("week", date);
+  const first = await store.createTask({ title: "虚构纸盒甲", date });
+  await store.createTask({ title: "虚构纸盒乙", date });
+  if (row.change !== "complete") {
+    await store.updateTask(first.id, task => ({ ...task, status: "completed", completedAt: now(12, 10).toISOString() }));
+  }
+  expect((await generatePeriodSummary(host, period, point)).status).toBe("saved");
+  expect((await saved("week", date))?.properties.metrics).toMatchObject(row.before);
+  if (row.change === "add-plan") await store.createTask({ title: "虚构纸盒丙", date });
+  else await store.updateTask(first.id, task => row.change === "complete"
+    ? { ...task, status: "completed", completedAt: now(12, 10).toISOString() }
+    : { ...task, status: "active", completedAt: "" });
+  expect((await generatePeriodSummary(host, period, point)).status).toBe("saved");
+  const note = (await saved("week", date))!;
+  expect(note.properties.metrics).toMatchObject(row.after);
+  expect(note.text).toContain(`完成任务 ${row.after.tasksCompleted} 项，计划完成率 ${row.after.taskCompletionPercent}%。`);
+  expect((await generatePeriodSummary(host, period, point)).status).toBe("existing");
+  expect(ask).toHaveBeenCalledTimes(2);
+});
+
+it("does not save a weekly summary if task figures change during generation", async () => {
+  const date = "2026-11-12", point = now(12), period = summaryPeriod("week", date);
+  const task = await store.createTask({ title: "虚构生成中完成的纸盒", date });
+  ask.mockImplementationOnce(async (messages, options) => {
+    await options.beforeTextRequest?.();
+    await store.updateTask(task.id, row => ({ ...row, status: "completed", completedAt: now(12, 10).toISOString() }));
+    return summaryText(JSON.parse(messages[1].content).period.level);
+  });
+  await expect(generatePeriodSummary(host, period, point)).rejects.toThrow("任务统计在摘要生成期间有变化");
+  expect(await saved("week", date)).toBeUndefined();
+  expect((await generatePeriodSummary(host, period, point)).status).toBe("saved");
+  expect((await saved("week", date))?.properties.metrics).toMatchObject({ tasksCompleted: 1, taskCompletionPercent: 100 });
+});
+
+it("keeps a hand-edited weekly summary byte-for-byte when task figures change", async () => {
+  const date = "2026-11-12", point = now(12), period = summaryPeriod("week", date);
+  const task = await store.createTask({ title: "虚构手写周报纸盒", date });
+  const { path } = await generatePeriodSummary(host, period, point);
+  const edited = (await vault.bytes(path)) + "\n虚构的手写复盘，不要覆盖。\n";
+  await store.writeFile(path, edited);
+  await store.updateTask(task.id, row => ({ ...row, status: "completed", completedAt: now(12, 10).toISOString() }));
+  expect((await generatePeriodSummary(host, period, point)).status).toBe("existing");
+  expect(await vault.bytes(path)).toBe(edited);
+  expect(ask).toHaveBeenCalledOnce();
+});
+
+it("keeps the prior weekly summary and a new task if figures change immediately before commit", async () => {
+  const date = "2026-11-12", point = now(12), period = summaryPeriod("week", date);
+  const task = await store.createTask({ title: "虚构提交前纸盒甲", date });
+  const { path } = await generatePeriodSummary(host, period, point);
+  const original = await vault.bytes(path);
+  await store.updateTask(task.id, row => ({ ...row, status: "completed", completedAt: now(12, 10).toISOString() }));
+  const save = host.saveLocalOperation.bind(host);
+  host.saveLocalOperation = (name, args, execute, options) => save(name, args, async operation => {
+    const result = await execute(operation);
+    await store.createTask({ title: "虚构提交前新计划乙", date });
+    return result;
+  }, options);
+  await expect(generatePeriodSummary(host, period, point)).rejects.toThrow();
+  expect(await vault.bytes(path)).toBe(original);
+  expect((await store.readTaskDb({ readOnly: true })).tasks.map(row => row.title)).toContain("虚构提交前新计划乙");
+  host.saveLocalOperation = save;
+  expect((await generatePeriodSummary(host, period, point)).status).toBe("saved");
+  expect((await saved("week", date))?.properties.metrics).toMatchObject({ tasksCompleted: 1, taskCompletionPercent: 50 });
+});
+
 it("reconciles a same-day weekly summary with English screenshots and their actual computed currencies", async () => {
   const date = "2026-10-14", point = new Date(2026, 9, 14, 12), period = summaryPeriod("week", date);
   store.settings.tradingContractMultipliers = { "FICT-F": 10 };

@@ -53,6 +53,11 @@ export async function collectChildSummaries(store: StoreHost, period: SummaryPer
 
 const numeric = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : null;
 type TradeTotals = Pick<SummaryMetrics, "tradePnlCny" | "tradePnlUsd">;
+type TaskMetrics = Pick<SummaryMetrics, "tasksCompleted" | "taskCompletionPercent">;
+
+function taskSummaryMetrics(stats: { completedCount?: unknown; completionPercent?: unknown } | null): TaskMetrics {
+  return { tasksCompleted: numeric(stats?.completedCount), taskCompletionPercent: numeric(stats?.completionPercent) };
+}
 
 function tradeSummaryTotals(stats: ReturnType<typeof tradeStats> | null): TradeTotals {
   return {
@@ -61,9 +66,19 @@ function tradeSummaryTotals(stats: ReturnType<typeof tradeStats> | null): TradeT
   };
 }
 
-export async function readSummaryTradeTotals(store: StoreHost, range: { from: string; to: string }, now: Date): Promise<TradeTotals | undefined> {
-  const result = await readStats(store, { domain: "trades", range }, now);
-  return result.success ? tradeSummaryTotals(JSON.parse(result.output)) : undefined;
+export async function readWeeklySummaryMetrics(store: StoreHost, range: { from: string; to: string }, now: Date) {
+  const [tasks, trades] = await Promise.all([
+    readStats(store, { domain: "tasks", range }, now),
+    readStats(store, { domain: "trades", range }, now)
+  ]);
+  return {
+    tasks: tasks.success ? taskSummaryMetrics(JSON.parse(tasks.output)) : undefined,
+    trades: trades.success ? tradeSummaryTotals(JSON.parse(trades.output)) : undefined
+  };
+}
+
+export function sameSummaryTaskMetrics(a: TaskMetrics, b: TaskMetrics): boolean {
+  return a.tasksCompleted === b.tasksCompleted && a.taskCompletionPercent === b.taskCompletionPercent;
 }
 
 export function sameSummaryTradeTotals(a: TradeTotals, b: TradeTotals): boolean {
@@ -83,8 +98,7 @@ export async function collectSummaryData(store: StoreHost, period: SummaryPeriod
   ]);
   const stats = Object.fromEntries(statsEntries);
   const metrics: SummaryMetrics = {
-    taskCompletionPercent: numeric(stats.tasks?.completionPercent),
-    tasksCompleted: numeric(stats.tasks?.completedCount),
+    ...taskSummaryMetrics(stats.tasks),
     energy: numeric(daily?.signalValues.energy ?? stats.journal?.signalAverages.energy),
     ...tradeSummaryTotals(stats.trades)
   };
