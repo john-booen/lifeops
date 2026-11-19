@@ -72,9 +72,12 @@ export async function readSummary(store: StoreHost, period: SummaryPeriod, sourc
     || properties.inputRevision !== undefined && (typeof properties.inputRevision !== "string" || !/^[a-f0-9]{64}$/.test(properties.inputRevision))) return undefined;
   const body = raw.slice(header[0].length);
   const marker = body.match(/^<!-- LifeOps 指纹 ([a-f0-9]{64}) -->\r?\n/);
-  const text = body.slice(marker?.[0].length ?? 0);
-  const edited = marker?.[1] !== fileRevision(header[0] + text);
-  return { path, text: text.trim(), revision: fileRevision(raw), properties: properties as SummaryProperties, edited };
+  const stored = body.slice(marker?.[0].length ?? 0);
+  const input = stored.match(/^<!-- LifeOps 摘要输入 ([a-f0-9]{64}) -->\r?\n/);
+  const text = stored.slice(input?.[0].length ?? 0);
+  const edited = marker?.[1] !== fileRevision(header[0] + stored);
+  return { path, text: text.trim(), revision: fileRevision(raw),
+    properties: { ...properties, inputRevision: input?.[1] ?? properties.inputRevision } as SummaryProperties, edited };
 }
 
 export function renderSummary(period: SummaryPeriod, through: string, sourceScope: string, metrics: SummaryMetrics,
@@ -82,10 +85,9 @@ export function renderSummary(period: SummaryPeriod, through: string, sourceScop
   const text = body.trim();
   const properties: SummaryProperties = {
     lifeops: summaryMarker, level: period.level, from: period.from, to: period.to, through,
-    sourceScope, inputCount, complete, generatedBy: kind, metrics,
-    ...(inputRevision ? { inputRevision } : {})
+    sourceScope, inputCount, complete, generatedBy: kind, metrics
   };
   const header = "---\n" + stringifyYaml(properties).trimEnd() + "\n---\n";
-  const bodyText = "\n" + text + "\n";
+  const bodyText = (inputRevision ? "<!-- LifeOps 摘要输入 " + inputRevision + " -->\n" : "") + "\n" + text + "\n";
   return header + "<!-- LifeOps 指纹 " + fileRevision(header + bodyText) + " -->\n" + bodyText;
 }

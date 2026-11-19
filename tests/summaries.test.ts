@@ -234,7 +234,12 @@ it("refreshes a legacy summary once and stores only an opaque input revision", a
     before.properties.metrics, before.properties.inputCount, before.properties.complete, before.properties.generatedBy, before.text));
   expect((await saved("day", date))?.properties.inputRevision).toBeUndefined();
   expect((await generatePeriodSummary(host, period, point)).status).toBe("saved");
-  expect((await saved("day", date))?.properties.inputRevision).toMatch(/^[a-f0-9]{64}$/);
+  const updated = (await saved("day", date))!;
+  expect(updated.properties.inputRevision).toMatch(/^[a-f0-9]{64}$/);
+  const raw = await vault.bytes(updated.path);
+  expect(raw.match(/^---\n([\s\S]*?)\n---\n/)?.[1]).not.toContain("inputRevision");
+  expect(raw).toMatch(/<!-- LifeOps 摘要输入 [a-f0-9]{64} -->/);
+  expect(updated.text).not.toContain("LifeOps 摘要输入");
   expect((await generatePeriodSummary(host, period, point)).status).toBe("existing");
   expect(ask).toHaveBeenCalledTimes(2);
 });
