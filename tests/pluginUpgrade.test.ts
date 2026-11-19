@@ -51,7 +51,8 @@ beforeEach(async () => {
 afterEach(async () => { if (root) await rm(root, { recursive: true, force: true }); });
 async function stagedPlan() { await stagePluginUpgrade(source, staged); return planPluginUpgrade(vault, staged); }
 
-describe("reviewed plugin upgrade rehearsal", () => {
+// Real fsync, large snapshots and subprocess recovery can exceed five seconds on hosted Intel disks.
+describe("reviewed plugin upgrade rehearsal", { timeout: 30_000 }, () => {
   it("stages exactly three frozen artifacts and does not include user settings", async () => {
     const result = await stagePluginUpgrade(source, staged);
     expect(result.candidate).toBe("SYNTHETIC-01");

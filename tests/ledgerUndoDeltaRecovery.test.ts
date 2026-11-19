@@ -44,7 +44,8 @@ async function saveAndUndo(tool = false) {
   return { paths, walPath, ledgerPath, wire, document };
 }
 
-describe("extended ledger undo", () => {
+// Real fsync, large snapshots and subprocess recovery can exceed five seconds on hosted Intel disks.
+describe("extended ledger undo", { timeout: 30_000 }, () => {
   it.each([
     ["settled", 1_550_000], ["intent-only", 1_550_000], ["intent-only", 2_620_000],
     ["ledger-finished", 1_550_000], ["cancel-after-ledger", 1_550_000]
@@ -120,7 +121,7 @@ describe("extended ledger undo", () => {
     expect(audit.preservedHistoricalExtension === preserved).toBe(true);
     expect(audit.records.find((record: OperationLedgerRecord) => record.operationId === operationId)?.status).toBe(rolledBack ? "verified" : "reverted");
     expect(await hasPendingFactOperation(fresh())).toBe(false);
-  }, 30_000);
+  }, 90_000);
 
   it("settles a refused undo-tool commit and preserves the original snapshots and failed claim", async () => {
     const ledgerPath = new OperationLedger(store).filePath, walPath = factRecoveryPath(store);
@@ -139,10 +140,10 @@ describe("extended ledger undo", () => {
     expect(audit.records.find((record: OperationLedgerRecord) => record.operationId === toolId)?.status).toBe("failed");
     expect(terminal).toMatchObject({ version: 1, status: "rolled_back", rollbackRequired: true, rollbackComplete: true });
     expect(await recoverFactOperation(fresh())).toBe("none");
-  }, 30_000);
+  }, 90_000);
 });
 
-describe("independent ledger undo recovery base", () => {
+describe("independent ledger undo recovery base", { timeout: 30_000 }, () => {
   it.each([false, true])("normally undoes a ledger above half the limit with tool=%s, preserving history and exact original text", async tool => {
     const s = await saveAndUndo(tool);
     const delta = s.document.ledgerUndo!;
@@ -298,7 +299,7 @@ describe("independent ledger undo recovery base", () => {
     wire.status = "pending"; await vault.seed(walPath, JSON.stringify(wire));
     expect(await recoverFactOperation(fresh())).toBe("restored"); expect(await vault.bytes(ledgerPath)).toBe(before);
     expect(await hasPendingFactOperation(fresh())).toBe(false);
-  }, 30_000); // Repeated multi-megabyte ledger snapshots under coverage.
+  }, 90_000); // Repeated multi-megabyte ledger snapshots under coverage.
 
   it("retains the independent payload bound when business snapshots also consume capacity", async () => {
     const s = await saveAndUndo(), text = "A".repeat(4 * 1024 * 1024), after = "B".repeat(4 * 1024 * 1024);

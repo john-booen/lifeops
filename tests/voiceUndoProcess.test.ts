@@ -77,7 +77,8 @@ beforeEach(async () => {
 });
 afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
-describe("actual voice undo SIGKILL and new-process recovery", () => {
+// Real fsync, large snapshots and subprocess recovery can exceed five seconds on hosted Intel disks.
+describe("actual voice undo SIGKILL and new-process recovery", { timeout: 30_000 }, () => {
   it.each(["before-undo-audit", "after-undo-audit", "after-rollback-required", "after-rollback-complete", "before-own-release", "after-own-release"])(
     "recovers v2 long-history undo at %s without resurrecting a released claim", async phase => {
       const historicalText = '"\\\n'.repeat(700_000);

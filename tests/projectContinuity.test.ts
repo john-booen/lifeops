@@ -35,7 +35,8 @@ async function setup() {
   const project = await save({ kind: "save_project", input: projectInput(goal.entityId) }); expect(project.success, project.output).toBe(true);
   return { goalId: goal.entityId, projectId: project.entityId };
 }
-describe("goal and project continuity through real local files and recorded operations", () => {
+// Real fsync, large snapshots and subprocess recovery can exceed five seconds on hosted Intel disks.
+describe("goal and project continuity through real local files and recorded operations", { timeout: 30_000 }, () => {
   it("attributes displayed project fields, original tasks and artifact verification, without blessing declared paths or body headings", async () => {
     const declared = store.path(store.settings.folders.goals, "仅声明的目标原文.md"), fake = store.path(store.settings.folders.outputs, "正文假来源.md");
     const artifact = store.path(store.settings.folders.outputs, "实际校验的产出.md");

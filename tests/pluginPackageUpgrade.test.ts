@@ -97,7 +97,8 @@ async function legacyInstalledSnapshot() {
   return { ...old, sourceKind: "reviewed-legacy-installed-12-v1", reviewEvidence: "Independently reviewed fictional early installation, including stale checksum bytes" };
 }
 
-describe("explicit early installed-snapshot adoption", () => {
+// Real fsync, large snapshots and subprocess recovery can exceed five seconds on hosted Intel disks.
+describe("explicit early installed-snapshot adoption", { timeout: 30_000 }, () => {
   it("adopts 12 to 15 files and restores the exact old checksum, modes and absences without losing later records", async () => {
     const snapshot = await legacyInstalledSnapshot(), originalSums = await readFile(join(plugin, "SHA256SUMS.txt"));
     const plan = await planLegacyInstalledSnapshotUpgrade(vault, snapshot, next);
@@ -177,7 +178,7 @@ describe("explicit early installed-snapshot adoption", () => {
   });
 });
 
-describe("reviewed full-package upgrade and rollback", () => {
+describe("reviewed full-package upgrade and rollback", { timeout: 30_000 }, () => {
   it("upgrades 16 to 15 exact files/modes, removes the declared helper and restores it at 0500", async () => {
     const plan = await planFullPluginUpgrade(vault, old, next);
     await applyFullPluginUpgrade(plan, next, options()); await compare(next);
@@ -262,7 +263,7 @@ describe("reviewed full-package upgrade and rollback", () => {
     const plan = await planFullPluginUpgrade(vault, old, next);
     if (pending) { await expect(applyFullPluginUpgrade(plan, next, options())).rejects.toThrow(/Earlier upgrade needs recovery/); await compare(old); }
     else { await applyFullPluginUpgrade(plan, next, options()); await rollbackFullPluginUpgrade(options()); await compare(old); }
-  }, 10_000);
+  }, 60_000);
 
   it("rejects an unknown journal path generation instead of adopting its allowedPaths", async () => {
     old = await makePackage("unknown-scope-old", true, "unknown-old", 0o644, false);
