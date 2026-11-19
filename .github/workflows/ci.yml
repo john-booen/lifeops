@@ -15,8 +15,9 @@ concurrency:
 
 jobs:
   verify:
-    # Keep verification off the capacity-constrained hosted arm64 queue.
-    runs-on: macos-15-intel
+    # Keep the full instrumented suite on its reviewed native ARM64 timing baseline.
+    # The lightweight audit uses Intel, avoiding a second ARM64 queue.
+    runs-on: macos-15
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
