@@ -5,7 +5,7 @@ import { fileRevision } from "../../operationIdentity";
 import type { StoreHost } from "../../store/settingsSlice";
 import type { LocalOperationHost } from "../serviceHost";
 import { healthSummaryLine, localSummaryText, summaryMessages, validSummaryText, weeklySummaryHighlights } from "./analysis";
-import { collectChildSummaries, collectSummaryData, readWeeklySummaryMetrics, sameSummaryTaskMetrics, sameSummaryTradeTotals } from "./data";
+import { collectChildSummaries, collectSummaryData, readSummaryMetrics, sameSummaryTaskMetrics, sameSummaryTradeTotals } from "./data";
 import { readSummary, readSummaryScope, renderSummary, summaryPath, summaryPathAllowed, type SummaryKind } from "./notes";
 import { scheduledSummaryPeriods, summaryBackfillPeriods, summaryFolders, summaryPeriod, type SummaryLevel, type SummaryPeriod } from "./periods";
 
@@ -78,8 +78,8 @@ async function generateSummary(host: SummaryHost, store: StoreHost, period: Summ
   const range = { from: period.from, to: through };
   if (store.getFile(path) && !canRefresh) {
     const existing = { path, status: "existing" as const, generatedBy: old?.properties.generatedBy };
-    if (period.level !== "week" || !old || old.edited) return existing;
-    const metrics = await readWeeklySummaryMetrics(store, range, now);
+    if (!old || old.edited) return existing;
+    const metrics = await readSummaryMetrics(store, range, now);
     assertStore();
     if ((!metrics.tasks || sameSummaryTaskMetrics(metrics.tasks, old.properties.metrics))
       && (!metrics.trades || sameSummaryTradeTotals(metrics.trades, old.properties.metrics))) return existing;
@@ -100,15 +100,14 @@ async function generateSummary(host: SummaryHost, store: StoreHost, period: Summ
     let operationStore: StoreHost | undefined;
     const assertInput = async () => {
       await assertScope();
-      if (period.level !== "week") return;
-      if (!operationStore) throw Error("周摘要保存未能核对任务与交易统计。");
-      const metrics = await readWeeklySummaryMetrics(operationStore, range, now);
+      if (!operationStore) throw Error("摘要保存未能核对任务与交易统计。");
+      const metrics = await readSummaryMetrics(operationStore, range, now);
       current();
       if (Boolean(metrics.tasks) !== Boolean(data.stats.tasks) || metrics.tasks && !sameSummaryTaskMetrics(metrics.tasks, data.metrics)) {
-        throw Error("任务统计在摘要生成期间有变化，请重新生成周摘要。");
+        throw Error("任务统计在摘要生成期间有变化，请重新生成摘要。");
       }
       if (Boolean(metrics.trades) !== Boolean(data.stats.trades) || metrics.trades && !sameSummaryTradeTotals(metrics.trades, data.metrics)) {
-        throw Error("交易统计在摘要生成期间有变化，请重新生成周摘要。");
+        throw Error("交易统计在摘要生成期间有变化，请重新生成摘要。");
       }
     };
     const fallback = localSummaryText(period, data);

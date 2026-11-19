@@ -66,7 +66,7 @@ function tradeSummaryTotals(stats: ReturnType<typeof tradeStats> | null): TradeT
   };
 }
 
-export async function readWeeklySummaryMetrics(store: StoreHost, range: { from: string; to: string }, now: Date) {
+export async function readSummaryMetrics(store: StoreHost, range: { from: string; to: string }, now: Date) {
   const [tasks, trades] = await Promise.all([
     readStats(store, { domain: "tasks", range }, now),
     readStats(store, { domain: "trades", range }, now)

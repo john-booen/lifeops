@@ -110,33 +110,38 @@ async function prepareFictionalScreenshot(currency: "CNY" | "USD") {
   return { preview, confirm: () => confirmTradeScreenshot(host, rows, image.digest, preview, [1], () => {}) };
 }
 
+const summaryLevels = ["day", "week", "month"] as const;
+
 it.each([
   { change: "complete", before: { tasksCompleted: 0, taskCompletionPercent: 0 }, after: { tasksCompleted: 1, taskCompletionPercent: 50 } },
   { change: "add-plan", before: { tasksCompleted: 1, taskCompletionPercent: 50 }, after: { tasksCompleted: 1, taskCompletionPercent: 33.33 } },
   { change: "reopen", before: { tasksCompleted: 1, taskCompletionPercent: 50 }, after: { tasksCompleted: 0, taskCompletionPercent: 0 } }
-])("refreshes the same-day weekly task figures after $change without another model call when unchanged", async row => {
-  const date = "2026-11-12", point = now(12), period = summaryPeriod("week", date);
+].flatMap(row => summaryLevels.map(level => ({ ...row, level }))))("refreshes same-day $level task figures after $change without another model call when unchanged", async row => {
+  const { level } = row;
+  const date = "2026-11-12", point = now(12), period = summaryPeriod(level, date);
   const first = await store.createTask({ title: "虚构纸盒甲", date });
   await store.createTask({ title: "虚构纸盒乙", date });
   if (row.change !== "complete") {
     await store.updateTask(first.id, task => ({ ...task, status: "completed", completedAt: now(12, 10).toISOString() }));
   }
   expect((await generatePeriodSummary(host, period, point)).status).toBe("saved");
-  expect((await saved("week", date))?.properties.metrics).toMatchObject(row.before);
+  expect((await saved(level, date))?.properties.metrics).toMatchObject(row.before);
   if (row.change === "add-plan") await store.createTask({ title: "虚构纸盒丙", date });
   else await store.updateTask(first.id, task => row.change === "complete"
     ? { ...task, status: "completed", completedAt: now(12, 10).toISOString() }
     : { ...task, status: "active", completedAt: "" });
   expect((await generatePeriodSummary(host, period, point)).status).toBe("saved");
-  const note = (await saved("week", date))!;
+  const note = (await saved(level, date))!;
   expect(note.properties.metrics).toMatchObject(row.after);
-  expect(note.text).toContain(`完成任务 ${row.after.tasksCompleted} 项，计划完成率 ${row.after.taskCompletionPercent}%。`);
+  if (level === "week") expect(note.text).toContain(`完成任务 ${row.after.tasksCompleted} 项，计划完成率 ${row.after.taskCompletionPercent}%。`);
+  const inputs = JSON.parse(ask.mock.calls.at(-1)![0][1].content);
+  expect(inputs.stats.tasks).toMatchObject({ completedCount: row.after.tasksCompleted, completionPercent: row.after.taskCompletionPercent });
   expect((await generatePeriodSummary(host, period, point)).status).toBe("existing");
   expect(ask).toHaveBeenCalledTimes(2);
 });
 
-it("does not save a weekly summary if task figures change during generation", async () => {
-  const date = "2026-11-12", point = now(12), period = summaryPeriod("week", date);
+it.each(summaryLevels)("does not save a %s summary if task figures change during generation", async level => {
+  const date = "2026-11-12", point = now(12), period = summaryPeriod(level, date);
   const task = await store.createTask({ title: "虚构生成中完成的纸盒", date });
   ask.mockImplementationOnce(async (messages, options) => {
     await options.beforeTextRequest?.();
@@ -144,13 +149,13 @@ it("does not save a weekly summary if task figures change during generation", as
     return summaryText(JSON.parse(messages[1].content).period.level);
   });
   await expect(generatePeriodSummary(host, period, point)).rejects.toThrow("任务统计在摘要生成期间有变化");
-  expect(await saved("week", date)).toBeUndefined();
+  expect(await saved(level, date)).toBeUndefined();
   expect((await generatePeriodSummary(host, period, point)).status).toBe("saved");
-  expect((await saved("week", date))?.properties.metrics).toMatchObject({ tasksCompleted: 1, taskCompletionPercent: 100 });
+  expect((await saved(level, date))?.properties.metrics).toMatchObject({ tasksCompleted: 1, taskCompletionPercent: 100 });
 });
 
-it("keeps a hand-edited weekly summary byte-for-byte when task figures change", async () => {
-  const date = "2026-11-12", point = now(12), period = summaryPeriod("week", date);
+it.each(summaryLevels)("keeps a hand-edited %s summary byte-for-byte when task figures change", async level => {
+  const date = "2026-11-12", point = now(12), period = summaryPeriod(level, date);
   const task = await store.createTask({ title: "虚构手写周报纸盒", date });
   const { path } = await generatePeriodSummary(host, period, point);
   const edited = (await vault.bytes(path)) + "\n虚构的手写复盘，不要覆盖。\n";
@@ -161,8 +166,8 @@ it("keeps a hand-edited weekly summary byte-for-byte when task figures change", 
   expect(ask).toHaveBeenCalledOnce();
 });
 
-it("keeps the prior weekly summary and a new task if figures change immediately before commit", async () => {
-  const date = "2026-11-12", point = now(12), period = summaryPeriod("week", date);
+it.each(summaryLevels)("keeps the prior %s summary and a new task if figures change immediately before commit", async level => {
+  const date = "2026-11-12", point = now(12), period = summaryPeriod(level, date);
   const task = await store.createTask({ title: "虚构提交前纸盒甲", date });
   const { path } = await generatePeriodSummary(host, period, point);
   const original = await vault.bytes(path);
@@ -178,14 +183,15 @@ it("keeps the prior weekly summary and a new task if figures change immediately 
   expect((await store.readTaskDb({ readOnly: true })).tasks.map(row => row.title)).toContain("虚构提交前新计划乙");
   host.saveLocalOperation = save;
   expect((await generatePeriodSummary(host, period, point)).status).toBe("saved");
-  expect((await saved("week", date))?.properties.metrics).toMatchObject({ tasksCompleted: 1, taskCompletionPercent: 50 });
+  expect((await saved(level, date))?.properties.metrics).toMatchObject({ tasksCompleted: 1, taskCompletionPercent: 50 });
 });
 
-it("reconciles a same-day weekly summary with English screenshots and their actual computed currencies", async () => {
-  const date = "2026-10-14", point = new Date(2026, 9, 14, 12), period = summaryPeriod("week", date);
+it.each(summaryLevels)("reconciles a same-day %s summary with English screenshots and their actual computed currencies", async level => {
+  const date = level === "day" ? "2026-10-12" : "2026-10-14";
+  const point = new Date(2026, 9, 14, 12), period = summaryPeriod(level, date);
   store.settings.tradingContractMultipliers = { "FICT-F": 10 };
   const { path } = await generatePeriodSummary(host, period, point);
-  expect((await saved("week", date))?.properties.metrics).toMatchObject({ tradePnlCny: 0, tradePnlUsd: 0 });
+  expect((await saved(level, date))?.properties.metrics).toMatchObject({ tradePnlCny: 0, tradePnlUsd: 0 });
 
   const usd = await prepareFictionalScreenshot("USD");
   expect(usd.preview.rows[0]).toMatchObject({ kind: "ready", computedPnl: 97.5, draft: { currency: "USD" } });
@@ -197,9 +203,11 @@ it("reconciles a same-day weekly summary with English screenshots and their actu
   const receipt = (await new OperationLedger(store).latestReversible())!.operationId;
 
   expect((await generatePeriodSummary(host, period, point)).status).toBe("saved");
-  const weekly = (await saved("week", date))!;
-  expect(weekly.properties.metrics).toMatchObject({ tradePnlCny: 97, tradePnlUsd: 97.5 });
-  expect(weekly.text).toContain("交易净盈亏为 CNY 97，USD 97.5。");
+  const cnyInPeriod = level === "day" ? 0 : 97;
+  const note = (await saved(level, date))!;
+  expect(note.properties.metrics).toMatchObject({ tradePnlCny: cnyInPeriod, tradePnlUsd: 97.5 });
+  if (level === "week") expect(note.text).toContain("交易净盈亏为 CNY 97，USD 97.5。");
+  expect(JSON.parse(ask.mock.calls.at(-1)![0][1].content).stats.trades.byCurrency).toMatchObject({ CNY: { totalPnl: cnyInPeriod }, USD: { totalPnl: 97.5 } });
   const tradeReview = await collectTradeReview(store, "week", point);
   expect(tradeReview.stats).toMatchObject({ count: 2, byCurrency: { CNY: { totalPnl: 97 }, USD: { totalPnl: 97.5 } } });
   const report = renderTradeReview(tradeReview, { good: [], issues: [], checklist: [], suggestions: [] });
@@ -208,8 +216,8 @@ it("reconciles a same-day weekly summary with English screenshots and their actu
   expect((await generatePeriodSummary(host, period, point)).status).toBe("existing");
 
   await runtime.undoOperation(receipt);
-  expect((await generatePeriodSummary(host, period, point)).status).toBe("saved");
-  expect((await saved("week", date))?.properties.metrics).toMatchObject({ tradePnlCny: 0, tradePnlUsd: 97.5 });
+  expect((await generatePeriodSummary(host, period, point)).status).toBe(level === "day" ? "existing" : "saved");
+  expect((await saved(level, date))?.properties.metrics).toMatchObject({ tradePnlCny: 0, tradePnlUsd: 97.5 });
   const edited = (await vault.bytes(path)) + "\n虚构手写补充。\n";
   await store.writeFile(path, edited);
   await (await prepareFictionalScreenshot("CNY")).confirm();
@@ -217,8 +225,9 @@ it("reconciles a same-day weekly summary with English screenshots and their actu
   expect(await vault.bytes(path)).toBe(edited);
 });
 
-it("does not save a weekly summary if a confirmed trade changes its totals during generation", async () => {
-  const date = "2026-10-14", point = new Date(2026, 9, 14, 12), period = summaryPeriod("week", date);
+it.each(summaryLevels)("does not save a %s summary if a confirmed trade changes its totals during generation", async level => {
+  const date = level === "day" ? "2026-10-12" : "2026-10-14";
+  const point = new Date(2026, 9, 14, 12), period = summaryPeriod(level, date);
   const screenshot = await prepareFictionalScreenshot("USD");
   ask.mockImplementationOnce(async (messages, options) => {
     await options.beforeTextRequest?.();
@@ -226,9 +235,9 @@ it("does not save a weekly summary if a confirmed trade changes its totals durin
     return summaryText(JSON.parse(messages[1].content).period.level);
   });
   await expect(generatePeriodSummary(host, period, point)).rejects.toThrow("交易统计在摘要生成期间有变化");
-  expect(await saved("week", date)).toBeUndefined();
+  expect(await saved(level, date)).toBeUndefined();
   expect((await generatePeriodSummary(host, period, point)).status).toBe("saved");
-  expect((await saved("week", date))?.properties.metrics.tradePnlUsd).toBe(97.5);
+  expect((await saved(level, date))?.properties.metrics.tradePnlUsd).toBe(97.5);
 });
 
 it("catches up the previous day, fills the Sunday 21:30 report after the 23:30 daily, and preserves edits", async () => {
