@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { App } from "obsidian";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "../src/defaults";
-import type { FactOperationOptions } from "../src/dataFoundation/factOperation";
+import { waitForFactOperations, type FactOperationOptions } from "../src/dataFoundation/factOperation";
 import { LifeOpsEventBus } from "../src/lifeOpsEventBus";
 import type { StoreHost } from "../src/store/settingsSlice";
 
@@ -44,7 +44,7 @@ beforeEach(async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(now);
 });
-afterEach(async () => { vi.useRealTimers(); await rm(root, { recursive: true, force: true }); });
+afterEach(async () => { vi.useRealTimers(); await waitForFactOperations(store); await rm(root, { recursive: true, force: true }); });
 
 it("previews a grounded learning plan, accepts user edits, and retains completed units on next-week adjustment", async () => {
   const folder = DEFAULT_SETTINGS.folders.tradingModels;
@@ -113,6 +113,8 @@ it("blocks stale learning sources and keeps private paths out of note capture", 
     expect((await getTrack()).sessions[0].minutes).toBeUndefined();
     events.publish({ type: "vault.modified", source: "vault", payload: { path }, occurredAt: "2026-11-13T09:00:00+08:00" });
     await vi.waitFor(async () => expect((await getTrack()).sessions).toHaveLength(2));
+    // The business row is visible before its audit commit has settled.
+    await waitForFactOperations(store);
   } finally { dispose(); }
   expect((await getTrack()).sessions.map(session => session.notePath)).toEqual([path, path]);
 });
