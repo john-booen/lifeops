@@ -39,7 +39,9 @@ export async function runSafeCi({ root = sourceRoot, collectCoverage = false, ex
   const plan = ciPlan({ root, workDir, collectCoverage }); const env = ciEnvironment(root, workDir);
   const before = await coverageSourceHashes(root); const completed = [];
   const run = execute ?? (step => spawnSync(step.command, step.args, {
-    cwd: root, env, encoding: "utf8", stdio: step.expectBlocked ? "pipe" : "inherit", timeout: 20 * 60_000
+    cwd: root, env, encoding: "utf8", stdio: step.expectBlocked ? "pipe" : "inherit",
+    // Hosted Intel coverage exceeded the former 20-minute process limit.
+    timeout: (step.name === "coverage" ? 45 : 20) * 60_000
   }));
   try {
     for (const step of plan.steps) {
