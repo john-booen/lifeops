@@ -24,9 +24,11 @@ export const SUMMARIES_TOOL: LifeOpsToolDefinition = {
       const { readSummary, readSummaryScope } = await import("./notes");
       const scope = await readSummaryScope(store);
       const summaries = [];
+      const missingPeriods: string[] = [];
       for (const period of periods.slice(-14)) {
         context.assertCurrent?.();
         const note = await readSummary(store, period, scope.hash);
+        if (!note) missingPeriods.push(period.key);
         if (note) summaries.push({
           period: period.key, from: period.from, through: note.properties.through, complete: note.properties.complete,
           generatedBy: note.properties.generatedBy, metrics: note.properties.metrics,
@@ -35,9 +37,14 @@ export const SUMMARIES_TOOL: LifeOpsToolDefinition = {
       }
       if ((await readSummaryScope(store)).hash !== scope.hash) throw Error("摘要可读取的资料范围有变化，请重试。");
       context.assertCurrent?.();
+      const coverage: string[] = [];
+      if (periods.length > 14) coverage.push("只读取最近 14 个周期，查询较早日期请缩小区间。");
+      if (missingPeriods.length) coverage.push(summaries.length
+        ? "部分周期没有可读取的摘要，可以按 missingPeriods 查原始记录。"
+        : "这个区间没有可读取的摘要，可以查原始记录。");
       return { success: true, output: JSON.stringify({ level, range, summaries,
-        ...(periods.length > 14 ? { coverage: "只读取最近 14 个周期，查询较早日期请缩小区间。" } : {}),
-        ...(summaries.length ? {} : { coverage: "这个区间没有可读取的摘要，可以查原始记录。" }) }), actions: [] };
+        ...(missingPeriods.length ? { missingPeriods } : {}),
+        ...(coverage.length ? { coverage: coverage.join(" ") } : {}) }), actions: [] };
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") throw error;
       return { success: false, output: error instanceof Error ? error.message : "摘要暂时无法读取。", actions: [] };

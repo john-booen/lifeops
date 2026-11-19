@@ -355,3 +355,33 @@ it("uses ISO week numbers at the year boundary and fills eight complete weeks in
   expect(periods[55].to).toBe("2026-11-15");
   expect(periods.at(-1)?.to).toBe("2026-11-15");
 });
+
+it.each([
+  { level: "day", from: "2026-11-09", to: "2026-11-10", present: "2026-11-09", missing: "2026-11-10" },
+  { level: "week", from: "2026-11-02", to: "2026-11-15", present: "2026-W45", missing: "2026-W46" },
+  { level: "month", from: "2026-10-01", to: "2026-11-30", present: "2026-10", missing: "2026-11" }
+] as const)("names the missing $level period when a comparison has only one readable summary", async row => {
+  const period = summaryPeriod(row.level, row.from);
+  const scope = (await readSummaryScope(store)).hash;
+  const metrics = { taskCompletionPercent: null, tasksCompleted: 2, energy: null, tradePnlCny: null, tradePnlUsd: null };
+  const original = renderSummary(period, period.to, scope, metrics, 1, true, "model", "虚构的可读取摘要。");
+  await vault.seed(summaryPath(store, period), original);
+  const result = await runtime.executeAiToolCall({ id: "partial-" + row.level, name: "get_summaries",
+    arguments: { level: row.level, range: { from: row.from, to: row.to } } }, "kimi");
+  expect(result.success).toBe(true);
+  expect(JSON.parse(result.output)).toMatchObject({
+    summaries: [{ period: row.present }], missingPeriods: [row.missing], coverage: expect.stringContaining("原始记录")
+  });
+  expect(await vault.bytes(summaryPath(store, period))).toBe(original);
+});
+
+it("reports both the read window and missing summaries for a long empty range", async () => {
+  const result = await runtime.executeAiToolCall({ id: "long-empty-summary-range", name: "get_summaries",
+    arguments: { level: "day", range: { from: "2026-11-01", to: "2026-11-30" } } }, "kimi");
+  const output = JSON.parse(result.output);
+  expect(output.summaries).toEqual([]);
+  expect(output.missingPeriods).toHaveLength(14);
+  expect(output.missingPeriods[0]).toBe("2026-11-17");
+  expect(output.coverage).toContain("最近 14 个周期");
+  expect(output.coverage).toContain("原始记录");
+});
