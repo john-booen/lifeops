@@ -5,7 +5,7 @@ import { fileRevision } from "../../operationIdentity";
 import type { StoreHost } from "../../store/settingsSlice";
 import type { LocalOperationHost } from "../serviceHost";
 import { healthSummaryLine, localSummaryText, summaryMessages, validSummaryText, weeklySummaryHighlights } from "./analysis";
-import { collectChildSummaries, collectSummaryData, readSummaryMetrics, sameSummaryTaskMetrics, sameSummaryTradeTotals } from "./data";
+import { collectChildSummaries, collectSummaryData, sameSummaryTaskMetrics, sameSummaryTradeTotals, summaryInputRevision } from "./data";
 import { readSummary, readSummaryScope, renderSummary, summaryPath, summaryPathAllowed, type SummaryKind } from "./notes";
 import { scheduledSummaryPeriods, summaryBackfillPeriods, summaryFolders, summaryPeriod, type SummaryLevel, type SummaryPeriod } from "./periods";
 
@@ -75,15 +75,14 @@ async function generateSummary(host: SummaryHost, store: StoreHost, period: Summ
   const canRefresh = old && !old.edited && (old.properties.through < through
     || !old.properties.complete && complete || old.properties.inputCount < inputCount
     || old.properties.generatedBy === "local" && providerReady(store.settings));
-  const range = { from: period.from, to: through };
+  const existing = { path, status: "existing" as const, generatedBy: old?.properties.generatedBy };
   if (store.getFile(path) && !canRefresh) {
-    const existing = { path, status: "existing" as const, generatedBy: old?.properties.generatedBy };
     if (!old || old.edited) return existing;
-    const metrics = await readSummaryMetrics(store, range, now);
-    assertStore();
-    if ((!metrics.tasks || sameSummaryTaskMetrics(metrics.tasks, old.properties.metrics))
-      && (!metrics.trades || sameSummaryTradeTotals(metrics.trades, old.properties.metrics))) return existing;
   }
+  const data = await collectSummaryData(store, period, now, scope.protect, children);
+  assertStore();
+  const inputRevision = summaryInputRevision(data);
+  if (store.getFile(path) && !canRefresh && old?.properties.inputRevision === inputRevision) return existing;
   return host.observeProvider("daily_review", "text", async (request, _store, ai, providerCurrent, onCommitted) => {
     const current = () => {
       assertStore();
@@ -96,19 +95,20 @@ async function generateSummary(host: SummaryHost, store: StoreHost, period: Summ
       }
       current();
     };
-    const data = await collectSummaryData(store, period, now, scope.protect, children);
     let operationStore: StoreHost | undefined;
     const assertInput = async () => {
       await assertScope();
-      if (!operationStore) throw Error("摘要保存未能核对任务与交易统计。");
-      const metrics = await readSummaryMetrics(operationStore, range, now);
+      if (!operationStore) throw Error("摘要保存未能核对输入记录。");
+      const currentChildren = await collectChildSummaries(operationStore, period, through, scope);
+      const latest = await collectSummaryData(operationStore, period, now, scope.protect, currentChildren);
       current();
-      if (Boolean(metrics.tasks) !== Boolean(data.stats.tasks) || metrics.tasks && !sameSummaryTaskMetrics(metrics.tasks, data.metrics)) {
+      if (Boolean(latest.stats.tasks) !== Boolean(data.stats.tasks) || latest.stats.tasks && !sameSummaryTaskMetrics(latest.metrics, data.metrics)) {
         throw Error("任务统计在摘要生成期间有变化，请重新生成摘要。");
       }
-      if (Boolean(metrics.trades) !== Boolean(data.stats.trades) || metrics.trades && !sameSummaryTradeTotals(metrics.trades, data.metrics)) {
+      if (Boolean(latest.stats.trades) !== Boolean(data.stats.trades) || latest.stats.trades && !sameSummaryTradeTotals(latest.metrics, data.metrics)) {
         throw Error("交易统计在摘要生成期间有变化，请重新生成摘要。");
       }
+      if (summaryInputRevision(latest) !== inputRevision) throw Error("摘要依据在生成期间有变化，请重新生成摘要。");
     };
     const fallback = localSummaryText(period, data);
     let local = false;
@@ -134,7 +134,7 @@ async function generateSummary(host: SummaryHost, store: StoreHost, period: Summ
     }
     if (period.level === "week") text = weeklySummaryHighlights(data) + "\n\n" + text;
     const generatedBy = local ? "local" : "model";
-    const markdown = renderSummary(period, through, scope.hash, data.metrics, inputCount, complete, generatedBy, text);
+    const markdown = renderSummary(period, through, scope.hash, data.metrics, inputCount, complete, generatedBy, text, inputRevision);
     const operationName = scheduled ? "scheduled_period_summary" : "generated_period_summary";
     await host.saveLocalOperation(operationName, { level: period.level, key: period.key, path }, async operation => {
       // Read through the transaction while it holds the vault lock.

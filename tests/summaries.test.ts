@@ -112,6 +112,147 @@ async function prepareFictionalScreenshot(currency: "CNY" | "USD") {
 
 const summaryLevels = ["day", "week", "month"] as const;
 
+it.each(summaryLevels)("refreshes a same-day %s health summary after a confirmed record changes", async level => {
+  const date = "2026-11-12", point = now(12), period = summaryPeriod(level, date);
+  await store.appendHealthEntry({ date, sleepHours: 6, steps: 100 });
+  expect((await generatePeriodSummary(host, period, point)).status).toBe("saved");
+  expect((await saved(level, date))?.text).toContain("平均睡眠 6 小时（1 天）。累计步数 100 步（1 天）。");
+  await host.saveLocalOperation("local_appendHealthEntry", {}, scope => scope.appendHealthEntry({ date, sleepHours: 7.25, steps: 6123 }));
+  const healthReceipt = (await new OperationLedger(store).latestReversible())!.operationId;
+  expect((await generatePeriodSummary(host, period, point)).status).toBe("saved");
+  expect((await saved(level, date))?.text).toContain("平均睡眠 7.25 小时（1 天）。累计步数 6123 步（1 天）。");
+  expect((await generatePeriodSummary(host, period, point)).status).toBe("existing");
+  expect(ask).toHaveBeenCalledTimes(2);
+  expect(await runtime.undoOperation(healthReceipt)).toBe(true);
+  expect((await generatePeriodSummary(host, period, point)).status).toBe("saved");
+  expect((await saved(level, date))?.text).toContain("平均睡眠 6 小时（1 天）。累计步数 100 步（1 天）。");
+});
+
+async function fictionalHabit(date: string) {
+  return store.createHabit({ name: "虚构纸样核对", frequencyUnit: "day", frequencyInterval: 1, targetCount: 1, startDate: date });
+}
+
+it.each(summaryLevels)("refreshes same-day %s habit figures after a check-in without changing task or trade totals", async level => {
+  const date = "2026-11-12", point = now(12), period = summaryPeriod(level, date);
+  const habit = await fictionalHabit(date);
+  await generatePeriodSummary(host, period, point);
+  expect(JSON.parse(ask.mock.calls.at(-1)![0][1].content).stats.habits.habits[0].doneCount).toBe(0);
+  await store.recordHabitStatus(habit.id, "done", date);
+  expect((await generatePeriodSummary(host, period, point)).status).toBe("saved");
+  expect(JSON.parse(ask.mock.calls.at(-1)![0][1].content).stats.habits.habits[0].doneCount).toBe(1);
+  expect((await generatePeriodSummary(host, period, point)).status).toBe("existing");
+  expect(ask).toHaveBeenCalledTimes(2);
+});
+
+async function fictionalEnergy(date: string, energy: number) {
+  const path = store.path(store.settings.folders.dailyRoot, "2026", "11", date + "晚.md");
+  const raw = `纯虚构记录：精力 ${energy} 分。`;
+  await vault.seed(path, raw);
+  const signal = { date, period: "晚", energy, mood: null, stress: null, sleepHours: null, sleepQuality: null,
+    keyEvents: [], plans: [], ideas: [], worries: [], quotes: [{ field: "energy", text: raw }], sources: [{ path, sha256: fileRevision(raw) }] };
+  await vault.seed(signalDocumentPath(store, date), JSON.stringify({ version: 1, date, 晨: [], 晚: [signal] }));
+}
+
+it.each(summaryLevels)("refreshes same-day %s energy after journal signals change", async level => {
+  const date = "2026-11-12", point = now(12), period = summaryPeriod(level, date);
+  await fictionalEnergy(date, 4);
+  await generatePeriodSummary(host, period, point);
+  expect((await saved(level, date))?.properties.metrics.energy).toBe(4);
+  await fictionalEnergy(date, 2);
+  expect((await generatePeriodSummary(host, period, point)).status).toBe("saved");
+  expect((await saved(level, date))?.properties.metrics.energy).toBe(2);
+  expect((await generatePeriodSummary(host, period, point)).status).toBe("existing");
+  expect(ask).toHaveBeenCalledTimes(2);
+});
+
+it("refreshes a daily summary after a new user decision and keeps assistant text out of its inputs", async () => {
+  const date = "2026-11-12", point = now(12), period = summaryPeriod("day", date);
+  await store.appendAgentConversation("纯虚构：先整理蓝纸。", "助手虚构了一个决定。", date);
+  await generatePeriodSummary(host, period, point);
+  await store.appendAgentConversation("纯虚构：我决定先整理绿纸。", "助手又虚构了一个决定。", date);
+  expect((await generatePeriodSummary(host, period, point)).status).toBe("saved");
+  const inputs = ask.mock.calls.at(-1)![0][1].content;
+  expect(inputs).toContain("我决定先整理绿纸");
+  expect(inputs).not.toContain("助手又虚构");
+  expect((await generatePeriodSummary(host, period, point)).status).toBe("existing");
+});
+
+it.each(summaryLevels.flatMap(level => ["health", "habit"].map(domain => ({ level, domain }))))(
+  "does not save a $level summary when $domain inputs change during generation", async ({ level, domain }) => {
+    const date = "2026-11-12", point = now(12), period = summaryPeriod(level, date);
+    const habit = await fictionalHabit(date);
+    ask.mockImplementationOnce(async (messages, options) => {
+      await options.beforeTextRequest?.();
+      if (domain === "health") await store.appendHealthEntry({ date, sleepHours: 7.25, steps: 6123 });
+      else await store.recordHabitStatus(habit.id, "done", date);
+      return summaryText(JSON.parse(messages[1].content).period.level);
+    });
+    await expect(generatePeriodSummary(host, period, point)).rejects.toThrow("摘要依据在生成期间有变化");
+    expect(await saved(level, date)).toBeUndefined();
+    expect((await generatePeriodSummary(host, period, point)).status).toBe("saved");
+    const inputs = JSON.parse(ask.mock.calls.at(-1)![0][1].content);
+    if (domain === "health") expect((await saved(level, date))?.text).toContain("平均睡眠 7.25 小时");
+    else expect(inputs.stats.habits.habits[0].doneCount).toBe(1);
+  }
+);
+
+it.each(summaryLevels)("keeps a hand-edited %s summary byte-for-byte after health data changes", async level => {
+  const date = "2026-11-12", point = now(12), period = summaryPeriod(level, date);
+  const { path } = await generatePeriodSummary(host, period, point);
+  const edited = (await vault.bytes(path)) + "\n虚构手写健康复盘，保留原文。\n";
+  await store.writeFile(path, edited);
+  await store.appendHealthEntry({ date, sleepHours: 7.25, steps: 6123 });
+  expect((await generatePeriodSummary(host, period, point)).status).toBe("existing");
+  expect(await vault.bytes(path)).toBe(edited);
+  expect(ask).toHaveBeenCalledOnce();
+});
+
+it.each(summaryLevels)("keeps the prior %s summary when health inputs change immediately before commit", async level => {
+  const date = "2026-11-12", point = now(12), period = summaryPeriod(level, date);
+  await store.appendHealthEntry({ date, sleepHours: 6, steps: 100 });
+  const { path } = await generatePeriodSummary(host, period, point);
+  const original = await vault.bytes(path);
+  await store.appendHealthEntry({ date, sleepHours: 7.25, steps: 6123 });
+  const save = host.saveLocalOperation.bind(host);
+  host.saveLocalOperation = (name, args, execute, options) => save(name, args, async operation => {
+    const result = await execute(operation);
+    await store.appendHealthEntry({ date, sleepHours: 8, steps: 7000 });
+    return result;
+  }, options);
+  await expect(generatePeriodSummary(host, period, point)).rejects.toThrow();
+  expect(await vault.bytes(path)).toBe(original);
+  host.saveLocalOperation = save;
+  expect((await generatePeriodSummary(host, period, point)).status).toBe("saved");
+  expect((await saved(level, date))?.text).toContain("平均睡眠 8 小时（1 天）。累计步数 7000 步（1 天）。");
+});
+
+it("refreshes a legacy summary once and stores only an opaque input revision", async () => {
+  const date = "2026-11-12", period = summaryPeriod("day", date), point = now(12);
+  await generatePeriodSummary(host, period, point);
+  const before = (await saved("day", date))!;
+  await store.writeFile(before.path, renderSummary(period, before.properties.through, before.properties.sourceScope,
+    before.properties.metrics, before.properties.inputCount, before.properties.complete, before.properties.generatedBy, before.text));
+  expect((await saved("day", date))?.properties.inputRevision).toBeUndefined();
+  expect((await generatePeriodSummary(host, period, point)).status).toBe("saved");
+  expect((await saved("day", date))?.properties.inputRevision).toMatch(/^[a-f0-9]{64}$/);
+  expect((await generatePeriodSummary(host, period, point)).status).toBe("existing");
+  expect(ask).toHaveBeenCalledTimes(2);
+});
+
+it.each(["week", "month"] as const)("refreshes a %s when its child text changes with the same child count", async level => {
+  const date = "2026-11-12", point = now(12), parent = summaryPeriod(level, date);
+  const childLevel = level === "week" ? "day" : "week";
+  await generatePeriodSummary(host, summaryPeriod(childLevel, date), point);
+  await generatePeriodSummary(host, parent, point);
+  const child = (await saved(childLevel, date))!;
+  const edited = (await vault.bytes(child.path)) + "\n虚构手写补充：蓝纸改成绿纸。\n";
+  await store.writeFile(child.path, edited);
+  expect((await generatePeriodSummary(host, parent, point)).status).toBe("saved");
+  expect(JSON.parse(ask.mock.calls.at(-1)![0][1].content).summaries[0].text).toContain("蓝纸改成绿纸");
+  expect(await vault.bytes(child.path)).toBe(edited);
+  expect((await generatePeriodSummary(host, parent, point)).status).toBe("existing");
+});
+
 it.each([
   { change: "complete", before: { tasksCompleted: 0, taskCompletionPercent: 0 }, after: { tasksCompleted: 1, taskCompletionPercent: 50 } },
   { change: "add-plan", before: { tasksCompleted: 1, taskCompletionPercent: 50 }, after: { tasksCompleted: 1, taskCompletionPercent: 33.33 } },

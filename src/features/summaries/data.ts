@@ -1,5 +1,6 @@
 import { readContextTasks } from "../../contextData";
 import { formatDate } from "../../date";
+import { fileRevision } from "../../operationIdentity";
 import type { StoreHost } from "../../store/settingsSlice";
 import { readJournalSignals } from "../journal/signalStore";
 import { currentSignalValues } from "../journal/signals";
@@ -66,17 +67,6 @@ function tradeSummaryTotals(stats: ReturnType<typeof tradeStats> | null): TradeT
   };
 }
 
-export async function readSummaryMetrics(store: StoreHost, range: { from: string; to: string }, now: Date) {
-  const [tasks, trades] = await Promise.all([
-    readStats(store, { domain: "tasks", range }, now),
-    readStats(store, { domain: "trades", range }, now)
-  ]);
-  return {
-    tasks: tasks.success ? taskSummaryMetrics(JSON.parse(tasks.output)) : undefined,
-    trades: trades.success ? tradeSummaryTotals(JSON.parse(trades.output)) : undefined
-  };
-}
-
 export function sameSummaryTaskMetrics(a: TaskMetrics, b: TaskMetrics): boolean {
   return a.tasksCompleted === b.tasksCompleted && a.taskCompletionPercent === b.taskCompletionPercent;
 }
@@ -105,3 +95,8 @@ export async function collectSummaryData(store: StoreHost, period: SummaryPeriod
   return { through, stats, daily, summaries, metrics };
 }
 export type SummaryData = Awaited<ReturnType<typeof collectSummaryData>>;
+
+export function summaryInputRevision(data: SummaryData): string {
+  // Persist only a digest; record text stays in its existing sources.
+  return fileRevision(JSON.stringify(data));
+}

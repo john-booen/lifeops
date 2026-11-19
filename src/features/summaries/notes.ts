@@ -24,6 +24,7 @@ type SummaryProperties = {
   through: string;
   sourceScope: string;
   inputCount: number;
+  inputRevision?: string;
   complete: boolean;
   generatedBy: SummaryKind;
   metrics: SummaryMetrics;
@@ -67,7 +68,8 @@ export async function readSummary(store: StoreHost, period: SummaryPeriod, sourc
   try { properties = parseYaml(header[1]); } catch { return undefined; }
   if (properties?.lifeops !== summaryMarker || properties.sourceScope !== sourceScope || properties.level !== period.level
     || properties.from !== period.from || properties.to !== period.to || typeof properties.through !== "string"
-    || typeof properties.inputCount !== "number" || typeof properties.complete !== "boolean" || !properties.metrics) return undefined;
+    || typeof properties.inputCount !== "number" || typeof properties.complete !== "boolean" || !properties.metrics
+    || properties.inputRevision !== undefined && (typeof properties.inputRevision !== "string" || !/^[a-f0-9]{64}$/.test(properties.inputRevision))) return undefined;
   const body = raw.slice(header[0].length);
   const marker = body.match(/^<!-- LifeOps 指纹 ([a-f0-9]{64}) -->\r?\n/);
   const text = body.slice(marker?.[0].length ?? 0);
@@ -76,11 +78,12 @@ export async function readSummary(store: StoreHost, period: SummaryPeriod, sourc
 }
 
 export function renderSummary(period: SummaryPeriod, through: string, sourceScope: string, metrics: SummaryMetrics,
-  inputCount: number, complete: boolean, kind: SummaryKind, body: string): string {
+  inputCount: number, complete: boolean, kind: SummaryKind, body: string, inputRevision?: string): string {
   const text = body.trim();
   const properties: SummaryProperties = {
     lifeops: summaryMarker, level: period.level, from: period.from, to: period.to, through,
-    sourceScope, inputCount, complete, generatedBy: kind, metrics
+    sourceScope, inputCount, complete, generatedBy: kind, metrics,
+    ...(inputRevision ? { inputRevision } : {})
   };
   const header = "---\n" + stringifyYaml(properties).trimEnd() + "\n---\n";
   const bodyText = "\n" + text + "\n";
