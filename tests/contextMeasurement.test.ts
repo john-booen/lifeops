@@ -17,7 +17,8 @@ const { default: Plugin } = await import("../src/main");
 const { DiskVault } = await import("./helpers/diskVault");
 const liveFetch = globalThis.fetch.bind(globalThis);
 const liveMeasurement = process.env.LIFEOPS_MEASURE_CONTEXT === "1" && process.env.LIFEOPS_MEASURE_LIVE === "1";
-const benchmarkClock = new Date("2026-11-06T00:27:14+08:00");
+// Relative-date fixture expectations use the host's local calendar.
+const benchmarkClock = new Date(2026, 10, 6, 0, 27, 14);
 const questions = [
   { question: "你好", localReply: /^你好！$/u },
   { question: "我今天还有什么任务没完成", localReply: /^今天有 \d+ 个未完成任务。/u },
