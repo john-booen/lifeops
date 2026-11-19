@@ -119,7 +119,7 @@ describe("fresh bounded range acquisition", () => {
       await writeFile(`${database}.ranges/part-1`, "bad"); await expect(verifyRangeDatabase(database, proof.acquiredAt)).rejects.toThrow("modified");
       await expect(acquireRangeDatabase(root, database, {}, request)).rejects.toMatchObject({ code: "EEXIST" }); expect(calls).toHaveLength(3);
     } finally { await rm(root, { recursive: true, force: true }); }
-  }, 20000); // Two fresh chunks and repeated disk/full-checksum corruption checks.
+  }, 60_000); // Two fresh chunks and repeated disk/full-checksum corruption checks under coverage.
   it.each(["md5", "crc32c"])("rejects an assembled %s mismatch without a successful manifest", async algorithm => {
     const root = await mkdtemp(join(tmpdir(), "lifeops-range-bad-full-")), database = join(root, "all.zip");
     let raw = headers(), calls = 0;

@@ -298,7 +298,7 @@ describe("independent ledger undo recovery base", () => {
     wire.status = "pending"; await vault.seed(walPath, JSON.stringify(wire));
     expect(await recoverFactOperation(fresh())).toBe("restored"); expect(await vault.bytes(ledgerPath)).toBe(before);
     expect(await hasPendingFactOperation(fresh())).toBe(false);
-  });
+  }, 30_000); // Repeated multi-megabyte ledger snapshots under coverage.
 
   it("retains the independent payload bound when business snapshots also consume capacity", async () => {
     const s = await saveAndUndo(), text = "A".repeat(4 * 1024 * 1024), after = "B".repeat(4 * 1024 * 1024);
