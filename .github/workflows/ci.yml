@@ -35,7 +35,8 @@ jobs:
         run: node scripts/verify-ci-local.mjs --run
 
   dependency-audit:
-    runs-on: macos-15
+    # The hosted arm64 queue also cancelled audits before allocating a runner.
+    runs-on: macos-15-intel
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
