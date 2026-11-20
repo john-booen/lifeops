@@ -98,6 +98,16 @@ describe("one fixed execution device with local-only roles", () => {
     expect(a.canWriteFacts).toBe(false);
   });
 });
+it.each(["writer", "capture"] as const)("does not let a simultaneous %s selection replace an in-flight initial setup", async second => {
+ const { a, save } = pair(); let release!: () => void, calls = 0;
+ const gate = new Promise<void>(resolve => { release = resolve; });
+ const writer = async (policy: DeviceWorkspace) => { calls++; await gate; await save(policy); };
+ const first = a.useWriterMode(writer);
+ const other = second === "writer" ? a.useWriterMode(writer) : a.useCaptureMode();
+ const refused = expect(other).rejects.toThrow("正在保存");
+ await refused; release(); await first;
+ expect(calls).toBe(1); expect(a.role).toBe("writer"); expect(a.canWriteFacts).toBe(true);
+});
 it("does not grant executor rights when the device-role setting cannot be persisted", async () => {
   let state: LocalDeviceState | null = null, workspace: DeviceWorkspace | null = null;
   const storage = { load: () => state, save: (value: LocalDeviceState) => {

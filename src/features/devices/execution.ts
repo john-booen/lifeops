@@ -58,6 +58,7 @@ export class DeviceExecution {
       && this.workspace?.executionDeviceId === this.local.deviceId
       && this.workspace.workspaceId === this.local.workspaceId;
   }
+  assertActive(): void { if (this.stopped) throw Error("设备会话已停止。"); }
   stop(): void { this.stopped = true; this.ready = false; }
   async refresh(): Promise<void> {
     if (this.stopped) throw Error("设备会话已停止。");
@@ -85,12 +86,14 @@ export class DeviceExecution {
   async useCaptureMode(): Promise<void> {
     if (this.configuring) throw Error("设备设置正在保存，请稍候。");
     await this.refresh();
+    if (this.configuring) throw Error("设备设置正在保存，请稍候。");
     const next = { ...this.local, role: "capture" as const, ...(this.workspace ? { workspaceId: this.workspace.workspaceId } : {}) };
     this.storage.save(next); this.local = next;
   }
   async useWriterMode(save: DeviceSetupWriter): Promise<void> {
     if (this.configuring) throw Error("设备设置正在保存，请稍候。");
     await this.refresh();
+    if (this.configuring) throw Error("设备设置正在保存，请稍候。");
     if (this.workspace && this.workspace.executionDeviceId !== this.local.deviceId) {
       throw Error("此库已有执行端。这台设备可以记录和同步，不能同时接管保存。");
     }

@@ -50,7 +50,7 @@ import { assertHealthEntriesAllowed, recordHealthEntries } from "./features/heal
 import type { ScreenshotImage } from "./features/screenshots/image";
 import { todayString } from "./date";
 import { DEFAULT_SETTINGS } from "./defaults";
-import { hasInterruptedFactOperation, recoverFactOperation, type FactOperationOptions } from "./dataFoundation/factOperation";
+import { activeFactOperation, hasInterruptedFactOperation, recoverFactOperation, type FactOperationOptions } from "./dataFoundation/factOperation";
 import { type PersonalMemoryRecord, type PersonalMemoryReview } from "./personalMemory";
 import { readPersonalMemoryWithSources } from "./personalMemorySources";
 
@@ -704,8 +704,8 @@ export default class LifeOpsPlugin extends Plugin {
     if (!this.devices) return;
     const host = { app: this.app, devices: this.devices, receipts: () => this.openDeviceReceipts(),
       chooseWriter: async () => {
-        if (this.activeProviderRequests.size || await hasInterruptedFactOperation(this.store as unknown as StoreHost)) {
-          throw Error("还有未结束的保存，请先完成或恢复，再设置设备用途。");
+        if (this.activeProviderRequests.size || activeFactOperation(this.store as unknown as StoreHost)) {
+          throw Error("还有未结束的保存，请先结束当前操作，再设置设备用途。");
         }
         await this.devices!.chooseWriter(this.createAgentRuntime());
         this.proactiveLifecycle.setEnabled(this.settings.proactive.enabled && (this.store?.canWriteFacts?.() !== false));

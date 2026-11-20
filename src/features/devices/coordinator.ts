@@ -1,3 +1,4 @@
+import { recoverInitialDeviceSetup } from "./setupRecovery";
 import { randomUUID } from "node:crypto";
 import type { App, EventRef, TAbstractFile } from "obsidian";
 import { AgentRuntime } from "../../agentRuntime";
@@ -54,9 +55,14 @@ export class DeviceCoordinator {
     });
   }
   async chooseWriter(runtime: AgentRuntime): Promise<void> {
+    const settings = this.settings();
+    await recoverInitialDeviceSetup(this.app, settings, this.execution.deviceId, () => {
+      this.execution.assertActive();
+      if (this.settings() !== settings) throw Error("设备设置已经变化，请重新打开。");
+    });
     await this.execution.useWriterMode(async (policy, operationId, current) => {
       const wire = { ...policy, layout: deviceLayout(this.settings()) };
-      const result = await runtime.executeLocalOperation(DEVICE_SETUP_OPERATION, { workspaceId: policy.workspaceId },
+      const result = await runtime.executeLocalOperation(DEVICE_SETUP_OPERATION, { workspaceId: policy.workspaceId, executionDeviceId: policy.executionDeviceId },
         scope => scope.writeJson(DEVICE_WORKSPACE_PATH, wire), operationId, { assertCurrent: current });
       if (!result.success) throw Error(result.output);
     });
