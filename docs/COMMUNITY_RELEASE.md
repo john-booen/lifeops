@@ -22,6 +22,18 @@ GitHub Release 已提供桌面端手动安装。本页供维护者准备社区�
 4. Release 附上 main.js、manifest.json、styles.css，以及许可证和校验文件。下载后逐项核对与已验收包一致。
 5. 核对 main 的 manifest 版本、Release 标签及安装包版本相同，线上 CI 通过。自动检查成功与社区审核通过分别记录。
 
+## 公开元数据预检
+
+在代码仓运行：
+
+```sh
+node scripts/community-preflight.mjs
+```
+
+命令只读取公开的仓库、默认分支清单、README、许可证、最新 Release、官方插件登记表和该提交最新一次 CI。它不使用模型密钥，不连接账号，也不提交条目。输出 `metadataChecksPassed` 和逐项结果；最新 CI 未完成或失败时，不采用较早的成功结果。可选的一个参数是其他 `owner/repository`。
+
+这 13 项检查用于准备提交材料。应用兼容、源码政策、当前 Community 条目和账号归属仍需核对，不能把输出当作官方审核通过。官方登记 JSON 和 Community 搜索分别查看；更新已有插件时只发布同仓库的新 Release，无需重复首次注册。
+
 ## 首次社区提交
 
 1. 在 [Obsidian Community](https://community.obsidian.md) 登录 Obsidian 账号，连接拥有仓库的 GitHub 账号。
