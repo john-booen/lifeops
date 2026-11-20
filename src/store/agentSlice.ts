@@ -317,6 +317,7 @@ async writeWorkflowDraft(this: StoreHost, fileName: string, markdown: string): P
     const filePath = this.path(this.settings.folders.aiReports, "Workflows", `${safeName}-${randomUUID()}.md`);
     const normalized = normalizePath(filePath);
     await this.ensureFolder(parentFolder(normalized));
+    await this.assertFileWriteAllowed?.(normalized);
     await this.app.vault.create(normalized, `> 自动生成的工作草稿，供你检查和修改；不代表已经完成。\n\n${markdown.trimEnd()}\n`);
     return normalized;
   },

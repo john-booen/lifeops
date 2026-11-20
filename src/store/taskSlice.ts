@@ -390,10 +390,12 @@ async readTaskDb(this: StoreHost, options: { readOnly?: boolean } = {}): Promise
   },
 
 async writeTaskDb(this: StoreHost, db: TaskDatabase): Promise<void> {
+    await this.assertFileWriteAllowed?.(this.taskDbPath());
     await persistTaskDatabase(this, db);
   },
 
 async writeTaskMirror(this: StoreHost, tasks: LifeOpsTask[]): Promise<void> {
+    await this.assertFileWriteAllowed?.(this.taskMirrorPath());
     await persistTaskMirror(this, tasks);
   }
 

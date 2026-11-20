@@ -983,6 +983,11 @@ const composerPanel = {
     },
 
   async startAgentRecording(this: ViewHost): Promise<void> {
+      const device = (this.controller as { getDeviceStatus?: () => { canProcess?: boolean } | undefined }).getDeviceStatus?.();
+      if (device?.canProcess === false) {
+        new Notice("这台设备请用随手记或系统听写，语音对话由常开 Mac 处理。");
+        return;
+      }
       const realtimeVoice = this.controller.settings.realtimeVoice;
       if (realtimeVoice.provider !== "browser-live") {
         const readiness = realtimeVoiceReadiness(this.controller.settings);

@@ -204,6 +204,9 @@ export interface KnowledgeTopic {
 }
 
 export interface StoreHost extends ProjectSliceApi, TradingSliceApi {
+  canWriteFacts?(): boolean;
+  assertFactWritesAllowed?(): Promise<void>;
+  assertFileWriteAllowed?(path: string, kind?: "file" | "folder"): Promise<void>;
   runFactOperation?<T>(identity: FactOperationIdentity, execute: (store: StoreHost) => Promise<T>, finalize: (result: T, undo?: OperationUndoDescriptor) => Promise<void>, options?: FactOperationOptions): Promise<T>;
   readonly app: App;
   readonly settings: LifeOpsSettings;
@@ -540,6 +543,7 @@ async readGatewayMessages(this: StoreHost): Promise<Array<{ source: string; cont
 
 async resetGatewayInbox(this: StoreHost): Promise<void> {
     const file = await this.ensureFile(this.settings.gateway.inboxFile, "# 外部输入\n");
+    await this.assertFileWriteAllowed?.(file.path);
     await this.app.vault.modify(file, "# 外部输入\n\n已处理的外部输入会被清空。新的聊天消息可以继续写入这里。\n");
   },
 
@@ -605,12 +609,14 @@ async readJson<T>(this: StoreHost, filePath: string, fallback: T): Promise<T> {
 
 async writeJson(this: StoreHost, filePath: string, value: unknown, options?: JsonWriteOptions): Promise<void> {
     const normalized = normalizePath(filePath);
+    await this.assertFileWriteAllowed?.(normalized);
     const text = serializeJsonData(value, options);
     await writeProtectedJsonText(this, normalized, text);
   },
 
 async writeFile(this: StoreHost, filePath: string, content: string): Promise<void> {
     const normalized = normalizePath(filePath);
+    await this.assertFileWriteAllowed?.(normalized);
     if (jsonDataContract(normalized, this.settings.folders)) {
       await writeProtectedJsonText(this, normalized, content);
       return;
@@ -627,6 +633,7 @@ async writeFile(this: StoreHost, filePath: string, content: string): Promise<voi
 
 async appendDaily(this: StoreHost, date: string, heading: string, line: string, period: "早" | "晚" = "早", original?: string): Promise<void> {
     const file = await this.ensureDailyNote(date, period);
+    await this.assertFileWriteAllowed?.(file.path);
     if (period === "晚") {
       await this.app.vault.process(file, text => appendEveningEntry(text, heading, line, original));
       return;
@@ -638,6 +645,7 @@ async appendDaily(this: StoreHost, date: string, heading: string, line: string, 
 
 async appendActivity(this: StoreHost, domain: ActivityDomain, date: string, heading: string, line: string): Promise<void> {
     const file = await this.ensureFile(activityNotePath(this, domain, date), `# ${date} ${ACTIVITY_LABELS[domain]}\n`);
+    await this.assertFileWriteAllowed?.(file.path);
     await this.app.vault.process(file, text => insertUnderHeading(text, heading, line));
   },
 
@@ -676,6 +684,7 @@ async appendFile(this: StoreHost, filePath: string, content: string, isCurrent?:
   options?: { preserveExistingText?: boolean }): Promise<void> {
     assertCurrentWrite(isCurrent);
     const normalized = normalizePath(filePath);
+    await this.assertFileWriteAllowed?.(normalized);
     await this.ensureFolder(parentFolder(normalized));
     assertCurrentWrite(isCurrent);
     const file = this.getFile(normalized);
@@ -695,6 +704,7 @@ async ensureFile(this: StoreHost, filePath: string, initialContent: string): Pro
     await this.ensureFolder(parentFolder(normalized));
     const existing = this.getFile(normalized);
     if (existing) return existing;
+    await this.assertFileWriteAllowed?.(normalized);
     return this.app.vault.create(normalized, initialContent);
   },
 
@@ -703,6 +713,7 @@ async ensureFolder(this: StoreHost, folderPath: string): Promise<void> {
     await ensureFolderHierarchy(normalized, {
       exists: (path) => Boolean(this.app.vault.getAbstractFileByPath(path)),
       create: async (path) => {
+        await this.assertFileWriteAllowed?.(path, "folder");
         await this.app.vault.createFolder(path);
       }
     });
@@ -721,6 +732,7 @@ async readPath(this: StoreHost, filePath: string): Promise<string> {
 async deleteFile(this: StoreHost, filePath: string): Promise<void> {
     const file = this.getFile(filePath);
     if (file) {
+      await this.assertFileWriteAllowed?.(file.path);
       await this.app.vault.delete(file, true);
     }
   },
@@ -936,6 +948,7 @@ export function createStoreVaultAdapter(store: StoreHost, options: { forContext?
         return next;
       }
       let next = "";
+      await store.assertFileWriteAllowed?.(file.path);
       await store.app.vault.process(file, (content) => {
         next = updater(content);
         return next;

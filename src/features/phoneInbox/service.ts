@@ -33,6 +33,7 @@ export class PhoneInboxBusyError extends Error {
 interface PhoneInboxHost {
   store(): StoreHost;
   enabled(): boolean;
+  canProcess?(): boolean;
   submit(text: string, turn: PhoneInboxTurn, signal: AbortSignal): Promise<AgentResponse>;
   confirm(action: AgentActionSuggestion, turn: PhoneInboxTurn): Promise<void>;
   undo(id: string): Promise<boolean>;
@@ -66,8 +67,10 @@ export class PhoneInbox {
     return !this.stopped && this.host.enabled() && this.allowed(this.host.store());
   }
 
+  get canProcess(): boolean { return this.enabled && (this.host.canProcess?.() ?? true); }
+
   get autoProcessingReady(): boolean {
-    return this.enabled && textAiReadiness(this.host.store().settings).ready;
+    return this.canProcess && textAiReadiness(this.host.store().settings).ready;
   }
 
   schedule(delay = 650): void {
@@ -77,7 +80,7 @@ export class PhoneInbox {
       try { active.scope.assertCurrent(); }
       catch { active.controller.abort(); }
     }
-    if (!this.enabled) return;
+    if (!this.canProcess) return;
     this.scheduled = setTimeout(() => void this.scan().catch(() =>
       this.host.notify("手机随手记暂时无法读取或处理，请打开回执核对。")), delay);
   }
@@ -119,7 +122,7 @@ export class PhoneInbox {
     const revisions = receiptRevisions(doc.records);
     return {
       receipts, source: lines ? "available" : exists ? "unreadable" : "missing", pending, unfinished,
-      resolve: (id, decision) => this.resolveReceipt(id, decision, scope, revisions.get(id))
+      ...(this.canProcess ? { resolve: (id: string, decision: PhoneInboxDecision) => this.resolveReceipt(id, decision, scope, revisions.get(id)) } : {})
     };
   }
 
@@ -132,7 +135,7 @@ export class PhoneInbox {
 
   scan(includeUnterminated = false): Promise<void> {
     return this.serialize(async () => {
-      if (!this.enabled) return;
+      if (!this.canProcess) return;
       const scope = this.scope();
       const { store } = scope;
       if (await hasPendingFactOperation(store)) {
@@ -202,6 +205,7 @@ export class PhoneInbox {
 
   private resolveReceipt(id: string, decision: PhoneInboxDecision, capturedScope?: PhoneInboxScope, expectedRevision?: string): Promise<void> {
     return this.serialize(async () => {
+      if (!this.canProcess) throw Error("确认和撤销请到处理端的设备回执操作。");
       const scope = capturedScope ?? this.scope();
       const doc = await this.read(scope);
       const row = doc.records.find(record => record.id === id);
@@ -386,6 +390,8 @@ export class PhoneInbox {
     const changes = records.filter(row => recordRevision(row) !== previous.get(row.id));
     if (!changes.length) return false;
     const { store, receiptPath } = scope;
+    if (!this.canProcess) throw Error("这台设备不负责处理回执。");
+    await store.assertFactWritesAllowed?.();
     const contract = jsonDataContract(receiptPath, store.settings.folders);
     let file = store.getFile(receiptPath);
     if (!file) {

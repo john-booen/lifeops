@@ -19,8 +19,9 @@ export class PhoneInboxModal extends Modal {
       host.createEl("p", { text: "可在 LifeOps 设置中启用；收件箱及回执目录须允许读取。" });
       return;
     }
-    host.createEl("p", { text: this.inbox.entryPath });
-    if (!this.inbox.autoProcessingReady) {
+    host.createEl("p", { text: this.inbox.entryPath === PHONE_INBOX_PATH ? this.inbox.entryPath : "查看各设备原始记录的处理结果。" });
+    if (!this.inbox.canProcess) host.createEl("p", { text: "处理结果在同步后更新。确认和撤销请到常开 Mac 的设备回执操作。" });
+    else if (!this.inbox.autoProcessingReady) {
       host.createEl("p", { text: "文字模型未配置或未授权，合格原行会等待。现在可在本地检查需要核对的记录。" });
     }
     if (this.inbox.entryPath === PHONE_INBOX_PATH) this.button(host, "打开收件箱", async () => {
@@ -28,8 +29,9 @@ export class PhoneInboxModal extends Modal {
       await this.app.workspace.openLinkText(PHONE_INBOX_PATH, "", true);
       this.close();
     }, false);
+    if (!this.inbox.canProcess) this.button(host, "刷新同步结果", async () => {});
     const status = host.createEl("p", { attr: { role: "status" } });
-    this.button(host, "检查新记录", async () => {
+    if (this.inbox.canProcess) this.button(host, "检查新记录", async () => {
       status.setText("正在检查新记录…");
       try { await this.inbox.scan(true); }
       catch (error) {
@@ -46,18 +48,22 @@ export class PhoneInboxModal extends Modal {
       if (unfinished) host.createEl("p", { text: "最后一行还没有换行。写完后换行，或确认内容完整后点「检查新记录」。" });
       host.createEl("p", { text: receipts.length ? summarizePhoneInbox(receipts) : "暂无回执。" });
       const list = host.createEl("ol");
-      if (resolve) for (const row of receipts) this.renderRow(list, row, resolve);
+      for (const row of receipts) this.renderRow(list, row, resolve);
     } catch {
       if (generation === this.generation) host.createEl("p", { text: "回执暂时无法安全读取。" });
     }
   }
 
-  private renderRow(list: HTMLElement, row: PhoneInboxReceipt, resolve: NonNullable<PhoneInboxSnapshot["resolve"]>): void {
+  private renderRow(list: HTMLElement, row: PhoneInboxReceipt, resolve: PhoneInboxSnapshot["resolve"]): void {
     const item = list.createEl("li");
     const label = row.undone ? "已撤销" : { processing: "待核对", saved: "已保存", review: "待核对", confirm: "待确认", dismissed: "已归档" }[row.status];
-    item.createEl("strong", { text: row.sourceUnavailable ? `原行待核对 · ${label}` : `第 ${row.line} 行 · ${label}` });
+    item.createEl("strong", { text: row.sourceUnavailable ? `原行待核对 · ${label}` : row.sourcePath ? `设备记录 · ${label}` : `第 ${row.line} 行 · ${label}` });
     item.createEl("p", { text: row.message });
-    if (row.sourcePath) item.createEl("p", { text: row.sourcePath });
+    if (row.sourcePath) {
+      const open = item.createEl("button", { text: "查看原始记录" });
+      open.onclick = () => void this.app.workspace.openLinkText(row.sourcePath!, "", true);
+    }
+    if (!resolve) return;
     if (row.sourcePath && row.sourceEditing) item.createEl("p", { text: "设备原记录已变化，请核对原文。旧回执保留，原操作仍可撤销。" });
     if (row.status === "confirm" && row.action) {
       item.createEl("p", { text: [row.action.title, row.action.content, row.action.description].join(" · ") });

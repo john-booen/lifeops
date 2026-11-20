@@ -70,7 +70,7 @@ export interface OperationLedgerHost {
   path(...parts: string[]): string;
   readJson<T>(filePath: string, fallback: T): Promise<T>;
   writeJson(filePath: string, value: unknown, options?: JsonWriteOptions): Promise<void>;
-  assertOperationClaimAllowed?(): Promise<void>;
+  assertOperationClaimAllowed?(input?: OperationClaimInput): Promise<void>;
   operationLedgerLockKey?(): object;
 }
 
@@ -205,7 +205,7 @@ export class OperationLedger {
         return { kind: "busy", record: existing };
       }
 
-      await this.host.assertOperationClaimAllowed?.();
+      await this.host.assertOperationClaimAllowed?.(input);
       const timestamp = this.now().toISOString();
       const trigger = existing?.trigger ?? input.trigger ?? operationTrigger(input.toolName, input.arguments);
       const record: OperationLedgerRecord = {

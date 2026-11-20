@@ -163,6 +163,7 @@ export async function collectStewardCandidates(store: StoreHost, state: Proactiv
 }
 
 export async function runStewardReminders(host: ReviewHost, now = new Date()): Promise<void> {
+  if ((host.store as unknown as StoreHost).canWriteFacts?.() === false) return;
   const runtime = runtimes.get(host);
   if (!runtime || !host.settings.proactive.enabled || host.proactiveCycleRunning) return;
   const generation = host.proactiveLifecycle.generation;

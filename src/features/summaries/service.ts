@@ -201,7 +201,7 @@ export function startSummarySchedule(host: SummaryHost, now = new Date()): Promi
 
 export async function tickSummarySchedule(host: SummaryHost, now = new Date()): Promise<void> {
   const store = host.store;
-  if (!scheduledHosts.has(host) || host.unloaded || !providerReady(store.settings)) return;
+  if (store.canWriteFacts?.() === false || !scheduledHosts.has(host) || host.unloaded || !providerReady(store.settings)) return;
   let start = scheduleStarts.get(store);
   if (!start) { start = summaryActivationDay(host, now); scheduleStarts.set(store, start); }
   try {

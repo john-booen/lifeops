@@ -117,6 +117,7 @@ export function markJournalReviewSignal(this: ReviewHost, path: string): void {
   }
 
 export async function runProactiveCycle(this: ReviewHost): Promise<void> {
+  if (this.store.canWriteFacts?.() === false) return;
   await runStewardReminders(this);
 }
 

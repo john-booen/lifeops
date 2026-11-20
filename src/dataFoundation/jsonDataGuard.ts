@@ -1,3 +1,5 @@
+import { DEVICE_WORKSPACE_PATH } from "../features/devices/execution";
+import { validDeviceWorkspaceFile } from "../features/devices/workspace";
 import { normalizePath } from "obsidian";
 import type { LifeOpsSettings } from "../types";
 import { projectFileName, validateProjectDocument } from "../projectContinuity";
@@ -44,6 +46,7 @@ export function jsonDataContract(
   const path = (...parts: string[]): string => normalizePath(parts.filter(Boolean).join("/"));
   const object = (arrays: readonly string[], version?: 1): JsonDataContract => ({ root: "object", arrays, version });
   const contracts: Record<string, JsonDataContract> = {
+    [DEVICE_WORKSPACE_PATH]: { root: "object", version: 1, validate: validDeviceWorkspaceFile },
     [path(folders.tasks, "LifeOps任务库.json")]: { ...object(["tasks"]), taskMirrorRevision: true },
     [path(folders.habits, "LifeOps打卡库.json")]: object(["habits", "checkins"]),
     [path(folders.aiReports, "Index", "source-manifest.json")]: object(["entries"], 1),

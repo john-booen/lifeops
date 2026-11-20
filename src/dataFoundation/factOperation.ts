@@ -1,3 +1,4 @@
+import { isDeviceConfigurationWrite, isDeviceInputWrite } from "../features/devices/workspace";
 import { createHash, randomUUID } from "node:crypto";
 import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
@@ -111,7 +112,9 @@ function validatePath(store: StoreHost, path: string, identity: FactOperationIde
   if (!path || path.includes("\\") || parts.some(part => !part || part === "." || part === ".." || part.startsWith("."))
     || /[\x00-\x1f]/.test(path) || !/\.(?:md|json|jsonl)$/.test(path)) conflict();
   const roots = Object.values(store.settings.folders).filter((value): value is string => typeof value === "string");
-  if (!roots.some(root => path.startsWith(`${root}/`))) conflict();
+  if (!roots.some(root => path.startsWith(`${root}/`))
+    && !(identity.purpose !== "derived" && (isDeviceConfigurationWrite(path, identity.operationId)
+      || isDeviceInputWrite(path, identity.operationId)))) conflict();
   const operations = store.path(store.settings.folders.aiReports, "Operations");
   // Only the host's undo transaction may journal its own Ledger transition.
   // The same exact identity/path check applies to live writes and recovery;
@@ -736,6 +739,7 @@ async function runFactOperationOnce<T>(
 }
 
 export async function restoreGuardedFiles(store: StoreHost, files: GuardedFileChange[]): Promise<void> {
+  await store.assertFactWritesAllowed?.();
   validateRecovery(store, { version: 1, operationId: "undo-validation", status: "pending", entries: files });
   for (const file of files) if (await readRaw(store, file.path) !== file.after) conflict();
   for (const file of [...files].reverse()) await replaceRaw(store, file.path, file.after, file.before);
@@ -743,6 +747,7 @@ export async function restoreGuardedFiles(store: StoreHost, files: GuardedFileCh
 
 export async function recoverFactOperation(store: StoreHost,
   options: { expectedRaw?: string | null; assertCurrent?: () => void; assertBeforeRecoveryWrite?: () => Promise<void> } = {}): Promise<"none" | "kept" | "restored"> {
+  await store.assertFactWritesAllowed?.();
   if (scopes.has(store)) throw new Error("请先结束当前保存操作。");
   const bound = Object.hasOwn(options, "expectedRaw"), expectedRaw = options.expectedRaw, guard = options.assertCurrent;
   return locked(store, async () => {

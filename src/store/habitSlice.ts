@@ -209,7 +209,10 @@ async recordHabitStatus(this: StoreHost,
 async checkPunishments(this: StoreHost, now: Date = new Date(), acknowledgeLegacy = false): Promise<void> {
     if (acknowledgeLegacy) {
       const file = this.getFile(this.path(this.settings.folders.habits, "Punishments.md"));
-      if (file) await this.app.vault.process(file, acknowledgeAccountability);
+      if (file) {
+        await this.assertFileWriteAllowed?.(file.path);
+        await this.app.vault.process(file, acknowledgeAccountability);
+      }
     }
     const excluded = this.settings.privacy?.excludedVaultPrefixes;
     if ([this.habitDbPath(), this.taskDbPath()].some(path => isVaultPathExcluded(path, excluded))) return;

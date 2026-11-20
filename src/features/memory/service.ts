@@ -72,7 +72,7 @@ export async function getStewardOperations(this: MemoryHost): Promise<StewardOpe
       local_openRecordNote: "准备文字记录", local_screen_idea_candidates: "筛查日记想法候选",
       generated_period_summary: "生成日、周或月摘要", scheduled_period_summary: "自动生成摘要",
       scheduled_summary_activation: "开始自动生成摘要",
-      scheduled_device_capture_source: "签收设备原记录",
+      scheduled_device_capture_source: "签收设备原记录", scheduled_configure_device_execution: "设置设备分工",
       scheduled_steward_reminders: "更新主动提醒", scheduled_archive_memories: "归档过期记忆",
       scheduled_summary_memories: "从日摘要记下事实", external_vault_index: "重建外部只读索引"
     };
@@ -91,7 +91,8 @@ export async function getStewardOperations(this: MemoryHost): Promise<StewardOpe
           title: labels[record.toolName] ?? "LifeOps 资料操作",
           status: record.status,
           updatedAt: record.updatedAt,
-          canUndo: record.status === "verified" && record.result?.undo?.kind === "restore_guarded_files",
+          canUndo: !["scheduled_device_capture_source", "scheduled_configure_device_execution", "scheduled_device_input"].includes(record.toolName)
+            && record.status === "verified" && record.result?.undo?.kind === "restore_guarded_files",
           ...(targetPath ? { targetPath } : {})
         };
       });

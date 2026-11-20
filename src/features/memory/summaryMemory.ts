@@ -120,7 +120,7 @@ export function startMemoryMaintenance(host: MemoryHost, now = new Date()): Prom
 }
 
 export async function tickMemoryMaintenance(host: MemoryHost, now = new Date()): Promise<void> {
-  if (!readyHosts.has(host) || host.unloaded || activeRuns.has(host) || (nextCheckAt.get(host) ?? 0) > now.getTime()) return;
+  if ((host.store as unknown as StoreHost).canWriteFacts?.() === false || !readyHosts.has(host) || host.unloaded || activeRuns.has(host) || (nextCheckAt.get(host) ?? 0) > now.getTime()) return;
   activeRuns.add(host);
   nextCheckAt.set(host, now.getTime() + 5 * 60_000);
   try {

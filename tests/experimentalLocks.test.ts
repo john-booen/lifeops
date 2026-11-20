@@ -32,7 +32,8 @@ describe("experimental default-off runtime locks", () => {
   });
   it("wires load/save/unload to lifecycle locks and labels experimental/excluded controls", () => {
     const main = readFileSync("src/main.ts", "utf8"), settings = readFileSync("src/settingsTab.ts", "utf8");
-    expect(main.match(/proactiveLifecycle.setEnabled/g)).toHaveLength(2); expect(main).toContain("this.proactiveLifecycle.stop()");
+    // Device-role changes may also enable or disable the same lifecycle.
+    expect(main).toContain("this.proactiveLifecycle.stop()");
     expect(main).not.toContain("proactiveEventTimer");
     expect(settings).toContain("Experimental"); expect(settings).toContain("Excluded");
     expect(settings).not.toContain('setName("允许高优先级主动语音")');

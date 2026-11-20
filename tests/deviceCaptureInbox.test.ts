@@ -289,3 +289,15 @@ it("refuses automatic device processing when no durable source binder is install
   expect((await store.readTaskDb()).tasks).toHaveLength(0);
   expect((await inbox.list())[0].message).toContain("签收尚未启用");
 });
+
+it("lets a companion read synced receipts without processing or offering owner actions", async () => {
+  await capture("00000000-0000-0000-0000-000000000019", "纯虚构待同步记录");
+  inbox.stop();
+  inbox = new PhoneInbox({ ...options(), canProcess: () => false }, new LifeOpsEventBus(), deviceCaptureSource);
+  await inbox.scan();
+  expect(requests).toHaveLength(0);
+  const snapshot = await inbox.snapshot();
+  expect(snapshot.pending).toBe(1);
+  expect(snapshot.resolve).toBeUndefined();
+  await expect(inbox.resolve("synthetic-only", "confirm")).rejects.toThrow("处理端");
+});

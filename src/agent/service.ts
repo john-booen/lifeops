@@ -378,6 +378,8 @@ export function finiteProviderRevision(this: AgentHost, stage: ProviderStage): s
   }
 
 export async function observeProvider<T>(this: AgentHost, stage: ProviderStage, inputSource: QualityLogEntry["inputSource"], action: (options: ProviderRequestOptions, store: LifeOpsStore, ai: LifeOpsAi, current: () => void, onCommitted: () => void) => Promise<T>, signal?: AbortSignal): Promise<T> {
+    if (this.store.canWriteFacts?.() === false) throw Error("请用设备随手记提交，由常开 Mac 处理。");
+    if (this.store.enforcesDeviceExecution?.()) await this.store.assertFactWritesAllowed?.();
     const controller = new AbortController();
     const abort = () => controller.abort(signal?.reason);
     signal?.addEventListener("abort", abort, { once: true });

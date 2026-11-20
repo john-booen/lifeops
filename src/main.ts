@@ -1,3 +1,7 @@
+import { DeviceCoordinator } from "./features/devices/coordinator";
+import { DeviceCaptureModal, DeviceSettingsModal } from "./features/devices/modal";
+import { deviceCaptureSource } from "./features/phoneInbox/source";
+import { bindDeviceCaptureSource } from "./features/phoneInbox/deviceBinding";
 import * as agentService from "./agent/service";
 import * as reviewService from "./features/review/service";
 import { queueTaskOverload, startStewardReminders } from "./features/review/reminders";
@@ -145,12 +149,15 @@ export default class LifeOpsPlugin extends Plugin {
   private journalSignals?: JournalSignalLifecycle;
   private habitPunishments?: HabitPunishmentLifecycle;
   private phoneInbox?: PhoneInbox;
+  private deviceInbox?: PhoneInbox;
+  private devices?: DeviceCoordinator;
 
   async onload(): Promise<void> {
     const generation = ++this.lifecycleGeneration;
     this.unloaded = false;
     const current = () => this.isLifecycleCurrent(generation);
-    const heartbeat = captureReleaseHeartbeat(this.app.vault.adapter, this.manifest, current, () => this.settings?.folders.aiReports);
+    const heartbeat = captureReleaseHeartbeat(this.app.vault.adapter, this.manifest, current, () => this.devices && !this.devices.execution.canWriteFacts
+      ? `${this.settings.folders.aiReports}/Devices/${this.devices.execution.deviceId}` : this.settings?.folders.aiReports);
     const issues: ReleaseLoadIssue[] = [];
     try {
       await this.loadLifeOps(generation, issues);
@@ -165,11 +172,16 @@ export default class LifeOpsPlugin extends Plugin {
         async () => {
           await heartbeat(issues);
           if (current() && !issues.length) {
+            if (this.devices && !this.devices.execution.canWriteFacts) {
+              if (this.devices.execution.needsSetup) this.openDeviceSettings();
+              return;
+            }
             if (this.settings.setupComplete === false) openSetupWizard(this);
             void summaryService.startSummarySchedule(this as unknown as summaryService.SummaryHost);
             startStewardReminders(this as unknown as reviewService.ReviewHost);
             void startMemoryMaintenance(this as unknown as memoryService.MemoryHost);
             this.phoneInbox?.schedule();
+            this.deviceInbox?.schedule();
           }
         },
         (error) => {
@@ -190,7 +202,13 @@ export default class LifeOpsPlugin extends Plugin {
     if (!this.isLifecycleCurrent(generation)) return;
     await this.injectStyles(issues);
     if (!this.isLifecycleCurrent(generation)) return;
-    this.store = new LifeOpsStore(this.app, this.settings);
+    if (Platform.isDesktopApp && !this.devices) {
+      this.devices = new DeviceCoordinator(this.app, () => this.settings);
+      await this.devices.execution.refresh();
+      if (!this.isLifecycleCurrent(generation)) return;
+    }
+    this.store = this.devices?.createStore() ?? new LifeOpsStore(this.app, this.settings);
+    this.devices?.watch(event => this.registerEvent(event), cleanup => this.register(cleanup), () => this.refreshViews());
     registerTradeReviewActions(this as unknown as TradeReviewUiHost);
     const refreshJournalStyle = () => {
       if (this.isLifecycleCurrent(generation)) refreshJournalPresentation(this.app, this.settings.folders.dailyRoot);
@@ -201,7 +219,7 @@ export default class LifeOpsPlugin extends Plugin {
     this.registerEvent(this.app.metadataCache.on("changed", refreshJournalStyle));
     this.app.workspace.onLayoutReady(refreshJournalStyle);
     try {
-      const interrupted = await hasInterruptedFactOperation(this.store as unknown as StoreHost);
+      const interrupted = (this.store?.canWriteFacts?.() !== false) && await hasInterruptedFactOperation(this.store as unknown as StoreHost);
       if (!this.isLifecycleCurrent(generation)) return;
       if (interrupted) {
         issues.push("recovery");
@@ -212,13 +230,14 @@ export default class LifeOpsPlugin extends Plugin {
       issues.push("recovery");
       new Notice("保存保护记录需要核对。请先停止修改资料，并把这条提示反馈给我协助处理。", 10000);
     }
-    setProviderEgressSink((record) => this.store.appendProviderEgressAudit(record));
+    setProviderEgressSink((record) => (this.store?.canWriteFacts?.() !== false) ? this.store.appendProviderEgressAudit(record) : Promise.resolve());
     this.ai = new LifeOpsAi(this.settings);
     this.registerView(LIFEOPS_VIEW_TYPE, (leaf: WorkspaceLeaf) => new LifeOpsView(leaf, this));
     if (Platform.isDesktopApp) {
       this.phoneInbox = new PhoneInbox({
         store: () => this.store as unknown as StoreHost,
         enabled: () => this.isLifecycleCurrent(generation) && this.settings.phoneInboxEnabled === true,
+        canProcess: () => (this.store?.canWriteFacts?.() !== false),
         submit: (text, turn, signal) => this.submitAgentMessage(text, [], { phoneInbox: turn, signal }),
         confirm: async (action, turn) => {
           await turn.assertLineCurrent();
@@ -231,6 +250,26 @@ export default class LifeOpsPlugin extends Plugin {
         undo: id => this.createAgentRuntime().undoOperation(id),
         notify: message => new Notice(message)
       }, this.lifeOpsEvents);
+      const deviceHost = {
+        store: () => this.store as unknown as StoreHost,
+        enabled: () => this.isLifecycleCurrent(generation) && Boolean(this.devices && !this.devices.execution.needsSetup),
+        canProcess: () => (this.store?.canWriteFacts?.() !== false),
+        submit: (text: string, turn: import("./features/phoneInbox/model").PhoneInboxTurn, signal: AbortSignal) =>
+          this.submitAgentMessage(text, [], { phoneInbox: turn, signal }),
+        confirm: async (action: AgentActionSuggestion, turn: import("./features/phoneInbox/model").PhoneInboxTurn) => {
+          await turn.assertLineCurrent();
+          await runConfirmedToolAction(action, { store: this.store as unknown as StoreHost,
+            assertCurrent: turn.assertCurrent, refreshViews: () => this.refreshViews() }, turn.assertLineCurrent);
+        },
+        bindSource: (line: import("./features/phoneInbox/model").PhoneInboxLine, guards: import("./features/phoneInbox/deviceBinding").DeviceSourceGuards) =>
+          bindDeviceCaptureSource({ ...this.localOperationHost(), store: this.store as unknown as StoreHost }, line, guards),
+        undo: (id: string) => this.createAgentRuntime().undoOperation(id),
+        notify: (message: string) => new Notice(message)
+      };
+      this.deviceInbox = new PhoneInbox(deviceHost, this.lifeOpsEvents, deviceCaptureSource);
+      this.addCommand({ id: "configure-device", name: "设置多设备协作", callback: () => this.openDeviceSettings() });
+      this.addCommand({ id: "device-capture", name: "设备随手记", callback: () => this.openDeviceCapture() });
+      this.addCommand({ id: "device-receipts", name: "设备随手记回执", callback: () => this.openDeviceReceipts() });
       this.addCommand({ id: "open-phone-inbox", name: "手机随手记回执", callback: () => this.openPhoneInbox() });
     }
     this.addRibbonIcon("layout-dashboard", "Open LifeOps", () => this.activateView(true));
@@ -242,11 +281,12 @@ export default class LifeOpsPlugin extends Plugin {
     await this.updateStatusBar();
     if (!this.isLifecycleCurrent(generation)) return;
     this.registerInterval(window.setInterval(() => {
+      if (!(this.store?.canWriteFacts?.() !== false)) { void this.updateStatusBar(); return; }
       void summaryService.tickSummarySchedule(this as unknown as summaryService.SummaryHost);
       void tickMemoryMaintenance(this as unknown as memoryService.MemoryHost);
       void this.updateStatusBar();
     }, 60_000));
-    this.proactiveLifecycle.setEnabled(this.settings.proactive.enabled);
+    this.proactiveLifecycle.setEnabled(this.settings.proactive.enabled && (this.store?.canWriteFacts?.() !== false));
   }
 
   private registerLifeOpsCommands(): void {
@@ -406,7 +446,7 @@ export default class LifeOpsPlugin extends Plugin {
   }
 
   private bootstrapDataFoundation(issues?: ReleaseLoadIssue[]): Promise<void> {
-    if (this.unloaded) return Promise.resolve();
+    if (this.unloaded || this.store?.canWriteFacts?.() === false) return Promise.resolve();
     if (this.dataFoundationBootstrap) return this.dataFoundationBootstrap;
     const pending = this.initializeDataFoundation(this.lifecycleGeneration, issues).finally(() => {
       if (this.dataFoundationBootstrap === pending) this.dataFoundationBootstrap = null;
@@ -428,7 +468,7 @@ export default class LifeOpsPlugin extends Plugin {
     if (!this.dataFoundationEventsRegistered) {
       this.registerVaultSourceEvents();
       subscribeLearningNotes(this.localOperationHost(), this.store as unknown as StoreHost, this.lifeOpsEvents,
-        () => this.isLifecycleCurrent(generation));
+        () => this.isLifecycleCurrent(generation) && (this.store?.canWriteFacts?.() !== false));
       subscribeReadingNotes(this.localOperationHost(), this.store as unknown as StoreHost, this.lifeOpsEvents,
         (messages, options) => this.observeProvider("reading_index", "unknown", (request, store) =>
           new LifeOpsAi(settingsForAgentModel(store.settings, "fast")).generateFastJson(messages, { ...options, ...request }), options.signal),
@@ -477,6 +517,9 @@ export default class LifeOpsPlugin extends Plugin {
     this.journalSignals = undefined;
     this.habitPunishments?.stop();
     this.habitPunishments = undefined;
+    this.devices?.execution.stop();
+    this.deviceInbox?.stop();
+    this.deviceInbox = undefined;
     this.phoneInbox?.stop();
     this.phoneInbox = undefined;
     this.lifeOpsEvents.clear();
@@ -511,17 +554,24 @@ export default class LifeOpsPlugin extends Plugin {
         if (leaf.view instanceof LifeOpsView) leaf.view.invalidateVoiceSettings();
       }
     }
-    this.proactiveLifecycle.setEnabled(this.settings.proactive.enabled);
+    await this.devices?.execution.refresh();
+    if (!this.isLifecycleCurrent(generation)) return;
+    this.proactiveLifecycle.setEnabled(this.settings.proactive.enabled && (this.store?.canWriteFacts?.() !== false));
     await this.saveData(this.settings);
     options?.onPersisted?.();
     if (!this.isLifecycleCurrent(generation)) return;
     await this.hardenPluginDataPermissions();
     if (!this.isLifecycleCurrent(generation)) return;
-    this.store = new LifeOpsStore(this.app, this.settings);
-    setProviderEgressSink((record) => this.store.appendProviderEgressAudit(record));
+    this.store = this.devices?.createStore() ?? new LifeOpsStore(this.app, this.settings);
+    setProviderEgressSink((record) => (this.store?.canWriteFacts?.() !== false) ? this.store.appendProviderEgressAudit(record) : Promise.resolve());
     this.ai = new LifeOpsAi(this.settings);
-    this.journalSignals?.restart();
+    if ((this.store?.canWriteFacts?.() !== false)) {
+      await this.devices?.publishLayout(this.createAgentRuntime());
+      if (!this.isLifecycleCurrent(generation)) return;
+      this.journalSignals?.restart();
+    }
     this.phoneInbox?.schedule();
+    this.deviceInbox?.schedule();
     await this.updateStatusBar();
   }
 
@@ -576,6 +626,7 @@ export default class LifeOpsPlugin extends Plugin {
         payload: { path: file.path }
       });
       this.clearVaultSourceTimer(file.path);
+      if (!(this.store?.canWriteFacts?.() !== false)) return;
       void this.store.removeVaultSource(file.path).catch((error) => {
         console.error("LifeOps failed to remove deleted Vault source", error);
       });
@@ -593,7 +644,7 @@ export default class LifeOpsPlugin extends Plugin {
         source: "vault",
         payload: { oldPath, path: file.path }
       });
-      if (!managed) return;
+      if (!managed || !(this.store?.canWriteFacts?.() !== false)) return;
       void this.store.renameVaultSource(oldPath, file.path).catch((error) => {
         console.error("LifeOps failed to rename Vault source", error);
       });
@@ -601,7 +652,7 @@ export default class LifeOpsPlugin extends Plugin {
   }
 
   private queueVaultSourceUpsert(path: string): void {
-    if (!this.store.isManagedSourcePath(path)) return;
+    if (!(this.store?.canWriteFacts?.() !== false) || !this.store.isManagedSourcePath(path)) return;
     this.clearVaultSourceTimer(path);
     const timer = window.setTimeout(() => {
       this.sourceChangeTimers.delete(path);
@@ -643,7 +694,50 @@ export default class LifeOpsPlugin extends Plugin {
     }
   }
 
+  getDeviceStatus(): { text: string; setup: boolean; canProcess: boolean } | undefined {
+    if (!this.devices) return;
+    const role = this.devices.execution;
+    return { text: role.canWriteFacts ? "这台 Mac 负责处理与提醒" : role.needsSetup ? "先选择本机用途" : "这台只记录并同步 · 确认和撤销请到常开 Mac", setup: role.needsSetup, canProcess: role.canWriteFacts };
+  }
+
+  openDeviceSettings(): void {
+    if (!this.devices) return;
+    const host = { app: this.app, devices: this.devices, receipts: () => this.openDeviceReceipts(),
+      chooseWriter: async () => {
+        if (this.activeProviderRequests.size || await hasInterruptedFactOperation(this.store as unknown as StoreHost)) {
+          throw Error("还有未结束的保存，请先完成或恢复，再设置设备用途。");
+        }
+        await this.devices!.chooseWriter(this.createAgentRuntime());
+        this.proactiveLifecycle.setEnabled(this.settings.proactive.enabled && (this.store?.canWriteFacts?.() !== false));
+        await this.bootstrapDataFoundation();
+        void summaryService.startSummarySchedule(this as unknown as summaryService.SummaryHost);
+        startStewardReminders(this as unknown as reviewService.ReviewHost);
+        void startMemoryMaintenance(this as unknown as memoryService.MemoryHost);
+        this.phoneInbox?.schedule(); this.deviceInbox?.schedule();
+        await this.refreshViews();
+      },
+      chooseCapture: async () => {
+        if (this.activeProviderRequests.size || await hasInterruptedFactOperation(this.store as unknown as StoreHost)) {
+          throw Error("还有未结束的保存，请先完成或恢复，再设置设备用途。");
+        }
+        await this.devices!.execution.useCaptureMode();
+        this.proactiveLifecycle.setEnabled(false); this.journalSignals?.stop(); this.habitPunishments?.stop();
+        await this.refreshViews();
+      }
+    };
+    new DeviceSettingsModal(host).open();
+  }
+
+  openDeviceCapture(): void {
+    if (!this.devices || this.devices.execution.needsSetup) { this.openDeviceSettings(); return; }
+    new DeviceCaptureModal({ app: this.app, devices: this.devices, receipts: () => this.openDeviceReceipts(),
+      chooseWriter: async () => {}, chooseCapture: async () => {} }).open();
+  }
+
+  openDeviceReceipts(): void { if (this.deviceInbox) new PhoneInboxModal(this.app, this.deviceInbox).open(); }
+
   openQuickCapture(): void {
+    if (this.devices && !this.devices.execution.canWriteFacts) { this.openDeviceCapture(); return; }
     new QuickCaptureModal(this.app, async (value) => {
       await this.capture(value.content, "obsidian", {
         date: value.date,
@@ -836,6 +930,12 @@ export default class LifeOpsPlugin extends Plugin {
     onText: (content: string) => void = () => undefined,
     options: AgentSubmissionOptions = {}
   ): Promise<AgentResponse> {
+    if (this.devices && !this.devices.execution.canWriteFacts) {
+      await this.devices.queueCapture(message);
+      const reply = "原始记录已保存在本机，等待同步到常开 Mac 处理。任务是否入账以设备回执为准。";
+      onText(reply);
+      return { reply, actions: [], toolCalls: [] };
+    }
     if (options.source !== "voice") return runAgentTurn.call(this as unknown as AgentTurnHost, message, history, onText, options);
     const request = new AbortController();
     const abort = () => request.abort(options.signal?.reason);
@@ -1363,6 +1463,10 @@ export default class LifeOpsPlugin extends Plugin {
     const statusBar = this.statusBar;
     if (!statusBar || !this.isLifecycleCurrent(generation)) return;
     try {
+    if (this.devices && !this.devices.execution.canWriteFacts) {
+      statusBar.setText(this.devices.execution.needsSetup ? "LifeOps | 请设置本机用途" : "LifeOps | 记录并同步 · 由常开 Mac 处理");
+      return;
+    }
     const stats = await this.store.getDashboardStats();
     if (!this.isLifecycleCurrent(generation)) return;
     const warning = stats.punishmentOpen ? " | 待确认复盘提醒" : "";

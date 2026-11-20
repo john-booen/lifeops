@@ -150,6 +150,8 @@ type VoiceTrace = Partial<Record<VoiceTraceKey, number>> & {
 export interface LifeOpsViewController extends StewardRecordsController {
   settings: LifeOpsSettings;
   openQuickCapture(): void;
+  getDeviceStatus?(): { text: string; setup: boolean; canProcess: boolean } | undefined;
+  openDeviceSettings?(): void;
   openLocalRecordNote(kind: LocalRecordKind, date?: string): Promise<void>;
   openLocalRecordPicker(): void;
   createRecordLibrary?(): ReadonlyRecordLibrary;
@@ -436,6 +438,17 @@ export class LifeOpsView extends ItemView {
     if (this.viewClosed) return;
     const renderVersion = ++this.renderVersion;
     this.ensureStewardShell();
+    const utility = this.stewardShell!.utilityHost;
+    utility.querySelector(".lifeops-device-status")?.remove();
+    const device = this.controller.getDeviceStatus?.();
+    if (device) {
+      const line = utility.createDiv({ cls: "lifeops-device-status" });
+      line.createSpan({ text: device.text });
+      const settings = line.createEl("button", { text: "设备设置" });
+      settings.onclick = () => this.controller.openDeviceSettings?.();
+      const capture = line.createEl("button", { text: "随手记" });
+      capture.onclick = () => this.controller.openQuickCapture();
+    }
     let stats: DashboardStats;
     let board: TaskDashboardData;
     let todayCard: TodayCardData | undefined;
