@@ -14,16 +14,16 @@ export class PhoneInboxModal extends Modal {
     const generation = ++this.generation;
     const host = this.contentEl;
     host.empty();
-    this.setTitle("手机随手记");
+    this.setTitle(this.inbox.entryPath === PHONE_INBOX_PATH ? "手机随手记" : "设备随手记");
     if (!this.inbox.enabled) {
       host.createEl("p", { text: "可在 LifeOps 设置中启用；收件箱及回执目录须允许读取。" });
       return;
     }
-    host.createEl("p", { text: PHONE_INBOX_PATH });
+    host.createEl("p", { text: this.inbox.entryPath });
     if (!this.inbox.autoProcessingReady) {
       host.createEl("p", { text: "文字模型未配置或未授权，合格原行会等待。现在可在本地检查需要核对的记录。" });
     }
-    this.button(host, "打开收件箱", async () => {
+    if (this.inbox.entryPath === PHONE_INBOX_PATH) this.button(host, "打开收件箱", async () => {
       await this.inbox.createFile();
       await this.app.workspace.openLinkText(PHONE_INBOX_PATH, "", true);
       this.close();
@@ -57,9 +57,13 @@ export class PhoneInboxModal extends Modal {
     const label = row.undone ? "已撤销" : { processing: "待核对", saved: "已保存", review: "待核对", confirm: "待确认", dismissed: "已归档" }[row.status];
     item.createEl("strong", { text: row.sourceUnavailable ? `原行待核对 · ${label}` : `第 ${row.line} 行 · ${label}` });
     item.createEl("p", { text: row.message });
+    if (row.sourcePath) item.createEl("p", { text: row.sourcePath });
+    if (row.sourcePath && row.sourceEditing) item.createEl("p", { text: "设备原记录已变化，请核对原文。旧回执保留，原操作仍可撤销。" });
     if (row.status === "confirm" && row.action) {
       item.createEl("p", { text: [row.action.title, row.action.content, row.action.description].join(" · ") });
-      if (row.sourceEditing) item.createEl("p", { text: "原行正在编辑中。写完后换行，再检查新记录。" });
+      if (row.sourceEditing) {
+        if (!row.sourcePath) item.createEl("p", { text: "原行正在编辑中。写完后换行，再检查新记录。" });
+      }
       else if (!row.sourceUnavailable) this.button(item, "确认执行", () => resolve(row.id, "confirm"));
     }
     if (["confirm", "review", "processing"].includes(row.status)) {

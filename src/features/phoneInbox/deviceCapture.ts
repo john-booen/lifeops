@@ -3,7 +3,7 @@ import { fileRevision } from "../../operationIdentity";
 import { phoneInboxWriteId } from "./model";
 
 const UUID = /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/u;
-const CAPTURE_ROOT = "输入/设备随手记";
+export const DEVICE_CAPTURE_ROOT = "输入/设备随手记";
 const MAX_TEXT_BYTES = 12_000;
 const KEYS = ["version", "deviceId", "requestId", "recordedAt", "timeZone", "date", "text", "textRevision"];
 
@@ -41,7 +41,7 @@ function validate(value: unknown): DeviceCapture {
 }
 
 export function createDeviceCapture(deviceId: string, text: string, now: Date, timeZone: string,
-  requestId = randomUUID()): DeviceCapture {
+  requestId: string = randomUUID()): DeviceCapture {
   const recordedAt = now.toISOString();
   return validate({ version: 1, deviceId, requestId, recordedAt, timeZone,
     date: calendarDay(recordedAt, timeZone), text, textRevision: fileRevision(text) });
@@ -49,7 +49,18 @@ export function createDeviceCapture(deviceId: string, text: string, now: Date, t
 
 export function deviceCapturePath(value: DeviceCapture): string {
   const row = validate(value);
-  return CAPTURE_ROOT + "/" + row.deviceId + "/" + row.requestId + ".json";
+  return DEVICE_CAPTURE_ROOT + "/" + row.deviceId + "/" + row.requestId + ".json";
+}
+
+export function isDeviceCapturePath(path: string): boolean {
+  const parts = path.split("/");
+  return parts.length === 4 && parts.slice(0, 2).join("/") === DEVICE_CAPTURE_ROOT
+    && UUID.test(parts[2]) && parts[3].endsWith(".json") && UUID.test(parts[3].slice(0, -5));
+}
+
+export function deviceCaptureLineId(value: DeviceCapture): string {
+  const row = validate(value);
+  return fileRevision("device-capture:" + row.deviceId + ":" + row.requestId) + ":1";
 }
 
 export function serializeDeviceCapture(value: DeviceCapture): string {
@@ -69,6 +80,5 @@ export function parseDeviceCapture(raw: string, path: string): DeviceCapture {
 
 /** Stable across retries and text edits; changed content must never become a second operation. */
 export function deviceCaptureOperationId(value: DeviceCapture): string {
-  const row = validate(value);
-  return phoneInboxWriteId("device-capture:" + row.deviceId + ":" + row.requestId);
+  return phoneInboxWriteId(deviceCaptureLineId(value));
 }

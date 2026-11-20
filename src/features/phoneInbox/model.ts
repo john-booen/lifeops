@@ -1,10 +1,12 @@
 import { MarkdownBlocks } from "../../dataFoundation/markdownBlocks";
 import { normalizeJournalDate } from "../../date";
 import { fileRevision, isSafeOperationId } from "../../operationIdentity";
+import { isContextSourcePath } from "../../sourceReferences";
 import type { AgentActionSuggestion } from "../../types";
 
 export const PHONE_INBOX_PATH = "输入/手机随手记.md";
 export const PHONE_INBOX_STATE = "phone-inbox.json";
+export const DEVICE_INBOX_STATE = "device-inbox.json";
 export const PHONE_INBOX_TOOLS = [
   "create_task", "reschedule_task", "complete_task", "complete_habit",
   "upsert_idea", "append_journal_entry", "delete_task", "delete_habit"
@@ -17,6 +19,9 @@ export interface PhoneInboxLine {
   text: string;
   date: string;
   terminated: boolean;
+  sourcePath?: string;
+  sourceRevision?: string;
+  invalidReason?: string;
 }
 
 export interface PhoneInboxTurn {
@@ -37,6 +42,8 @@ export interface PhoneInboxRecord {
   pendingOperationId?: string;
   undone?: boolean;
   sourceTerminated?: boolean;
+  sourcePath?: string;
+  sourceRevision?: string;
 }
 
 export interface PhoneInboxDocument {
@@ -121,6 +128,9 @@ export function validPhoneInboxDocument(value: unknown): value is PhoneInboxDocu
       || row.status === "confirm" && !isPhoneInboxAction(row.action)
       || row.action !== undefined && (row.status !== "confirm" || !isPhoneInboxAction(row.action))
       || row.sourceTerminated !== undefined && typeof row.sourceTerminated !== "boolean"
+      || (row.sourcePath === undefined) !== (row.sourceRevision === undefined)
+      || row.sourcePath !== undefined && (typeof row.sourcePath !== "string" || row.sourcePath.length > 500 || !isContextSourcePath(row.sourcePath))
+      || row.sourceRevision !== undefined && (typeof row.sourceRevision !== "string" || !/^[a-f\d]{64}$/u.test(row.sourceRevision))
       || row.undone !== undefined && (typeof row.undone !== "boolean" || !row.operationId)) return false;
     seen.add(row.id);
     return true;

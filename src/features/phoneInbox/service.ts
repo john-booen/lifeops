@@ -1,7 +1,6 @@
 import { textAiReadiness } from "../../capabilityReadiness";
 import { hasPendingFactOperation } from "../../dataFoundation/factOperation";
 import { jsonDataContract, parseJsonData, serializeJsonData } from "../../dataFoundation/jsonDataGuard";
-import { readScopedMarkdown } from "../../dataFoundation/markdownSources";
 import { OperationLedger } from "../../dataFoundation/operationLedger";
 import { configuredCredentials, redactSensitiveText } from "../../credentialSecurity";
 import { todayString } from "../../date";
@@ -12,14 +11,16 @@ import { ProviderRunFailure } from "../../providerRun";
 import { parentFolder, type StoreHost } from "../../store/settingsSlice";
 import type { AgentActionSuggestion, AgentResponse } from "../../types";
 import {
-  PHONE_INBOX_PATH, PHONE_INBOX_STATE, isPhoneInboxAction, isPhoneInboxTool, parsePhoneInbox, phoneInboxLabels, phoneInboxWriteId,
+  isPhoneInboxAction, isPhoneInboxTool, phoneInboxLabels, phoneInboxWriteId,
   validPhoneInboxDocument, type PhoneInboxDecision, type PhoneInboxDocument, type PhoneInboxLine, type PhoneInboxReceipt, type PhoneInboxRecord,
   type PhoneInboxSnapshot, type PhoneInboxTurn
 } from "./model";
 
-const EMPTY_NOTE = "# 手机随手记\n";
+import { phoneInboxSource, type PhoneInboxSource } from "./source";
+import type { DeviceSourceGuards } from "./deviceBinding";
 const MAX_BATCH_LINES = 20;
 const RECEIPT_CHANGED = "手机随手记回执已变化，请重新打开核对。";
+const deviceQueues = new WeakMap<object, Promise<void>>();
 
 function receiptRevisions(records: readonly PhoneInboxRecord[]): Map<string, string> {
   return new Map(records.map(row => [row.id, recordRevision(row)]));
@@ -35,6 +36,7 @@ interface PhoneInboxHost {
   submit(text: string, turn: PhoneInboxTurn, signal: AbortSignal): Promise<AgentResponse>;
   confirm(action: AgentActionSuggestion, turn: PhoneInboxTurn): Promise<void>;
   undo(id: string): Promise<boolean>;
+  bindSource?(line: PhoneInboxLine, guards: DeviceSourceGuards): Promise<{ previouslyBound: boolean }>;
   notify(message: string): void;
 }
 
@@ -51,12 +53,14 @@ export class PhoneInbox {
   private stopped = false;
   private readonly unsubscribe: () => void;
 
-  constructor(private readonly host: PhoneInboxHost, events: LifeOpsEventBus) {
+  constructor(private readonly host: PhoneInboxHost, events: LifeOpsEventBus, private readonly source: PhoneInboxSource = phoneInboxSource) {
     this.unsubscribe = events.subscribe(event => {
       if (!["vault.created", "vault.modified", "vault.renamed"].includes(event.type)) return;
-      if ((event.payload as { path?: string }).path === PHONE_INBOX_PATH) this.schedule();
+      if (this.source.matches((event.payload as { path?: string }).path ?? "")) this.schedule();
     });
   }
+
+  get entryPath(): string { return this.source.entryPath; }
 
   get enabled(): boolean {
     return !this.stopped && this.host.enabled() && this.allowed(this.host.store());
@@ -94,7 +98,7 @@ export class PhoneInbox {
     const scope = this.scope();
     const { store } = scope;
     const doc = await this.read(scope);
-    const exists = !!store.getFile(PHONE_INBOX_PATH);
+    const exists = this.source.exists(store);
     const lines = exists ? await this.lines(scope, true).catch(() => undefined) : undefined;
     const positions = new Map(lines?.map(line => [line.id, line]));
     await this.restoreReceipts(scope, doc.records);
@@ -102,7 +106,7 @@ export class PhoneInbox {
     const receipts = doc.records.slice().reverse().map(row => {
       const source = positions.get(row.id);
       if (!source) return { ...row, sourceUnavailable: true as const };
-      const sourceEditing = row.status === "confirm" && requiresPhoneLineEnding(row) && !source.terminated;
+      const sourceEditing = sourceChanged(row, source) || row.status === "confirm" && requiresPhoneLineEnding(row) && !source.terminated;
       return { ...row, line: source.line, ...(sourceEditing ? { sourceEditing: true as const } : {}) };
     });
     const known = new Set(receipts.map(row => row.id));
@@ -122,7 +126,7 @@ export class PhoneInbox {
   async createFile(): Promise<void> {
     const { store, assertCurrent } = this.scope();
     assertCurrent();
-    await store.ensureFile(PHONE_INBOX_PATH, EMPTY_NOTE);
+    await this.source.create(store);
     this.schedule();
   }
 
@@ -139,13 +143,14 @@ export class PhoneInbox {
       const doc = await this.read(scope);
       const previous = receiptRevisions(doc.records);
       if (await this.restoreReceipts(scope, doc.records)) await this.write(scope, doc.records, previous);
-      if (!store.getFile(PHONE_INBOX_PATH)) return;
+      if (!this.source.exists(store)) return;
       const known = new Set(doc.records.map(row => row.id));
       const scanDate = todayString();
       const lines = (await this.lines(scope, includeUnterminated, scanDate)).filter(line => !known.has(line.id));
       const candidates = lines.map<{ queued: PhoneInboxLine; receipt: PhoneInboxRecord }>(queued => ({ queued, receipt: {
         id: queued.id, line: queued.line, status: "processing", message: "上次处理未读回回执，请核对最近操作。",
-        pendingOperationId: phoneInboxWriteId(queued.id)
+        pendingOperationId: phoneInboxWriteId(queued.id),
+        ...(queued.sourcePath ? { sourcePath: queued.sourcePath, sourceRevision: queued.sourceRevision } : {})
       } }));
       // Recover settled operations before selecting the rows that need a model.
       await this.restoreReceipts(scope, candidates.map(({ receipt }) => receipt));
@@ -162,9 +167,9 @@ export class PhoneInbox {
           break;
         }
         // A sync may have edited or reopened a later line during processing.
-        if (!store.getFile(PHONE_INBOX_PATH)) break;
+        if (!this.source.exists(store)) break;
         const currentLines = await this.lines(scope, includeUnterminated, scanDate).catch(error => {
-          if (store.getFile(PHONE_INBOX_PATH)) throw error;
+          if (this.source.exists(store)) throw error;
           return [];
         });
         const line = currentLines.find(row => row.id === queued.id);
@@ -172,9 +177,12 @@ export class PhoneInbox {
           this.schedule();
           break;
         }
-        const invalid = phoneInboxReviewReason(store, line);
+        let invalid = sourceChanged(queued, line) ? "设备原记录在检查期间已变化，请核对原文。" : phoneInboxReviewReason(store, line);
+        if (!invalid && this.source.requiresBinding) {
+          invalid = await this.bindSource(scope, line, receipt.status === "saved");
+        }
         receipt.line = line.line;
-        if (receipt.status === "saved") {
+        if (!invalid && receipt.status === "saved") {
           if (await this.write(scope, [receipt])) added.push(receipt);
           continue;
         }
@@ -217,6 +225,7 @@ export class PhoneInbox {
         delete row.pendingOperationId;
       } else if (decision === "confirm" && row.status === "confirm" && row.action) {
         const line = await this.findLine(scope, id);
+        if (sourceChanged(row, line)) throw Error("设备原记录已变化，不能确认旧操作。");
         if (requiresPhoneLineEnding(row) && !line.terminated) throw Error("这一行已回到编辑状态，请等它写完。");
         const turn = this.turn(scope, line, previous.get(id)!);
         await this.host.confirm(row.action, turn);
@@ -276,6 +285,24 @@ export class PhoneInbox {
     return await this.write(scope, [row], new Map([[row.id, revision]]), "preserve") ? row : undefined;
   }
 
+  private async bindSource(scope: PhoneInboxScope, line: PhoneInboxLine, recovered: boolean): Promise<string> {
+    if (!this.host.bindSource) return "设备签收尚未启用，原文保留，未执行。";
+    try {
+      const result = await this.host.bindSource(line, {
+        assertCurrent: scope.assertCurrent,
+        assertSourceCurrent: async () => {
+          scope.assertCurrent();
+          if (sourceChanged(line, await this.findLine(scope, line.id))) throw Error("设备原记录已变化。");
+        }
+      });
+      scope.assertCurrent();
+      return result.previouslyBound && !recovered ? "原请求已签收，处理结果暂无法核对，未重复执行。请核对最近操作。" : "";
+    } catch {
+      scope.assertCurrent();
+      return "设备签收版本无法核对，原文保留，未重复执行。";
+    }
+  }
+
   private async restoreReceipts(scope: PhoneInboxScope, records: PhoneInboxRecord[]): Promise<boolean> {
     const { store } = scope;
     const candidates = records.flatMap(row => {
@@ -320,6 +347,7 @@ export class PhoneInbox {
       },
       assertLineCurrent: async () => {
         const current = await this.findLine(scope, line.id);
+        if (sourceChanged(line, current)) throw Error("设备原记录已变化，已停止保存。");
         if (line.terminated && !current.terminated) throw Error("这一行已回到编辑状态，请等它写完。");
         await this.assertReceiptCurrent(scope, line.id, expectedRevision);
       }
@@ -334,9 +362,9 @@ export class PhoneInbox {
 
   private async lines(scope: PhoneInboxScope, includeUnterminated: boolean, referenceDate = todayString()): Promise<PhoneInboxLine[]> {
     scope.assertCurrent();
-    const text = await readScopedMarkdown(scope.store, PHONE_INBOX_PATH);
+    const lines = await this.source.read(scope.store, includeUnterminated, referenceDate);
     scope.assertCurrent();
-    return parsePhoneInbox(text, referenceDate, includeUnterminated);
+    return lines;
   }
 
   private async read(scope: PhoneInboxScope): Promise<PhoneInboxDocument> {
@@ -404,12 +432,12 @@ export class PhoneInbox {
   }
 
   private statePath(store: StoreHost): string {
-    return store.path(store.settings.folders.aiReports, "System", PHONE_INBOX_STATE);
+    return store.path(store.settings.folders.aiReports, "System", this.source.stateFile);
   }
 
   private allowed(store: StoreHost): boolean {
     const prefixes = store.settings.privacy?.excludedVaultPrefixes;
-    return !isVaultPathExcluded(PHONE_INBOX_PATH, prefixes) && !isVaultPathExcluded(this.statePath(store), prefixes);
+    return this.source.allowed(store) && !isVaultPathExcluded(this.statePath(store), prefixes);
   }
 
   private scope(): PhoneInboxScope {
@@ -427,13 +455,21 @@ export class PhoneInbox {
   }
 
   private serialize(work: () => Promise<void>): Promise<void> {
-    const result = this.running.then(work);
+    const key = this.host.store().app.vault;
+    const prior = this.source.requiresBinding ? deviceQueues.get(key) ?? Promise.resolve() : this.running;
+    const result = prior.catch(() => undefined).then(work);
     this.running = result.catch(() => undefined);
+    if (this.source.requiresBinding) {
+      const settled = this.running;
+      deviceQueues.set(key, settled);
+      void settled.then(() => { if (deviceQueues.get(key) === settled) deviceQueues.delete(key); });
+    }
     return result;
   }
 }
 
 function phoneInboxReviewReason(store: StoreHost, line: PhoneInboxLine): string {
+  if (line.invalidReason) return line.invalidReason;
   if (!line.date) return "请核对日期和时间。可把更正后的记录追加为新行。";
   if (!line.text.trim()) return "这一行没有记录内容。";
   if (line.text.length > 2000) return "这行超过 2000 字，请分成几条再追加。";
@@ -468,4 +504,8 @@ export function summarizePhoneInbox(records: PhoneInboxRecord[]): string {
   if (undone) details.push(`已撤销 ${undone} 条`);
   if (dismissed) details.push(`已归档 ${dismissed} 条`);
   return `手机随手记已处理 ${records.length} 条${details.length ? " · " + details.join(" · ") : ""}`;
+}
+
+function sourceChanged(original: { sourceRevision?: string }, current: { sourceRevision?: string }): boolean {
+  return original.sourceRevision !== undefined && original.sourceRevision !== current.sourceRevision;
 }
