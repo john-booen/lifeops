@@ -12,7 +12,8 @@ async function syntheticModel(page) {
     p.settings.privacy = { ...p.settings.privacy, plaintextCredentialStorageAccepted: true };
     globalThis.__nativeBatchCalls = 0;
     const mock = async messages => {
-      const input = JSON.stringify(messages), prefix = input.includes("虚构离线批") ? "虚构离线批" : input.includes("虚构设备批") ? "虚构设备批" : "虚构手机批";
+      const input = messages.filter(message => message.role === "user").at(-1)?.content ?? "";
+      const prefix = input.includes("虚构离线批") ? "虚构离线批" : input.includes("虚构设备批") ? "虚构设备批" : "虚构手机批";
       if (++globalThis.__nativeBatchCalls > 2) throw Error("Unexpected repeated model call");
       const tasks = Array.from({ length: 5 }, (_, i) => ({ title: prefix === "虚构手机批" && i === 0 ? "虚构已完成纸样" : prefix + i, estimateMin: 20 }));
       return { content: "模型口头承诺不作为保存回执。", toolCalls: [{ id: "fictional-native-batch", name: "schedule_task_batch", arguments: { date: "今天", tasks } }] };
@@ -74,14 +75,14 @@ async function captureProfileUi(page, root, sourceVault) {
   await page.screenshot({ path: join(root, "capture-profile.png") });
   const after = await page.evaluate(async () => {
     const p = app.plugins.getPlugin("lifeops-assistant"), old = new Date(Date.now() - 2 * 86_400_000);
-    await p.devices.queueCapture("虚构离线批：今天五项纸样工作全部保存。", old);
+    const offlinePath = await p.devices.queueCapture("虚构离线批：今天五项纸样工作全部保存。", old);
     return { raw: await p.store.readPath(p.store.taskDbPath()), providerRequests: p.activeProviderRequests.size,
-      pendingDate: old.toLocaleDateString("sv-SE") };
+      pendingDate: old.toLocaleDateString("sv-SE"), offlinePath };
   });
   assert.equal(after.raw, state.before); assert.equal(after.providerRequests, 0);
   const paths = (await readdir(join(sourceVault, "输入/设备随手记"), { recursive: true })).filter(path => path.endsWith(".json"));
   assert.equal(paths.length, 2);
-  return { id: state.id, paths: paths.map(path => join("输入/设备随手记", path)), pendingDate: after.pendingDate };
+  return { id: state.id, paths: paths.map(path => join("输入/设备随手记", path)), pendingDate: after.pendingDate, offlinePath: after.offlinePath };
 }
 
 async function receiveAndCheck(page, root, vault, senderVault, captures, expected, preserved) {
@@ -111,7 +112,7 @@ async function receiveAndCheck(page, root, vault, senderVault, captures, expecte
   await page.getByText("本批任务回执", { exact: true }).waitFor();
   await page.screenshot({ path: join(root, "device-batch-receipt.png") });
   await page.keyboard.press("Escape"); await page.keyboard.press("Escape");
-  const offline = state.rows.find(row => row.text.includes("虚构离线批")); assert(offline?.operationId);
+  const offline = state.rows.find(row => row.sourcePath === captures.offlinePath); assert(offline?.operationId);
   return { ...state, offlineOperationId: offline.operationId };
 }
 
@@ -141,7 +142,8 @@ export async function exerciseNativeDeviceBatch({ getPage, root, vault, profile,
   assert.deepEqual(initial, { setup: true, canWrite: false });
   await page.getByRole("button", { name: "这台负责处理", exact: true }).click();
   await page.waitForFunction(() => app.plugins.getPlugin("lifeops-assistant").devices.execution.canWriteFacts
-    && !app.plugins.getPlugin("lifeops-assistant").dataFoundationBootstrap);
+    && !app.plugins.getPlugin("lifeops-assistant").dataFoundationBootstrap
+    && app.plugins.getPlugin("lifeops-assistant").store.getFile(app.plugins.getPlugin("lifeops-assistant").store.taskDbPath()));
   const writerId = await page.evaluate(() => app.plugins.getPlugin("lifeops-assistant").devices.execution.deviceId);
   const preserved = await phoneBatchUi(page, root);
   result.checks.firstRoleUiAndPhoneBatchUndo = true;
