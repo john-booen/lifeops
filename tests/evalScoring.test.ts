@@ -1,6 +1,18 @@
 import { expect, it } from "vitest";
 import { scoreEvaluationCase, shouldRepeatLatencyMeasurement, type EvalObservation, type EvalQuestion } from "./eval/scoring";
 import { recordRevision } from "../src/operationIdentity";
+import questions from "./eval/questions.json";
+
+it("accepts the observed equivalent absence phrase without relaxing evidence or zero-write checks", () => {
+  const anxiety = questions.find(row => row.id === "recent-anxiety-19")! as EvalQuestion;
+  const valid = { ...observed, reply: "你感到焦虑，容易拖延，但日记里没写原因，不能编造。",
+    tools: [{ name: "query_vault", ok: true }], writes: {
+      "tasks.created": 0, "tasks.deleted": 0, "tasks.rescheduled": 0, "habits.deleted": 0 } };
+  expect(scoreEvaluationCase(anxiety, valid)).toEqual([]);
+  expect(scoreEvaluationCase(anxiety, { ...valid, tools: [] })).not.toEqual([]);
+  expect(scoreEvaluationCase(anxiety, { ...valid, writes: { ...valid.writes, "tasks.created": 1 } })).not.toEqual([]);
+  expect(scoreEvaluationCase(anxiety, { ...valid, reply: "焦虑，容易拖延，因为工作压力很大。" })).not.toEqual([]);
+});
 
 const question: EvalQuestion = { id: "create", milestone: "M1", domain: "tasks", mode: "text", input: "建任务", history: [],
   checks: { expectWrites: { "tasks.created": 1 }, minReceipts: 1, maxConfirmations: 0,

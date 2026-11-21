@@ -101,6 +101,14 @@ async function receiveAndCheck(page, root, vault, senderVault, captures, expecte
   // External copies are not instantly visible to the older native Vault cache.
   // Wait for the real input files, rather than pretending an immediate scan synced them.
   await page.waitForFunction(paths=>paths.every(path=>app.vault.getAbstractFileByPath(path)),captures.paths);
+  // A scan deliberately defers while startup/background fact writes are live.
+  // Exercise that normal retry path instead of assuming two immediate scans
+  // must finish receipt processing before the delayed retry has run.
+  await page.waitForFunction(async () => {
+    const p = app.plugins.getPlugin("lifeops-assistant");
+    await p.deviceInbox.scan();
+    return (await p.deviceInbox.list()).length === 2;
+  }, null, { timeout: 30_000, polling: 500 });
   const state = await page.evaluate(async expected => {
     const p = app.plugins.getPlugin("lifeops-assistant");
     await p.deviceInbox.scan(); await p.deviceInbox.scan();

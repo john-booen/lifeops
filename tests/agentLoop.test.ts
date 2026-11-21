@@ -82,12 +82,13 @@ it("can still list the requested records through the read-only query after the e
 it("reads dated originals when the model expands the user's topic with unrelated AND terms", async () => {
   const paths = ["2026/10/2026-10-28晚.md", "2026/11/2026-11-04晚.md"].map(path => store.path(store.settings.folders.dailyRoot, path));
   for (const path of paths) await store.writeFile(path, "虚构纸样归档：一段连续25分钟完成纸样。" );
-  responses.push(reply("", [tool("get_summaries", { level: "week", range: { from: "2026-10-26", to: "2026-11-08" },
+  responses.push(reply("", [tool("get_summaries", { level: "week", range: { from: "2025-10-26", to: "2025-11-08" },
     includeOriginals: true, query: "纸样 归档 虚纸 裁剪 纸样归档" })]), reply("已核对两篇原始日记。"));
   const execute = vi.spyOn(host, "executeTools");
   const result = await new AgentLoop(host).run(input({ message: "回顾10月26日到11月8日这两周的虚构纸样归档，读摘要与原始日记。" }));
   expect(result.toolCalls).toContainEqual({ name: "get_summaries", ok: true });
   expect(execute.mock.calls[0][0][0].arguments.query).toBe("纸样 归档 纸样归档");
+  expect(execute.mock.calls[0][0][0].arguments.range).toEqual({ from: "2026-10-26", to: "2026-11-08" });
   const evidence = JSON.stringify(requests.at(-1));
   for (const path of paths) { expect(evidence).toContain(path); expect(await store.readPath(path)).toContain("一段连续25分钟"); }
   expect(result.receipts).toEqual([]);
