@@ -122,12 +122,18 @@ jobs:
           curl --fail --location --retry 2 "https://github.com/john-booen/lifeops/releases/download/$ROLLBACK_VERSION/lifeops-assistant-$ROLLBACK_VERSION.zip" --output "$RUNNER_TEMP/rollback.zip"
           echo "$ROLLBACK_SHA  $RUNNER_TEMP/rollback.zip" | shasum -a 256 --check
           unzip -q "$RUNNER_TEMP/rollback.zip" -d "$RUNNER_TEMP/rollback-package"
+          if [ "$QA_SCENARIO" = devices ]; then
+            curl --fail --location --retry 2 "https://github.com/john-booen/lifeops/releases/download/0.5.103/lifeops-assistant-0.5.103.zip" --output "$RUNNER_TEMP/previous-daily.zip"
+            echo "46ce3c4d5aef0bfb9e19452147d2a7b22ff2b4ddf73dbda71fdcb704613ab4a4  $RUNNER_TEMP/previous-daily.zip" | shasum -a 256 --check
+            unzip -q "$RUNNER_TEMP/previous-daily.zip" -d "$RUNNER_TEMP/previous-daily-package"
+          fi
       - name: Exercise actual chat, bare confirmation, reopen and rollback in a native fixture
         env:
           TZ: Asia/Shanghai
           LIFEOPS_QA_SOURCE: ${{ github.workspace }}/candidate
           LIFEOPS_QA_PACKAGE: ${{ runner.temp }}/candidate-package
           LIFEOPS_QA_ROLLBACK: ${{ runner.temp }}/rollback-package
+          LIFEOPS_QA_PREVIOUS_DAILY: ${{ runner.temp }}/previous-daily-package
           LIFEOPS_QA_AUTOMATION_PACKAGE: ${{ runner.temp }}/automation/package.json
           LIFEOPS_NATIVE_APP: ${{ runner.temp }}/ObsidianMount/Obsidian.app
           LIFEOPS_QA_NATIVE_VERSION: ${{ matrix.version }}

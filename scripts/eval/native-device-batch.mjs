@@ -141,7 +141,7 @@ async function conflictStopsWrites(page) {
   assert.deepEqual(state, { denied: true, problem: true, canWrite: false, unchanged: true, recovered: true });
 }
 
-export async function exerciseNativeDeviceBatch({ getPage, root, vault, profile, candidate, rollback, expected, result, launch, close, packageFiles }) {
+export async function exerciseNativeDeviceBatch({ getPage, root, vault, profile, candidate, rollback, dailyRollback = rollback, expected, result, launch, close, packageFiles }) {
   assert.equal(process.env.GITHUB_ACTIONS, "true"); assert.equal(process.env.RUNNER_OS, "macOS");
   let page = getPage();
   const initial = await page.evaluate(() => {
@@ -178,12 +178,13 @@ export async function exerciseNativeDeviceBatch({ getPage, root, vault, profile,
   result.checks.deviceAndOfflineBatchesSavedOnce = true;
   result.checks.completeReceiptsAndRawInputPreserved = true;
   await conflictStopsWrites(page); result.checks.conflictKeepsReaderAndStopsWrites = true;
-  await close(); await packageFiles(rollback); await launch(); page = getPage();
+  await close(); await packageFiles(dailyRollback); await launch(); page = getPage();
   const old = await page.evaluate(async operationId => {
     const p = app.plugins.getPlugin("lifeops-assistant"); await p.createAgentRuntime().undoOperation(operationId);
     return { version: p.manifest.version, tasks: (await p.store.readTaskDb()).tasks };
   }, received.offlineOperationId);
-  assert.equal(old.version, "0.5.100"); assert.equal(old.tasks.length, 7);
+  assert.equal(old.version, JSON.parse(await readFile(join(dailyRollback, "manifest.json"), "utf8")).version);
+  result.previousDailyRollbackVersion = old.version; assert.equal(old.tasks.length, 7);
   assert(old.tasks.every(row => !row.title.startsWith("虚构离线批")));
   for (const row of old.tasks) assert.deepEqual(row, received.tasks.find(item => item.id === row.id));
   result.checks.rollbackWholeBatchUndoPreservesOtherTasks = true;

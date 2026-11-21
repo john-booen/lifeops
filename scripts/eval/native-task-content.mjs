@@ -83,7 +83,8 @@ try {
   if (process.env.LIFEOPS_QA_SCENARIO === "devices") {
     result.scenario = "devices";
     await (await import("./native-device-batch.mjs")).exerciseNativeDeviceBatch({ getPage: () => page,
-      root, vault, profile, candidate, rollback, expected, result, launch, close, packageFiles });
+      root, vault, profile, candidate, rollback, dailyRollback: process.env.LIFEOPS_QA_PREVIOUS_DAILY,
+      expected, result, launch, close, packageFiles });
   } else {
   await page.waitForFunction(async sha => {
     const p = app.plugins.getPlugin("lifeops-assistant");
