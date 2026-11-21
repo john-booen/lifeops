@@ -622,6 +622,7 @@ export class AgentLoop {
     if (input.voiceBackground) guidance.push("这是只读的后台分析。核对所需资料后直接回答原问题，避免添加无关建议。");
     if (tools.some(tool => tool.name === "get_summaries")) {
       guidance.push("问上周、上月的整体表现或复盘，先用 get_summaries，分别传 level=week 和 range=last_week，或 level=month 和 range=last_month。包括问做得怎么样或要一条改进。只问某个统计数字时用 get_stats。");
+      guidance.push("围绕某个目标或习惯找跨周规律时，get_summaries传所问日期范围、includeOriginals=true和该主题的连续关键词query，读取定位原文；不能只用日记开头的无关片段。");
     }
     if (input.voiceBackground && tools.some(tool => tool.name === "get_stats" || tool.name === "get_summaries")) {
       guidance.push("日期和范围以用户原话为准。上周用 last_week，上月或上个月用 last_month，按当前日期由工具计算。用户明确指定绝对日期或其他区间时按原意查询。");
@@ -660,7 +661,7 @@ export class AgentLoop {
       guidance.push("用户问实际学了多久，要带上核对到的学习轨道名称和本轮时段，再报 recordedMinutes 或统计里的 minutes。即使是在纠正前一句，也不能只回一个数字。weeklyMinutes 是本周计划目标；差值不是已学习或未登记时长。");
     }
     if (evidenceCalls.some(call => call.name === "get_summaries")) {
-      guidance.push("历史总结只用用户所问的日期范围。已有摘要能回答就直接答，缺项才查同一日期范围。不要把本周习惯混进上周。明确要求改进时，在核对后的指标之后另起一行，用「下一步」标出同一摘要支持的一条具体做法。不得从完成率倒推遗漏项数，也不能借当前待办举证。");
+      guidance.push("历史总结只用用户所问的日期范围。已有摘要能回答就直接答，缺项用originalEvidence的同范围日记证据；其coverage、missingDates和truncated说明证据限制，不能把无记录当未做。跨周比较分别给出两周的日期和来源，只把样本支持的现象当建议依据，不断言因果；当前可用时段不是历史发生时刻，后续安排遵从当前已确认记忆。不要把本周习惯混进上周。明确要求改进时，在核对后的指标之后另起一行，用「下一步」标出一条具体做法。不得从完成率倒推遗漏项数，也不能借当前待办举证。");
     }
     if (evidenceCalls.some(call => call.name === "list_ideas")) {
       guidance.push("如果用户明确要把已找到的想法拆成任务或要确认卡，立即用该想法的准确 id 调用 advance_idea。调用只生成卡，点击才保存，生成卡前无需问是否立项或先等用户同意。只问状态时按列表回答。");

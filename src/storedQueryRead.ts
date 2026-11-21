@@ -5,7 +5,7 @@ import { projectFileName } from "./projectContinuity";
 import { tradingDocumentPath } from "./tradingResearch";
 import { isVaultPathExcluded } from "./privacy";
 
-export type StoredQueryName = "query_projects" | "query_trading_research" | "list_personal_memory_candidates";
+export type StoredQueryName = "query_projects" | "query_trading_research" | "list_personal_memory_candidates" | "get_summaries";
 const owners = new WeakMap<VaultQueryRead, StoreHost>();
 export function isOwnedStoredQueryRead(store: StoreHost, read: VaultQueryRead): boolean {
   return owners.get(read) === store;
@@ -13,6 +13,11 @@ export function isOwnedStoredQueryRead(store: StoreHost, read: VaultQueryRead): 
 
 export async function readStoredQueryWithSources(store: StoreHost, name: StoredQueryName, args: Record<string, unknown>): Promise<VaultQueryRead> {
   const fixed = structuredClone(args);
+  if (name === "get_summaries") {
+    const read = await (await import("./features/summaries/read")).readSummaryQueryWithSources(store, fixed);
+    owners.set(read, store);
+    return read;
+  }
   const path = name === "query_projects" ? store.path(store.settings.folders.goals, projectFileName())
     : name === "query_trading_research" ? tradingDocumentPath(store) : store.personalMemoryPath();
   if (!isVaultPathExcluded(path, store.settings.privacy?.excludedVaultPrefixes)) {

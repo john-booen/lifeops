@@ -15,7 +15,7 @@ import {isOwnedVaultQueryRead} from "./vaultQuery";
 import {isOwnedStoredQueryRead} from "./storedQueryRead";
 import { isTaskBatchReceipt } from "./features/tasks/batchReceipt";
 import { taskContentWriteGuard } from "./features/tasks/contentUpdate";
-const isHeldQuery=(name:string)=>["query_vault","query_projects","query_trading_research","list_personal_memory_candidates"].includes(name);
+const isHeldQuery=(name:string)=>["query_vault","query_projects","query_trading_research","list_personal_memory_candidates","get_summaries"].includes(name);
 const isOwnedQueryRead=(store:StoreHost,read:VaultQueryRead)=>isOwnedVaultQueryRead(store,read)||isOwnedStoredQueryRead(store,read);
 
 export interface ToolCallRequest {
@@ -207,7 +207,7 @@ export class AgentRuntime {
     let queryWeeklyRevision: string | undefined;
     let queryNoteRevision: string | undefined;
     try {
-      if (tool.name === "query_vault" || tool.name === "query_projects" || tool.name === "query_trading_research" || tool.name === "list_personal_memory_candidates") {
+      if (isHeldQuery(tool.name)) {
         queryMemoryRevision = await readQueryMemoryRevision(this.context.store, tool.name === "list_personal_memory_candidates");
         // Provider tool-call IDs still pair the exact request and response. Only
         // the local read cache varies by memory state; writes keep stable IDs.
@@ -245,6 +245,8 @@ export class AgentRuntime {
         : tool.name === "inspect_note_understanding_source" ? error instanceof Error && /保存尚未结束|资料整理仍在进行/.test(error.message)
           ? "有保存或资料整理尚未结束，本次没有提供原文。请稍后重新读取。"
           : "所选笔记、个人记忆或读取依据暂时无法安全核对，本次没有提供原文，请稍后重新读取。"
+        : tool.name === "inspect_weekly_review_sources" && error instanceof Error && /每次周回顾选择一至七天/.test(error.message)
+          ? "单份周回顾只读取一至七天。跨周比较请用 get_summaries 查询所需日期和主题，不需要先保存周回顾。"
         : "操作记录无法安全读取，已停止这次操作。请先检查并恢复未完成操作。"), actions: [] };
     }
     if (claim.kind === "cached" && claim.record.result) {

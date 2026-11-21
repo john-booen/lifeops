@@ -230,7 +230,7 @@ export async function executeWeeklyReview(action: AgentActionSuggestion, context
 }
 const quoteSchema = { type: "array", maxItems: 6, items: { type: "object", additionalProperties: false, properties: { path: { type: "string" }, excerpt: { type: "string" } }, required: ["path", "excerpt"] } };
 export const WEEKLY_REVIEW_TOOLS: LifeOpsToolDefinition[] = [
-  { name: "inspect_weekly_review_sources", safety: "safe", description: "只读1至6篇选定原始笔记、1至7天日期范围。先查询准确paths，返回固定原文和sourceToken；笔记日期与事件日期分开。",
+  { name: "inspect_weekly_review_sources", safety: "safe", description: "只读1至6篇选定原始笔记、1至7天日期范围。跨周比较用get_summaries。先查询准确paths，返回固定原文和sourceToken；笔记日期与事件日期分开。",
     parameters: { type: "object", additionalProperties: false, properties: { startDate: { type: "string" }, endDate: { type: "string" }, paths: { type: "array", minItems: 1, maxItems: 6, items: { type: "string" } } }, required: ["startDate", "endDate", "paths"] },
     execute: async (args, context) => { const snapshot = await collect(args, context), token = randomUUID(); boundedSet(sources, context.store, token, { snapshot, assertCurrent: () => { context.assertCurrent?.(); if (policy(context.store) !== snapshot.policy) throw new Error("读取权限已变化，请重新选择原文。"); } }); return { success: true, output: JSON.stringify({ sourceToken: token, ...snapshot, memoryRevision: undefined, policy: undefined, eventDates: "未核对", status: "只读原文；未生成或保存回顾，不确认记忆" }), actions: [] }; } },
   { name: "propose_weekly_review", safety: "ui-confirm", description: "用当前sourceToken提出1至3条周回顾假设。逐字摘录支持/反例，保留不确定性；重复记录不等于独立事件。点击只存草稿；更正另存版本保留前稿。",

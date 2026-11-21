@@ -8,6 +8,15 @@ const task = { id: "synthetic", title: "见客户", date: "2026-11-13", time: "1
 const observed: EvalObservation = { reply: "已建好", tools: [], writes: { "tasks.created": 1 }, createdTasks: [task],
   tasks: [task], confirmations: 0, confirmationActions: [], receipts: 1, preludeCreatedTasks: 0 };
 
+it("requires both dated references while accepting one combined read or two separate weekly reads",()=>{
+ const references=["2026-10-28","2026-11-04"].map(date=>({name:"get_summaries",output:{originalEvidence:{notes:[{date}]}}}));
+ const crossWeek:EvalQuestion={...question,checks:{toolFacts:references}};
+ const separate=references.map(row=>({name:row.name,ok:true,facts:row.output}));
+ expect(scoreEvaluationCase(crossWeek,{...observed,tools:separate})).toEqual([]);
+ expect(scoreEvaluationCase(crossWeek,{...observed,tools:[{name:"get_summaries",ok:true,facts:{originalEvidence:{notes:[{date:"2026-10-28"},{date:"2026-11-04"}]}}}]})).toEqual([]);
+ expect(scoreEvaluationCase(crossWeek,{...observed,tools:separate.slice(0,1)})).toHaveLength(1);
+});
+
 it("requires content correction on the original task identity and preserves its schedule", () => {
   const correction: EvalQuestion = { ...question, checks: { updatedTasks: [{ fromTitleIncludes: "虚构旧标题", title: "虚构新标题" }] } };
   const prior = { ...task, id: "fictional-existing", title: "虚构旧标题", startTime: "15:00", endTime: "16:00" };
