@@ -27,6 +27,7 @@ import type { AgentActionSuggestion, AgentConversationMessage, AgentResponse, Ag
 import { agentHistoryMessages, buildResidentContext, clipBytes, type ResidentContext } from "./context";
 import { explicitTitleEdits,confirmedTitleEdits,completeTitleEditCalls,titleEditCall } from "./explicitTitleEdits";
 import { expandMixedTaskBatch } from "./mixedTaskBatch";
+import { requestedSummaryTopics } from "./summaryTopicQuery";
 import { recurringScheduleAnswer } from "./recurringSchedule";
 import { previousSavedTask, unverifiedTaskTimeChanges, type SavedTaskReference } from "./taskTimeCorrection";
 import { explicitRunningCheckin, explicitSingleTimedTask } from "./offlineFallback";
@@ -385,7 +386,7 @@ export class AgentLoop {
           break;
         }
         const priority = repeatedTaskListPriority(response.toolCalls, formatDate(input.now));
-        let calls = this.scopedCalls(priority ? [priority] : response.toolCalls, state.id, round);
+        let calls = this.scopedCalls(requestedSummaryTopics(priority ? [priority] : response.toolCalls, input.message), state.id, round);
         const mixed = !input.voiceBackground ? await expandMixedTaskBatch(this.host.store, calls, input.now) : undefined;
         assertPolicy();
         if (mixed?.error) {

@@ -34,7 +34,7 @@ export async function crossWeekUi(page,root,result) {
       const tools=messages.filter(message=>message.role==="tool");
       toolOutputs.push(...tools.map(message=>message.content));
       const output=tools.map(message=>{try{return JSON.parse(message.content);}catch{return null;}}).find(item=>item?.originalEvidence);
-      if(!output)return{content:"",toolCalls:[{id:"fictional-cross-week-read",name:"get_summaries",arguments:{level:"week",range:{from:"2026-10-26",to:"2026-11-08"},includeOriginals:true,query:"纸样 归档"}}]};
+      if(!output)return{content:"",toolCalls:[{id:"fictional-cross-week-read",name:"get_summaries",arguments:{level:"week",range:{from:"2026-10-26",to:"2026-11-08"},includeOriginals:true,query:"纸样 归档 虚纸 裁剪 纸样归档"}}]};
       evidence=output.originalEvidence;
       if(!messages[0].content.includes(corrected))throw Error("Corrected availability missing from live context");
       return{content:evidence.notes.map(note=>note.date+" · "+note.path+"\n"+note.text).join("\n\n")+"\n下一步：按当前记忆周三19:30连续25分钟。仅两次样本，未创建任务；未命中不代表没有日记。",toolCalls:[]};
@@ -47,6 +47,7 @@ export async function crossWeekUi(page,root,result) {
   assert(observed.evidence,"Native cross-week query lacked evidence: "+JSON.stringify(observed.toolOutputs).slice(0,2000));
   assert.equal(observed.calls,2);assert.equal(observed.before,observed.after);assert.deepEqual(observed.receipts,[]);
   assert.deepEqual(observed.evidence.notes.map(note=>note.date),["2026-10-28","2026-11-04"]);
+  assert.equal(observed.evidence.query,"纸样 归档 纸样归档");
   assert(observed.evidence.unmatchedDates.includes("2026-11-05"));assert(!observed.evidence.missingDates.includes("2026-11-05"));
   for(const expected of ["2026-10-28","2026-11-04","19:30"])assert(observed.reply.includes(expected));
   assert(!observed.reply.includes("09:30"));assert(!observed.reply.includes("confidence:"));
