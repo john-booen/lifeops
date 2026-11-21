@@ -160,6 +160,7 @@ export async function exerciseNativeDeviceBatch({ getPage, root, vault, profile,
   await (await import("./native-chat-interaction.mjs")).chatInteractionUi(page,root,result);
   await (await import("./native-task-plan-changes.mjs")).taskPlanChangesUi(page,root,result);
   await (await import("./native-cross-week.mjs")).crossWeekUi(page,root,result);
+  await (await import("./native-hotwords.mjs")).nativeHotwords(page,result);
   const preserved = await phoneBatchUi(page, root);
   result.checks.firstRoleUiAndPhoneBatchUndo = true;
   await close();

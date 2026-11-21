@@ -259,6 +259,21 @@ describe("ordinary voice and text mode cycles", () => {
     expect(getUserMedia).toHaveBeenCalledOnce();
   });
 
+  it("passes full automatic name and object fragments through the default voice startup without saving settings", async () => {
+    const capture = captureFixture();
+    const today = new Date().toLocaleDateString("sv-SE");
+    await plugin.store.createTask({ title: "和陆辰整理纸盒", date: today });
+    await plugin.store.createTask({ title: "给林小葵送样品盒", date: today });
+    const before = structuredClone(plugin.settings.realtimeVoice);
+    view.agentMode = "voice";
+    await startBailianRealtimeRecording(view);
+    const client = capture.connects.mock.contexts[0] as unknown as { settings: LifeOpsSettings["realtimeVoice"] };
+    expect(client.settings.asrEngine).toBe("streaming-hotwords");
+    expect(client.settings.asrHotwords!.split("\n")).toEqual(expect.arrayContaining(["陆辰", "林小葵", "纸盒", "样品盒"]));
+    expect(plugin.settings.realtimeVoice).toEqual(before);
+    expect(capture.connects).toHaveBeenCalledOnce(); expect(getUserMedia).toHaveBeenCalledOnce();
+  });
+
   it.each(["created", "updated"] as const)("uses the local day for recently %s task hotwords", async change => {
     const capture = captureFixture();
     vi.setSystemTime(new Date(2026, 10, 11, 23, 50));
