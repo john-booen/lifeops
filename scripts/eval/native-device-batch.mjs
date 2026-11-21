@@ -98,6 +98,9 @@ async function receiveAndCheck(page, root, vault, senderVault, captures, expecte
     const { dirname } = await import("node:path"); await mkdir(dirname(join(vault, path)), { recursive: true });
     await cp(join(senderVault, path), join(vault, path), { force: false });
   });
+  // External copies are not instantly visible to the older native Vault cache.
+  // Wait for the real input files, rather than pretending an immediate scan synced them.
+  await page.waitForFunction(paths=>paths.every(path=>app.vault.getAbstractFileByPath(path)),captures.paths);
   const state = await page.evaluate(async expected => {
     const p = app.plugins.getPlugin("lifeops-assistant");
     await p.deviceInbox.scan(); await p.deviceInbox.scan();
@@ -106,7 +109,7 @@ async function receiveAndCheck(page, root, vault, senderVault, captures, expecte
     return { rows, tasks, heartbeat, id: p.devices.execution.deviceId, version: p.manifest.version,
       calls: globalThis.__nativeBatchCalls, canWrite: p.devices.execution.canWriteFacts };
   }, expected);
-  assert.equal(state.tasks.length, 12); assert.equal(state.rows.length, 2); assert.equal(state.calls, 2); assert.equal(state.canWrite, true);
+  assert.equal(state.tasks.length, 12,JSON.stringify({rows:state.rows,calls:state.calls,canWrite:state.canWrite})); assert.equal(state.rows.length, 2); assert.equal(state.calls, 2); assert.equal(state.canWrite, true);
   for (const row of state.rows) { assert.equal(row.status, "saved"); assert.deepEqual(row.taskBatch, { created: 5, existing: 0 }); }
   for (const row of preserved) assert.deepEqual(state.tasks.find(item => item.id === row.id), row);
   const delayed = state.tasks.filter(row => row.title.startsWith("虚构离线批"));
