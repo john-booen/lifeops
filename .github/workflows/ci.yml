@@ -2,6 +2,19 @@ name: LifeOps isolated verification
 
 on:
   workflow_dispatch:
+    inputs:
+      native_task_content:
+        description: Run fictional native task-edit QA on remote desktops
+        type: boolean
+        default: false
+      candidate_ref:
+        description: Exact accepted candidate source commit
+        type: string
+        default: ""
+      expected_main_sha256:
+        description: Expected locally sealed main.js SHA-256
+        type: string
+        default: ""
   pull_request:
   push:
     branches: [master, main]
@@ -15,6 +28,7 @@ concurrency:
 
 jobs:
   verify:
+    if: github.event_name != 'workflow_dispatch' || !inputs.native_task_content
     # Keep the full instrumented suite on its reviewed native ARM64 timing baseline.
     # The lightweight audit uses Intel, avoiding a second ARM64 queue.
     runs-on: macos-15
@@ -36,6 +50,7 @@ jobs:
         run: node scripts/verify-ci-local.mjs --run
 
   dependency-audit:
+    if: github.event_name != 'workflow_dispatch' || !inputs.native_task_content
     # The hosted arm64 queue also cancelled audits before allocating a runner.
     runs-on: macos-15-intel
     timeout-minutes: 15
@@ -50,3 +65,68 @@ jobs:
         run: node scripts/offline-osv-audit.mjs --prepare "$RUNNER_TEMP/lifeops-osv-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
       - name: Block high and critical advisories with inventory isolated from network
         run: node scripts/offline-osv-audit.mjs --scan "$RUNNER_TEMP/lifeops-osv-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKSPACE/package-lock.json"
+
+  native-task-content:
+    if: github.event_name == 'workflow_dispatch' && inputs.native_task_content
+    runs-on: macos-15
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - version: 1.5.8
+            asset: Obsidian-1.5.8-universal.dmg
+            digest: ""
+          - version: 1.12.7
+            asset: Obsidian-1.12.7.dmg
+            digest: 3b85c13b4ce55512e86e170a7cd2a494e2db695ac888c0601e153cb85b77881b
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.candidate_ref }}
+          path: candidate
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          path: harness
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25.9.0
+      - name: Prepare the sealed candidate and synthetic automation
+        working-directory: candidate
+        run: |
+          npm ci --ignore-scripts --no-audit
+          node esbuild.config.mjs production --outfile "$RUNNER_TEMP/candidate-main.js"
+          node scripts/prepare-plugin-package.mjs --bundle "$RUNNER_TEMP/candidate-main.js" --output "$RUNNER_TEMP/candidate-package"
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --prefix "$RUNNER_TEMP/automation" --ignore-scripts --no-audit --no-fund playwright@1.65.1
+      - name: Prepare official Obsidian and the published rollback package
+        env:
+          APP_VERSION: ${{ matrix.version }}
+          APP_ASSET: ${{ matrix.asset }}
+          APP_DIGEST: ${{ matrix.digest }}
+        run: |
+          curl --fail --location --retry 2 "https://github.com/obsidianmd/obsidian-releases/releases/download/v$APP_VERSION/$APP_ASSET" --output "$RUNNER_TEMP/Obsidian.dmg"
+          if [ -n "$APP_DIGEST" ]; then echo "$APP_DIGEST  $RUNNER_TEMP/Obsidian.dmg" | shasum -a 256 --check; fi
+          hdiutil attach -readonly -nobrowse -mountpoint "$RUNNER_TEMP/ObsidianMount" "$RUNNER_TEMP/Obsidian.dmg"
+          test "$(/usr/libexec/PlistBuddy -c Print:CFBundleShortVersionString "$RUNNER_TEMP/ObsidianMount/Obsidian.app/Contents/Info.plist")" = "$APP_VERSION"
+          curl --fail --location --retry 2 https://github.com/john-booen/lifeops/releases/download/0.5.98/lifeops-assistant-0.5.98.zip --output "$RUNNER_TEMP/rollback.zip"
+          echo "5db520d5bb8417aedb7cf555c90f839c66d7ec262bf921527e29cab9ba0dace2  $RUNNER_TEMP/rollback.zip" | shasum -a 256 --check
+          unzip -q "$RUNNER_TEMP/rollback.zip" -d "$RUNNER_TEMP/rollback-package"
+      - name: Exercise actual chat, bare confirmation, reopen and rollback in a native fixture
+        env:
+          TZ: Asia/Shanghai
+          LIFEOPS_QA_SOURCE: ${{ github.workspace }}/candidate
+          LIFEOPS_QA_PACKAGE: ${{ runner.temp }}/candidate-package
+          LIFEOPS_QA_ROLLBACK: ${{ runner.temp }}/rollback-package
+          LIFEOPS_QA_AUTOMATION_PACKAGE: ${{ runner.temp }}/automation/package.json
+          LIFEOPS_NATIVE_APP: ${{ runner.temp }}/ObsidianMount/Obsidian.app
+          LIFEOPS_QA_NATIVE_VERSION: ${{ matrix.version }}
+          LIFEOPS_QA_EXPECTED_SHA: ${{ inputs.expected_main_sha256 }}
+        run: node harness/scripts/eval/native-task-content.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-task-content-${{ matrix.version }}
+          path: ${{ runner.temp }}/native-task-content-*
+          if-no-files-found: warn
