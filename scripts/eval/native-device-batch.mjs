@@ -62,10 +62,25 @@ async function phoneBatchUi(page, root) {
 }
 
 async function captureProfileUi(page, root, sourceVault) {
+  // The companion is copied externally before its first launch. A plugin can
+  // exist before the native Vault cache has indexed its copied recovery and
+  // audit files; the role action correctly refuses unreadable fact state.
+  const copied = (await readdir(sourceVault, { recursive: true }))
+    .filter(path => path.endsWith(".json") && !path.split("/").some(part => part.startsWith(".")));
+  await page.waitForFunction(paths => paths.every(path => app.vault.getAbstractFileByPath(path)), copied);
   // First launch already opens the role dialog; opening another would cover the real dialog.
   await page.getByRole("button", { name: "这台只记录并同步", exact: true }).waitFor();
   await page.getByRole("button", { name: "这台只记录并同步", exact: true }).click();
-  await page.waitForFunction(() => !app.plugins.getPlugin("lifeops-assistant").devices.execution.needsSetup);
+  try {
+    await page.waitForFunction(() => !app.plugins.getPlugin("lifeops-assistant").devices.execution.needsSetup);
+  } catch (error) {
+    const state = await page.evaluate(() => {
+      const p = app.plugins.getPlugin("lifeops-assistant");
+      return { role: p.devices.execution.role, problem: p.devices.execution.problemMessage,
+        booting: !!p.dataFoundationBootstrap, notices: [...document.querySelectorAll(".notice")].map(node => node.textContent) };
+    });
+    throw Error(error.message + " Role selection state: " + JSON.stringify(state));
+  }
   const state = await page.evaluate(async () => {
     const p = app.plugins.getPlugin("lifeops-assistant"), before = await p.store.readPath(p.store.taskDbPath());
     let denied = false; try { await p.store.createTask({ title: "虚构禁止直接入账" }); } catch { denied = true; }
