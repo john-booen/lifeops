@@ -15,9 +15,13 @@ async function prepare(page) {
       model: "synthetic", fallbackProvider: "off", dataDisclosureAccepted: true };
     p.settings.privacy = { ...p.settings.privacy, plaintextCredentialStorageAccepted: true };
     globalThis.__nativePlanCalls = 0;
+    let turn = -1, stage = 0;
     const mock = async messages => {
       globalThis.__nativePlanCalls++;
-      if (messages.at(-1)?.role !== "tool") return { content: "", toolCalls: [{ id: "fictional-full-interval-plan", name: "update_tasks",
+      const userCount = messages.filter(message => message.role === "user").length;
+      if (turn !== userCount) { turn = userCount; stage = 0; }
+      if (stage++ === 0) return { content: "", toolCalls: [{ id: "fictional-plan-lookup", name: "list_tasks", arguments: { directReply: true } }] };
+      if (stage === 2) return { content: "", toolCalls: [{ id: "fictional-full-interval-plan", name: "update_tasks",
         arguments: { updates: globalThis.__nativePlanRows.map((row, i) => ({ taskIdOrTitle: row.id,
           startTime: String(9 + i).padStart(2, "0") + ":00", endTime: String(9 + i).padStart(2, "0") + ":30" })) } }] };
       return { content: "完整调整已准备，确认前没有修改原安排。", toolCalls: [] };

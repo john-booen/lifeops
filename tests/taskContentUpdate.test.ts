@@ -79,7 +79,7 @@ it("does not accept status fields through task editing", async () => {
 it("confirms eleven complete schedule changes once, saves them together and undoes without removing later tasks", async () => {
   const rows = await seed(11), before = await store.readPath(store.taskDbPath());
   const updates = rows.map((row, i) => ({ taskIdOrTitle: row.id, startTime: `${9 + i}`.padStart(2, "0") + ":00", endTime: `${9 + i}`.padStart(2, "0") + ":30" }));
-  const { result } = await run([tool(updates)], "把这十一项现有纸样任务按刚给出的完整时段统一重排，其他内容不变。");
+  const { result } = await run([tool(updates)], "把这十一项现有纸样任务按刚给出的完整时段统一重排，其他内容不变。", [], true);
   expect(await store.readPath(store.taskDbPath())).toBe(before);
   expect(result.confirmations).toHaveLength(1); expect(result.confirmations[0].type).toBe("tool_batch");
   const saved = await executeConfirmedToolBatch(result.confirmations[0], runtime, () => {});
@@ -202,10 +202,14 @@ it.each([false, true])("stops excluded permissions before/during editing (mid-sa
   expect(result.success).toBe(false); expect(await store.readPath(store.taskDbPath())).toBe(before);
 });
 
-async function run(calls: AiToolCall[], message: string, history: Parameters<InstanceType<typeof AgentLoop>["run"]>[0]["history"] = []) {
+async function run(calls: AiToolCall[], message: string, history: Parameters<InstanceType<typeof AgentLoop>["run"]>[0]["history"] = [], lookupFirst = false) {
   let turns = 0;
-  const model = vi.fn(async () => ++turns === 1 ? { content: "", toolCalls: calls }
-    : { content: "模型的额外确认要求不作为保存回执。", toolCalls: [] });
+  const model = vi.fn(async () => {
+    const turn = ++turns;
+    if (lookupFirst && turn === 1) return { content: "", toolCalls: [{ id: "fictional-lookup-first", name: "list_tasks", arguments: { date, directReply: true } }] };
+    return turn === (lookupFirst ? 2 : 1) ? { content: "", toolCalls: calls }
+      : { content: "模型的额外确认要求不作为保存回执。", toolCalls: [] };
+  });
   const host: AgentLoopHost = { store, settings: store.settings, aiForRole: () => ({ agentTurnStream: model }),
     executeTools: async (tools, userMessage, signal, onResult) => {
       const results = [];

@@ -444,12 +444,7 @@ export class AgentLoop {
             reply = deviceHealthAnswer(single.output, "sleepHours");
           } else if (round === 0 && fastVoice && call.name === "get_stats") reply = formatVoiceStats(single.output, call.arguments);
           else if (round === 0 && fastVoice && call.name === "plan_today") reply = formatVoiceTaskPriorities(single.output, call.arguments);
-          else if (round === 0 && call.name === "list_tasks" && call.arguments.category === undefined
-            && call.arguments.directReply !== false
-            && (call.arguments.directReply === true || call.arguments.dueStatus === "overdue_and_today"
-              || call.arguments.order === "priority" && Number.isInteger(call.arguments.limit))) {
-            reply = formatTaskListReply(single.output, formatDate(input.now));
-          } else if (input.source === "text" && single.actions.length === 1
+          else if (input.source === "text" && single.actions.length === 1
             && (requiredTool === "propose_task_plan" || call.name === "delete_habit" || call.name === "delete_task")) {
             reply = single.output;
           }

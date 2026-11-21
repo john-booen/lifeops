@@ -32,7 +32,7 @@ export const TASK_PLANNING_TOOLS: LifeOpsToolDefinition[] = [
       category: { type: "string", enum: ["punishment"], description: "查补偿待办时可不限定日期。" },
       habitName: { type: "string", description: "只查这一项习惯的补偿时填写习惯名称。" },
       dueStatus: { type: "string", enum: ["overdue_and_today"], description: "仅用于明确要求分别列出逾期和今日到期。" },
-      directReply: { type: "boolean", description: "只需要清单或简短提醒时为 true；需要详细建议或后续动作时设为 false。" },
+      directReply: { type: "boolean", description: "兼容旧客户端；查询结果仍交回本轮继续处理。" },
       order: { type: "string", enum: ["priority"], description: "用户问最要紧的待办时按优先级排序。" },
       limit: { type: "integer", minimum: 1, maximum: 30, description: "列出几项就填几，不改变返回的总数。" }
     } },

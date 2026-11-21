@@ -475,19 +475,21 @@ describe("unified agent loop", () => {
     expect((await store.readTaskDb({ readOnly: true })).tasks).toEqual([]);
   });
 
-  it("renders the requested plain list using one model request and verified read results", async () => {
+  it("returns verified list results to the model before completing a general request", async () => {
     const date = formatDate(now);
     await store.createTask({ title: "纯虚构待办", date, startTime: "15:00" });
-    responses.push(reply("", [tool("list_tasks", { date, directReply: true })]));
+    responses.push(reply("", [tool("list_tasks", { date, directReply: true })]),
+      reply("今天有 1 个未完成任务：纯虚构待办（计划 15:00 开始 · 结束未定）。"));
     const chunks: string[] = [];
     const result = await new AgentLoop(host).run(input({ message: "把今天没完成的任务列出来。", onText: delta => chunks.push(delta) }));
-    expect(requests).toHaveLength(1);
-    expect(roles).toEqual(["fast"]);
+    expect(requests).toHaveLength(2);
+    expect(roles).toEqual(["fast", "fast"]);
+    expect(requests[1].filter(message => message.role === "tool").map(message => message.content).join(" ")).toContain("纯虚构待办");
     expect(result.toolCalls).toEqual([{ name: "list_tasks", ok: true }]);
     expect(result.text).toContain("今天有 1 个未完成任务");
     expect(result.text).toContain("纯虚构待办（计划 15:00 开始 · 结束未定）");
     expect(chunks.join("")).toBe(result.text);
-    expect(result.usage.inputTokens).toBe(40);
+    expect(result.usage.inputTokens).toBe(80);
   });
 
   it.each(["我今天还有什么任务没完成？", "今天有哪些未完成的待办？", "今天还剩哪些任务？"])(
@@ -585,8 +587,9 @@ describe("unified agent loop", () => {
     responses.push(reply("", [tool("list_tasks", { date, order: "priority", limit: 2, directReply: true }),
       ...(mode === "duplicate" ? [tool("list_tasks", { directReply: true }, "synthetic-count")] : []),
       ...(mode === "also-plan" ? [tool("plan_today", {}, "synthetic-plan")] : [])]));
+    responses.push(reply("今天还有 3 项未完成任务。先做：虚构验收、虚构核对计划。"));
     const result = await new AgentLoop(host).run(input({ message: "今天还剩几项，只说最要紧的两件。" }));
-    expect(requests).toHaveLength(1);
+    expect(requests).toHaveLength(2);
     expect(result.text).toBe("今天还有 3 项未完成任务。先做：虚构验收、虚构核对计划。");
     expect(result.toolCalls).toEqual([{ name: "list_tasks", ok: true }]);
     expect((await store.readTaskDb({ readOnly: true })).tasks).toHaveLength(3);
