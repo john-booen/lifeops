@@ -59,7 +59,8 @@ async function phoneBatchUi(page, root) {
 }
 
 async function captureProfileUi(page, root, sourceVault) {
-  await page.evaluate(() => app.plugins.getPlugin("lifeops-assistant").openDeviceSettings());
+  // First launch already opens the role dialog; opening another would cover the real dialog.
+  await page.getByRole("button", { name: "这台只记录并同步", exact: true }).waitFor();
   await page.getByRole("button", { name: "这台只记录并同步", exact: true }).click();
   await page.waitForFunction(() => !app.plugins.getPlugin("lifeops-assistant").devices.execution.needsSetup);
   const state = await page.evaluate(async () => {
@@ -136,10 +137,11 @@ export async function exerciseNativeDeviceBatch({ getPage, root, vault, profile,
   assert.equal(process.env.GITHUB_ACTIONS, "true"); assert.equal(process.env.RUNNER_OS, "macOS");
   let page = getPage();
   const initial = await page.evaluate(() => {
-    const p = app.plugins.getPlugin("lifeops-assistant"); p.openDeviceSettings();
+    const p = app.plugins.getPlugin("lifeops-assistant");
     return { setup: p.devices.execution.needsSetup, canWrite: p.devices.execution.canWriteFacts };
   });
   assert.deepEqual(initial, { setup: true, canWrite: false });
+  await page.getByRole("button", { name: "这台负责处理", exact: true }).waitFor();
   await page.getByRole("button", { name: "这台负责处理", exact: true }).click();
   await page.waitForFunction(() => app.plugins.getPlugin("lifeops-assistant").devices.execution.canWriteFacts
     && !app.plugins.getPlugin("lifeops-assistant").dataFoundationBootstrap
