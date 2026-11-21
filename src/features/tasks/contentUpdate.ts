@@ -8,7 +8,7 @@ import { taskScheduleLabel } from "../../taskSchedule";
 
 export const UPDATE_TASKS_TOOL: AiToolDefinition = {
   name: "update_tasks",
-  description: "修改已有任务的标题或备注，保留编号、原日期、时段及完成状态。用户明确要求改名、改内容或纠正任务时使用；一至三条直接保存并给回执，无需再问确认；一次把全部修改放进updates。超过三条由程序生成一次确认。不要删除重建。准确ID或唯一旧标题定位；同时新增的事项另用create_task。",
+  description: "改已有任务标题或备注，保留编号、日期、时间和状态。全部修改一次放入updates；一至三条直接保存，不再问确认，超过三条由程序确认。用准确ID或唯一旧标题，不删除重建；新增另用create_task。",
   parameters: { type: "object", additionalProperties: false, properties: {
     updates: { type: "array", minItems: 1, maxItems: 20, items: { type: "object", additionalProperties: false,
       properties: { taskIdOrTitle: { type: "string" }, title: { type: "string", description: "更正后的完整标题；未要求改名时省略。" },
