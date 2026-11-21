@@ -7,7 +7,7 @@ import { ensureToolCallId } from "./operationIdentity";
 import { READONLY_SOURCE_TOOL_NAMES, type SourceReadTurn } from "./readonlySourceAnalysis";
 import { parseAiClassification } from "./classifier";
 import { assertCredentialStorageAccepted, configuredCredentials, redactSensitiveText } from "./credentialSecurity";
-import { assertProviderActive, awaitProviderActive, providerAuditIdentifier, providerRunStart, ProviderResponseIncompleteError, ProviderTransportError, runProviderRequest, type ProviderTransportObserver } from "./providerRun";
+import { assertProviderActive, awaitProviderActive, providerAuditIdentifier, providerRunStart, ProviderResponseIncompleteError, ProviderTransportError, normalizeProviderConnectionError, runProviderRequest, type ProviderTransportObserver } from "./providerRun";
 import {
   countProviderSources,
   providerDisclosureRequired,
@@ -657,7 +657,7 @@ export class LifeOpsAi {
         headers,
         throw: false,
         body
-      }); }, options.signal),
+      }); }, options.signal).catch(error => { throw normalizeProviderConnectionError(error); }),
       options.timeoutMs ?? 30_000,
       `${config.provider}/${config.model} 请求超时`
     );
@@ -739,7 +739,7 @@ export class LifeOpsAi {
         headers,
         body,
         signal: controller.signal
-      }); }, controller.signal);
+      }); }, controller.signal).catch(error => { throw normalizeProviderConnectionError(error); });
 
       if (!response.ok) {
         throw textHttpError(response.status);

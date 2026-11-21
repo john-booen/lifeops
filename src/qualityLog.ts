@@ -101,6 +101,7 @@ function normalizeProviderRun(run: ProviderRunResult): ProviderRunResult {
       transport: (["stream", "request_url", "fetch", "websocket"] as ProviderTransport[]).includes(attempt.transport) ? attempt.transport : "unknown",
       status: ["success", "failed", "cancelled"].includes(attempt.status) ? attempt.status : "failed",
       ...(attempt.errorCode && errorCodes.includes(attempt.errorCode) ? { errorCode: attempt.errorCode } : {}),
+      ...(attempt.networkFailure === "dns" ? { networkFailure: "dns" as const } : {}),
       ...(["length", "content_filter", "unknown", "missing"].includes(attempt.incompleteReason ?? "") ? { incompleteReason: attempt.incompleteReason } : {}),
       ...(typeof attempt.httpStatus === "number" && Number.isInteger(attempt.httpStatus) && attempt.httpStatus >= 100 && attempt.httpStatus <= 599 ? { httpStatus: attempt.httpStatus } : {})
     }))

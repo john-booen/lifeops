@@ -461,6 +461,7 @@ export interface ProviderAttempt {
   transport: ProviderTransport;
   status: "success" | "failed" | "cancelled";
   errorCode?: ProviderErrorCode;
+  networkFailure?: "dns";
   httpStatus?: number;
   incompleteReason?: ProviderIncompleteReason;
 }
