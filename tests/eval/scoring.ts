@@ -30,6 +30,7 @@ interface EvalChecks {
   absentTaskTitle?: string;
   createdTask?: { titleIncludes: string; date: string } &
     ({ time: string; endTime?: never } | { endTime: string; time?: never });
+  createdTaskBatch?: { date: string; notBefore: string; titleIncludes: string[] };
   createdOrClarify?: { titleIncludes: string; dates: string[]; clarify: string[] };
   changedTask?: { id: string; date: string };
   checkin?: EvalCheckin;
@@ -90,6 +91,15 @@ export function shouldRepeatLatencyMeasurement(question: EvalQuestion, observed:
 export function scoreEvaluationCase(question: EvalQuestion, observed: EvalObservation): string[] {
   const { checks } = question;
   const issues: string[] = [];
+  if (checks.createdTaskBatch) {
+    const batch = checks.createdTaskBatch;
+    if (observed.createdTasks.length !== batch.titleIncludes.length
+      || !batch.titleIncludes.every(title => observed.createdTasks.some(task => task.title.includes(title)))
+      || observed.createdTasks.some(task => task.date !== batch.date
+        || !!task.startTime !== !!task.endTime
+        || task.startTime && (task.startTime < batch.notBefore || task.endTime! <= task.startTime))
+      || observed.createdTasks.some(task => !task.startTime) && !observed.reply.includes("延后风险")) issues.push("批量任务名称、日期或排程不符");
+  }
   if (observed.errorCode) issues.push("运行错误 " + observed.errorCode);
   for (const phrase of checks.mustInclude ?? []) {
     if (!observed.reply.includes(phrase)) issues.push("缺少内容 " + phrase);

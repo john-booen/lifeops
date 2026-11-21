@@ -127,8 +127,9 @@ export const TASK_PLANNING_TOOLS: LifeOpsToolDefinition[] = [
       const workloadSummary = `今天原排 ${today.scheduled} 个，已完成 ${today.completed} 个。含逾期的未完成负荷 ${capacity.plannedCount} 个，${normal}。`;
       const tomorrow = addDays(date, 1);
       const room = args.draftTomorrow === true ? taskDraftRoom(tasks, tomorrow, capacity.typicalCount) : undefined;
-      const draft = room ? { date: tomorrow, maxNewTasks: room.remaining, alreadyScheduled: room.existing.map(task => protect(task.title)),
-        instruction: "生成确认卡供用户审阅，无需先问是否同意。每项 date 照抄 draft.date。time 只填 HH:mm 开始时间，可省略。用现有资料拟出具体下一步，避免重复现有任务或推断事实。" } : undefined;
+      const draft = room ? { date: tomorrow, maxNewTasks: 8, suggestedNewTasks: room.remaining,
+        alreadyScheduled: room.existing.map(task => protect(task.title)),
+        instruction: "生成完整确认卡供用户审阅，无需先问是否同意。suggestedNewTasks仅作历史负荷参考，不是数量限制。每项date照抄draft.date。time只填HH:mm开始时间，可省略。避免重复或推断事实，不得擅自删掉用户的必做事项。" } : undefined;
       return { success: true, output: JSON.stringify({ workloadSummary, today, energy: signalEnergy, capacity, draft, scope, tasks: priorities.map(({ task, score, estimateMin, reasons }) => ({
         id: task.id, title: protect(task.title), score, estimateMin, reasons, time: taskScheduleLabel(task),
         ...(task.habitPunishment?.evidence ? { evidence: protect(task.habitPunishment.evidence) } : {})

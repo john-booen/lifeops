@@ -1,0 +1,109 @@
+import type { AiToolCall, AiToolDefinition } from "../ai";
+import { formatDate, normalizeJournalDate } from "../date";
+import { readContextTasks } from "../contextData";
+import { taskCapacity, taskEstimates } from "../features/tasks/capacity";
+import type { StoreHost } from "../store/settingsSlice";
+import { isTaskOnDate, taskDayInterval, taskScheduleLabel, timeMinutes } from "../taskSchedule";
+
+export const TASK_BATCH_TOOL: AiToolDefinition = {
+  name: "schedule_task_batch",
+  description: "用户明确要求把多项事情安排并保存时，一次提交全部新任务；程序统一排时间、逐项保存并核对回执，无需再逐条询问。仅讨论、先给草案或未授权保存时不用，改用 propose_task_plan。保留用户指定的今天和必做事项，不因历史完成量少而删减。",
+  parameters: { type: "object", additionalProperties: false, properties: {
+    date: { type: "string", description: "用户要求的日期，例如今天。" },
+    availableStart: { type: "string", description: "用户指定的可用开始 HH:mm；未指定省略，今天从当前时间之后排。" },
+    availableEnd: { type: "string", description: "用户指定的可用结束 HH:mm；未指定省略，暂以22:00作排程边界并说明。" },
+    tasks: { type: "array", minItems: 1, maxItems: 20, items: { type: "object", additionalProperties: false,
+      properties: { title: { type: "string", description: "具体动作及对象，保留纠正后的人名、项目名，按依赖和优先顺序排列。" },
+        estimateMin: { type: "integer", minimum: 1, maximum: 720, description: "分钟估算；未提供时程序暂按30分钟，并明确都是暂估。" },
+        category: { type: "string" } }, required: ["title"] } }
+  }, required: ["date", "tasks"] }
+};
+
+export interface TaskBatchPlan {
+  calls: AiToolCall[];
+  existing: string[];
+  notes: string[];
+}
+const clock = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+const key = (title: string) => title.trim().normalize("NFKC");
+
+/** Only structured tool arguments choose this path; no text pattern routes user intent. */
+export async function planTaskBatch(store: StoreHost, call: AiToolCall, now: Date): Promise<TaskBatchPlan> {
+  const args = call.arguments;
+  if (Object.keys(args).some(k => !["date", "tasks", "availableStart", "availableEnd"].includes(k))
+    || typeof args.date !== "string" || !Array.isArray(args.tasks) || !args.tasks.length || args.tasks.length > 20) {
+    throw Error("请一次提供一至二十项具体任务和安排日期；尚未保存。");
+  }
+  const today = formatDate(now), date = normalizeJournalDate(args.date, today);
+  if (!date || date < today) throw Error("请指定今天或未来的日期；不会把新安排排进过去。");
+  const suppliedClock = (name: "availableStart" | "availableEnd") => {
+    if (args[name] === undefined) return undefined;
+    if (typeof args[name] !== "string" || timeMinutes(args[name] as string) === undefined) throw Error("可用时间须为 HH:mm；尚未保存。");
+    return timeMinutes(args[name] as string)!;
+  };
+  const current = date === today ? Math.ceil((now.getHours() * 60 + now.getMinutes() + 1) / 5) * 5 : 9 * 60;
+  const from = Math.max(current, suppliedClock("availableStart") ?? current);
+  const until = suppliedClock("availableEnd") ?? 22 * 60;
+  if (args.availableStart !== undefined && args.availableEnd !== undefined
+    && suppliedClock("availableEnd")! <= suppliedClock("availableStart")!) throw Error("可用结束时间须晚于开始时间；尚未保存。");
+  const titles = new Set<string>();
+  const proposed = args.tasks.map(value => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw Error("每项任务须有具体名称；尚未保存。");
+    const task = value as Record<string, unknown>;
+    if (Object.keys(task).some(k => !["title", "estimateMin", "category"].includes(k))
+      || typeof task.title !== "string" || !task.title.trim() || task.title.length > 1000
+      || task.category !== undefined && (typeof task.category !== "string" || task.category === "punishment")
+      || task.estimateMin !== undefined && (typeof task.estimateMin !== "number" || !Number.isInteger(task.estimateMin)
+        || task.estimateMin < 1 || task.estimateMin > 720)) throw Error("任务名称、分类或分钟估算无效；尚未保存。");
+    if (titles.has(key(task.title))) throw Error("本批存在同名任务，请合并重复项；尚未保存。");
+    titles.add(key(task.title));
+    return { title: task.title.trim(), estimateMin: (task.estimateMin as number | undefined) ?? 30,
+      ...(task.category ? { category: task.category as string } : {}) };
+  });
+  const data = await readContextTasks(store);
+  if (!data.available) throw Error("任务记录暂不可用，未开始批量保存。");
+  const estimate = taskEstimates(data.tasks);
+  const occupied = data.tasks.filter(t => t.status === "active" && isTaskOnDate(t, date)).flatMap(t => {
+    const interval = taskDayInterval(t, date);
+    if (interval) return [interval];
+    const start = timeMinutes(t.startTime || t.time);
+    return start === undefined ? [] : [{ start, end: Math.min(1440, start + estimate(t)) }];
+  }).sort((a, b) => a.start - b.start);
+  const existing: string[] = [], calls: AiToolCall[] = [];
+  let cursor = from, unplaced = 0;
+  for (const [index, task] of proposed.entries()) {
+    const matches = data.tasks.filter(t => t.date === date && key(t.title) === key(task.title));
+    if (matches.length) {
+      existing.push(`${task.title}（已存在${matches.length > 1 ? ` ${matches.length} 条` : ""}，未重复创建${matches[0].status === "completed" ? "，已完成" : ""}；${taskScheduleLabel(matches[0]) || "未排时段"}）`);
+      const interval = taskDayInterval(matches[0], date);
+      if (matches[0].status === "active" && interval) cursor = Math.max(cursor, interval.end + 10);
+      continue;
+    }
+    let start = cursor;
+    for (const busy of occupied) {
+      if (busy.end <= start) continue;
+      if (start + task.estimateMin <= busy.start) break;
+      start = busy.end + 10;
+    }
+    const end = start + task.estimateMin, fits = end <= until && end < 1440;
+    if (!fits) { unplaced++; cursor = 1440; }
+    else cursor = end + 10;
+    calls.push({ id: `${call.id}:task:${index}`, name: "create_task", arguments: { ...task, date,
+      ...(fits ? { startTime: clock(start), endTime: clock(end) } : {}) } });
+  }
+  const capacity = taskCapacity(data.tasks, now, estimate, date);
+  const notes = ["时长均为暂估，任务之间预留10分钟；可随实际进度调整。",
+    ...(args.availableEnd === undefined ? ["未提供收工时间，暂按22:00作为排程边界。"] : []),
+    ...(unplaced ? [`${unplaced}项在剩余时间内放不下，仍保存到${date}但不编造时段；有延后风险，需要缩短、并行或调整安排，未自动改到明天。`] : []),
+    ...(capacity.typicalCount === null ? ["缺少历史完成量，无法据此判断能力上限。"]
+      : proposed.length + capacity.plannedCount > capacity.typicalCount
+        ? [`本批高于近期常态约${capacity.typicalCount}项/天，仅作负荷提醒，仍保留全部安排。`] : []),
+    ...(data.filtered ? ["只按允许读取的任务核对冲突。"] : [])];
+  return { calls, existing, notes };
+}
+
+export function taskBatchOutput(plan: TaskBatchPlan, saved: string[], failure?: string): string {
+  return [failure ? `本批实际保存${saved.length}项，后续已停止。${failure}` : `本批实际保存${saved.length}项新任务。`,
+    ...saved, ...plan.existing.map(text => `已有：${text}`), ...plan.notes,
+    ...(failure ? ["未保存的事项没有报成功；可按同一清单重试，已存在项不会重复创建。"] : [])].join("\n");
+}

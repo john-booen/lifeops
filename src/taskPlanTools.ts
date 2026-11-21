@@ -3,12 +3,12 @@ import { normalizeJournalDate } from "./date";
 import type { ProjectJobArguments } from "./projectJobRepository";
 import type { StoreHost } from "./store/settingsSlice";
 
-async function assertDraftCapacity(store: StoreHost, tasks: Array<Partial<ProjectJobArguments>>): Promise<void> {
+async function draftCapacityNotice(store: StoreHost, tasks: Array<Partial<ProjectJobArguments>>): Promise<string> {
   const [{ readContextTasks }, { taskCapacity, taskDraftRoom }] = await Promise.all([
     import("./contextData"), import("./features/tasks/capacity")
   ]);
   const data = await readContextTasks(store);
-  if (!data.available || data.filtered) throw Error("任务记录不完整，暂时无法核对每天的安排量。");
+  if (!data.available || data.filtered) return "任务记录不完整，无法完整核对负荷；保留整份草案，不因资料不足限制数量。";
   const { typicalCount } = taskCapacity(data.tasks, new Date());
   const added = new Map<string, number>();
   for (const task of tasks) {
@@ -16,15 +16,17 @@ async function assertDraftCapacity(store: StoreHost, tasks: Array<Partial<Projec
     if (!date) throw Error("按节奏安排时，每项任务都需要明确日期。");
     added.set(date, (added.get(date) ?? 0) + 1);
   }
+  const notices: string[] = [];
   for (const [date, count] of added) {
     const { existing, remaining } = taskDraftRoom(data.tasks, date, typicalCount);
-    if (count > remaining) throw Error(`${date} 已有 ${existing.length} 项，按常态可再安排 ${remaining} 项。请缩减草案后再确认。`);
+    if (typicalCount !== null && count > remaining) notices.push(`${date}已有${existing.length}项，本次另安排${count}项，高于近期常态；这只是负荷提醒，不阻止保存。`);
   }
+  return notices.join(" ");
 }
 
 export const TASK_PLAN_TOOL: LifeOpsToolDefinition = {
   name: "propose_task_plan", safety: "ui-confirm",
-  description: "提出多步安排确认卡，点击才保存。用户请你安排明天时先查 plan_today(draftTomorrow=true)，直接生成确认卡供其审阅，无需先口头确认。",
+  description: "用户要求先看草案或确认卡时，提出完整多步安排，点击一次保存全部。明确要求直接排程并保存多项新任务用 schedule_task_batch。历史常态量仅作提醒，不限制任务数量。",
   parameters: { type: "object", additionalProperties: false, properties: { capacityAware: { type: "boolean" },
     projectId: { type: "string", description: "可省略；整份安排所属已有项目的精确ID，先query_projects取得。" }, tasks: { type: "array", minItems: 1, maxItems: 8,
     items: { type: "object", additionalProperties: false, properties: {
@@ -52,9 +54,9 @@ export const TASK_PLAN_TOOL: LifeOpsToolDefinition = {
         }
         return task;
       });
-      if (args.capacityAware === true) await assertDraftCapacity(context.store, tasks);
+      const notice = args.capacityAware === true ? await draftCapacityNotice(context.store, tasks) : "";
       const action = await context.prepareTaskPlan(tasks, request.userMessage, request.operationId, typeof args.projectId === "string" ? args.projectId : undefined);
-      return { success: true, output: "完整安排已生成确认卡；尚未保存任何任务，请核对后点击确认。", actions: [action] };
+      return { success: true, output: "完整安排已生成确认卡；尚未保存任何任务，请核对后点击确认。" + notice, actions: [action] };
     } catch (error) { return { success: false, output: error instanceof Error ? error.message : "安排卡未生成，原记录保留。", actions: [] }; }
   },
   execute: async () => ({ success: false, output: "任务安排必须由可见卡片确认；模型不能直接执行这份计划。", actions: [] })
