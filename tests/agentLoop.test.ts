@@ -46,6 +46,39 @@ let root: string, store: StoreHost, host: AgentLoopHost, runtime: InstanceType<t
 let responses: Array<AiChatResult | Error>, requests: ChatMessage[][], roles: AgentModelRole[];
 let catalogs: string[][], toolChoices: unknown[];
 
+it("keeps the remaining creation tools after exact titles have been saved, without relisting the completed edits", async () => {
+  await store.createTask({ title: "虚构旧标题甲", date: "2026-11-13", time: "15:00" });
+  await store.createTask({ title: "虚构旧标题乙", date: "2026-11-13", time: "16:00" });
+  responses.push(reply("", [tool("update_tasks", { updates: [{ taskIdOrTitle: "虚构旧标题甲", title: "虚构新标题甲" },
+    { taskIdOrTitle: "虚构旧标题乙", title: "虚构新标题乙" }] })]),
+    reply("", [tool("create_task", { title: "给虚构紫色纸袋编号", date: "2026-11-13", time: "17:00" }, "new-paper-bag")]), reply("已保存。"));
+  const result = await new AgentLoop(host).run(input({ message: "把「虚构旧标题甲」改为「虚构新标题甲」，把「虚构旧标题乙」改为「虚构新标题乙」。再新增一条明天17:00给虚构紫色纸袋编号。" }));
+  expect(catalogs[0]).toEqual(expect.arrayContaining(["update_tasks", "list_tasks"]));
+  expect(catalogs[1]).toContain("create_task"); expect(catalogs[1]).toContain("schedule_task_batch");
+  expect(catalogs[1]).toContain("query_vault");
+  expect(catalogs[1]).not.toContain("update_tasks"); expect(catalogs[1]).not.toContain("list_tasks");
+  expect((await store.readTaskDb()).tasks.map(task => task.title)).toEqual(["虚构新标题甲", "虚构新标题乙", "给虚构紫色纸袋编号"]);
+  expect(result.receipts).toHaveLength(2);
+});
+
+it("keeps read and update tools when the exact title operation did not save", async () => {
+  const task = await store.createTask({ title: "虚构未保存旧标题" });
+  responses.push(reply("", [tool("update_tasks", { updates: [{ taskIdOrTitle: "虚构不存在标题", title: "虚构新标题" }] })]), reply("没有执行修改。"));
+  await new AgentLoop(host).run(input({ message: "把「虚构未保存旧标题」改为「虚构新标题」。" }));
+  expect(catalogs[1]).toEqual(expect.arrayContaining(["update_tasks", "list_tasks"]));
+  expect((await store.readTaskDb()).tasks.find(row => row.id === task.id)?.title).toBe("虚构未保存旧标题");
+});
+
+it("can still list the requested records through the read-only query after the exact title edits", async () => {
+  await store.createTask({ title: "虚构查询旧标题", date: "2026-11-13", time: "15:00" });
+  responses.push(reply("", [tool("update_tasks", { updates: [{ taskIdOrTitle: "虚构查询旧标题", title: "虚构查询新标题" }] })]),
+    reply("", [tool("query_vault", { domain: "task", operation: "list", date: "2026-11-13" }, "read-after-edit")]), reply("明天有虚构查询新标题。"));
+  const result = await new AgentLoop(host).run(input({ message: "把「虚构查询旧标题」改为「虚构查询新标题」。然后列出明天的任务。" }));
+  expect(result.toolCalls).toContainEqual({ name: "query_vault", ok: true });
+  expect(JSON.stringify(requests.at(-1))).toContain("虚构查询新标题");
+  expect((await store.readTaskDb()).tasks).toHaveLength(1); expect(result.receipts).toHaveLength(1);
+});
+
 it("reads dated originals when the model expands the user's topic with unrelated AND terms", async () => {
   const paths = ["2026/10/2026-10-28晚.md", "2026/11/2026-11-04晚.md"].map(path => store.path(store.settings.folders.dailyRoot, path));
   for (const path of paths) await store.writeFile(path, "虚构纸样归档：一段连续25分钟完成纸样。" );

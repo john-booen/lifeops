@@ -165,6 +165,7 @@ export async function exerciseNativeDeviceBatch({ getPage, root, vault, profile,
   await (await import("./native-mixed-task-batch.mjs")).nativeMixedTaskBatch(page,root,result);
   await (await import("./native-recurring-memory.mjs")).nativeRecurringMemory(page,result);
   await (await import("./native-recent-undo.mjs")).nativeRecentUndo(page,result);
+  await (await import("./native-task-follow-through.mjs")).nativeTaskFollowThrough(page,root,result);
   const preserved = await phoneBatchUi(page, root);
   result.checks.firstRoleUiAndPhoneBatchUndo = true;
   await close();

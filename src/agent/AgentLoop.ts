@@ -354,7 +354,10 @@ export class AgentLoop {
         nextTool = undefined;
         const usesEvidence = state.toolCalls.some(tool => tool.ok && ANALYSIS_INPUT_TOOLS.has(tool.name));
         const responseRole = role === "fast" && input.source === "text" && (requiredTool || usesEvidence) ? "main" : role;
-        const availableTools = final ? [] : requiredTool === "propose_task_plan" ? tools.filter(tool => tool.name === requiredTool) : palette;
+        const titlesSaved = exactTitleEdits && [...state.results.values()].some(result =>
+          state.taskContentCalls?.has(result.callId) && result.success && result.receipt);
+        const remainingTools = titlesSaved ? palette.filter(tool => tool.name !== "list_tasks" && tool.name !== "update_tasks") : palette;
+        const availableTools = final ? [] : requiredTool === "propose_task_plan" ? tools.filter(tool => tool.name === requiredTool) : remainingTools;
         let response = await this.callModel(input, state, responseRole, messages, availableTools, final,
           requiredTool !== "propose_task_plan" && !state.taskContentCalls?.size && !exactTitleEdits && !taskListAnswer, requiredTool);
         assertPolicy();
