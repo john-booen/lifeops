@@ -333,7 +333,19 @@ export async function preflightFactOperationChanges(store: StoreHost, changes: G
   throw new UndoCapacityError();
 }
 function hasRecoveryChanges(document: RecoveryDocument): boolean { return !!(document.entries.length || document.ledgerUndo); }
+function isDeviceConfigurationOnly(document: RecoveryDocument): boolean {
+  return document.purpose !== "derived" && !document.ledgerUndo && !document.undoToolOperationId
+    && (document.auditId ?? document.operationId) === document.operationId
+    && (document.auditStatus ?? "verified") === "verified" && document.entries.length === 1
+    && isDeviceConfigurationWrite(document.entries[0].path, document.operationId);
+}
 function encodeSettledFactRecovery(document: RecoveryDocument): string {
+  // Older daily versions validate even terminal WAL paths against their own
+  // record roots. Setup lives outside those roots. Only discard its redundant
+  // WAL snapshots after all guards settle; the Ledger retains the full undo.
+  if (document.status !== "pending" && isDeviceConfigurationOnly(document)) {
+    return encodeFactRecovery({ ...document, entries: [] });
+  }
   if (document.ledgerUndo?.kind !== "ledger-revert-v2") return encodeFactRecovery(document);
   // The ledger base is needed until the transaction settles. Leave the
   // business snapshots and an old-readable terminal status on disk.
@@ -667,7 +679,8 @@ async function runFactOperationOnce<T>(
       await assertWrittenFiles(store, document);
       current();
       const extendedUndo = document.ledgerUndo?.kind === "ledger-revert-v2" ? document.ledgerUndo : undefined;
-      if (!extendedUndo) {
+      const deviceConfiguration = isDeviceConfigurationOnly(document);
+      if (!extendedUndo && !deviceConfiguration) {
         document.status = "committed";
         if (hasRecoveryChanges(document)) await persist();
       }
@@ -675,10 +688,10 @@ async function runFactOperationOnce<T>(
       if (options.assertBeforeCommit) await beforeCommit();
       await assertWrittenFiles(store, document);
       current();
-      if (extendedUndo) {
+      if (extendedUndo || deviceConfiguration) {
         document.status = "committed";
         const expected = new Map(document.entries.map(entry => [entry.path, entry.after] as const));
-        expected.set(extendedUndo.path, ledgerUndoAfter(extendedUndo, document));
+        if (extendedUndo) expected.set(extendedUndo.path, ledgerUndoAfter(extendedUndo, document));
         const assertStable = checkRecoveryFilesAtWrite(store, expected);
         await persist(true, () => { assertStable?.(); current(); });
       }
@@ -771,9 +784,9 @@ export async function recoverFactOperation(store: StoreHost,
     const persist = async (settled = false) => {
       if (finished && document.ledgerUndo || options.assertBeforeRecoveryWrite) await current(); else guard?.();
       const next = settled ? encodeSettledFactRecovery(document) : encodeFactRecovery(document);
-      const kept = finished && document.ledgerUndo
+      const kept = finished && (document.ledgerUndo || isDeviceConfigurationOnly(document))
         ? new Map([...document.entries.map(entry => [entry.path, entry.after] as const),
-          [document.ledgerUndo.path, ledgerUndoAfter(document.ledgerUndo, document)] as const])
+          ...(document.ledgerUndo ? [[document.ledgerUndo.path, ledgerUndoAfter(document.ledgerUndo, document)] as const] : [])])
         : undefined;
       await replaceRaw(store, path, raw, next, undefined, kept && checkRecoveryFilesAtWrite(store, kept));
       raw = next;

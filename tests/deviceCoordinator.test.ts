@@ -1,4 +1,4 @@
-import { mkdtemp, rm, cp, mkdir, readFile } from "node:fs/promises";
+import { mkdtemp, rm, cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, expect, it, vi } from "vitest";
@@ -10,6 +10,7 @@ const { AgentRuntime } = await import("../src/agentRuntime");
 const { DEVICE_WORKSPACE_PATH } = await import("../src/features/devices/execution");
 const { parseDeviceCapture } = await import("../src/features/phoneInbox/deviceCapture");
 const { parseDeviceWorkspaceFile } = await import("../src/features/devices/workspace");
+const { factRecoveryPath, recoverFactOperation } = await import("../src/dataFoundation/factOperation");
 import type { LocalDeviceState } from "../src/features/devices/execution";
 import type { StoreHost } from "../src/store/settingsSlice";
 const roots:string[]=[];
@@ -24,6 +25,69 @@ async function device() {
  return {root,settings,devices,store,runtime,app,storage};
 }
 afterEach(async()=>{await Promise.all(roots.splice(0).map(root=>rm(root,{recursive:true,force:true})));});
+it.each(["initial setup", "layout update"])("keeps the terminal WAL old-readable immediately after %s, with full audit undo retained",async phase=>{
+ const a=await device();
+ await a.devices.chooseWriter(a.runtime);
+ let before:string|null=null;
+ if(phase==="layout update"){
+  before=await a.store.readPath(DEVICE_WORKSPACE_PATH);
+  a.settings.folders.ideas="纯虚构改版目录/想法";
+  await a.devices.publishLayout(a.runtime);
+ }
+ // No intervening business operation may replace the setup WAL before this check.
+ const raw=JSON.parse(await a.store.readPath(factRecoveryPath(a.store)));
+ expect(raw).toMatchObject({version:1,status:"committed",entries:[]});
+ const ledger=JSON.parse(await a.store.readPath(a.store.path(a.settings.folders.aiReports,"Operations","operation-ledger.json")));
+ const claim=ledger.records.find((row:{operationId:string})=>row.operationId===raw.operationId);
+ expect(claim).toMatchObject({toolName:"scheduled_configure_device_execution",status:"verified",result:{success:true,
+  undo:{kind:"restore_guarded_files",files:[{path:DEVICE_WORKSPACE_PATH,before,after:await a.store.readPath(DEVICE_WORKSPACE_PATH)}]}}});
+ expect(a.devices.execution.canWriteFacts).toBe(true);
+});
+it("keeps the complete pending setup WAL when its terminal write fails and compacts only after recovery",async()=>{
+ const a=await device(),process=a.app.vault.process.bind(a.app.vault);let failed=false;
+ a.app.vault.process=async(file,updater)=>process(file,raw=>{
+  const next=updater(raw);
+  if(file.path===factRecoveryPath(a.store)&&JSON.parse(next).status==="committed"&&!failed){failed=true;throw Error("fictional terminal disk failure");}
+  return next;
+ });
+ await a.devices.chooseWriter(a.runtime);
+ const pending=JSON.parse(await a.store.readPath(factRecoveryPath(a.store)));
+ expect(failed).toBe(true);expect(pending.status).toBe("pending");
+ expect(pending.entries).toHaveLength(1);
+ expect(pending.entries[0]).toMatchObject({path:DEVICE_WORKSPACE_PATH,before:null,after:await a.store.readPath(DEVICE_WORKSPACE_PATH)});
+ a.app.vault.process=process;
+ expect(await recoverFactOperation(a.store)).toBe("kept");
+ expect(JSON.parse(await a.store.readPath(factRecoveryPath(a.store)))).toMatchObject({status:"committed",entries:[]});
+});
+it("retains full rollback evidence until the final setup guard accepts",async()=>{
+ const a=await device(),execute=a.runtime.executeLocalOperation.bind(a.runtime);let checks=0;
+ vi.spyOn(a.runtime,"executeLocalOperation").mockImplementation((name,args,save,id,options)=>execute(name,args,save,id,{
+  ...options,assertBeforeCommit:async()=>{if(++checks===2)throw Error("fictional setup cancelled at final guard");}
+ }));
+ await expect(a.devices.chooseWriter(a.runtime)).rejects.toThrow("cancelled at final guard");
+ expect(checks).toBe(2);expect(a.store.getFile(DEVICE_WORKSPACE_PATH)).toBeNull();
+ expect(a.devices.execution.canWriteFacts).toBe(false);expect(a.devices.execution.role).toBe("setup");
+ expect(JSON.parse(await a.store.readPath(factRecoveryPath(a.store)))).toMatchObject({status:"rolled_back",entries:[]});
+});
+it("preserves a competing policy and the full pending WAL if the policy changes at terminal compaction",async()=>{
+ const a=await device(),process=a.app.vault.process.bind(a.app.vault);let changed=false,external="";
+ a.app.vault.process=async(file,updater)=>{
+  if(file.path===factRecoveryPath(a.store)&&!changed){
+   const next=JSON.parse(updater(await a.store.readPath(file.path)));
+   if(next.status==="committed"){
+    changed=true;external=JSON.stringify({...JSON.parse(await a.store.readPath(DEVICE_WORKSPACE_PATH)),executionDeviceId:"11111111-1111-4111-8111-111111111111"});
+    await writeFile(join(a.root,DEVICE_WORKSPACE_PATH),external);
+   }
+  }
+  return process(file,updater);
+ };
+ await expect(a.devices.chooseWriter(a.runtime)).rejects.toThrow();
+ expect(changed).toBe(true);expect(await a.store.readPath(DEVICE_WORKSPACE_PATH)).toBe(external);
+ const wal=JSON.parse(await a.store.readPath(factRecoveryPath(a.store)));
+ expect(wal.status).toBe("pending");expect(wal.entries).toHaveLength(1);
+ expect(wal.entries[0].path).toBe(DEVICE_WORKSPACE_PATH);expect(wal.entries[0].after).not.toBe(external);
+ expect(a.devices.execution.canWriteFacts).toBe(false);
+});
 it("boots an empty real vault into its selected executor with a content-free shared layout",async()=>{
  const a=await device();a.settings.folders.tasks="纯虚构共享目录/任务";
  a.settings.ai.apiKey="fictional-key-should-not-sync";

@@ -105,7 +105,7 @@ async function reportFolders(config) {
   return paths;
 }
 
-async function settledRecoveryRevision(config) {
+async function settledRecoveryRevision(config, rollback = false) {
   const [folder] = await reportFolders(config);
   const path = join(config.vaultPath, folder, "Operations", "write-recovery.json");
   await assertSafeDiskPath(path);
@@ -114,6 +114,7 @@ async function settledRecoveryRevision(config) {
   const message = "恢复记录无法安全核验。请使用当前版本检查并恢复未完成操作，再切换版本。";
   assert(stat.isFile() && stat.nlink === 1 && stat.size <= MAX_RECOVERY_BYTES, message);
   const raw = await readRegularFile(path);
+  let document;
   try {
     const text = raw.toString("utf8");
     assert(raw.length <= MAX_RECOVERY_BYTES && Buffer.from(text).equals(raw), message);
@@ -122,8 +123,22 @@ async function settledRecoveryRevision(config) {
       && ["committed", "rolled_back"].includes(wire.status)
       && typeof wire.operationId === "string" && wire.operationId && Array.isArray(wire.entries), message);
     assert(wire.version !== 3 || wire.ledgerUndo?.kind === "ledger-revert-v1", message);
-    decodeFactRecovery(wire);
+    document = decodeFactRecovery(wire);
   } catch { throw new Error(message); }
+  if (rollback) {
+    // The retained settings define the old reader's permissions. A completed
+    // journal is still unreadable if it names a new feature's external path.
+    // Refuse before swapping code; never broaden permissions or delete a WAL.
+    const settingsFile = join(config.pluginPath, "data.json");
+    const settings = await statIfPresent(settingsFile) ? await readJson(settingsFile) : {};
+    const roots = Object.values(settings.folders ?? {}).filter(value => typeof value === "string" && value);
+    const paths = [...document.entries.map(entry => entry?.path), ...(document.ledgerUndo ? [document.ledgerUndo.path] : [])];
+    assert(paths.every(path => typeof path === "string" && !path.includes("\\")
+      && !/[\x00-\x1f]/u.test(path) && /\.(?:md|json|jsonl)$/u.test(path)
+      && path.split("/").every(part => part && !part.startsWith("."))
+      && roots.some(root => path.startsWith(root + "/"))),
+    "旧版无法读取当前恢复记录，已保留当前程序和全部资料。请先用当前版本完成恢复记录整理，再回退。");
+  }
   return JSON.stringify([path, sha256(raw)]);
 }
 
@@ -318,7 +333,7 @@ export async function restorePackage(config, directory) {
     const hasLivePlugin = await statIfPresent(config.pluginPath);
     const liveSettings = join(config.pluginPath, "data.json");
     const settings = await statIfPresent(liveSettings);
-    const recovery = await settledRecoveryRevision(config);
+    const recovery = await settledRecoveryRevision(config, true);
     await swapPlugin(config.pluginPath, async (stage) => {
       await cp(oldPlugin, stage, { recursive: true, errorOnExist: true, force: false });
       if (settings) {
@@ -327,7 +342,7 @@ export async function restorePackage(config, directory) {
         assert((await fileRecord(stage, "data.json")).sha256 === prior.sha256, "现有设置的读回复核失败");
       } else if (hasLivePlugin) await rm(join(stage, "data.json"), { force: true });
       await verifyPluginSnapshot(stage, snapshot, Boolean(hasLivePlugin));
-      assert(await settledRecoveryRevision(config) === recovery, "版本切换期间恢复记录发生变化");
+      assert(await settledRecoveryRevision(config, true) === recovery, "版本切换期间恢复记录发生变化");
     });
     return { version: oldManifest.version, mainSha256, startedAt: Date.now(),
       legacy: oldManifest.version === "0.2.0" && mainSha256 === legacyMainSha256 };

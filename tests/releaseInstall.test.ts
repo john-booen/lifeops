@@ -122,6 +122,46 @@ it("leaves an unreadable recovery journal and the installed package intact", asy
   expect(await read(vaultFile(recoveryPath))).toBe(malformed);
 });
 
+it.each(["committed", "rolled_back"])("refuses an old-reader-incompatible %s WAL before swapping any program files",async status=>{
+ const installed=await installPackage(config,version,await prepare());
+ const policy='{"fictional":"device setup"}';
+ const journal=JSON.stringify({version:1,operationId:"local:configure-device:11111111-1111-4111-8111-111111111111",status,
+  entries:[{path:"输入/设备协作.json",before:null,after:policy,beforeHash:"absent",afterHash:hash(policy)}]});
+ await put(vaultFile(recoveryPath),journal);
+ await put(vaultFile("输入/设备协作.json"),policy);
+ await expect(restorePackage(config,installed.backup)).rejects.toThrow("旧版无法读取");
+ expect(await read(pluginFile("main.js"))).toBe(packageBytes);
+ expect(await read(pluginFile("data.json"))).toBe(settings);
+ expect(await read(vaultFile(recoveryPath))).toBe(journal);
+ expect(await read(vaultFile("输入/设备协作.json"))).toBe(policy);
+});
+
+it("restores the old program with a compact terminal setup WAL, preserving policy, audit and tasks",async()=>{
+ const installed=await installPackage(config,version,await prepare());
+ const journal=JSON.stringify({version:1,operationId:"local:configure-device:11111111-1111-4111-8111-111111111111",status:"committed",entries:[]});
+ const policy='{"fictional":"settled device setup"}',audit='{"version":1,"records":[{"fictional":"full undo retained"}]}';
+ await put(vaultFile(recoveryPath),journal);
+ await put(vaultFile("输入/设备协作.json"),policy);
+ await put(vaultFile("自定义输出/AI/Operations/operation-ledger.json"),audit);
+ await put(vaultFile("任务/LifeOps任务库.json"),'{"tasks":["fictional task added after upgrade"]}');
+ await restorePackage(config,installed.backup);
+ expect(await read(pluginFile("main.js"))).toBe(oldProgram);
+ expect(await read(vaultFile(recoveryPath))).toBe(journal);
+ expect(await read(vaultFile("输入/设备协作.json"))).toBe(policy);
+ expect(await read(vaultFile("自定义输出/AI/Operations/operation-ledger.json"))).toBe(audit);
+ expect(await read(vaultFile("任务/LifeOps任务库.json"))).toBe('{"tasks":["fictional task added after upgrade"]}');
+});
+
+it("allows a terminal business snapshot inside the retained custom record roots",async()=>{
+ const installed=await installPackage(config,version,await prepare());
+ const text="pure fictional report",path="自定义输出/AI/纯虚构日报.md";
+ const journal=JSON.stringify({version:1,operationId:"fictional-report",status:"committed",entries:[{path,before:null,after:text,beforeHash:"absent",afterHash:hash(text)}]});
+ await put(vaultFile(recoveryPath),journal);await put(vaultFile(path),text);
+ await restorePackage(config,installed.backup);
+ expect(await read(pluginFile("main.js"))).toBe(oldProgram);
+ expect(await read(vaultFile(recoveryPath))).toBe(journal);expect(await read(vaultFile(path))).toBe(text);
+});
+
 it("preserves both verified backups when an installation retries in the same minute", async () => {
   const output = await prepare();
   vi.useFakeTimers({ toFake: ["Date"] });
