@@ -75,3 +75,62 @@ it("rejects a symlinked capture root before writing any input outside the fictio
  await expect(a.devices.queueCapture("纯虚构禁止越界")).rejects.toThrow("目录需要核对");
  expect(await readdir(outside)).toEqual([]);
 });
+
+it("stops an established executor on a synced competing policy while preserving both copies and raw capture",async()=>{
+ const a=await device();await a.devices.chooseWriter(a.runtime);await a.store.initializeVault();
+ const original=await a.store.readPath(DEVICE_WORKSPACE_PATH);
+ const conflict="输入/设备协作.sync-conflict-20660104-123456-ABCDEFG.json";
+ const competing=JSON.stringify({...JSON.parse(original),executionDeviceId:"11ec4614-9488-4c39-b75c-a5cd3a72e1b7"});
+ await a.app.vault.create(conflict,competing);
+ await expect(a.store.createTask({title:"纯虚构冲突时不得写入"})).rejects.toThrow("同步冲突");
+ expect(a.devices.execution.canWriteFacts).toBe(false);
+ expect(a.devices.execution.problemMessage).toContain("同步冲突");
+ expect((await a.store.readTaskDb()).tasks).toHaveLength(0);
+ expect(await a.store.readPath(DEVICE_WORKSPACE_PATH)).toBe(original);
+ expect(await a.store.readPath(conflict)).toBe(competing);
+ const queued=await a.devices.queueCapture("纯虚构冲突期间保留原话");
+ expect(parseDeviceCapture(await a.store.readPath(queued),queued).text).toContain("保留原话");
+ // Fictional fixture: retain the competing copy outside the active policy names after review.
+ await a.app.vault.rename(a.store.getFile(conflict)!,"输入/纯虚构已核对的设备副本.json");
+ await a.devices.execution.refresh();expect(a.devices.execution.canWriteFacts).toBe(true);
+ expect(a.devices.execution.problemMessage).toBe("");
+ await a.store.createTask({title:"纯虚构核对后可继续"});expect((await a.store.readTaskDb()).tasks).toHaveLength(1);
+});
+
+it("reopens with a competing policy in capture-only state and cannot re-elect itself",async()=>{
+ const a=await device();await a.devices.chooseWriter(a.runtime);await a.store.initializeVault();
+ await a.app.vault.create("输入/设备协作.sync-conflict-20660104-123456-ABCDEFG.json","{}");
+ const reopened=new DeviceCoordinator(a.app,()=>a.settings,a.storage);
+ await reopened.execution.refresh();
+ expect(reopened.execution.canWriteFacts).toBe(false);expect(reopened.execution.problemMessage).toContain("同步冲突");
+ const store=reopened.createStore() as unknown as StoreHost;
+ await expect(reopened.chooseWriter(new AgentRuntime({store,refreshViews:async()=>{}}))).rejects.toThrow("同步冲突");
+ const path=await reopened.queueCapture("纯虚构重开仍保留原话");
+ expect(parseDeviceCapture(await store.readPath(path),path).text).toContain("仍保留原话");
+});
+
+it("honors an excluded workspace path before enumerating its directory",async()=>{
+ const a=await device();await a.devices.chooseWriter(a.runtime);await a.store.initializeVault();
+ a.settings.privacy.excludedVaultPrefixes=["输入/设备协作.json"];
+ const list=vi.spyOn(a.app.vault.adapter,"list");
+ await expect(a.devices.execution.refresh()).rejects.toThrow("不允许读取");
+ expect(list).not.toHaveBeenCalled();expect(a.devices.execution.canWriteFacts).toBe(false);
+ list.mockRestore();
+});
+
+it("refreshes a writer on policy conflict events and ignores unrelated writer events",async()=>{
+ const a=await device();await a.devices.chooseWriter(a.runtime);await a.store.initializeVault();
+ const refs:unknown[]=[],cleanups:Array<()=>void>=[],refresh=vi.fn(async()=>{});
+ a.devices.watch(ref=>refs.push(ref),cleanup=>cleanups.push(cleanup),refresh);
+ try {
+  await a.app.vault.create("输入/纯虚构普通记录.md","原始文字");
+  await new Promise(resolve=>setTimeout(resolve,400));expect(refresh).not.toHaveBeenCalled();
+  await a.app.vault.create("输入/设备协作.sync-conflict-20660104-123456-ABCDEFG.json","{}");
+  await vi.waitFor(()=>expect(refresh).toHaveBeenCalledOnce(),{timeout:1500});
+  expect(a.devices.execution.canWriteFacts).toBe(false);
+  const file=a.store.getFile("输入/设备协作.sync-conflict-20660104-123456-ABCDEFG.json")!;
+  await a.app.vault.rename(file,"输入/纯虚构已核对副本.json");
+  await vi.waitFor(()=>expect(refresh).toHaveBeenCalledTimes(2),{timeout:1500});
+  expect(a.devices.execution.canWriteFacts).toBe(true);
+ }finally{cleanups.forEach(cleanup=>cleanup());refs.forEach(ref=>a.app.vault.offref(ref as never));}
+});

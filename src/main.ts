@@ -697,7 +697,7 @@ export default class LifeOpsPlugin extends Plugin {
   getDeviceStatus(): { text: string; setup: boolean; canProcess: boolean } | undefined {
     if (!this.devices) return;
     const role = this.devices.execution;
-    return { text: role.canWriteFacts ? "这台 Mac 负责处理与提醒" : role.needsSetup ? "先选择本机用途" : "这台只记录并同步 · 确认和撤销请到常开 Mac", setup: role.needsSetup, canProcess: role.canWriteFacts };
+    return { text: role.problemMessage ? "设备同步冲突 · 处理与提醒暂缓" : role.canWriteFacts ? "这台 Mac 负责处理与提醒" : role.needsSetup ? "先选择本机用途" : "这台只记录并同步 · 确认和撤销请到常开 Mac", setup: role.needsSetup, canProcess: role.canWriteFacts };
   }
 
   openDeviceSettings(): void {
@@ -1464,7 +1464,7 @@ export default class LifeOpsPlugin extends Plugin {
     if (!statusBar || !this.isLifecycleCurrent(generation)) return;
     try {
     if (this.devices && !this.devices.execution.canWriteFacts) {
-      statusBar.setText(this.devices.execution.needsSetup ? "LifeOps | 请设置本机用途" : "LifeOps | 记录并同步 · 由常开 Mac 处理");
+      statusBar.setText(this.devices.execution.problemMessage ? "LifeOps | 同步冲突，处理暂缓" : this.devices.execution.needsSetup ? "LifeOps | 请设置本机用途" : "LifeOps | 记录并同步 · 由常开 Mac 处理");
       return;
     }
     const stats = await this.store.getDashboardStats();

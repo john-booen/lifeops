@@ -12,6 +12,7 @@ import { createDeviceCapture, deviceCapturePath, serializeDeviceCapture } from "
 import { DEVICE_SETUP_OPERATION, DEVICE_WORKSPACE_PATH, DeviceExecution, type LocalDeviceStorage } from "./execution";
 import { localDeviceStorage } from "./localStorage";
 import { deviceLayout, parseDeviceWorkspaceFile, type DeviceWorkspaceFile } from "./workspace";
+import { assertDeviceWorkspaceUncontested, isDeviceWorkspaceConflict } from "./syncConflict";
 
 export class DeviceCoordinator {
   readonly execution: DeviceExecution;
@@ -21,9 +22,13 @@ export class DeviceCoordinator {
   constructor(private readonly app: App, private readonly settings: () => LifeOpsSettings,
     storage: LocalDeviceStorage = localDeviceStorage(app)) {
     this.execution = new DeviceExecution(storage, async () => {
+      if (isVaultPathExcluded(DEVICE_WORKSPACE_PATH, this.settings().privacy?.excludedVaultPrefixes)) {
+        throw Error("设备协作目录不允许读取，处理已暂缓。");
+      }
       const reader = new LifeOpsStore(app, this.settings()) as unknown as StoreHost;
       const result = await readBoundedVaultFile(reader, DEVICE_WORKSPACE_PATH, 16_000);
       if ("unavailable" in result) throw Error("设备协作记录尚未完整同步，请稍后重试。");
+      await assertDeviceWorkspaceUncontested(app);
       this.wire = result.raw === null ? null : parseDeviceWorkspaceFile(JSON.parse(result.raw));
       if (this.wire && this.execution.role !== "writer") this.settings().folders = { ...this.wire.layout.folders };
       return this.wire && { version: 1, workspaceId: this.wire.workspaceId, executionDeviceId: this.wire.executionDeviceId };
@@ -36,16 +41,21 @@ export class DeviceCoordinator {
     if (this.watching) return;
     this.watching = true;
     let timer: ReturnType<typeof setTimeout> | undefined, stopped = false;
-    const changed = (file: TAbstractFile) => {
-      if (stopped || this.execution.canWriteFacts || file.path.split("/").some(part => part.startsWith("."))) return;
+    const changed = (file: Pick<TAbstractFile, "path">) => {
+      if (stopped || file.path.split("/").some(part => part.startsWith("."))) return;
+      if (this.execution.canWriteFacts && file.path !== DEVICE_WORKSPACE_PATH && !isDeviceWorkspaceConflict(file.path)) return;
       clearTimeout(timer);
       timer = setTimeout(() => {
-        void this.execution.refresh().then(() => stopped ? undefined : refresh()).catch(() => undefined);
+        void this.execution.refresh().catch(() => undefined).then(() => stopped ? undefined : refresh()).catch(() => undefined);
       }, 350);
     };
     registerEvent(this.app.vault.on("create", changed));
     registerEvent(this.app.vault.on("modify", changed));
     registerEvent(this.app.vault.on("delete", changed));
+    registerEvent(this.app.vault.on("rename", (file, oldPath) => {
+      changed(file);
+      if (oldPath === DEVICE_WORKSPACE_PATH || isDeviceWorkspaceConflict(oldPath)) changed({ path: oldPath });
+    }));
     register(() => { stopped = true; clearTimeout(timer); this.watching = false; });
   }
   createStore(): LifeOpsStore {

@@ -14,6 +14,7 @@ export class DeviceSettingsModal extends Modal {
     this.setTitle("多设备协作");
     const el = this.contentEl;
     const role = this.host.devices.execution;
+    if (role.problemMessage) el.createEl("p", { text: role.problemMessage, attr: { role: "status" } });
     el.createEl("p", { text: role.canWriteFacts ? "这台 Mac 负责处理记录和发送提醒。" : role.needsSetup
       ? "先选择这台 Mac 的用途。每个记录库保留一台负责处理的 Mac。" : "这台 Mac 负责记录和查看同步结果。" });
     el.createEl("p", { text: "将两台 Mac 和手机的同一记录库交给一个同步服务。常开的 Mac 统一处理任务，其他设备用随手记提交；离线时先留在本机，联网并完成同步后处理。" });

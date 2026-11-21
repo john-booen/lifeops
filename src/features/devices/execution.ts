@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { DeviceWorkspaceConflictError } from "./syncConflict";
 
 export const DEVICE_WORKSPACE_PATH = "输入/设备协作.json";
 export const DEVICE_SETUP_OPERATION = "scheduled_configure_device_execution";
@@ -41,6 +42,7 @@ export class DeviceExecution {
   private ready = false;
   private configuring?: { operationId: string; policy: DeviceWorkspace };
   private stopped = false;
+  private conflictMessage = "";
   constructor(private readonly storage: LocalDeviceStorage, private readonly readWorkspace: () => Promise<unknown | null>,
     private readonly configurationPaths: () => readonly string[] = () => [DEVICE_WORKSPACE_PATH]) {
     const saved = storage.load();
@@ -53,6 +55,7 @@ export class DeviceExecution {
   get needsSetup(): boolean { return this.local.role === "setup"; }
   get mayCapture(): boolean { return !this.stopped && this.local.role !== "setup"; }
   get hasExecutor(): boolean { return this.ready && this.workspace !== null; }
+  get problemMessage(): string { return this.conflictMessage; }
   get canWriteFacts(): boolean {
     return !this.stopped && this.ready && this.local.role === "writer"
       && this.workspace?.executionDeviceId === this.local.deviceId
@@ -64,17 +67,22 @@ export class DeviceExecution {
     if (this.stopped) throw Error("设备会话已停止。");
     let value: unknown;
     try { value = await this.readWorkspace(); }
-    catch (error) { this.ready = false; throw error; }
+    catch (error) {
+      this.ready = false;
+      if (error instanceof DeviceWorkspaceConflictError) { this.conflictMessage = error.message; return; }
+      throw error;
+    }
     if (this.stopped) throw Error("设备会话已停止。");
     let next: DeviceWorkspace | null;
     try {
       next = value === null ? null : parseDeviceWorkspace(value);
       if (this.local.workspaceId && next && this.local.workspaceId !== next.workspaceId) invalid();
     } catch (error) { this.ready = false; throw error; }
-    this.workspace = next; this.ready = true;
+    this.workspace = next; this.ready = true; this.conflictMessage = "";
   }
   async assertWriteAllowed(identity?: DeviceWriteIdentity, target?: DeviceWriteTarget): Promise<void> {
     await this.refresh();
+    if (this.conflictMessage) throw Error(this.conflictMessage);
     const setup = this.configuring;
     const configurationTarget = target && this.configurationPaths().some(path => target.kind === "file"
       ? target.path === path : path.startsWith(target.path + "/"));
@@ -93,6 +101,7 @@ export class DeviceExecution {
   async useWriterMode(save: DeviceSetupWriter): Promise<void> {
     if (this.configuring) throw Error("设备设置正在保存，请稍候。");
     await this.refresh();
+    if (this.conflictMessage) throw Error(this.conflictMessage);
     if (this.configuring) throw Error("设备设置正在保存，请稍候。");
     if (this.workspace && this.workspace.executionDeviceId !== this.local.deviceId) {
       throw Error("此库已有执行端。这台设备可以记录和同步，不能同时接管保存。");

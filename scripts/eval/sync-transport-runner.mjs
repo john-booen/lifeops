@@ -108,15 +108,16 @@ export async function createTransportFixture(binary) {
     await request(peer, "/rest/system/shutdown", "POST");
     const timer = new AbortController();
     let exit;
-    try { exit = await Promise.race([peer.exit, setTimeout(10_000, undefined, { signal: timer.signal })
+    // Multiple TLS connections can take ten seconds to drain. Leave a bounded margin for normal exit.
+    try { exit = await Promise.race([peer.exit, setTimeout(20_000, undefined, { signal: timer.signal })
       .then(() => { throw Error("Fixture did not exit after shutdown"); })]); }
     finally { timer.abort(); }
     result.exits.push(exit); assert.equal(exit.code, 0);
   }
-  async function configure(peer, other) {
+  async function configure(peer, other, { paused = false } = {}) {
     const config = await request(peer, "/rest/config"); assert.equal(config.folders.length, 0);
     await request(peer, "/rest/config/devices", "POST", { ...config.defaults.device, deviceID: other.deviceId,
-      name: `fictional-${other.name}`, addresses: [`tcp://127.0.0.1:${other.listen}`], autoAcceptFolders: false });
+      name: `fictional-${other.name}`, addresses: [`tcp://127.0.0.1:${other.listen}`], autoAcceptFolders: false, paused });
     const template = config.defaults.folder.devices[0] ?? {};
     await request(peer, "/rest/config/folders", "POST", { ...config.defaults.folder,
       id: folderId, label: "LifeOps fictional transport", path: peer.vault, type: "sendreceive",
