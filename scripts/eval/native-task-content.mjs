@@ -35,25 +35,25 @@ async function packageFiles(path) {
   const files = await readdir(path); assert.equal(files.length, 6);
   for (const name of files) await cp(join(path, name), join(plugin, name));
 }
-async function launch() {
-  await rm(join(profile, "DevToolsActivePort"), { force: true });
+async function launch(profilePath = profile, vaultPath = vault) {
+  await rm(join(profilePath, "DevToolsActivePort"), { force: true });
   const fd = openSync(join(root, "app.log"), "a", 0o600);
   proc = spawn("/usr/bin/open", ["-g", "-j", "-n", "-W", "-a", nativeApp,
     "--stdout", join(root, "native-stdout.log"), "--stderr", join(root, "native-stderr.log"),
-    "--args", "--remote-debugging-port=0", "--user-data-dir=" + profile, "--no-first-run", "--no-sandbox"],
+    "--args", "--remote-debugging-port=0", "--user-data-dir=" + profilePath, "--no-first-run", "--no-sandbox"],
     { stdio: ["ignore", fd, fd] }); closeSync(fd);
   exited = new Promise((resolve, reject) => { proc.once("error", reject); proc.once("exit", (code, signal) => resolve({ code, signal })); });
   for (let i = 0; i < 150; i++) {
     assert.equal(proc.exitCode, null, "Fixture launcher exited during startup");
     try {
-      const port = (await readFile(join(profile, "DevToolsActivePort"), "utf8")).split("\n")[0];
+      const port = (await readFile(join(profilePath, "DevToolsActivePort"), "utf8")).split("\n")[0];
       browser = await chromium.connectOverCDP("http://127.0.0.1:" + port, { noDefaults: true, timeout: 1500 });
       page = browser.contexts()[0].pages()[0]; if (!page) throw Error("No fixture page"); break;
     } catch (error) { if (i === 149) throw error; await setTimeout(200); }
   }
   page.setDefaultTimeout(30_000);
   await page.waitForFunction(v => typeof app !== "undefined" && app.vault?.adapter?.getBasePath?.() === v
-    && (!!app.plugins?.getPlugin?.("lifeops-assistant")?.store || /信任仓库作者并启用插件|Trust author and enable plugins/.test(document.body.innerText)), vault);
+    && (!!app.plugins?.getPlugin?.("lifeops-assistant")?.store || /信任仓库作者并启用插件|Trust author and enable plugins/.test(document.body.innerText)), vaultPath);
   const trust = page.getByText(/^(?:信任仓库作者并启用插件|Trust author and enable plugins)$/);
   if (await trust.count()) await trust.click();
   await page.waitForFunction(() => !!app.plugins?.getPlugin("lifeops-assistant")?.store && app.workspace.layoutReady
@@ -80,6 +80,11 @@ try {
   await packageFiles(candidate);
   assert.equal(createHash("sha256").update(await readFile(join(plugin, "main.js"))).digest("hex"), expected);
   await launch();
+  if (process.env.LIFEOPS_QA_SCENARIO === "devices") {
+    result.scenario = "devices";
+    await (await import("./native-device-batch.mjs")).exerciseNativeDeviceBatch({ getPage: () => page,
+      root, vault, profile, candidate, rollback, expected, result, launch, close, packageFiles });
+  } else {
   await page.waitForFunction(async sha => {
     const p = app.plugins.getPlugin("lifeops-assistant");
     const heartbeat = await p.store.readJson(p.store.path(p.settings.folders.aiReports, "System", "heartbeat.json"), {});
@@ -160,6 +165,7 @@ try {
   await close(); await packageFiles(candidate); await launch();
   assert.equal(await page.evaluate(() => app.plugins.getPlugin("lifeops-assistant").manifest.version), edited.version);
   result.checks.reinstall = true; await close(); result.passed = true;
+  }
 } catch (error) {
   result.error = error.message; result.passed = false;
   if (page && !page.isClosed()) await page.screenshot({ path: join(root, "failure.png") }).catch(() => {});

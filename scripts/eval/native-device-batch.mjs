@@ -1,0 +1,184 @@
+/** Called only by the guarded remote-native runner; every file belongs to its fictional fixture. */
+import assert from "node:assert/strict";
+import { cp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { randomBytes } from "node:crypto";
+
+async function syntheticModel(page) {
+  await page.evaluate(() => {
+    const p = app.plugins.getPlugin("lifeops-assistant");
+    p.settings.ai = { ...p.settings.ai, provider: "custom", endpoint: "https://fiction.invalid/chat", apiKey: "fictional-key",
+      model: "synthetic", fallbackProvider: "off", dataDisclosureAccepted: true };
+    p.settings.privacy = { ...p.settings.privacy, plaintextCredentialStorageAccepted: true };
+    globalThis.__nativeBatchCalls = 0;
+    const mock = async messages => {
+      const input = JSON.stringify(messages), prefix = input.includes("虚构离线批") ? "虚构离线批" : input.includes("虚构设备批") ? "虚构设备批" : "虚构手机批";
+      if (++globalThis.__nativeBatchCalls > 2) throw Error("Unexpected repeated model call");
+      const tasks = Array.from({ length: 5 }, (_, i) => ({ title: prefix === "虚构手机批" && i === 0 ? "虚构已完成纸样" : prefix + i, estimateMin: 20 }));
+      return { content: "模型口头承诺不作为保存回执。", toolCalls: [{ id: "fictional-native-batch", name: "schedule_task_batch", arguments: { date: "今天", tasks } }] };
+    };
+    p.ai.agentTurnStream = mock; Object.getPrototypeOf(p.ai).agentTurnStream = mock;
+  });
+}
+
+async function phoneBatchUi(page, root) {
+  await syntheticModel(page);
+  const state = await page.evaluate(async () => {
+    const p = app.plugins.getPlugin("lifeops-assistant"), date = new Date().toLocaleDateString("sv-SE");
+    await p.store.createTask({ title: "虚构已完成纸样", date });
+    const first = (await p.store.readTaskDb()).tasks[0]; await p.store.completeTask(first.id);
+    await p.store.createTask({ title: "虚构保留的独立任务", date });
+    const preserved = (await p.store.readTaskDb()).tasks;
+    p.settings.phoneInboxEnabled = true;
+    const raw = `[${date} 10:00] 虚构手机批：今天五项纸样工作全部安排并一次保存。\n`;
+    await p.store.ensureFile("输入/手机随手记.md", raw);
+    await p.phoneInbox.scan(); await p.phoneInbox.scan();
+    const rows = await p.phoneInbox.list(), tasks = (await p.store.readTaskDb()).tasks;
+    p.openPhoneInbox();
+    return { raw, preserved, tasks, rows, calls: globalThis.__nativeBatchCalls };
+  });
+  assert.equal(state.calls, 1); assert.equal(state.tasks.length, 6); assert.equal(state.rows.length, 1);
+  assert.equal(state.rows[0].status, "saved"); assert.deepEqual(state.rows[0].taskBatch, { created: 4, existing: 1 });
+  for (const before of state.preserved) assert.deepEqual(state.tasks.find(row => row.id === before.id), before);
+  await page.getByRole("button", { name: "查看完整回执", exact: true }).click();
+  await page.getByText("本批任务回执", { exact: true }).waitFor();
+  assert((await page.locator(".modal-container").last().innerText()).includes("虚构手机批4"));
+  await page.screenshot({ path: join(root, "phone-batch-receipt.png") });
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "撤销本批任务", exact: true }).click();
+  await page.waitForFunction(async () => (await app.plugins.getPlugin("lifeops-assistant").store.readTaskDb()).tasks.length === 2);
+  const after = await page.evaluate(async () => {
+    const p = app.plugins.getPlugin("lifeops-assistant"); await p.phoneInbox.scan();
+    return { tasks: (await p.store.readTaskDb()).tasks, row: (await p.phoneInbox.list())[0],
+      raw: await p.store.readPath("输入/手机随手记.md"), calls: globalThis.__nativeBatchCalls };
+  });
+  assert.deepEqual(after.tasks, state.preserved); assert.equal(after.raw, state.raw); assert.equal(after.row.undone, true); assert.equal(after.calls, 1);
+  await page.keyboard.press("Escape");
+  return state.preserved;
+}
+
+async function captureProfileUi(page, root, sourceVault) {
+  await page.evaluate(() => app.plugins.getPlugin("lifeops-assistant").openDeviceSettings());
+  await page.getByRole("button", { name: "这台只记录并同步", exact: true }).click();
+  await page.waitForFunction(() => !app.plugins.getPlugin("lifeops-assistant").devices.execution.needsSetup);
+  const state = await page.evaluate(async () => {
+    const p = app.plugins.getPlugin("lifeops-assistant"), before = await p.store.readPath(p.store.taskDbPath());
+    let denied = false; try { await p.store.createTask({ title: "虚构禁止直接入账" }); } catch { denied = true; }
+    p.openDeviceCapture();
+    return { id: p.devices.execution.deviceId, canWrite: p.devices.execution.canWriteFacts, before, denied };
+  });
+  assert.equal(state.canWrite, false); assert.equal(state.denied, true);
+  await page.getByPlaceholder("例如：明天提醒我整理学习笔记").fill("虚构设备批：五项纸样工作全部安排今天并一次创建。");
+  await page.getByRole("button", { name: "保存待处理记录", exact: true }).click();
+  await page.getByText("原始记录已保存在本机，等待同步到处理端。任务是否入账以回执为准。", { exact: true }).waitFor();
+  await page.screenshot({ path: join(root, "capture-profile.png") });
+  const after = await page.evaluate(async () => {
+    const p = app.plugins.getPlugin("lifeops-assistant"), old = new Date(Date.now() - 2 * 86_400_000);
+    await p.devices.queueCapture("虚构离线批：今天五项纸样工作全部保存。", old);
+    return { raw: await p.store.readPath(p.store.taskDbPath()), providerRequests: p.activeProviderRequests.size,
+      pendingDate: old.toLocaleDateString("sv-SE") };
+  });
+  assert.equal(after.raw, state.before); assert.equal(after.providerRequests, 0);
+  const paths = (await readdir(join(sourceVault, "输入/设备随手记"), { recursive: true })).filter(path => path.endsWith(".json"));
+  assert.equal(paths.length, 2);
+  return { id: state.id, paths: paths.map(path => join("输入/设备随手记", path)), pendingDate: after.pendingDate };
+}
+
+async function receiveAndCheck(page, root, vault, senderVault, captures, expected, preserved) {
+  await syntheticModel(page);
+  for (const path of captures.paths) await cp(join(senderVault, path), join(vault, path), { recursive: true, force: false }).catch(async error => {
+    if (error.code !== "ENOENT") throw error;
+    const { dirname } = await import("node:path"); await mkdir(dirname(join(vault, path)), { recursive: true });
+    await cp(join(senderVault, path), join(vault, path), { force: false });
+  });
+  const state = await page.evaluate(async expected => {
+    const p = app.plugins.getPlugin("lifeops-assistant");
+    await p.deviceInbox.scan(); await p.deviceInbox.scan();
+    const rows = await p.deviceInbox.list(), tasks = (await p.store.readTaskDb()).tasks;
+    const heartbeat = await p.store.readJson(p.store.path(p.settings.folders.aiReports, "System", "heartbeat.json"), {});
+    return { rows, tasks, heartbeat, id: p.devices.execution.deviceId, version: p.manifest.version,
+      calls: globalThis.__nativeBatchCalls, canWrite: p.devices.execution.canWriteFacts };
+  }, expected);
+  assert.equal(state.tasks.length, 12); assert.equal(state.rows.length, 2); assert.equal(state.calls, 2); assert.equal(state.canWrite, true);
+  for (const row of state.rows) { assert.equal(row.status, "saved"); assert.deepEqual(row.taskBatch, { created: 5, existing: 0 }); }
+  for (const row of preserved) assert.deepEqual(state.tasks.find(item => item.id === row.id), row);
+  const delayed = state.tasks.filter(row => row.title.startsWith("虚构离线批"));
+  assert.equal(delayed.length, 5); assert(delayed.every(row => row.date === captures.pendingDate && !row.time && !row.startTime && !row.endTime));
+  assert(state.heartbeat.ok && !state.heartbeat.errors.length && state.heartbeat.mainSha256 === expected);
+  for (const path of captures.paths) assert((await readFile(join(senderVault, path))).equals(await readFile(join(vault, path))));
+  await page.evaluate(() => app.plugins.getPlugin("lifeops-assistant").openDeviceReceipts());
+  await page.getByRole("button", { name: "查看完整回执", exact: true }).first().click();
+  await page.getByText("本批任务回执", { exact: true }).waitFor();
+  await page.screenshot({ path: join(root, "device-batch-receipt.png") });
+  await page.keyboard.press("Escape"); await page.keyboard.press("Escape");
+  const offline = state.rows.find(row => row.text.includes("虚构离线批")); assert(offline?.operationId);
+  return { ...state, offlineOperationId: offline.operationId };
+}
+
+async function conflictStopsWrites(page) {
+  const state = await page.evaluate(async () => {
+    const p = app.plugins.getPlugin("lifeops-assistant"), path = "输入/设备协作.sync-conflict-20660110-000000-FICTIONAL.json";
+    const before = await p.store.readPath(p.store.taskDbPath());
+    await app.vault.create(path, await app.vault.adapter.read("输入/设备协作.json"));
+    await p.devices.execution.refresh();
+    let denied = false; try { await p.store.createTask({ title: "虚构冲突时禁止入账" }); } catch { denied = true; }
+    const held = { denied, problem: !!p.devices.execution.problemMessage, canWrite: p.devices.execution.canWriteFacts,
+      unchanged: await p.store.readPath(p.store.taskDbPath()) === before };
+    await p.activateView(true);
+    await app.vault.delete(app.vault.getAbstractFileByPath(path)); await p.devices.execution.refresh();
+    return { ...held, recovered: p.devices.execution.canWriteFacts };
+  });
+  assert.deepEqual(state, { denied: true, problem: true, canWrite: false, unchanged: true, recovered: true });
+}
+
+export async function exerciseNativeDeviceBatch({ getPage, root, vault, profile, candidate, rollback, expected, result, launch, close, packageFiles }) {
+  assert.equal(process.env.GITHUB_ACTIONS, "true"); assert.equal(process.env.RUNNER_OS, "macOS");
+  let page = getPage();
+  const initial = await page.evaluate(() => {
+    const p = app.plugins.getPlugin("lifeops-assistant"); p.openDeviceSettings();
+    return { setup: p.devices.execution.needsSetup, canWrite: p.devices.execution.canWriteFacts };
+  });
+  assert.deepEqual(initial, { setup: true, canWrite: false });
+  await page.getByRole("button", { name: "这台负责处理", exact: true }).click();
+  await page.waitForFunction(() => app.plugins.getPlugin("lifeops-assistant").devices.execution.canWriteFacts
+    && !app.plugins.getPlugin("lifeops-assistant").dataFoundationBootstrap);
+  const writerId = await page.evaluate(() => app.plugins.getPlugin("lifeops-assistant").devices.execution.deviceId);
+  const preserved = await phoneBatchUi(page, root);
+  result.checks.firstRoleUiAndPhoneBatchUndo = true;
+  await close();
+  const senderVault = join(root, "Companion-vault"), senderProfile = join(root, "capture-profile");
+  await cp(vault, senderVault, { recursive: true }); await mkdir(senderProfile);
+  await writeFile(join(senderProfile, "obsidian.json"), JSON.stringify({ vaults: {
+    [randomBytes(8).toString("hex")]: { path: senderVault, ts: Date.now(), open: true }
+  }, updateDisabled: true }));
+  await launch(senderProfile, senderVault); page = getPage();
+  const captures = await captureProfileUi(page, root, senderVault); assert.notEqual(captures.id, writerId);
+  result.checks.separateCaptureProfileDeniesFactsAndKeepsRawInput = true; await close();
+  await launch(); page = getPage();
+  const received = await receiveAndCheck(page, root, vault, senderVault, captures, expected, preserved);
+  assert.equal(received.id, writerId); result.version = received.version;
+  result.checks.reopenedWriterIdentityAndSealedHeartbeat = true;
+  result.checks.deviceAndOfflineBatchesSavedOnce = true;
+  result.checks.completeReceiptsAndRawInputPreserved = true;
+  await conflictStopsWrites(page); result.checks.conflictKeepsReaderAndStopsWrites = true;
+  await close(); await packageFiles(rollback); await launch(); page = getPage();
+  const old = await page.evaluate(async operationId => {
+    const p = app.plugins.getPlugin("lifeops-assistant"); await p.createAgentRuntime().undoOperation(operationId);
+    return { version: p.manifest.version, tasks: (await p.store.readTaskDb()).tasks };
+  }, received.offlineOperationId);
+  assert.equal(old.version, "0.5.100"); assert.equal(old.tasks.length, 7);
+  assert(old.tasks.every(row => !row.title.startsWith("虚构离线批")));
+  for (const row of old.tasks) assert.deepEqual(row, received.tasks.find(item => item.id === row.id));
+  result.checks.rollbackWholeBatchUndoPreservesOtherTasks = true;
+  await close(); await packageFiles(candidate); await launch(); page = getPage();
+  const restored = await page.evaluate(async () => {
+    const p = app.plugins.getPlugin("lifeops-assistant"); await p.deviceInbox.scan();
+    return { tasks: (await p.store.readTaskDb()).tasks, version: p.manifest.version, id: p.devices.execution.deviceId,
+      rows: await p.deviceInbox.list() };
+  });
+  assert.equal(restored.version, received.version); assert.equal(restored.id, writerId); assert.deepEqual(restored.tasks, old.tasks);
+  assert(restored.rows.some(row => row.operationId === received.offlineOperationId && row.undone));
+  result.checks.reinstallRetainsDataAndDoesNotReplay = true;
+  result.syntheticFixtureTransfer = true; result.actualSecondMac = false; result.actualAndroid = false;
+  await close(); result.passed = true;
+}

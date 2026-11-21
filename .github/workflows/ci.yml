@@ -7,6 +7,11 @@ on:
         description: Run fictional native task-edit QA on remote desktops
         type: boolean
         default: false
+      native_scenario:
+        description: Native fictional scenario to exercise
+        type: choice
+        default: task_content
+        options: [task_content, devices]
       candidate_ref:
         description: Exact accepted candidate source commit
         type: string
@@ -105,13 +110,17 @@ jobs:
           APP_VERSION: ${{ matrix.version }}
           APP_ASSET: ${{ matrix.asset }}
           APP_DIGEST: ${{ matrix.digest }}
+          QA_SCENARIO: ${{ inputs.native_scenario }}
         run: |
           curl --fail --location --retry 2 "https://github.com/obsidianmd/obsidian-releases/releases/download/v$APP_VERSION/$APP_ASSET" --output "$RUNNER_TEMP/Obsidian.dmg"
           if [ -n "$APP_DIGEST" ]; then echo "$APP_DIGEST  $RUNNER_TEMP/Obsidian.dmg" | shasum -a 256 --check; fi
           hdiutil attach -readonly -nobrowse -mountpoint "$RUNNER_TEMP/ObsidianMount" "$RUNNER_TEMP/Obsidian.dmg"
           test "$(/usr/libexec/PlistBuddy -c Print:CFBundleShortVersionString "$RUNNER_TEMP/ObsidianMount/Obsidian.app/Contents/Info.plist")" = "$APP_VERSION"
-          curl --fail --location --retry 2 https://github.com/john-booen/lifeops/releases/download/0.5.98/lifeops-assistant-0.5.98.zip --output "$RUNNER_TEMP/rollback.zip"
-          echo "5db520d5bb8417aedb7cf555c90f839c66d7ec262bf921527e29cab9ba0dace2  $RUNNER_TEMP/rollback.zip" | shasum -a 256 --check
+          ROLLBACK_VERSION=0.5.98
+          ROLLBACK_SHA=5db520d5bb8417aedb7cf555c90f839c66d7ec262bf921527e29cab9ba0dace2
+          if [ "$QA_SCENARIO" = devices ]; then ROLLBACK_VERSION=0.5.100; ROLLBACK_SHA=2dfb98f5bb311d6b07ed34499ac94349f0f4573042bd0fa5083505ad31fb3e7c; fi
+          curl --fail --location --retry 2 "https://github.com/john-booen/lifeops/releases/download/$ROLLBACK_VERSION/lifeops-assistant-$ROLLBACK_VERSION.zip" --output "$RUNNER_TEMP/rollback.zip"
+          echo "$ROLLBACK_SHA  $RUNNER_TEMP/rollback.zip" | shasum -a 256 --check
           unzip -q "$RUNNER_TEMP/rollback.zip" -d "$RUNNER_TEMP/rollback-package"
       - name: Exercise actual chat, bare confirmation, reopen and rollback in a native fixture
         env:
@@ -123,6 +132,7 @@ jobs:
           LIFEOPS_NATIVE_APP: ${{ runner.temp }}/ObsidianMount/Obsidian.app
           LIFEOPS_QA_NATIVE_VERSION: ${{ matrix.version }}
           LIFEOPS_QA_EXPECTED_SHA: ${{ inputs.expected_main_sha256 }}
+          LIFEOPS_QA_SCENARIO: ${{ inputs.native_scenario }}
         run: node harness/scripts/eval/native-task-content.mjs
       - uses: actions/upload-artifact@v4
         if: always()
