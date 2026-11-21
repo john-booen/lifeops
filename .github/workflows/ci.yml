@@ -123,8 +123,8 @@ jobs:
           echo "$ROLLBACK_SHA  $RUNNER_TEMP/rollback.zip" | shasum -a 256 --check
           unzip -q "$RUNNER_TEMP/rollback.zip" -d "$RUNNER_TEMP/rollback-package"
           if [ "$QA_SCENARIO" = devices ]; then
-            curl --fail --location --retry 2 "https://github.com/john-booen/lifeops/releases/download/0.5.110/lifeops-assistant-0.5.110.zip" --output "$RUNNER_TEMP/previous-daily.zip"
-            echo "10a80a90e402baef8b03d3fc283e1ceb40973392c5b8a7c3b10112b6e2dceef7  $RUNNER_TEMP/previous-daily.zip" | shasum -a 256 --check
+            curl --fail --location --retry 2 "https://github.com/john-booen/lifeops/releases/download/0.5.111/lifeops-assistant-0.5.111.zip" --output "$RUNNER_TEMP/previous-daily.zip"
+            echo "19477898e30cde4d08a3536e3d0eb9c5d71c9071ca329215fe4d796062a95f5b  $RUNNER_TEMP/previous-daily.zip" | shasum -a 256 --check
             unzip -q "$RUNNER_TEMP/previous-daily.zip" -d "$RUNNER_TEMP/previous-daily-package"
           fi
       - name: Exercise actual chat, bare confirmation, reopen and rollback in a native fixture
