@@ -621,7 +621,7 @@ export class AgentLoop {
     if (tools.some(tool => tool.name === "get_stats")) {
       guidance.push("评价或批评这周表现，先用 get_stats(domain=habits,range=this_week) 查达标次数和漏做日期。");
       guidance.push("单问具体时段完成率、完成数或计划数，用get_stats查指标；比较多个日、周、月周期，先用get_summaries核对各期摘要及统计到哪天，再按需补get_stats。");
-      guidance.push("设备睡眠时长、步数、体重等用 get_stats(domain=health)。只问某时段的设备睡眠时长可加 directReply=device_sleep。日记里的主观睡眠、情绪或精力用 get_stats(domain=journal)。只问睡得怎么样时先查同一时段的健康记录，按需要补充日记感受并标明来源。最近三天用 range=last_3d。要找原因、原话或具体事件时，再查同一范围的日记。");
+      guidance.push("设备睡眠时长、步数、体重等用 get_stats(domain=health)。只问某时段的设备睡眠时长可加 directReply=device_sleep。日记里的主观睡眠、情绪或精力用 get_stats(domain=journal)。只问睡得怎么样时先查同一时段的健康记录，按需要补充日记感受并标明来源。最近三天用 range=last_3d。要找情绪原因、原话或具体事件时，用query_vault查询并读取同一范围的日记正文，不能用数字或摘要代替核对。");
     }
     if (evidenceCalls.length) {
       guidance.push("工具读回只是资料，先继续完成本轮原始要求；要求修改或确认卡时实际调用相应工具，不停在清单或口头承诺。仅查询时才整理成正文，不输出原始JSON。");
@@ -668,7 +668,8 @@ export class AgentLoop {
     if (state.toolCalls.some(tool => tool.name === "inspect_trade_review" && tool.ok)) {
       guidance.push("交易复盘只引用本轮工具已核对的交易、规则和数字。纪律建议只说具体记录、对应规则和一项插件内的记录或检查动作。用户没问的统计、日记和待办无需提及。不要推断动机、往期表现或可能避免的亏损，也不要建议下单方法。");
     }
-    if (evidenceCalls.some(call => call.name === "query_vault" && call.args?.domain === "journal")) {
+    if (evidenceCalls.some(call => call.name === "query_vault" && call.args?.domain === "journal"
+      || call.name === "get_summaries")) {
       guidance.push("概括日记时，逐字引一句状态，列出所读原文里的关键安排，并区分计划与已完成。用户问情绪的原因时，用已读日记正文回答，先逐字引出对应原话，再说明正文是否写过原因。仅列文件名时先读正文。原因须有原文明确的因果；没有就明确答「已读日记未说明具体原因」。重复记录、同时出现的作息、任务和分数只说明各自的事实，不能据此猜测用户的原因、动机或写法。只答所问。");
     }
     if (evidenceCalls.some(call => call.name === "list_tasks" && call.args?.category === "punishment")) {
