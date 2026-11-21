@@ -1,41 +1,15 @@
 [
   {
-    "id": "today-unfinished-01",
-    "milestone": "M1",
-    "domain": "tasks",
-    "mode": "text",
-    "input": "我今天还有什么任务没完成？",
-    "history": [],
+    "id": "today-unfinished-01", "milestone": "M1", "domain": "tasks", "mode": "text",
+    "input": "我今天还有什么任务没完成？", "history": [],
     "checks": {
-      "mustInclude": [
-        "见客户",
-        "写周报"
-      ],
-      "mustIncludeAny": [
-        [
-          "9 个",
-          "9个",
-          "九个",
-          "9项",
-          "9 项"
-        ]
-      ],
-      "mustNotInclude": [
-        "跑步已完成"
-      ],
-      "mustCallTools": [
-        "list_tasks"
-      ],
-      "mustNotCallTools": [
-        "delete_task",
-        "delete_habit"
-      ],
-      "expectWrites": {
-        "tasks.created": 0,
-        "tasks.deleted": 0
-      },
-      "maxInputTokens": 8000,
-      "maxFirstTokenMs": 3000
+      "mustInclude": ["见客户", "写周报"],
+      "mustIncludeAny": [["9 个", "9个", "九个", "9项", "9 项"]],
+      "mustNotInclude": ["跑步已完成"],
+      "mustCallTools": ["list_tasks"],
+      "mustNotCallTools": ["delete_task", "delete_habit"],
+      "expectWrites": {"tasks.created": 0, "tasks.deleted": 0},
+      "maxInputTokens": 8000, "maxFirstTokenMs": 3000
     }
   },
   {
@@ -134,13 +108,8 @@
         {
           "name": "plan_today",
           "output": {
-            "today": {
-              "scheduled": 12
-            },
-            "capacity": {
-              "overloaded": true,
-              "typicalCount": 6
-            }
+            "today": { "scheduled": 12 },
+            "capacity": { "overloaded": true, "typicalCount": 6 }
           }
         }
       ],
@@ -153,31 +122,12 @@
     }
   },
   {
-    "id": "today-journal-04",
-    "milestone": "M1",
-    "domain": "journal",
-    "mode": "text",
-    "input": "今天日记状态怎么样？",
-    "history": [],
+    "id": "today-journal-04", "milestone": "M1", "domain": "journal", "mode": "text",
+    "input": "今天日记状态怎么样？", "history": [],
     "checks": {
-      "mustInclude": [
-        "精力",
-        "情绪",
-        "见客户",
-        "写周报",
-        "5.5"
-      ],
-      "mustIncludeAny": [
-        [
-          "昨晚只睡了",
-          "今天精力 2 分",
-          "感到焦虑"
-        ]
-      ],
-      "expectWrites": {
-        "tasks.created": 0,
-        "tasks.deleted": 0
-      }
+      "mustInclude": ["精力", "情绪", "见客户", "写周报", "5.5"],
+      "mustIncludeAny": [["昨晚只睡了", "今天精力 2 分", "感到焦虑"]],
+      "expectWrites": {"tasks.created": 0, "tasks.deleted": 0}
     }
   },
   {
@@ -217,27 +167,13 @@
     }
   },
   {
-    "id": "create-client-06",
-    "milestone": "M1",
-    "domain": "tasks",
-    "mode": "text",
-    "input": "帮我建明天下午三点见客户的任务。",
-    "history": [],
+    "id": "create-client-06", "milestone": "M1", "domain": "tasks", "mode": "text",
+    "input": "帮我建明天下午三点见客户的任务。", "history": [],
     "checks": {
-      "mustCallTools": [
-        "create_task"
-      ],
-      "expectWrites": {
-        "tasks.created": 1,
-        "tasks.deleted": 0
-      },
-      "createdTask": {
-        "titleIncludes": "见客户",
-        "date": "2026-11-13",
-        "time": "15:00"
-      },
-      "maxConfirmations": 0,
-      "minReceipts": 1
+      "mustCallTools": ["create_task"],
+      "expectWrites": {"tasks.created": 1, "tasks.deleted": 0},
+      "createdTask": {"titleIncludes": "见客户", "date": "2026-11-13", "time": "15:00"},
+      "maxConfirmations": 0, "minReceipts": 1
     }
   },
   {
@@ -259,7 +195,7 @@
           "周六还是周天",
           "周六还是星期日",
           "周末哪天",
-          "具体是哪天",
+        "具体是哪天",
           "星期六还是星期日",
           "星期六还是星期天"
         ]
@@ -298,34 +234,13 @@
     }
   },
   {
-    "id": "week-habits-09",
-    "milestone": "M1",
-    "domain": "habits",
-    "mode": "text",
-    "input": "这周习惯完成得怎么样？",
-    "history": [],
+    "id": "week-habits-09", "milestone": "M1", "domain": "habits", "mode": "text",
+    "input": "这周习惯完成得怎么样？", "history": [],
     "checks": {
-      "mustInclude": [
-        "跑步",
-        "攒钱",
-        "阅读"
-      ],
-      "mustIncludeAny": [
-        [
-          "25%",
-          "25％",
-          "四分之一",
-          "1/4",
-          "1 / 4"
-        ]
-      ],
-      "mustCallTools": [
-        "get_stats"
-      ],
-      "expectWrites": {
-        "habits.deleted": 0,
-        "tasks.created": 0
-      }
+      "mustInclude": ["跑步", "攒钱", "阅读"],
+      "mustIncludeAny": [["25%", "25％", "四分之一", "1/4", "1 / 4"]],
+      "mustCallTools": ["get_stats"],
+      "expectWrites": {"habits.deleted": 0, "tasks.created": 0}
     }
   },
   {
@@ -391,10 +306,7 @@
       "remembered": [
         "周三",
         "晚",
-        [
-          "开会",
-          "会议"
-        ]
+        ["开会", "会议"]
       ],
       "mustSucceedTools": [
         "append_memory_note"
@@ -408,162 +320,69 @@
     }
   },
   {
-    "id": "undo-last-12",
-    "milestone": "M1",
-    "domain": "undo",
-    "mode": "text",
-    "prelude": [
-      "请创建任务 评测临时任务，安排在明天下午三点。"
-    ],
-    "input": "撤销刚才那个。",
-    "history": [],
+    "id": "undo-last-12", "milestone": "M1", "domain": "undo", "mode": "text",
+    "prelude": ["请创建任务 评测临时任务，安排在明天下午三点。"],
+    "input": "撤销刚才那个。", "history": [],
     "checks": {
       "preludeCreatedTasks": 1,
-      "expectWrites": {
-        "tasks.created": 0,
-        "tasks.deleted": 0
-      },
+      "expectWrites": {"tasks.created": 0, "tasks.deleted": 0},
       "absentTaskTitle": "评测临时任务",
-      "mustIncludeAny": [
-        [
-          "已撤销",
-          "已经撤销",
-          "撤销成功"
-        ]
-      ]
+      "mustIncludeAny": [["已撤销", "已经撤销", "撤销成功"]]
     }
   },
   {
-    "id": "undo-after-compensation-41",
-    "milestone": "M5",
-    "domain": "undo",
-    "mode": "text",
+    "id": "undo-after-compensation-41", "milestone": "M5", "domain": "undo", "mode": "text",
     "fixture": "scheduled_compensation_after_prelude",
-    "prelude": [
-      "请创建任务 评测蓝色样品盒贴标签，安排在明天下午三点。"
-    ],
-    "input": "撤销刚才那个。",
-    "history": [],
+    "prelude": ["请创建任务 评测蓝色样品盒贴标签，安排在明天下午三点。"],
+    "input": "撤销刚才那个。", "history": [],
     "checks": {
       "preludeCreatedTasks": 1,
-      "expectWrites": {
-        "tasks.created": 1,
-        "tasks.deleted": 0,
-        "tasks.rescheduled": 0
-      },
+      "expectWrites": {"tasks.created": 1, "tasks.deleted": 0, "tasks.rescheduled": 0},
       "absentTaskTitle": "评测蓝色样品盒贴标签",
-      "createdTask": {
-        "titleIncludes": "补偿",
-        "date": "2026-11-13",
-        "time": ""
-      },
-      "mustSucceedTools": [
-        "undo_latest_operation"
-      ],
-      "mustInclude": [
-        "已撤销",
-        "评测蓝色样品盒贴标签"
-      ]
+      "createdTask": {"titleIncludes": "补偿", "date": "2026-11-13", "time": ""},
+      "mustSucceedTools": ["undo_latest_operation"],
+      "mustInclude": ["已撤销", "评测蓝色样品盒贴标签"]
     }
   },
   {
-    "id": "undo-after-automatic-memory-47",
-    "milestone": "M5",
-    "domain": "undo",
-    "mode": "text",
+    "id": "undo-after-automatic-memory-47", "milestone": "M5", "domain": "undo", "mode": "text",
     "fixture": "automatic_memory_after_create",
-    "prelude": [
-      "请创建任务 评测虚构资料归档，安排在明天下午三点。"
-    ],
-    "input": "撤销刚才那个。",
-    "history": [],
+    "prelude": ["请创建任务 评测虚构资料归档，安排在明天下午三点。"],
+    "input": "撤销刚才那个。", "history": [],
     "checks": {
       "preludeCreatedTasks": 1,
-      "expectWrites": {
-        "tasks.created": 0,
-        "tasks.deleted": 0
-      },
+      "expectWrites": {"tasks.created": 0, "tasks.deleted": 0},
       "absentTaskTitle": "评测虚构资料归档",
-      "remembered": [
-        "我习惯用虚构蓝色标签归档。"
-      ],
-      "mustSucceedTools": [
-        "append_memory_note",
-        "undo_latest_operation"
-      ],
-      "mustInclude": [
-        "已撤销",
-        "评测虚构资料归档"
-      ]
+      "remembered": ["我习惯用虚构蓝色标签归档。"],
+      "mustSucceedTools": ["append_memory_note", "undo_latest_operation"],
+      "mustInclude": ["已撤销", "评测虚构资料归档"]
     }
   },
   {
-    "id": "voice-bare-undo-49",
-    "milestone": "M6",
-    "domain": "undo",
-    "mode": "voice",
-    "prelude": [
-      "请创建任务 评测给青色档案盒贴标签，安排在明天下午三点十五。"
-    ],
-    "input": "撤销。",
-    "history": [],
+    "id": "voice-bare-undo-49", "milestone": "M6", "domain": "undo", "mode": "voice",
+    "prelude": ["请创建任务 评测给青色档案盒贴标签，安排在明天下午三点十五。"],
+    "input": "撤销。", "history": [],
     "checks": {
       "preludeCreatedTasks": 1,
-      "expectWrites": {
-        "tasks.created": 0,
-        "tasks.deleted": 0,
-        "tasks.rescheduled": 0
-      },
+      "expectWrites": {"tasks.created": 0, "tasks.deleted": 0, "tasks.rescheduled": 0},
       "absentTaskTitle": "给青色档案盒贴标签",
-      "mustSucceedTools": [
-        "undo_latest_operation"
-      ],
-      "mustInclude": [
-        "已撤销"
-      ],
-      "mustIncludeAny": [
-        [
-          "评测给青色档案盒贴标签",
-          "评测：给青色档案盒贴标签",
-          "评测: 给青色档案盒贴标签"
-        ]
-      ]
+      "mustSucceedTools": ["undo_latest_operation"],
+      "mustInclude": ["已撤销"],
+      "mustIncludeAny": [["评测给青色档案盒贴标签", "评测：给青色档案盒贴标签", "评测: 给青色档案盒贴标签"]]
     }
   },
   {
-    "id": "voice-delete-after-undo-50",
-    "milestone": "M6",
-    "domain": "undo",
-    "mode": "voice",
+    "id": "voice-delete-after-undo-50", "milestone": "M6", "domain": "undo", "mode": "voice",
     "fixture": "task_already_undone",
-    "input": "删除。",
-    "history": [
-      {
-        "role": "user",
-        "content": "请创建任务，给紫色档案盒贴标签。"
-      },
-      {
-        "role": "assistant",
-        "content": "已创建任务「评测给紫色档案盒贴标签」。"
-      },
-      {
-        "role": "user",
-        "content": "撤销。"
-      },
-      {
-        "role": "assistant",
-        "content": "已撤销创建任务「评测给紫色档案盒贴标签」。"
-      }
+    "input": "删除。", "history": [
+      {"role": "user", "content": "请创建任务，给紫色档案盒贴标签。"},
+      {"role": "assistant", "content": "已创建任务「评测给紫色档案盒贴标签」。"},
+      {"role": "user", "content": "撤销。"},
+      {"role": "assistant", "content": "已撤销创建任务「评测给紫色档案盒贴标签」。"}
     ],
     "checks": {
-      "expectWrites": {
-        "tasks.created": 0,
-        "tasks.deleted": 0,
-        "tasks.rescheduled": 0
-      },
-      "mustNotCallTools": [
-        "undo_latest_operation"
-      ],
+      "expectWrites": {"tasks.created": 0, "tasks.deleted": 0, "tasks.rescheduled": 0},
+      "mustNotCallTools": ["undo_latest_operation"],
       "maxConfirmations": 0,
       "absentTaskTitle": "评测给紫色档案盒贴标签"
     }
@@ -590,93 +409,33 @@
     }
   },
   {
-    "id": "delete-reading-14",
-    "milestone": "M1",
-    "domain": "habits",
-    "mode": "text",
-    "input": "删除阅读习惯。",
-    "history": [],
+    "id": "delete-reading-14", "milestone": "M1", "domain": "habits", "mode": "text",
+    "input": "删除阅读习惯。", "history": [],
     "checks": {
-      "mustInclude": [
-        "阅读"
-      ],
-      "minConfirmations": 1,
-      "maxConfirmations": 1,
-      "confirmationTarget": {
-        "type": "delete_habit",
-        "targetId": "habit-eval-read"
-      },
-      "expectWrites": {
-        "habits.deleted": 0,
-        "tasks.created": 0
-      }
+      "mustInclude": ["阅读"],
+      "minConfirmations": 1, "maxConfirmations": 1,
+      "confirmationTarget": {"type": "delete_habit", "targetId": "habit-eval-read"},
+      "expectWrites": {"habits.deleted": 0, "tasks.created": 0}
     }
   },
   {
-    "id": "greeting-15",
-    "milestone": "M1",
-    "domain": "conversation",
-    "mode": "text",
-    "input": "你好。",
-    "history": [],
+    "id": "greeting-15", "milestone": "M1", "domain": "conversation", "mode": "text",
+    "input": "你好。", "history": [],
     "checks": {
-      "mustIncludeAny": [
-        [
-          "你好",
-          "您好",
-          "我在",
-          "在呢",
-          "早上好",
-          "中午好",
-          "下午好",
-          "晚上好",
-          "嗨"
-        ]
-      ],
-      "mustNotInclude": [
-        "见客户",
-        "写周报",
-        "pending",
-        "打卡"
-      ],
-      "mustNotCallTools": [
-        "query_vault",
-        "list_tasks",
-        "get_stats"
-      ],
-      "maxReplyChars": 160,
-      "maxInputTokens": 6000,
-      "maxFirstTokenMs": 3000,
-      "expectWrites": {
-        "tasks.created": 0,
-        "tasks.deleted": 0
-      }
+      "mustIncludeAny": [["你好", "您好", "我在", "在呢", "早上好", "中午好", "下午好", "晚上好", "嗨"]],
+      "mustNotInclude": ["见客户", "写周报", "pending", "打卡"],
+      "mustNotCallTools": ["query_vault", "list_tasks", "get_stats"],
+      "maxReplyChars": 160, "maxInputTokens": 6000, "maxFirstTokenMs": 3000,
+      "expectWrites": {"tasks.created": 0, "tasks.deleted": 0}
     }
   },
   {
-    "id": "today-completed-16",
-    "milestone": "M1",
-    "domain": "tasks",
-    "mode": "text",
-    "input": "今天完成了几个任务？",
-    "history": [],
+    "id": "today-completed-16", "milestone": "M1", "domain": "tasks", "mode": "text",
+    "input": "今天完成了几个任务？", "history": [],
     "checks": {
-      "mustIncludeAny": [
-        [
-          "3 个",
-          "3个",
-          "三个",
-          "3项",
-          "3 项"
-        ]
-      ],
-      "mustCallTools": [
-        "get_stats"
-      ],
-      "expectWrites": {
-        "tasks.created": 0,
-        "tasks.deleted": 0
-      }
+      "mustIncludeAny": [["3 个", "3个", "三个", "3项", "3 项"]],
+      "mustCallTools": ["get_stats"],
+      "expectWrites": {"tasks.created": 0, "tasks.deleted": 0}
     }
   },
   {
@@ -825,1215 +584,278 @@
     }
   },
   {
-    "id": "record-trade-21",
-    "milestone": "M2",
-    "domain": "trades",
-    "mode": "text",
-    "history": [],
+    "id": "record-trade-21", "milestone": "M2", "domain": "trades", "mode": "text", "history": [],
     "input": "帮我记一笔：2026-11-12 的 A 股虚构品种 ZTEST1 做多 10 股，开仓 20，平仓 22，手续费 1 元。",
     "checks": {
-      "mustSucceedTools": [
-        "record_trade"
-      ],
-      "minReceipts": 1,
-      "maxConfirmations": 0,
-      "expectWrites": {
-        "trades.created": 1,
-        "tasks.created": 0
-      },
-      "createdTrades": [
-        {
-          "symbol": "ZTEST1",
-          "market": "A股",
-          "direction": "long",
-          "qty": 10,
-          "entry": 20,
-          "exit": 22,
-          "fees": 1,
-          "pnl": 19,
-          "pnlSource": "computed",
-          "currency": "CNY",
-          "openedAtPrecision": "date",
-          "source": {
-            "kind": "chat"
-          }
-        }
-      ]
+      "mustSucceedTools": ["record_trade"], "minReceipts": 1, "maxConfirmations": 0,
+      "expectWrites": {"trades.created": 1, "tasks.created": 0},
+      "createdTrades": [{"symbol":"ZTEST1","market":"A股","direction":"long","qty":10,"entry":20,"exit":22,"fees":1,
+        "pnl":19,"pnlSource":"computed","currency":"CNY","openedAtPrecision":"date","source":{"kind":"chat"}}]
     }
   },
   {
-    "id": "record-trades-22",
-    "milestone": "M2",
-    "domain": "trades",
-    "mode": "text",
-    "history": [],
+    "id": "record-trades-22", "milestone": "M2", "domain": "trades", "mode": "text", "history": [],
     "input": "记下两笔今天已做的虚构交易：美股 ZTEST2 做空 5 股，进 100 出 98，手续费 1 美元；加密 ZTEST3 做多 2 个，实际净亏 7 美元。",
     "checks": {
-      "mustSucceedTools": [
-        "record_trade"
-      ],
-      "minReceipts": 1,
-      "maxConfirmations": 0,
-      "expectWrites": {
-        "trades.created": 2,
-        "tasks.created": 0
-      },
+      "mustSucceedTools": ["record_trade"], "minReceipts": 1, "maxConfirmations": 0,
+      "expectWrites": {"trades.created": 2, "tasks.created": 0},
       "createdTrades": [
-        {
-          "symbol": "ZTEST2",
-          "market": "美股",
-          "direction": "short",
-          "qty": 5,
-          "entry": 100,
-          "exit": 98,
-          "fees": 1,
-          "pnl": 9,
-          "currency": "USD",
-          "pnlSource": "computed"
-        },
-        {
-          "symbol": "ZTEST3",
-          "market": "加密",
-          "direction": "long",
-          "qty": 2,
-          "pnl": -7,
-          "currency": "USD",
-          "pnlSource": "stated"
-        }
+        {"symbol":"ZTEST2","market":"美股","direction":"short","qty":5,"entry":100,"exit":98,"fees":1,"pnl":9,"currency":"USD","pnlSource":"computed"},
+        {"symbol":"ZTEST3","market":"加密","direction":"long","qty":2,"pnl":-7,"currency":"USD","pnlSource":"stated"}
       ]
     }
   },
   {
-    "id": "monthly-trade-pnl-23",
-    "milestone": "M2",
-    "domain": "trades",
-    "mode": "text",
-    "history": [],
+    "id": "monthly-trade-pnl-23", "milestone": "M2", "domain": "trades", "mode": "text", "history": [],
     "input": "这个月一共做了多少笔交易？按人民币和美元分别告诉我净盈亏。",
     "checks": {
-      "mustInclude": [
-        "26",
-        "180",
-        "120"
-      ],
-      "mustIncludeAny": [
-        [
-          "人民币",
-          "CNY",
-          "元"
-        ],
-        [
-          "美元",
-          "USD"
-        ]
-      ],
-      "toolFacts": [
-        {
-          "name": "get_stats",
-          "output": {
-            "domain": "trades",
-            "range": {
-              "from": "2026-11-01",
-              "to": "2026-11-12"
-            },
-            "count": 26,
-            "byCurrency": {
-              "CNY": {
-                "totalPnl": 180
-              },
-              "USD": {
-                "totalPnl": 120
-              }
-            }
-          }
-        }
-      ],
-      "expectWrites": {
-        "trades.created": 0,
-        "tradeReports.created": 0
-      }
+      "mustInclude": ["26","180","120"], "mustIncludeAny": [["人民币","CNY","元"],["美元","USD"]],
+      "toolFacts": [{"name":"get_stats","output":{"domain":"trades","range":{"from":"2026-11-01","to":"2026-11-12"},"count":26,
+        "byCurrency":{"CNY":{"totalPnl":180},"USD":{"totalPnl":120}}}}],
+      "expectWrites": {"trades.created": 0, "tradeReports.created": 0}
     }
   },
   {
-    "id": "market-win-rates-24",
-    "milestone": "M2",
-    "domain": "trades",
-    "mode": "text",
-    "history": [],
+    "id": "market-win-rates-24", "milestone": "M2", "domain": "trades", "mode": "text", "history": [],
     "input": "这个月各有记录的市场分别是什么胜率？按盈利笔数除以盈利和亏损笔数计算，持平不计入分母。",
     "checks": {
-      "mustInclude": [
-        "美股",
-        "加密",
-        "外汇"
-      ],
-      "mustIncludeAny": [
-        [
-          "A股",
-          "A 股"
-        ],
-        [
-          "60%",
-          "60.0%",
-          "60.00%",
-          "60％"
-        ],
-        [
-          "50%",
-          "50.0%",
-          "50.00%",
-          "50％"
-        ],
-        [
-          "57.14%",
-          "57.14％"
-        ],
-        [
-          "66.67%",
-          "66.67％"
-        ]
-      ],
-      "toolFacts": [
-        {
-          "name": "get_stats",
-          "output": {
-            "domain": "trades",
-            "groupBy": "market",
-            "range": {
-              "from": "2026-11-01",
-              "to": "2026-11-12"
-            },
-            "groups": [
-              {
-                "key": "A股",
-                "byCurrency": {
-                  "CNY": {
-                    "winPercent": 60
-                  }
-                }
-              },
-              {
-                "key": "美股",
-                "byCurrency": {
-                  "USD": {
-                    "winPercent": 50
-                  }
-                }
-              },
-              {
-                "key": "加密",
-                "byCurrency": {
-                  "USD": {
-                    "winPercent": 57.14
-                  }
-                }
-              },
-              {
-                "key": "外汇",
-                "byCurrency": {
-                  "USD": {
-                    "winPercent": 66.67
-                  }
-                }
-              }
-            ]
-          }
-        }
-      ],
-      "expectWrites": {
-        "trades.created": 0,
-        "tradeReports.created": 0
-      }
+      "mustInclude": ["美股","加密","外汇"], "mustIncludeAny": [["A股","A 股"],["60%","60.0%","60.00%","60％"],["50%","50.0%","50.00%","50％"],
+        ["57.14%","57.14％"],["66.67%","66.67％"]],
+      "toolFacts": [{"name":"get_stats","output":{"domain":"trades","groupBy":"market","range":{"from":"2026-11-01","to":"2026-11-12"},
+        "groups":[{"key":"A股","byCurrency":{"CNY":{"winPercent":60}}},{"key":"美股","byCurrency":{"USD":{"winPercent":50}}},
+          {"key":"加密","byCurrency":{"USD":{"winPercent":57.14}}},{"key":"外汇","byCurrency":{"USD":{"winPercent":66.67}}}]}}],
+      "expectWrites": {"trades.created": 0, "tradeReports.created": 0}
     }
   },
   {
-    "id": "profitable-trade-model-25",
-    "milestone": "M2",
-    "domain": "trades",
-    "mode": "text",
-    "history": [],
+    "id": "profitable-trade-model-25", "milestone": "M2", "domain": "trades", "mode": "text", "history": [],
     "input": "这个月哪个交易模型最赚钱？人民币和美元分开比较，给我模型名称和净盈亏。",
     "checks": {
-      "mustInclude": [
-        "虚构突破",
-        "250",
-        "90"
-      ],
-      "mustIncludeAny": [
-        [
-          "人民币",
-          "CNY",
-          "元"
-        ],
-        [
-          "美元",
-          "USD"
-        ]
-      ],
-      "toolFacts": [
-        {
-          "name": "get_stats",
-          "output": {
-            "domain": "trades",
-            "groupBy": "model",
-            "range": {
-              "from": "2026-11-01",
-              "to": "2026-11-12"
-            },
-            "groups": [
-              {
-                "label": "虚构突破",
-                "byCurrency": {
-                  "CNY": {
-                    "totalPnl": 250
-                  },
-                  "USD": {
-                    "totalPnl": 90
-                  }
-                }
-              },
-              {
-                "label": "虚构回踩",
-                "byCurrency": {
-                  "CNY": {
-                    "totalPnl": -70
-                  },
-                  "USD": {
-                    "totalPnl": 30
-                  }
-                }
-              }
-            ]
-          }
-        }
-      ],
-      "expectWrites": {
-        "trades.created": 0,
-        "tradeReports.created": 0
-      }
+      "mustInclude": ["虚构突破","250","90"], "mustIncludeAny": [["人民币","CNY","元"],["美元","USD"]],
+      "toolFacts": [{"name":"get_stats","output":{"domain":"trades","groupBy":"model","range":{"from":"2026-11-01","to":"2026-11-12"},
+        "groups":[{"label":"虚构突破","byCurrency":{"CNY":{"totalPnl":250},"USD":{"totalPnl":90}}},
+          {"label":"虚构回踩","byCurrency":{"CNY":{"totalPnl":-70},"USD":{"totalPnl":30}}}]}}],
+      "expectWrites": {"trades.created": 0, "tradeReports.created": 0}
     }
   },
   {
-    "id": "weekly-trade-violations-26",
-    "milestone": "M2",
-    "domain": "trades",
-    "mode": "text",
-    "history": [],
+    "id": "weekly-trade-violations-26", "milestone": "M2", "domain": "trades", "mode": "text", "history": [],
     "input": "本周有哪些交易违反了我已经保存的规则？逐笔说品种和哪条规则。",
     "checks": {
-      "mustInclude": [
-        "USX-EVAL",
-        "CRX-EVAL",
-        "止损"
-      ],
-      "toolFacts": [
-        {
-          "name": "inspect_trade_review",
-          "output": {
-            "period": {
-              "period": "week"
-            },
-            "violationCount": 2,
-            "evidence": [
-              {
-                "id": "trade-eval-2-5",
-                "ruleViolations": [
-                  "eval-stop-1"
-                ]
-              },
-              {
-                "id": "trade-eval-3-5",
-                "ruleViolations": [
-                  "eval-stop-1"
-                ]
-              }
-            ]
-          }
-        }
-      ],
-      "expectWrites": {
-        "trades.created": 0,
-        "tradeReports.created": 0
-      }
+      "mustInclude": ["USX-EVAL","CRX-EVAL","止损"],
+      "toolFacts": [{"name":"inspect_trade_review","output":{"period":{"period":"week"},"violationCount":2,
+        "evidence":[{"id":"trade-eval-2-5","ruleViolations":["eval-stop-1"]},{"id":"trade-eval-3-5","ruleViolations":["eval-stop-1"]}]}}],
+      "expectWrites": {"trades.created": 0, "tradeReports.created": 0}
     }
   },
   {
-    "id": "trade-improvement-27",
-    "milestone": "M2",
-    "domain": "trades",
-    "mode": "text",
-    "history": [],
+    "id": "trade-improvement-27", "milestone": "M2", "domain": "trades", "mode": "text", "history": [],
     "input": "结合本周真实记录，给我的交易系统提一条改进建议。用三句话分别指出哪笔、哪条规则和下次怎么在 LifeOps 记录检查。只用对话回答。",
     "checks": {
-      "mustSucceedTools": [
-        "inspect_trade_review"
-      ],
+      "mustSucceedTools": ["inspect_trade_review"],
       "judge": "回答至少指出 USX-EVAL 或 CRX-EVAL 其中一笔，说明违反了虚构突破的触及预设止损价立即退出规则，并提出下次可以核对的具体记录或检查步骤。亏损金额本身不能当作违规依据。不能虚构规则、市场数据或假设止损能避免的亏损金额。符合全部要点通过。",
-      "expectWrites": {
-        "trades.created": 0,
-        "tradeReports.created": 0,
-        "tasks.created": 0
-      }
+      "expectWrites": {"trades.created": 0, "tradeReports.created": 0, "tasks.created": 0}
     }
   },
   {
-    "id": "daily-trade-goal-28",
-    "milestone": "M2",
-    "domain": "habits",
-    "mode": "text",
-    "history": [],
+    "id": "daily-trade-goal-28", "milestone": "M2", "domain": "habits", "mode": "text", "history": [],
     "input": "今天的每日交易习惯目标达成了吗？告诉我已记录几笔、目标几笔，还差几笔。",
     "checks": {
-      "mustInclude": [
-        "4",
-        "10",
-        "6"
-      ],
-      "mustIncludeAny": [
-        [
-          "没达标",
-          "未达标",
-          "未达成",
-          "还没",
-          "未完成",
-          "还差"
-        ]
-      ],
-      "toolFacts": [
-        {
-          "name": "get_stats",
-          "output": {
-            "domain": "habits",
-            "range": {
-              "from": "2026-11-12",
-              "to": "2026-11-12"
-            },
-            "habits": [
-              {
-                "id": "habit-eval-trade",
-                "dailyTradeGoal": {
-                  "target": 10,
-                  "actual": 4,
-                  "remaining": 6,
-                  "status": "pending"
-                }
-              }
-            ]
-          }
-        }
-      ],
-      "expectWrites": {
-        "trades.created": 0,
-        "tradeReports.created": 0,
-        "tasks.created": 0
-      }
+      "mustInclude": ["4","10","6"], "mustIncludeAny": [["没达标","未达标","未达成","还没","未完成","还差"]],
+      "toolFacts": [{"name":"get_stats","output":{"domain":"habits","range":{"from":"2026-11-12","to":"2026-11-12"},
+        "habits":[{"id":"habit-eval-trade","dailyTradeGoal":{"target":10,"actual":4,"remaining":6,"status":"pending"}}]}}],
+      "expectWrites": {"trades.created": 0, "tradeReports.created": 0, "tasks.created": 0}
     }
   },
   {
-    "id": "active-ideas-29",
-    "milestone": "M3",
-    "domain": "ideas",
-    "mode": "text",
-    "history": [],
+    "id": "active-ideas-29", "milestone": "M3", "domain": "ideas", "mode": "text", "history": [],
     "input": "我有哪些想法在推进？分别说说状态和下一步。",
     "checks": {
-      "mustIncludeAny": [
-        [
-          "AI 漫剧",
-          "AI漫剧"
-        ],
-        [
-          "读书索引"
-        ]
-      ],
-      "toolFacts": [
-        {
-          "name": "list_ideas",
-          "output": {
-            "total": 5,
-            "ideas": [
-              {
-                "title": "AI 漫剧",
-                "status": "seed",
-                "nextAction": "研究同类作品"
-              },
-              {
-                "title": "读书索引",
-                "status": "building",
-                "nextAction": "整理第一批卡片"
-              }
-            ]
-          }
-        }
-      ],
-      "expectWrites": {
-        "tasks.created": 0
-      },
-      "maxConfirmations": 0
+      "mustIncludeAny": [["AI 漫剧", "AI漫剧"], ["读书索引"]],
+      "toolFacts": [{"name":"list_ideas","output":{"total":5,"ideas":[
+        {"title":"AI 漫剧","status":"seed","nextAction":"研究同类作品"},{"title":"读书索引","status":"building","nextAction":"整理第一批卡片"}
+      ]}}],
+      "expectWrites": {"tasks.created":0}, "maxConfirmations": 0
     }
   },
   {
-    "id": "stalled-manga-idea-30",
-    "milestone": "M3",
-    "domain": "ideas",
-    "mode": "text",
-    "history": [],
+    "id": "stalled-manga-idea-30", "milestone": "M3", "domain": "ideas", "mode": "text", "history": [],
     "input": "AI 漫剧现在什么情况？多久没进展了，记录的下一步是什么？",
     "checks": {
-      "mustIncludeAny": [
-        [
-          "15 天",
-          "15天",
-          "十五天",
-          "十五 天"
-        ],
-        [
-          "研究同类作品",
-          "同类作品",
-          "同类型作品"
-        ]
-      ],
-      "toolFacts": [
-        {
-          "name": "list_ideas",
-          "output": {
-            "ideas": [
-              {
-                "title": "AI 漫剧",
-                "daysStalled": 15,
-                "stalled": true,
-                "nextAction": "研究同类作品"
-              }
-            ]
-          }
-        }
-      ],
-      "expectWrites": {
-        "tasks.created": 0
-      },
-      "maxConfirmations": 0
+      "mustIncludeAny": [["15 天","15天","十五天","十五 天"], ["研究同类作品","同类作品","同类型作品"]],
+      "toolFacts": [{"name":"list_ideas","output":{"ideas":[{"title":"AI 漫剧","daysStalled":15,"stalled":true,"nextAction":"研究同类作品"}]}}],
+      "expectWrites": {"tasks.created":0}, "maxConfirmations": 0
     }
   },
   {
-    "id": "advance-manga-idea-31",
-    "milestone": "M3",
-    "domain": "ideas",
-    "mode": "text",
-    "history": [],
+    "id": "advance-manga-idea-31", "milestone": "M3", "domain": "ideas", "mode": "text", "history": [],
     "input": "帮我把 AI 漫剧拆成本周能做的具体任务，每项不超过两小时，先给我确认卡。",
     "checks": {
-      "mustSucceedTools": [
-        "advance_idea"
-      ],
-      "minConfirmations": 1,
-      "maxConfirmations": 1,
-      "ideaPlan": {
-        "titleIncludes": "AI 漫剧",
-        "from": "2026-11-12",
-        "to": "2026-11-15",
-        "maxSteps": 3
-      },
-      "expectWrites": {
-        "tasks.created": 0,
-        "tasks.rescheduled": 0
-      }
+      "mustSucceedTools": ["advance_idea"], "minConfirmations":1, "maxConfirmations":1,
+      "ideaPlan": {"titleIncludes":"AI 漫剧","from":"2026-11-12","to":"2026-11-15","maxSteps":3},
+      "expectWrites": {"tasks.created":0,"tasks.rescheduled":0}
     }
   },
   {
-    "id": "english-progress-32",
-    "milestone": "M3",
-    "domain": "learning",
-    "mode": "text",
-    "history": [],
+    "id": "english-progress-32", "milestone": "M3", "domain": "learning", "mode": "text", "history": [],
     "input": "我的英语学习进度怎么样？说说已完成单元数和这周实记分钟对比目标。",
     "checks": {
-      "mustInclude": [
-        "75",
-        "150"
-      ],
-      "mustIncludeAny": [
-        [
-          "2/8",
-          "2 / 8",
-          "8 个单元中",
-          "8个单元",
-          "25%",
-          "25％"
-        ]
-      ],
-      "toolFacts": [
-        {
-          "name": "learning_progress",
-          "output": [
-            {
-              "id": "english",
-              "completedUnits": 2,
-              "totalUnits": 8,
-              "recordedMinutes": 75,
-              "weeklyMinutes": 150
-            }
-          ]
-        }
-      ],
-      "expectWrites": {
-        "tasks.created": 0
-      },
-      "maxConfirmations": 0
+      "mustInclude": ["75","150"], "mustIncludeAny": [["2/8","2 / 8","8 个单元中","8个单元","25%","25％"]],
+      "toolFacts": [{"name":"learning_progress","output":[{"id":"english","completedUnits":2,"totalUnits":8,"recordedMinutes":75,"weeklyMinutes":150}]}],
+      "expectWrites": {"tasks.created":0}, "maxConfirmations": 0
     }
   },
   {
-    "id": "quant-quiz-33",
-    "milestone": "M3",
-    "domain": "learning",
-    "mode": "text",
-    "history": [],
-    "fixture": "without_quiz_cards",
+    "id": "quant-quiz-33", "milestone": "M3", "domain": "learning", "mode": "text", "history": [], "fixture": "without_quiz_cards",
     "input": "从我的量化学习笔记考我 3 道题，先只出题。",
     "checks": {
-      "mustSucceedTools": [
-        "start_quiz"
-      ],
-      "toolFacts": [
-        {
-          "name": "start_quiz",
-          "output": {
-            "requested": 3,
-            "cards": [
-              {
-                "number": 1,
-                "trackId": "quant"
-              },
-              {
-                "number": 2,
-                "trackId": "quant"
-              },
-              {
-                "number": 3,
-                "trackId": "quant"
-              }
-            ]
-          }
-        }
-      ],
-      "expectWrites": {
-        "quiz.cardsCreated": 3,
-        "quiz.activeCount": 3,
-        "quiz.correctAnswers": 0
-      },
+      "mustSucceedTools": ["start_quiz"],
+      "toolFacts": [{"name":"start_quiz","output":{"requested":3,"cards":[{"number":1,"trackId":"quant"},{"number":2,"trackId":"quant"},{"number":3,"trackId":"quant"}]}}],
+      "expectWrites": {"quiz.cardsCreated":3,"quiz.activeCount":3,"quiz.correctAnswers":0},
       "judge": "回答给出恰好三道不同且可作答的量化回测学习问题，并等用户作答。三条笔记原文是：样本外数据不参与参数选择。净收益等于毛收益减去交易成本。未来函数会引入交易当时不可得的信息。题干可使用原文里的术语并询问关系。不得在答题前给出参考答案或额外第四题。"
     }
   },
   {
-    "id": "grade-quant-answer-34",
-    "milestone": "M3",
-    "domain": "learning",
-    "mode": "text",
-    "history": [
-      {
-        "role": "user",
-        "content": "考我量化回测。"
-      },
-      {
-        "role": "assistant",
-        "content": "第一题，样本外检验使用什么数据？"
-      }
-    ],
+    "id": "grade-quant-answer-34", "milestone": "M3", "domain": "learning", "mode": "text",
+    "history": [{"role":"user","content":"考我量化回测。"},{"role":"assistant","content":"第一题，样本外检验使用什么数据？"}],
     "input": "第一题我答：样本外数据不参与参数选择。我答对了吗？",
     "checks": {
-      "mustIncludeAny": [
-        [
-          "答对",
-          "正确",
-          "对了"
-        ]
-      ],
-      "toolFacts": [
-        {
-          "name": "grade_answer",
-          "output": {
-            "correct": true,
-            "intervalDays": 1,
-            "nextReview": "2026-11-13"
-          }
-        }
-      ],
-      "minReceipts": 1,
-      "expectWrites": {
-        "quiz.cardsCreated": 0,
-        "quiz.correctAnswers": 1
-      }
+      "mustIncludeAny": [["答对","正确","对了"]],
+      "toolFacts": [{"name":"grade_answer","output":{"correct":true,"intervalDays":1,"nextReview":"2026-11-13"}}],
+      "minReceipts":1, "expectWrites": {"quiz.cardsCreated":0,"quiz.correctAnswers":1}
     }
   },
   {
-    "id": "related-reading-35",
-    "milestone": "M3",
-    "domain": "reading",
-    "mode": "text",
-    "history": [],
+    "id": "related-reading-35", "milestone": "M3", "domain": "reading", "mode": "text", "history": [],
     "input": "最近读的文章里，有什么和 AI 漫剧有关？请给我原笔记链接。",
     "checks": {
-      "mustIncludeAny": [
-        [
-          "[[LifeOps/Knowledge/Reading/角色设定表与镜头连续性",
-          "[[角色设定表与镜头连续性]]",
-          "LifeOps/Knowledge/Reading/角色设定表与镜头连续性.md"
-        ]
-      ],
-      "toolFacts": [
-        {
-          "name": "search_reading",
-          "output": {
-            "articles": [
-              {
-                "title": "角色设定表与镜头连续性",
-                "ideas": [
-                  {
-                    "title": "AI 漫剧"
-                  }
-                ]
-              }
-            ]
-          }
-        }
-      ],
-      "expectWrites": {
-        "tasks.created": 0
-      },
-      "maxConfirmations": 0
+      "mustIncludeAny": [["[[LifeOps/Knowledge/Reading/角色设定表与镜头连续性","[[角色设定表与镜头连续性]]","LifeOps/Knowledge/Reading/角色设定表与镜头连续性.md"]],
+      "toolFacts": [{"name":"search_reading","output":{"articles":[{"title":"角色设定表与镜头连续性","ideas":[{"title":"AI 漫剧"}]}]}}],
+      "expectWrites": {"tasks.created":0}, "maxConfirmations": 0
     }
   },
   {
-    "id": "next-week-learning-36",
-    "milestone": "M3",
-    "domain": "learning",
-    "mode": "text",
-    "history": [],
+    "id": "next-week-learning-36", "milestone": "M3", "domain": "learning", "mode": "text", "history": [],
     "input": "我已经保存的下周英语学习计划是什么？下周多少分钟，先学哪些？",
     "checks": {
-      "mustInclude": [
-        "100"
-      ],
-      "mustIncludeAny": [
-        [
-          "连读与弱读",
-          "连读、弱读",
-          "连读和弱读"
-        ],
-        [
-          "短句跟读",
-          "跟读短句"
-        ]
-      ],
-      "toolFacts": [
-        {
-          "name": "learning_progress",
-          "output": [
-            {
-              "id": "english",
-              "nextWeek": {
-                "from": "2026-11-16",
-                "to": "2026-11-22",
-                "weeklyMinutes": 100,
-                "remaining": [
-                  {
-                    "title": "连读与弱读"
-                  },
-                  {
-                    "title": "短句跟读"
-                  }
-                ]
-              }
-            }
-          ]
-        }
-      ],
-      "expectWrites": {
-        "tasks.created": 0
-      },
-      "maxConfirmations": 0
+      "mustInclude": ["100"], "mustIncludeAny": [["连读与弱读","连读、弱读","连读和弱读"], ["短句跟读","跟读短句"]],
+      "toolFacts": [{"name":"learning_progress","output":[{"id":"english","nextWeek":{"from":"2026-11-16","to":"2026-11-22","weeklyMinutes":100,
+        "remaining":[{"title":"连读与弱读"},{"title":"短句跟读"}]}}]}],
+      "expectWrites": {"tasks.created":0}, "maxConfirmations": 0
     }
   },
   {
-    "id": "previous-week-summary-37",
-    "milestone": "M4",
-    "domain": "summary",
-    "mode": "text",
-    "history": [],
+    "id": "previous-week-summary-37", "milestone": "M4", "domain": "summary", "mode": "text", "history": [],
     "input": "上周做得怎么样？告诉我完成了多少项，再给一条有依据的改进。",
     "checks": {
-      "mustIncludeAny": [
-        [
-          "26",
-          "二十六"
-        ],
-        [
-          "下一步",
-          "收尾",
-          "后续",
-          "后续动作"
-        ]
-      ],
-      "toolFacts": [
-        {
-          "name": "get_summaries",
-          "output": {
-            "level": "week",
-            "summaries": [
-              {
-                "period": "2026-W45",
-                "metrics": {
-                  "tasksCompleted": 26
-                },
-                "complete": true
-              }
-            ]
-          }
-        }
-      ],
-      "expectWrites": {
-        "tasks.created": 0,
-        "tasks.deleted": 0
-      },
-      "maxConfirmations": 0
+      "mustIncludeAny": [["26","二十六"],["下一步","收尾","后续","后续动作"]],
+      "toolFacts": [{"name":"get_summaries","output":{"level":"week","summaries":[{"period":"2026-W45","metrics":{"tasksCompleted":26},"complete":true}]}}],
+      "expectWrites": {"tasks.created":0,"tasks.deleted":0}, "maxConfirmations":0
     }
   },
   {
-    "id": "month-comparison-38",
-    "milestone": "M4",
-    "domain": "summary",
-    "mode": "text",
-    "history": [],
+    "id": "month-comparison-38", "milestone": "M4", "domain": "summary", "mode": "text", "history": [],
     "input": "这个月和上个月比怎么样？对比任务完成数和人民币、美元净盈亏，说明本月统计到哪天。",
     "checks": {
-      "mustInclude": [
-        "46",
-        "60",
-        "180",
-        "120"
-      ],
-      "mustIncludeAny": [
-        [
-          "11月12日",
-          "11 月 12 日",
-          "11-12",
-          "11/12",
-          "11 月 1 日至 12 日",
-          "11月1日至12日"
-        ],
-        [
-          "人民币",
-          "CNY"
-        ],
-        [
-          "美元",
-          "USD"
-        ]
-      ],
+      "mustInclude": ["46","60","180","120"],
+      "mustIncludeAny": [["11月12日","11 月 12 日","11-12","11/12","11 月 1 日至 12 日","11月1日至12日"],["人民币","CNY"],["美元","USD"]],
       "toolFacts": [
-        {
-          "name": "get_summaries",
-          "output": {
-            "level": "month",
-            "summaries": [
-              {
-                "period": "2026-10",
-                "metrics": {
-                  "tasksCompleted": 60,
-                  "tradePnlCny": 5,
-                  "tradePnlUsd": 15
-                }
-              }
-            ]
-          }
-        },
-        {
-          "name": "get_summaries",
-          "output": {
-            "level": "month",
-            "summaries": [
-              {
-                "period": "2026-11",
-                "through": "2026-11-12",
-                "metrics": {
-                  "tasksCompleted": 46,
-                  "tradePnlCny": 180,
-                  "tradePnlUsd": 120
-                }
-              }
-            ]
-          }
-        }
+        {"name":"get_summaries","output":{"level":"month","summaries":[{"period":"2026-10","metrics":{"tasksCompleted":60,"tradePnlCny":5,"tradePnlUsd":15}}]}},
+        {"name":"get_summaries","output":{"level":"month","summaries":[{"period":"2026-11","through":"2026-11-12","metrics":{"tasksCompleted":46,"tradePnlCny":180,"tradePnlUsd":120}}]}}
       ],
-      "expectWrites": {
-        "tasks.created": 0,
-        "trades.created": 0
-      },
-      "maxConfirmations": 0
+      "expectWrites": {"tasks.created":0,"trades.created":0}, "maxConfirmations":0
     }
   },
   {
-    "id": "remaining-task-reminder-39",
-    "milestone": "M4",
-    "domain": "proactive",
-    "mode": "text",
-    "history": [],
+    "id": "remaining-task-reminder-39", "milestone": "M4", "domain": "proactive", "mode": "text", "history": [],
     "input": "给我一条今晚的未完成任务提醒，现在就说。告诉我今天还剩几项，并指出最要紧的两件。",
     "checks": {
-      "mustInclude": [
-        "见客户",
-        "写周报"
-      ],
-      "mustIncludeAny": [
-        [
-          "9 项",
-          "9项",
-          "9 个",
-          "9个",
-          "九项",
-          "九件",
-          "九个"
-        ]
-      ],
-      "expectWrites": {
-        "tasks.created": 0,
-        "tasks.deleted": 0
-      },
-      "maxConfirmations": 0,
-      "maxReplyChars": 220
+      "mustInclude": ["见客户","写周报"],
+      "mustIncludeAny": [["9 项","9项","9 个","9个","九项","九件","九个"]],
+      "expectWrites": {"tasks.created":0,"tasks.deleted":0}, "maxConfirmations":0, "maxReplyChars":220
     }
   },
   {
-    "id": "remembered-personal-facts-40",
-    "milestone": "M4",
-    "domain": "memory",
-    "mode": "text",
-    "history": [],
+    "id": "remembered-personal-facts-40", "milestone": "M4", "domain": "memory", "mode": "text", "history": [],
     "input": "你记得我哪些事？请只说已经记下的习惯和做事偏好。",
     "checks": {
-      "mustInclude": [
-        "周三",
-        "读书笔记",
-        "两列",
-        "对照表"
-      ],
-      "mustNotCallTools": [
-        "append_memory_note",
-        "review_personal_memory"
-      ],
-      "expectWrites": {
-        "tasks.created": 0
-      },
-      "maxConfirmations": 0
+      "mustInclude": ["周三","读书笔记","两列","对照表"],
+      "mustNotCallTools": ["append_memory_note","review_personal_memory"],
+      "expectWrites": {"tasks.created":0}, "maxConfirmations":0
     }
   },
   {
-    "id": "recent-state-direct-42",
-    "milestone": "M5",
-    "domain": "voice-correction",
-    "mode": "text",
-    "history": [],
+    "id": "recent-state-direct-42", "milestone": "M5", "domain": "voice-correction", "mode": "text", "history": [],
     "input": "说说我最近的状态。",
     "checks": {
-      "mustSucceedAnyTool": [
-        "get_stats",
-        "get_summaries",
-        "query_vault"
-      ],
-      "mustIncludeAny": [
-        [
-          "任务",
-          "待办",
-          "打卡",
-          "习惯"
-        ]
-      ],
-      "mustNotInclude": [
-        "你继续说",
-        "你想了解",
-        "你想看哪"
-      ],
-      "expectWrites": {
-        "tasks.created": 0,
-        "tasks.deleted": 0
-      },
-      "maxConfirmations": 0
+      "mustSucceedAnyTool": ["get_stats", "get_summaries", "query_vault"],
+      "mustIncludeAny": [["任务", "待办", "打卡", "习惯"]],
+      "mustNotInclude": ["你继续说", "你想了解", "你想看哪"],
+      "expectWrites": {"tasks.created": 0, "tasks.deleted": 0}, "maxConfirmations": 0
     }
   },
   {
-    "id": "recent-state-correction-43",
-    "milestone": "M5",
-    "domain": "voice-correction",
-    "mode": "text",
-    "history": [
-      {
-        "role": "user",
-        "content": "总结一下最近的任务完成情况。"
-      },
-      {
-        "role": "assistant",
-        "content": "今天的待办主要是客户沟通和写周报。"
-      }
-    ],
+    "id": "recent-state-correction-43", "milestone": "M5", "domain": "voice-correction", "mode": "text",
+    "history": [{"role": "user", "content": "总结一下最近的任务完成情况。"}, {"role": "assistant", "content": "今天的待办主要是客户沟通和写周报。"}],
     "input": "不对，我问的是上周任务完成情况。",
     "checks": {
-      "mustIncludeAny": [
-        [
-          "26",
-          "二十六"
-        ]
-      ],
-      "mustNotInclude": [
-        "你继续说"
-      ],
-      "toolFacts": [
-        {
-          "name": "get_summaries",
-          "output": {
-            "summaries": [
-              {
-                "period": "2026-W45",
-                "metrics": {
-                  "tasksCompleted": 26
-                }
-              }
-            ]
-          }
-        }
-      ],
-      "expectWrites": {
-        "tasks.created": 0,
-        "tasks.deleted": 0
-      },
-      "maxConfirmations": 0
+      "mustIncludeAny": [["26", "二十六"]], "mustNotInclude": ["你继续说"],
+      "toolFacts": [{"name": "get_summaries", "output": {"summaries": [{"period": "2026-W45", "metrics": {"tasksCompleted": 26}}]}}],
+      "expectWrites": {"tasks.created": 0, "tasks.deleted": 0}, "maxConfirmations": 0
     }
   },
   {
-    "id": "short-acknowledgement-44",
-    "milestone": "M5",
-    "domain": "voice-correction",
-    "mode": "text",
-    "history": [
-      {
-        "role": "user",
-        "content": "上周完成了多少项任务？"
-      },
-      {
-        "role": "assistant",
-        "content": "你是要查上周的实际完成数吗？"
-      }
-    ],
+    "id": "short-acknowledgement-44", "milestone": "M5", "domain": "voice-correction", "mode": "text",
+    "history": [{"role": "user", "content": "上周完成了多少项任务？"}, {"role": "assistant", "content": "你是要查上周的实际完成数吗？"}],
     "input": "对。",
     "checks": {
-      "mustIncludeAny": [
-        [
-          "26",
-          "二十六"
-        ]
-      ],
-      "mustNotInclude": [
-        "你继续说"
-      ],
-      "toolFacts": [
-        {
-          "name": "get_summaries",
-          "output": {
-            "summaries": [
-              {
-                "period": "2026-W45",
-                "metrics": {
-                  "tasksCompleted": 26
-                }
-              }
-            ]
-          }
-        }
-      ],
-      "expectWrites": {
-        "tasks.created": 0,
-        "tasks.deleted": 0
-      },
-      "maxConfirmations": 0
+      "mustIncludeAny": [["26", "二十六"]], "mustNotInclude": ["你继续说"],
+      "toolFacts": [{"name": "get_summaries", "output": {"summaries": [{"period": "2026-W45", "metrics": {"tasksCompleted": 26}}]}}],
+      "expectWrites": {"tasks.created": 0, "tasks.deleted": 0}, "maxConfirmations": 0
     }
   },
   {
-    "id": "short-correction-45",
-    "milestone": "M5",
-    "domain": "voice-correction",
-    "mode": "text",
-    "history": [
-      {
-        "role": "user",
-        "content": "说说上周完成了多少任务。"
-      },
-      {
-        "role": "assistant",
-        "content": "你问的是本月到今天的完成数。"
-      }
-    ],
+    "id": "short-correction-45", "milestone": "M5", "domain": "voice-correction", "mode": "text",
+    "history": [{"role": "user", "content": "说说上周完成了多少任务。"}, {"role": "assistant", "content": "你问的是本月到今天的完成数。"}],
     "input": "不对不对。",
     "checks": {
-      "mustIncludeAny": [
-        [
-          "26",
-          "二十六"
-        ]
-      ],
-      "mustNotInclude": [
-        "你继续说"
-      ],
-      "toolFacts": [
-        {
-          "name": "get_summaries",
-          "output": {
-            "summaries": [
-              {
-                "period": "2026-W45",
-                "metrics": {
-                  "tasksCompleted": 26
-                }
-              }
-            ]
-          }
-        }
-      ],
-      "expectWrites": {
-        "tasks.created": 0,
-        "tasks.deleted": 0
-      },
-      "maxConfirmations": 0
+      "mustIncludeAny": [["26", "二十六"]], "mustNotInclude": ["你继续说"],
+      "toolFacts": [{"name": "get_summaries", "output": {"summaries": [{"period": "2026-W45", "metrics": {"tasksCompleted": 26}}]}}],
+      "expectWrites": {"tasks.created": 0, "tasks.deleted": 0}, "maxConfirmations": 0
     }
   },
   {
-    "id": "finished-correction-46",
-    "milestone": "M5",
-    "domain": "voice-correction",
-    "mode": "text",
-    "history": [
-      {
-        "role": "user",
-        "content": "我想知道英语学习进度。"
-      },
-      {
-        "role": "assistant",
-        "content": "我去看看交易的完成情况。"
-      }
-    ],
+    "id": "finished-correction-46", "milestone": "M5", "domain": "voice-correction", "mode": "text",
+    "history": [{"role": "user", "content": "我想知道英语学习进度。"}, {"role": "assistant", "content": "我去看看交易的完成情况。"}],
     "input": "等一下，我问的是本周英语学了多久。",
     "checks": {
-      "mustInclude": [
-        "英语"
-      ],
-      "mustIncludeAny": [
-        [
-          "75",
-          "七十五",
-          "一小时十五"
-        ]
-      ],
-      "mustNotInclude": [
-        "你继续说",
-        "未记录具体时长"
-      ],
+      "mustInclude": ["英语"], "mustIncludeAny": [["75", "七十五", "一小时十五"]],
+      "mustNotInclude": ["你继续说", "未记录具体时长"],
       "anyToolFacts": [
-        {
-          "name": "learning_progress",
-          "output": [
-            {
-              "id": "english",
-              "recordedMinutes": 75
-            }
-          ]
-        },
-        {
-          "name": "get_stats",
-          "output": {
-            "domain": "learning",
-            "tracks": [
-              {
-                "id": "english",
-                "minutes": 75
-              }
-            ]
-          }
-        }
+        {"name": "learning_progress", "output": [{"id": "english", "recordedMinutes": 75}]},
+        {"name": "get_stats", "output": {"domain": "learning", "tracks": [{"id": "english", "minutes": 75}]}}
       ],
-      "expectWrites": {
-        "tasks.created": 0,
-        "tasks.deleted": 0
-      },
-      "maxConfirmations": 0
+      "expectWrites": {"tasks.created": 0, "tasks.deleted": 0}, "maxConfirmations": 0
     }
   },
   {
-    "id": "voice-count-period-correction-48",
-    "milestone": "M6",
-    "domain": "voice-correction",
-    "mode": "voice",
-    "history": [
-      {
-        "role": "user",
-        "content": "上周完成了多少项任务？"
-      },
-      {
-        "role": "assistant",
-        "content": "你是要查上周的实际完成数吗？"
-      }
-    ],
+    "id": "voice-count-period-correction-48", "milestone": "M6", "domain": "voice-correction", "mode": "voice",
+    "history": [{"role": "user", "content": "上周完成了多少项任务？"}, {"role": "assistant", "content": "你是要查上周的实际完成数吗？"}],
     "input": "不对，我刚才问的是上个月。",
     "checks": {
-      "mustInclude": [
-        "上个月"
-      ],
-      "toolFacts": [
-        {
-          "name": "get_stats",
-          "output": {
-            "domain": "tasks",
-            "range": {
-              "from": "2026-10-01",
-              "to": "2026-10-31"
-            }
-          }
-        }
-      ],
-      "expectWrites": {
-        "tasks.created": 0,
-        "tasks.deleted": 0
-      },
-      "maxConfirmations": 0
+      "mustInclude": ["上个月"],
+      "toolFacts": [{"name": "get_stats", "output": {"domain": "tasks", "range": {"from": "2026-10-01", "to": "2026-10-31"}}}],
+      "expectWrites": {"tasks.created": 0, "tasks.deleted": 0}, "maxConfirmations": 0
     }
   },
   {
-    "id": "voice-named-reminder-51",
-    "milestone": "M6",
-    "domain": "tasks",
-    "mode": "voice",
-    "input": "明天下午3:15提醒岑知禾给蓝色样品盒贴标签。",
-    "history": [],
+    "id": "voice-named-reminder-51", "milestone": "M6", "domain": "tasks", "mode": "voice",
+    "input": "明天下午3:15提醒岑知禾给蓝色样品盒贴标签。", "history": [],
     "checks": {
-      "mustSucceedTools": [
-        "create_task"
-      ],
-      "minReceipts": 1,
-      "expectWrites": {
-        "tasks.created": 1,
-        "tasks.deleted": 0,
-        "tasks.rescheduled": 0
-      },
-      "createdTask": {
-        "titleIncludes": "岑知禾给蓝色样品盒贴标签",
-        "date": "2026-11-13",
-        "time": "15:15"
-      },
-      "mustInclude": [
-        "岑知禾",
-        "样品盒"
-      ],
-      "mustSpeak": [
-        "岑知禾",
-        "样品盒",
-        "15:15"
-      ]
+      "mustSucceedTools": ["create_task"], "minReceipts": 1,
+      "expectWrites": {"tasks.created": 1, "tasks.deleted": 0, "tasks.rescheduled": 0},
+      "createdTask": {"titleIncludes": "岑知禾给蓝色样品盒贴标签", "date": "2026-11-13", "time": "15:15"},
+      "mustInclude": ["岑知禾", "样品盒"], "mustSpeak": ["岑知禾", "样品盒", "15:15"]
     }
   },
   {
@@ -2057,15 +879,8 @@
         "整理资料",
         "打扫房间"
       ],
-      "orderedIncludes": [
-        "已逾期 2 项",
-        "补齐纸箱清单",
-        "今天到期 7 项",
-        "见客户"
-      ],
-      "mustSucceedTools": [
-        "list_tasks"
-      ],
+      "orderedIncludes": ["已逾期 2 项", "补齐纸箱清单", "今天到期 7 项", "见客户"],
+      "mustSucceedTools": ["list_tasks"],
       "mustNotCallTools": [
         "delete_task",
         "delete_habit"
@@ -2078,147 +893,47 @@
     }
   },
   {
-    "id": "voice-planned-finish-53",
-    "milestone": "M6",
-    "domain": "tasks",
-    "mode": "voice",
-    "input": "明天下午三点前给橙色档案盒贴标签。",
-    "history": [],
+    "id": "voice-planned-finish-53", "milestone": "M6", "domain": "tasks", "mode": "voice",
+    "input": "明天下午三点前给橙色档案盒贴标签。", "history": [],
     "checks": {
-      "mustSucceedTools": [
-        "create_task"
-      ],
-      "minReceipts": 1,
-      "maxConfirmations": 0,
-      "expectWrites": {
-        "tasks.created": 1,
-        "tasks.deleted": 0,
-        "tasks.rescheduled": 0
-      },
-      "createdTask": {
-        "titleIncludes": "给橙色档案盒贴标签",
-        "date": "2026-11-13",
-        "endTime": "15:00"
-      },
-      "mustSpeak": [
-        "橙色档案盒",
-        "15:00"
-      ]
+      "mustSucceedTools": ["create_task"], "minReceipts": 1, "maxConfirmations": 0,
+      "expectWrites": {"tasks.created": 1, "tasks.deleted": 0, "tasks.rescheduled": 0},
+      "createdTask": {"titleIncludes": "给橙色档案盒贴标签", "date": "2026-11-13", "endTime": "15:00"},
+      "mustSpeak": ["橙色档案盒", "15:00"]
     }
   },
   {
-    "id": "text-planned-finish-54",
-    "milestone": "M6",
-    "domain": "tasks",
-    "mode": "text",
-    "input": "明天下午三点前给橙色档案盒贴标签。",
-    "history": [],
+    "id": "text-planned-finish-54", "milestone": "M6", "domain": "tasks", "mode": "text",
+    "input": "明天下午三点前给橙色档案盒贴标签。", "history": [],
     "checks": {
-      "mustSucceedTools": [
-        "create_task"
-      ],
-      "minReceipts": 1,
-      "maxConfirmations": 0,
-      "expectWrites": {
-        "tasks.created": 1,
-        "tasks.deleted": 0,
-        "tasks.rescheduled": 0
-      },
-      "createdTask": {
-        "titleIncludes": "给橙色档案盒贴标签",
-        "date": "2026-11-13",
-        "endTime": "15:00"
-      },
-      "mustInclude": [
-        "橙色档案盒"
-      ]
+      "mustSucceedTools": ["create_task"], "minReceipts": 1, "maxConfirmations": 0,
+      "expectWrites": {"tasks.created": 1, "tasks.deleted": 0, "tasks.rescheduled": 0},
+      "createdTask": {"titleIncludes": "给橙色档案盒贴标签", "date": "2026-11-13", "endTime": "15:00"},
+      "mustInclude": ["橙色档案盒"]
     }
   },
   {
-    "id": "device-sleep-55",
-    "milestone": "M8",
-    "domain": "health",
-    "mode": "voice",
-    "input": "这周手表记录的睡眠时长平均是多少？只报天数和小时。",
-    "history": [],
-    "fixture": "device_sleep",
+    "id": "device-sleep-55", "milestone": "M8", "domain": "health", "mode": "voice",
+    "input": "这周手表记录的睡眠时长平均是多少？只报天数和小时。", "history": [], "fixture": "device_sleep",
     "checks": {
-      "mustSucceedTools": [
-        "get_stats"
-      ],
-      "toolFacts": [
-        {
-          "name": "get_stats",
-          "output": {
-            "domain": "health",
-            "range": {
-              "from": "2026-11-09",
-              "to": "2026-11-12"
-            },
-            "sleepHours": {
-              "average": 7.75,
-              "recordedDays": 2
-            }
-          }
-        }
-      ],
-      "mustIncludeAny": [
-        [
-          "7.75 小时",
-          "7.75小时"
-        ],
-        [
-          "2 天",
-          "2天",
-          "两天"
-        ]
-      ],
-      "mustNotInclude": [
-        "5.5 小时",
-        "5.5小时"
-      ],
-      "expectWrites": {
-        "tasks.created": 0,
-        "habits.deleted": 0
-      },
+      "mustSucceedTools": ["get_stats"],
+      "toolFacts": [{"name": "get_stats", "output": {"domain": "health", "range": {"from": "2026-11-09", "to": "2026-11-12"}, "sleepHours": {"average": 7.75, "recordedDays": 2}}}],
+      "mustIncludeAny": [["7.75 小时", "7.75小时"], ["2 天", "2天", "两天"]],
+      "mustNotInclude": ["5.5 小时", "5.5小时"],
+      "expectWrites": {"tasks.created": 0, "habits.deleted": 0},
       "maxConfirmations": 0
     }
   },
   {
-    "id": "voice-correct-task-time-56",
-    "milestone": "M6",
-    "domain": "voice-correction",
-    "mode": "voice",
-    "prelude": [
-      "明天下午3:00提醒我给靛色纸样夹贴标签。"
-    ],
-    "input": "不对，刚刚那条改成下午三点十五，日期不变。",
-    "history": [],
+    "id": "voice-correct-task-time-56", "milestone": "M6", "domain": "voice-correction", "mode": "voice",
+    "prelude": ["明天下午3:00提醒我给靛色纸样夹贴标签。"],
+    "input": "不对，刚刚那条改成下午三点十五，日期不变。", "history": [],
     "checks": {
-      "preludeCreatedTasks": 1,
-      "mustSucceedTools": [
-        "reschedule_task"
-      ],
-      "minReceipts": 1,
-      "maxConfirmations": 0,
-      "expectWrites": {
-        "tasks.created": 1,
-        "tasks.deleted": 0,
-        "tasks.rescheduled": 0,
-        "tasks.timeChanged": 0
-      },
-      "createdTask": {
-        "titleIncludes": "给靛色纸样夹贴标签",
-        "date": "2026-11-13",
-        "time": "15:15"
-      },
-      "mustInclude": [
-        "靛色纸样夹",
-        "15:15"
-      ],
-      "mustSpeak": [
-        "15:15"
-      ]
+      "preludeCreatedTasks": 1, "mustSucceedTools": ["reschedule_task"],
+      "minReceipts": 1, "maxConfirmations": 0,
+      "expectWrites": {"tasks.created": 1, "tasks.deleted": 0, "tasks.rescheduled": 0, "tasks.timeChanged": 0},
+      "createdTask": {"titleIncludes": "给靛色纸样夹贴标签", "date": "2026-11-13", "time": "15:15"},
+      "mustInclude": ["靛色纸样夹", "15:15"], "mustSpeak": ["15:15"]
     }
   },
   {
@@ -2618,25 +1333,12 @@
     ],
     "input": "撤销刚才的修改。",
     "checks": {
-      "mustInclude": [
-        "已撤销",
-        "林小葵"
-      ],
-      "mustSucceedTools": [
-        "reschedule_task",
-        "undo_latest_operation"
-      ],
+      "mustInclude": ["已撤销", "林小葵"],
+      "mustSucceedTools": ["reschedule_task", "undo_latest_operation"],
       "maxConfirmations": 0,
       "preludeCreatedTasks": 1,
-      "createdTask": {
-        "titleIncludes": "林小葵",
-        "date": "2026-11-13",
-        "time": "15:15"
-      },
-      "expectWrites": {
-        "tasks.created": 1,
-        "tasks.deleted": 0
-      },
+      "createdTask": { "titleIncludes": "林小葵", "date": "2026-11-13", "time": "15:15" },
+      "expectWrites": { "tasks.created": 1, "tasks.deleted": 0 },
       "maxReplyChars": 200
     }
   },
