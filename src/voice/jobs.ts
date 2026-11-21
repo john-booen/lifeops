@@ -4,6 +4,7 @@ import { newLocalOperationId } from "../operationIdentity";
 import type { AgentResponse } from "../types";
 import { hasGroundedSpeechNumbers } from "./summaryNumbers";
 import { speakTaskReport, taskReportBrief } from "./taskReportSpeech";
+import { reportSpeechFallback } from "./reportSpeechFallback";
 
 export interface VoiceJob {
   id: string;
@@ -32,10 +33,13 @@ export function voiceJobSpeech(detail: string, summary?: string): string {
   const spoken = summary?.trim();
   const taskBrief = taskReportBrief(detail);
   if (taskBrief) return speakTaskReport(taskBrief, spoken?.startsWith(taskBrief.facts) ? spoken.slice(taskBrief.facts.length) : undefined);
+  const fallback = () => reportSpeechFallback(detail) ?? "详细内容已经放到面板里了。";
   if (spoken && !needsVoiceJobSummary(spoken)) {
-    return hasGroundedSpeechNumbers(detail, spoken) ? spoken.replace(/\s+/gu, " ") : "详细内容已经放到面板里了。";
+    if (!hasGroundedSpeechNumbers(detail, spoken)) return fallback();
+    const clean = spoken.replace(/\s+/gu, " ");
+    return hasGroundedSpeechNumbers("", clean) ? reportSpeechFallback(detail, clean) ?? clean : clean;
   }
-  return needsVoiceJobSummary(detail) ? "详细内容已经放到面板里了。" : detail;
+  return needsVoiceJobSummary(detail) ? fallback() : detail;
 }
 
 const target = { type: "string", description: "填任务编号或标题关键词。用户明确说最近的才用 latest，指代不清用 ambiguous。" };

@@ -36,6 +36,7 @@ const { AgentRuntime } = await import("../src/agentRuntime");
 const { OperationLedger } = await import("../src/dataFoundation/operationLedger");
 const { AgentLoop } = await import("../src/agent/AgentLoop");
 const { voiceJobSpeech } = await import("../src/voice/jobs");
+const { hasGroundedSpeechNumbers } = await import("../src/voice/summaryNumbers");
 const { buildResidentContext, RESIDENT_CONTEXT_BYTE_LIMIT } = await import("../src/agent/context");
 const { settingsForAgentModel } = await import("../src/agent/models");
 const { executeConfirmedToolBatch } = await import("../src/toolBatch");
@@ -1626,7 +1627,27 @@ describe("voice background AgentLoop", () => {
     const result = await new AgentLoop(host).run(input({ source: "voice", message: "总结虚构周报", voiceBackground: true }));
 
     expect(result.text).toBe(detail);
-    expect(result.voiceSpeech).toBe(accepted ? spoken : "详细内容已经放到面板里了。");
+    expect(hasGroundedSpeechNumbers(detail, spoken)).toBe(accepted);
+    expect(result.voiceSpeech).toBe(accepted ? spoken : "上周计划10项。上周完成3项。上周完成率是60%。完整报告还有其他细节。");
+    expect(hasGroundedSpeechNumbers(detail, result.voiceSpeech!)).toBe(true);
+  });
+
+  for (const [name, facts] of [
+    ["交易", ["上周记录4笔交易。", "上周人民币净盈亏是-120元。", "上周美元净盈亏是35美元。"]],
+    ["学习", ["上周学习记录75分钟。", "上周完成3项练习。", "上周计划150分钟。"]],
+    ["归档", ["这两周覆盖14天。", "这两周2天命中归档主题。", "这两周12天有日记但未提及归档主题。"]]
+  ] as const) it.each(["unavailable", "wrong-number", "markdown"])("keeps actual background " + name + " report facts when speech fails: %s", async mode => {
+    const detail = "# 虚构" + name + "报告\n\n" + facts.join("\n");
+    responses.push(reply("正在核对。"), reply(detail), mode === "unavailable" ? new Error("虚构口语整理不可用")
+      : reply(mode === "wrong-number" ? "上周记录999笔交易。" : "# 请看面板"));
+    const result = await new AgentLoop(host).run(input({ source: "voice", voiceBackground: true, message: "总结虚构" + name + "报告" }));
+    expect(result.text).toBe(detail);
+    for (const fact of facts) expect(result.voiceSpeech).toContain(fact);
+    expect(result.voiceSpeech).not.toMatch(/999|面板|#|\|/u);
+    expect(hasGroundedSpeechNumbers(detail, result.voiceSpeech!)).toBe(true);
+    expect(roles).toEqual(["deep", "deep", "fast"]);
+    expect(result.receipts).toEqual([]);
+    expect((await store.readTaskDb()).tasks).toEqual([]);
   });
 
   const taskSpeechReports = [
