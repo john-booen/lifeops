@@ -24,6 +24,7 @@ import { agentToolsForChat, getLifeOpsTool } from "../toolRegistry";
 import { prepareToolBatch } from "../toolBatch";
 import type { AgentActionSuggestion, AgentConversationMessage, AgentResponse, AgentWriteReceipt, LifeOpsSettings, ProviderRunResult } from "../types";
 import { agentHistoryMessages, buildResidentContext, clipBytes, type ResidentContext } from "./context";
+import { explicitTitleEdits,completeTitleEditCalls,titleEditCall } from "./explicitTitleEdits";
 import { recurringScheduleAnswer } from "./recurringSchedule";
 import { previousSavedTask, unverifiedTaskTimeChanges, type SavedTaskReference } from "./taskTimeCorrection";
 import { explicitRunningCheckin, explicitSingleTimedTask } from "./offlineFallback";
@@ -337,6 +338,7 @@ export class AgentLoop {
         && /(?:交易系统|交易纪律)[^。！？!?]*提一条改进建议/u.test(input.message) && /(?:哪笔|哪一笔)[^。！？!?]*哪条规则/u.test(input.message);
       const asksMarketWinRates = !input.voiceBackground && /(?:各[^。！？!?]*市场|市场[^。！？!?]*分别)[^。！？!?]*胜率/u.test(input.message)
         && !/盈亏|回撤|收益率|最大亏损/u.test(input.message);
+      const exactTitleEdits=!input.voiceBackground?await explicitTitleEdits(this.host.store,input.message):undefined;
       for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
         assertPolicy();
         const final = round === MAX_TOOL_ROUNDS || state.confirmations.size > 0;
@@ -348,8 +350,12 @@ export class AgentLoop {
         const responseRole = role === "fast" && input.source === "text" && (requiredTool || usesEvidence) ? "main" : role;
         const availableTools = final ? [] : requiredTool === "propose_task_plan" ? tools.filter(tool => tool.name === requiredTool) : palette;
         let response = await this.callModel(input, state, responseRole, messages, availableTools, final,
-          requiredTool !== "propose_task_plan" && !state.taskContentCalls?.size, requiredTool);
+          requiredTool !== "propose_task_plan" && !state.taskContentCalls?.size && !exactTitleEdits, requiredTool);
         assertPolicy();
+        if(!requiredTool&&!final&&exactTitleEdits&&!state.taskContentCalls?.size){
+          const proposed=!response.toolCalls.length&&!state.receipts.size&&!state.confirmations.size?[titleEditCall(exactTitleEdits)]:response.toolCalls;
+          response={...response,toolCalls:completeTitleEditCalls(proposed,exactTitleEdits)};
+        }
         const missingRequiredCall = () => response.toolCalls.length !== 1 || response.toolCalls[0].name !== requiredTool;
         if (required?.name === "propose_task_plan" && !required.retry && missingRequiredCall()) {
           response = await this.callModel(input, state, responseRole, messages, availableTools, false, false, requiredTool);

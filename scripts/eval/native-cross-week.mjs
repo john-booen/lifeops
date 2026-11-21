@@ -4,7 +4,7 @@ import {join} from "node:path";
 
 export async function crossWeekUi(page,root,result) {
   assert.equal(process.env.GITHUB_ACTIONS,"true");assert.equal(process.env.RUNNER_OS,"macOS");
-  const observed=await page.evaluate(async()=>{
+  const prepared=await page.evaluate(async()=>{
     const p=app.plugins.getPlugin("lifeops-assistant"),original="虚构纸样归档只能安排周三09:30。",corrected="虚构纸样归档只能安排周三19:30，25分钟。";
     const before=await p.store.readPath(p.store.taskDbPath()),path=p.store.path(p.settings.folders.ideas,"虚构归档原文.md");
     await p.store.writeFile(path,original);
@@ -16,12 +16,24 @@ export async function crossWeekUi(page,root,result) {
     if(cards.length!==1)throw Error("Native fixture correction card missing");await p.executeAgentAction(cards[0]);
     const context=await p.store.buildPersonalMemoryContext();
     if(context.includes(original)||context.includes("confidence:"))throw Error("Old wording or ranking score entered conversation evidence");
+    return {before,corrected};
+  });
+  // The zero-latency synthetic model must not race the native app's pending
+  // source-refresh work after creating/correcting these fictional records.
+  await page.waitForFunction(()=>{
+    const p=app.plugins.getPlugin("lifeops-assistant"),state=globalThis[Symbol.for("lifeops.fact-operation-state.v1")];
+    return !p.sourceChangeTimers?.size&&!p.dataFoundationBootstrap&&!state?.locks?.has(app.vault)&&!state?.activeWrites?.has(app.vault);
+  });
+  const observed=await page.evaluate(async prepared=>{
+    const p=app.plugins.getPlugin("lifeops-assistant"),{before,corrected}=prepared;
     p.settings.ai={...p.settings.ai,provider:"custom",endpoint:"https://fiction.invalid/chat",apiKey:"fictional-key",model:"synthetic",fallbackProvider:"off",dataDisclosureAccepted:true};
     p.settings.privacy={...p.settings.privacy,plaintextCredentialStorageAccepted:true};
-    let evidence,calls=0;
+    let evidence,calls=0;const toolOutputs=[];
     const mock=async messages=>{
       calls++;
-      const output=messages.filter(message=>message.role==="tool").map(message=>{try{return JSON.parse(message.content);}catch{return null;}}).find(item=>item?.originalEvidence);
+      const tools=messages.filter(message=>message.role==="tool");
+      toolOutputs.push(...tools.map(message=>message.content));
+      const output=tools.map(message=>{try{return JSON.parse(message.content);}catch{return null;}}).find(item=>item?.originalEvidence);
       if(!output)return{content:"",toolCalls:[{id:"fictional-cross-week-read",name:"get_summaries",arguments:{level:"week",range:{from:"2026-10-26",to:"2026-11-08"},includeOriginals:true,query:"纸样 归档"}}]};
       evidence=output.originalEvidence;
       if(!messages[0].content.includes(corrected))throw Error("Corrected availability missing from live context");
@@ -30,8 +42,9 @@ export async function crossWeekUi(page,root,result) {
     p.ai.agentTurnStream=mock;Object.getPrototypeOf(p.ai).agentTurnStream=mock;
     await p.activateView(true);const view=app.workspace.getLeavesOfType("lifeops-assistant-view")[0].view;await view.navigateSteward("chat");
     view.setAgentInput("回顾10月26日到11月8日的虚构纸样归档，请给两日期来源及按新时段的建议，不创建任务。");await view.sendAgentMessage();
-    return{reply:view.agentReply,evidence,calls,before,after:await p.store.readPath(p.store.taskDbPath()),receipts:view.agentMessages.at(-1).receipts??[]};
-  });
+    return{reply:view.agentReply,evidence,calls,toolOutputs,before,after:await p.store.readPath(p.store.taskDbPath()),receipts:view.agentMessages.at(-1).receipts??[]};
+  },prepared);
+  assert(observed.evidence,"Native cross-week query lacked evidence: "+JSON.stringify(observed.toolOutputs).slice(0,2000));
   assert.equal(observed.calls,2);assert.equal(observed.before,observed.after);assert.deepEqual(observed.receipts,[]);
   assert.deepEqual(observed.evidence.notes.map(note=>note.date),["2026-10-28","2026-11-04"]);
   assert(observed.evidence.unmatchedDates.includes("2026-11-05"));assert(!observed.evidence.missingDates.includes("2026-11-05"));

@@ -14,6 +14,7 @@ const { LifeOpsStore } = await import("../src/store");
 const { AgentRuntime } = await import("../src/agentRuntime");
 const { AgentLoop } = await import("../src/agent/AgentLoop");
 const { executeConfirmedToolBatch } = await import("../src/toolBatch");
+const { explicitTitleEdits } = await import("../src/agent/explicitTitleEdits");
 let root: string, store: StoreHost, runtime: InstanceType<typeof AgentRuntime>;
 const date = "2066-01-10";
 const edit = (ref: string, title: string) => ({ taskIdOrTitle: ref, title });
@@ -124,6 +125,31 @@ it("handles a two-task correction plus a third new task in one turn without aski
   expect(result.receipts).toHaveLength(2); expect(result.text).toContain("实际更新2项");
   expect(result.text).toContain("已创建任务：虚构新增第三项");
   expect((await store.readTaskDb()).tasks.map(row => row.title)).toEqual(["虚构更正名称0", "虚构更正名称1", "虚构新增第三项"]);
+});
+
+it("completes both exact quoted title edits when the model submits only the second plus a new task",async()=>{
+ const rows=await seed();
+ const {result}=await run([tool([edit(rows[1].id,"虚构新标题乙")]),{name:"create_task",arguments:{title:"虚构新增第三项",date}}],
+  '把「虚构旧纸样0」改为「虚构新标题甲」，把「虚构旧纸样1」改为「虚构新标题乙」。只改这两条标题，编号、日期和原时间都保留，不要再问确认。再新增第三项。');
+ expect(result.receipts.flatMap(receipt=>receipt.taskEdits??[])).toHaveLength(2);
+ expect(result.text).toContain("实际更新2项");expect(result.text).toContain("虚构新标题甲");
+ const after=(await store.readTaskDb()).tasks;expect(after).toHaveLength(3);
+ for(const [i,row]of rows.entries())expect(after.find(task=>task.id===row.id)).toMatchObject({date:row.date,startTime:row.startTime,endTime:row.endTime,title:i===0?"虚构新标题甲":"虚构新标题乙"});
+});
+
+it("does not leave two explicit quoted corrections waiting on another model confirmation",async()=>{
+ const rows=await seed();const {result}=await run([], '把「虚构旧纸样0」改为「虚构新标题甲」，把「虚构旧纸样1」改为「虚构新标题乙」。');
+ expect(result.confirmations).toEqual([]);expect(result.receipts.flatMap(receipt=>receipt.taskEdits??[])).toHaveLength(2);
+ expect((await store.readTaskDb()).tasks.map(task=>task.id)).toEqual(rows.map(row=>row.id));
+});
+
+it.each(["如果确认后才执行。","这只是举例。","请只讨论，不保存。","这句话英文怎么说？","先给我确认卡，等我确认。"])("does not directly prepare a hypothetical or deferred instruction: %s",async tail=>{
+ await seed();expect(await explicitTitleEdits(store,'把「虚构旧纸样0」改为「虚构新标题甲」。'+tail)).toBeUndefined();
+});
+it("does not guess a duplicate task name or omit an extra unparsed rename",async()=>{
+ await seed();await store.createTask({title:"虚构旧纸样0",date});
+ expect(await explicitTitleEdits(store,'把「虚构旧纸样0」改为「虚构新标题甲」。')).toBeUndefined();
+ expect(await explicitTitleEdits(store,'把「虚构旧纸样1」改为「虚构新标题乙」，再把另一个任务改为其他内容。')).toBeUndefined();
 });
 
 it("uses the explicit old-to-new history when the next message just confirms the two names", async () => {
