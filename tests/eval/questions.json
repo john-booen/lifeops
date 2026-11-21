@@ -568,7 +568,7 @@
       "maxConfirmations": 1,
       "taskPlan": {
         "date": "2026-11-13",
-        "maxTasks": 6
+        "maxTasks": 8
       },
       "mustSucceedTools": [
         "plan_today",
