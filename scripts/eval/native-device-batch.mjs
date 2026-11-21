@@ -81,14 +81,16 @@ async function captureProfileUi(page, root, sourceVault) {
       pendingDate: old.toLocaleDateString("sv-SE"), offlinePath };
   });
   assert.equal(after.raw, state.before); assert.equal(after.providerRequests, 0);
-  const paths = (await readdir(join(sourceVault, "输入/设备随手记"), { recursive: true })).filter(path => path.endsWith(".json"));
+  const transferPaths = (await readdir(join(sourceVault, "输入/设备随手记"), { recursive: true })).filter(path => path.endsWith(".json"));
+  const paths = transferPaths.filter(path => path.split("/").length === 2);
   assert.equal(paths.length, 2);
-  return { id: state.id, paths: paths.map(path => join("输入/设备随手记", path)), pendingDate: after.pendingDate, offlinePath: after.offlinePath };
+  return { id: state.id, paths: paths.map(path => join("输入/设备随手记", path)),
+    transferPaths: transferPaths.map(path => join("输入/设备随手记", path)), pendingDate: after.pendingDate, offlinePath: after.offlinePath };
 }
 
 async function receiveAndCheck(page, root, vault, senderVault, captures, expected, preserved) {
   await syntheticModel(page);
-  for (const path of captures.paths) await cp(join(senderVault, path), join(vault, path), { recursive: true, force: false }).catch(async error => {
+  for (const path of captures.transferPaths) await cp(join(senderVault, path), join(vault, path), { recursive: true, force: false }).catch(async error => {
     if (error.code !== "ENOENT") throw error;
     const { dirname } = await import("node:path"); await mkdir(dirname(join(vault, path)), { recursive: true });
     await cp(join(senderVault, path), join(vault, path), { force: false });

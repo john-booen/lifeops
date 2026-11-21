@@ -11,6 +11,11 @@ import { ciPlan, ciEnvironment, runSafeCi } from "../scripts/verify-ci-local.mjs
 import { bundleOptions, assertFreshBundleOutput } from "../scripts/bundle-options.mjs";
 
 let root: string, report: string, baseline: string;
+function workflowJob(text: string, name: string): string {
+  const body = text.split(`\n  ${name}:\n`)[1];
+  if (body === undefined) throw Error("Workflow job missing: " + name);
+  return body.split(/\n  [\w-]+:\s*\n/u)[0];
+}
 async function put(path: string, body: string) { await mkdir(dirname(path), { recursive: true }); await writeFile(path, body); }
 async function summary(path = report, changes: Record<string, unknown> = {}) {
   const rows: Record<string, any> = { total: {} };
@@ -124,17 +129,24 @@ describe("safe local CI planning and orchestration", () => {
     expect(text).toContain("contents: read"); expect(text).toContain("persist-credentials: false");
     expect(text).toContain("offline-osv-audit.mjs --prepare"); expect(text).toContain("offline-osv-audit.mjs --scan");
     expect(text).not.toContain("npm audit");
-    expect(text).not.toMatch(/secrets\.|continue-on-error|upload-artifact|deploy|schedule:/);
+    expect(text).not.toMatch(/secrets\.|continue-on-error|deploy|schedule:/);
+    for (const name of ["verify", "dependency-audit"]) expect(workflowJob(text, name)).not.toContain("upload-artifact");
+    const native = workflowJob(text, "native-task-content");
+    expect(native).toContain("github.event_name == 'workflow_dispatch' && inputs.native_task_content");
+    const artifacts = native.split("uses: actions/upload-artifact@v4")[1];
+    expect(artifacts).toBeDefined();
+    for (const path of ["result.json", "*.png", "*.log"]) expect(artifacts).toContain("native-task-content-*/" + path);
+    expect(artifacts).not.toMatch(/vault|profile|data\.json|main\.js|secrets/u);
   });
   it("disables implicit dependency inventory audits in every installation step", async () => {
     const text = await readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
-    const installs = text.split("\n").filter(line => /run:\s+npm ci\b/.test(line));
-    expect(installs).toHaveLength(1);
+    const installs = text.split("\n").filter(line => /\bnpm (?:ci|install)\b/.test(line));
+    expect(installs.length).toBeGreaterThanOrEqual(3);
     for (const step of installs) {
       expect(step).toContain("--ignore-scripts");
       expect(step).toContain("--no-audit");
     }
-    expect(text.split("  dependency-audit:")[1]).not.toMatch(/npm ci|npm audit/);
+    expect(workflowJob(text, "dependency-audit")).not.toMatch(/npm ci|npm audit/);
   });
 });
 
