@@ -8,6 +8,7 @@ import { prepareToolBatch, executeConfirmedToolBatch } from "../src/toolBatch";
 import { renderWriteReceipts } from "../src/writeReceipts";
 import { readPersonalMemoryWithSources } from "../src/personalMemorySources";
 import { selectPersonalMemories } from "../src/personalMemory";
+import type { LifeOpsTask } from "../src/types";
 
 vi.mock("obsidian", () => ({ App: class {}, Plugin: class {}, TFile: class {}, TFolder: class {}, WorkspaceLeaf: class {}, ItemView: class {},
   Modal: class {}, PluginSettingTab: class {}, Setting: class {}, Platform: { isDesktopApp: true }, Notice: class {},
@@ -55,14 +56,25 @@ describe("direct writes with a real Store", () => {
     await runtime.undoOperation(result.receipt!.operationId);
     for (const file of files) expect(vault.getFileByPath(file.path) ? await vault.bytes(file.path) : null).toBe(file.before);
   });
-  it("keeps four writes behind a confirmation and executes the approved batch only once", async () => {
-    const calls = Array.from({ length: 4 }, (_, i) => ({ id: `bulk-${i}`, name: "create_task", arguments: { title: `虚构批量任务${i}` } }));
+  it("keeps four modifications behind a confirmation and executes the approved batch only once", async () => {
+    const tasks = [];
+    for (let i = 0; i < 4; i++) tasks.push(await store.createTask({ title: `虚构批量任务${i}` }));
+    const calls = tasks.map((task, i) => ({ id: `bulk-${i}`, name: "complete_task", arguments: { taskIdOrTitle: task.id } }));
     expect(prepareToolBatch(calls.slice(0, 3))).toBeUndefined();
     const prepared = prepareToolBatch(calls)!;
-    expect(prepared.actions).toHaveLength(1); expect((await store.readTaskDb()).tasks).toHaveLength(1);
+    expect(prepared.actions).toHaveLength(1); expect((await store.readTaskDb()).tasks.every((t: LifeOpsTask) => t.status === "active")).toBe(true);
     await executeConfirmedToolBatch(prepared.actions[0], runtime, () => {});
     await executeConfirmedToolBatch(prepared.actions[0], runtime, () => {});
     expect((await store.readTaskDb()).tasks).toHaveLength(5);
+    expect((await store.readTaskDb()).tasks.filter((t: LifeOpsTask) => t.status === "completed")).toHaveLength(4);
+  });
+  it("allows a complete batch of new tasks with idempotent per-task writes", async () => {
+    const calls = Array.from({ length: 5 }, (_, i) => ({ id: `new-bulk-${i}`, name: "create_task", arguments: { title: `虚构新增${i}` } }));
+    expect(prepareToolBatch(calls)).toBeUndefined();
+    for (let repeat = 0; repeat < 2; repeat++) {
+      for (const call of calls) expect((await runtime.executeAiToolCall(call, "kimi", "一次创建五项虚构新任务")).success).toBe(true);
+    }
+    expect((await store.readTaskDb()).tasks).toHaveLength(6);
   });
   it("uses the receipt's exact operation when the undo button is clicked", async () => {
     const result = await runtime.executeAiToolCall({ id: "button-write", name: "create_task", arguments: { title: "虚构按钮任务" } }, "kimi", "请创建任务：虚构按钮任务");
