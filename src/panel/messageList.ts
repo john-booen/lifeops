@@ -456,6 +456,11 @@ const messageListPanel = {
         if (!isCurrentRequest()) return;
         if (isVoice) this.markVoiceTrace("modelDone");
         this.agentReply = error instanceof Error ? error.message : "AI 管家处理失败";
+        // Preserve a newer draft typed while waiting; otherwise restore the failed input.
+        if (!isVoice && this.agentMode === "text" && !this.agentInput.trim()) {
+          this.setAgentInput(message);
+          this.agentReply += "\n原话已放回输入框，可以修改后重新发送。";
+        }
         const next = this.agentMessages.slice();
         next[assistantIndex] = { role: "assistant", content: this.agentReply };
         this.agentMessages = next.slice(-12);

@@ -23,6 +23,21 @@ export class ProviderTransportError extends Error {
   constructor(readonly code: ProviderErrorCode, message: string, readonly httpStatus?: number) { super(message); }
 }
 
+/** Only created at a transport boundary: no HTTP request reached the service. */
+export class ProviderDnsLookupError extends ProviderTransportError {
+  constructor() { super("network", "AI 服务域名暂时无法解析。"); }
+}
+
+export function normalizeProviderConnectionError(error: unknown): unknown {
+  if (!error || typeof error !== "object") return error;
+  const value = error as { name?: string; code?: unknown; message?: unknown; cause?: { code?: unknown } };
+  if (value.name === "AbortError" || value.name === "TimeoutError") return error;
+  const code = value.code ?? value.cause?.code;
+  if (code === "ENOTFOUND" || code === "EAI_AGAIN"
+    || typeof value.message === "string" && /^net::ERR_NAME_NOT_RESOLVED(?:$|\s)/.test(value.message)) return new ProviderDnsLookupError();
+  return error;
+}
+
 /** A received answer that cannot be used as a completed text or tool turn.
  * Terminal: changing transport/provider would silently repeat a paid request. */
 export class ProviderResponseIncompleteError extends ProviderTransportError {
@@ -33,9 +48,16 @@ export class ProviderResponseIncompleteError extends ProviderTransportError {
 
 export class ProviderRunFailure extends Error {
   constructor(readonly providerRun: ProviderRunResult, readonly code: ProviderErrorCode, message?: string) {
-    super(message ?? (code === "cancelled" ? "AI request aborted" : code === "response_incomplete" ? "AI 回答未完成，本次已停止。" : `AI 请求失败（${code}）。`));
+    super(message ?? (code === "cancelled" ? "AI request aborted" : code === "response_incomplete" ? "AI 回答未完成，本次已停止。"
+      : code === "network" ? runNetworkMessage(providerRun) : `AI 请求失败（${code}）。`));
     this.name = code === "cancelled" ? "AbortError" : "ProviderRunError";
   }
+}
+
+function runNetworkMessage(run: ProviderRunResult): string {
+  return run.attempts.at(-1)?.networkFailure === "dns"
+    ? "AI 服务域名暂时无法解析，重连后仍未恢复。请稍后重发，已保存的记录保留。"
+    : "AI 暂时未能连接。请稍后重发，已保存的记录保留。";
 }
 
 // Identifiers are not free-form provider payloads or URLs. Invalid values are
@@ -140,7 +162,10 @@ async function executeProviderRequest<T extends { reportedModel?: string; respon
   try {
     assertProviderActive(options.signal);
     if (options.preflight) await awaitProviderActive(async () => options.preflight!(options.signal), options.signal);
-    for (const attempt of attempts) {
+    const candidates = [...attempts];
+    let retriedDns = false;
+    for (let index = 0; index < candidates.length; index++) {
+      const attempt = candidates[index];
       assertProviderActive(options.signal);
       const row: ProviderAttempt = { provider: auditIdentifier(attempt.provider) ?? "unknown", model: auditIdentifier(attempt.model) ?? "unknown", transport: attempt.transport, status: "failed" };
       run.attempts.push(row);
@@ -177,6 +202,7 @@ async function executeProviderRequest<T extends { reportedModel?: string; respon
         const interrupted = options.signal?.aborted || (error instanceof Error && error.name === "AbortError");
         lastCode = interrupted ? providerAbortCode(options.signal) : providerErrorCode(error);
         row.errorCode = lastCode;
+        if (error instanceof ProviderDnsLookupError) row.networkFailure = "dns";
         if (error instanceof ProviderTransportError && error.httpStatus !== undefined) row.httpStatus = error.httpStatus;
         row.status = lastCode === "cancelled" ? "cancelled" : "failed";
         if (error instanceof ProviderResponseIncompleteError) {
@@ -190,6 +216,15 @@ async function executeProviderRequest<T extends { reportedModel?: string; respon
         if (interrupted) throw error;
         if (lastCode === "response_incomplete") throw error;
         activeRow = undefined;
+        if (error instanceof ProviderDnsLookupError && !retriedDns && index === candidates.length - 1) {
+          // All configured routes have failed. Retry only the last proven pre-send
+          // DNS failure once, never an ambiguous disconnect or a partial answer.
+          retriedDns = true;
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          try { await awaitProviderActive(() => new Promise<void>(resolve => { timer = setTimeout(resolve, 1000); }), options.signal); }
+          finally { clearTimeout(timer); }
+          candidates.push(attempt);
+        }
       }
     }
     run.status = "failed";

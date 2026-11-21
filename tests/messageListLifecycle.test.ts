@@ -100,6 +100,23 @@ beforeEach(() => {
 });
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
+it("restores a failed text request to the composer without automatically resending it",async()=>{
+ const {host,response,start}=fixture();host.agentMode="text";const original=host.agentInput;
+ const pending=start("text");response.reject(new Error("AI 暂时未能连接"));await pending;
+ expect(host.agentInput).toBe(original);expect(host.agentReply).toContain("原话已放回输入框");
+ expect(host.controller.submitAgentMessageStream).toHaveBeenCalledOnce();expect(host.agentBusy).toBe(false);
+});
+it("keeps a newer draft rather than replacing it with a failed request",async()=>{
+ const {host,response,start}=fixture();host.agentMode="text";const pending=start("text");
+ host.agentInput="纯虚构新写的下一条";response.reject(new Error("AI 暂时未能连接"));await pending;
+ expect(host.agentInput).toBe("纯虚构新写的下一条");expect(host.agentReply).not.toContain("原话已放回输入框");
+});
+it("does not restore failed speech into the live listener and trigger an automatic resend",async()=>{
+ const {host,response,start}=fixture();const pending=start("voice");response.reject(new Error("AI 暂时未能连接"));await pending;
+ expect(host.agentInput).toBe("");expect(host.controller.submitAgentMessageStream).toHaveBeenCalledOnce();
+ expect(host.scheduleVoiceAutoSend).not.toHaveBeenCalled();
+});
+
 describe.each<Route>(["text", "voice"])("message list %s lifecycle", route => {
   it("binds only the producer's final full pair, retaining current continuity and rejecting later memory changes", async () => {
     const { host, response, start, emit } = fixture();
