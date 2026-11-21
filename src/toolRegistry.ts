@@ -38,6 +38,8 @@ import { NOTE_UNDERSTANDING_SOURCE_TOOL } from "./noteUnderstandingSource";
 import { TASK_PLAN_TOOL, PROJECT_WORK_PLAN_TOOL } from "./taskPlanTools";
 import type { TaskPlanReviewAction } from "./taskPlanReviewRegistry";
 import type { ProjectJobArguments } from "./projectJobRepository";
+import { TASK_BATCH_TOOL } from "./features/tasks/batchDefinition";
+import { isTaskBatchReceipt } from "./features/tasks/batchReceipt";
 
 export type ToolSafetyLevel = "safe" | "direct-write" | "ui-confirm" | "forbidden";
 export type ToolSource = "qwen-omni" | "kimi" | "system";
@@ -71,6 +73,7 @@ export interface ToolExecutionResult {
   actions: AgentActionSuggestion[];
   undo?: OperationUndoDescriptor;
   tradeEdits?: OperationResultSnapshot["tradeEdits"];
+  taskBatch?: OperationResultSnapshot["taskBatch"];
   jobCheckpoint?: OperationResultSnapshot["jobCheckpoint"];
 }
 interface UndoExecution {host:StoreHost;operationId:string;claim:OperationLedgerRecord;options:FactOperationOptions;taskTitle?:string;taskCreationOnly?:boolean;}
@@ -101,6 +104,9 @@ export interface LifeOpsToolDefinition extends AiToolDefinition {
 const memoryFileNames = ["个人画像.md", "当前状态.md", "长期目标.md", "管家规则.md", "交易纪律.md"];
 
 export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
+  { ...TASK_BATCH_TOOL, safety: "direct-write",
+    execute: async (args, context, request) => (await import("./features/tasks/batchWrite"))
+      .saveTaskBatch(args, context, request, getLifeOpsTool("create_task")!.execute) },
   STATS_TOOL,
   SUMMARIES_TOOL,
   ...TASK_PLANNING_TOOLS,
@@ -733,7 +739,7 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
       const record = await ledger.latestReversible(args.memoryOnly === true);
       if (!record) return toolError(args.memoryOnly === true ? "没有找到刚才保存的记忆。" : "没找到能确定的刚才那一项，请说具体要撤哪一条。");
       const execution = undoExecutions.get(context), title = execution?.taskTitle;
-      const isTaskCreation = record.toolName === "create_task" || record.toolName === "local_createTask";
+      const isTaskCreation = ["create_task", "local_createTask", "schedule_task_batch"].includes(record.toolName);
       const task = isTaskCreation && typeof context.store.taskDbPath === "function" ? createdTaskForUndo(record, context.store.taskDbPath()) : undefined;
       if ((title !== undefined || execution?.taskCreationOnly) && !isTaskCreation
         || title !== undefined && (task?.title ?? record.arguments.title) !== title) {
@@ -760,7 +766,7 @@ export function agentToolsForChat({ compact = false }: { compact?: boolean } = {
 }
 
 export function agentToolsForRealtime(): Array<Record<string, unknown>> {
-  return AGENT_TOOLS.filter(tool => !["propose_task_plan","propose_trading_research_change","query_trading_research","propose_note_understanding","inspect_note_understanding_source","inspect_weekly_review_sources","propose_weekly_review"].includes(tool.name)).map((tool) => ({
+  return AGENT_TOOLS.filter(tool => !["schedule_task_batch","propose_task_plan","propose_trading_research_change","query_trading_research","propose_note_understanding","inspect_note_understanding_source","inspect_weekly_review_sources","propose_weekly_review"].includes(tool.name)).map((tool) => ({
     type: "function",
     name: tool.name,
     description: `${tool.description} 安全等级：${tool.safety}。`,
@@ -1253,6 +1259,9 @@ export function toolError(output: string): ToolExecutionResult {
 
 function undoReceiptText(record: OperationLedgerRecord, task?: LifeOpsTask): string {
   const args = record.arguments;
+  if (record.toolName === "schedule_task_batch" && isTaskBatchReceipt(record.result?.taskBatch)) {
+    return `已撤销本批${record.result.taskBatch.created}项新任务，其他已有任务保留。`;
+  }
   if (record.toolName === "create_task" || record.toolName === "local_createTask") {
     const title = task?.title ?? toolArgString(args, "title");
     const date = task?.date ?? toolArgString(args, "date");

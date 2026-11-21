@@ -63,6 +63,12 @@ export class PhoneInboxModal extends Modal {
       const open = item.createEl("button", { text: "查看原始记录" });
       open.onclick = () => void this.app.workspace.openLinkText(row.sourcePath!, "", true);
     }
+    if (row.taskBatch && !row.undone) this.button(item, "查看完整回执", async () => {
+      const detail = await this.inbox.batchDetails(row.id);
+      const modal = new Modal(this.app); modal.setTitle("本批任务回执");
+      for (const text of detail.split("\n")) modal.contentEl.createEl("p", { text });
+      modal.open();
+    }, false);
     if (!resolve) return;
     if (row.sourcePath && row.sourceEditing) item.createEl("p", { text: "设备原记录已变化，请核对原文。旧回执保留，原操作仍可撤销。" });
     if (row.status === "confirm" && row.action) {
@@ -75,7 +81,7 @@ export class PhoneInboxModal extends Modal {
     if (["confirm", "review", "processing"].includes(row.status)) {
       this.button(item, row.status === "confirm" ? "取消操作" : "归档回执", () => resolve(row.id, "dismiss"));
     }
-    if (row.operationId && !row.undone) this.button(item, "撤销这条", () => resolve(row.id, "undo"));
+    if (row.operationId && !row.undone) this.button(item, row.taskBatch ? row.taskBatch.created ? "撤销本批任务" : "撤销本条登记" : "撤销这条", () => resolve(row.id, "undo"));
   }
 
   private button(host: HTMLElement, text: string, action: () => Promise<void>, refresh = true): void {

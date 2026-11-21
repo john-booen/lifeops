@@ -18,6 +18,7 @@ import {
 
 import { phoneInboxSource, type PhoneInboxSource } from "./source";
 import type { DeviceSourceGuards } from "./deviceBinding";
+import { isTaskBatchReceipt } from "../tasks/batchReceipt";
 const MAX_BATCH_LINES = 20;
 const RECEIPT_CHANGED = "手机随手记回执已变化，请重新打开核对。";
 const deviceQueues = new WeakMap<object, Promise<void>>();
@@ -94,6 +95,23 @@ export class PhoneInbox {
 
   async list(): Promise<PhoneInboxReceipt[]> {
     return (await this.snapshot()).receipts;
+  }
+
+  async batchDetails(id: string): Promise<string> {
+    const scope = this.scope(), { store } = scope;
+    const row = (await this.read(scope)).records.find(item => item.id === id);
+    if (!row?.taskBatch || !row.operationId || row.undone) throw Error("这条整批回执已变化，请重新核对。");
+    const ledger = new OperationLedger(store);
+    const allowed = () => !isVaultPathExcluded(ledger.filePath, store.settings.privacy?.excludedVaultPrefixes);
+    if (!allowed()) throw Error("最近操作目录不允许读取。");
+    const record = await ledger.verifiedOperationForReceipt(row.operationId);
+    scope.assertCurrent();
+    await this.assertReceiptCurrent(scope, id, recordRevision(row));
+    if (!allowed() || record?.toolName !== "schedule_task_batch"
+      || recordRevision(record.result?.taskBatch ?? null) !== recordRevision(row.taskBatch)) {
+      throw Error("本批完整回执暂无法核对，请查看任务列表和最近操作。");
+    }
+    return record.result!.output;
   }
 
   async snapshot(): Promise<PhoneInboxSnapshot> {
@@ -260,11 +278,12 @@ export class PhoneInbox {
       const response = await this.host.submit(line.text, turn, submission.controller.signal);
       turn.assertCurrent();
       const call = response.toolCalls?.find(item => isPhoneInboxTool(item.name));
-      if (call?.ok && isPhoneInboxTool(call.name)) row.tool = call.name;
+      if (call?.ok && isPhoneInboxTool(call.name)) row.tool = call.name === "schedule_task_batch" ? "create_task" : call.name;
       const receipt = response.receipts?.[0];
       const action = response.actions.length === 1 ? response.actions[0] : undefined;
       if (receipt) {
         row.operationId = receipt.operationId;
+        if (isTaskBatchReceipt(receipt.taskBatch)) row.taskBatch = receipt.taskBatch;
         row.status = "saved";
         delete row.pendingOperationId;
       } else if (isPhoneInboxAction(action)) {
@@ -330,10 +349,13 @@ export class PhoneInbox {
           row.operationId = id;
           row.status = "saved";
           row.message = receipt?.output.slice(0, 2000) || "已从最近操作核对回执。";
-          if (isPhoneInboxTool(tool)) row.tool = tool;
+          if (isPhoneInboxTool(tool)) row.tool = tool === "schedule_task_batch" ? "create_task" : tool;
           delete row.pendingOperationId;
           delete row.action;
           changed = true;
+        }
+        if (receipt?.taskBatch && row.operationId && recordRevision(row.taskBatch ?? null) !== recordRevision(receipt.taskBatch)) {
+          row.taskBatch = receipt.taskBatch; row.tool = "create_task"; changed = true;
         }
         if (row.operationId && reverted.has(id)) { row.undone = true; changed = true; }
       }
@@ -495,16 +517,19 @@ function hasCredential(store: StoreHost, text: string): boolean {
 
 export function summarizePhoneInbox(records: PhoneInboxRecord[]): string {
   const saved = new Map<string, number>();
+  let existing = 0;
   for (const row of records) {
     if (row.status !== "saved" || row.undone) continue;
     const label = row.tool ? phoneInboxLabels[row.tool] : "已保存";
-    saved.set(label, (saved.get(label) ?? 0) + 1);
+    saved.set(label, (saved.get(label) ?? 0) + (row.taskBatch?.created ?? 1));
+    existing += row.taskBatch?.existing ?? 0;
   }
   const confirmed = records.filter(row => row.status === "confirm").length;
   const review = records.filter(row => row.status === "review" || row.status === "processing").length;
   const undone = records.filter(row => row.undone).length;
   const dismissed = records.filter(row => row.status === "dismissed").length;
   const details = [...saved].map(([label, count]) => `${label} ${count} 项`);
+  if (existing) details.push(`沿用已有任务 ${existing} 项`);
   if (confirmed) details.push(`待确认 ${confirmed} 条`);
   if (review) details.push(`待核对 ${review} 条`);
   if (undone) details.push(`已撤销 ${undone} 条`);

@@ -4,6 +4,7 @@ import { gzipSync } from "node:zlib";
 import type { GuardedFileChange } from "./factOperation";
 import { assertSafeOperationId } from "../operationIdentity";
 import type { JsonWriteOptions } from "./jsonDataGuard";
+import { isTaskBatchReceipt, type TaskBatchReceipt } from "../features/tasks/batchReceipt";
 
 export type OperationStatus = "executing" | "verified" | "failed" | "reverted";
 export type OperationTrigger = "user" | "automatic";
@@ -31,6 +32,7 @@ export interface OperationResultSnapshot {
   actions: AgentActionSuggestion[];
   undo?: OperationUndoDescriptor;
   tradeEdits?: import("../types").AgentWriteReceipt["tradeEdits"];
+  taskBatch?: TaskBatchReceipt;
   /** Local first-party checkpoint, never a Provider result or another task database. */
   jobCheckpoint?: { path: string; beforeHash: string; afterHash: string; document: string;
     jobId: string; planHash: string; stepIndex: number };
@@ -95,6 +97,7 @@ const automaticOperations = new Set([
   "local_checkHabitPunishments", "observe_personal_memory_candidate", "local_capture_learning_note", "local_index_reading", "project_job_metadata"
 ]);
 const legacyUserOperations = new Set([
+  "schedule_task_batch",
   "create_task", "reschedule_task", "complete_task", "create_habit", "complete_habit", "miss_habit",
   "append_journal_entry", "append_knowledge_note", "append_trading_model_note", "record_trade", "update_trade",
   "record_learning", "update_learning_unit", "start_quiz", "grade_answer", "set_idea_status", "upsert_idea",
@@ -271,17 +274,21 @@ export class OperationLedger {
 
   async readSettledOperations(operationIds: readonly string[]): Promise<{
     reverted: Set<string>;
-    verified: Map<string, { toolName: string; output: string }>;
+    verified: Map<string, { toolName: string; output: string; taskBatch?: TaskBatchReceipt }>;
   }> {
     const document = await this.readDocument();
     const hashes = new Set(document.revertedOperationHashes ?? []);
     const requested = new Set(operationIds);
     const reverted = new Set(operationIds.filter(id => hashes.has(operationIdHash(id))));
-    const verified = new Map<string, { toolName: string; output: string }>();
+    const verified = new Map<string, { toolName: string; output: string; taskBatch?: TaskBatchReceipt }>();
     for (const { operationId, toolName, status, result } of document.records) {
       if (!requested.has(operationId)) continue;
       if (status === "reverted") reverted.add(operationId);
-      if (status === "verified" && result?.success && result.undo) verified.set(operationId, { toolName, output: result.output });
+      if (status === "verified" && result?.success && result.undo
+        && (toolName !== "schedule_task_batch" || isTaskBatchReceipt(result.taskBatch))) {
+        verified.set(operationId, { toolName, output: result.output,
+          ...(isTaskBatchReceipt(result.taskBatch) ? { taskBatch: result.taskBatch } : {}) });
+      }
     }
     return { reverted, verified };
   }

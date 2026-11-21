@@ -3,12 +3,13 @@ import { normalizeJournalDate } from "../../date";
 import { fileRevision, isSafeOperationId } from "../../operationIdentity";
 import { isContextSourcePath } from "../../sourceReferences";
 import type { AgentActionSuggestion } from "../../types";
+import { isTaskBatchReceipt, type TaskBatchReceipt } from "../tasks/batchReceipt";
 
 export const PHONE_INBOX_PATH = "输入/手机随手记.md";
 export const PHONE_INBOX_STATE = "phone-inbox.json";
 export const DEVICE_INBOX_STATE = "device-inbox.json";
 export const PHONE_INBOX_TOOLS = [
-  "create_task", "reschedule_task", "complete_task", "complete_habit",
+  "create_task", "schedule_task_batch", "reschedule_task", "complete_task", "complete_habit",
   "upsert_idea", "append_journal_entry", "delete_task", "delete_habit"
 ] as const;
 export type PhoneInboxTool = typeof PHONE_INBOX_TOOLS[number];
@@ -44,6 +45,7 @@ export interface PhoneInboxRecord {
   sourceTerminated?: boolean;
   sourcePath?: string;
   sourceRevision?: string;
+  taskBatch?: TaskBatchReceipt;
 }
 
 export interface PhoneInboxDocument {
@@ -63,7 +65,7 @@ export interface PhoneInboxSnapshot {
 }
 
 export const phoneInboxLabels: Record<PhoneInboxTool, string> = {
-  create_task: "新建任务", reschedule_task: "改期任务", complete_task: "完成任务",
+  create_task: "新建任务", schedule_task_batch: "新建任务", reschedule_task: "改期任务", complete_task: "完成任务",
   complete_habit: "习惯打卡", upsert_idea: "登记想法", append_journal_entry: "追加日记",
   delete_task: "删除任务", delete_habit: "删除习惯"
 };
@@ -132,6 +134,7 @@ export function validPhoneInboxDocument(value: unknown): value is PhoneInboxDocu
       || row.sourcePath !== undefined && (typeof row.sourcePath !== "string" || row.sourcePath.length > 500 || !isContextSourcePath(row.sourcePath))
       || row.sourceRevision !== undefined && (typeof row.sourceRevision !== "string" || !/^[a-f\d]{64}$/u.test(row.sourceRevision))
       || row.undone !== undefined && (typeof row.undone !== "boolean" || !row.operationId)) return false;
+    if (row.taskBatch !== undefined && (!isTaskBatchReceipt(row.taskBatch) || row.tool !== "create_task" || !row.operationId)) return false;
     seen.add(row.id);
     return true;
   });

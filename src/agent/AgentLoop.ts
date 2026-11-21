@@ -328,7 +328,7 @@ export class AgentLoop {
         if (reply) return this.localAnswer(input, state, reply);
       }
       const tools = input.voiceBackground ? registered.filter(tool => isBackgroundReadTool(tool.name))
-        : [...registered, TASK_BATCH_TOOL, ...(input.voiceJobs ? voiceJobTools : [DEEP_ANALYSIS]), EXTRACT_TRADING_RULES];
+        : [...registered, ...(input.voiceJobs ? voiceJobTools : [DEEP_ANALYSIS]), EXTRACT_TRADING_RULES];
       const quickTools = [...tools.filter(tool => (fastVoice ? VOICE_QUICK_TOOLS : QUICK_TOOLS).has(tool.name)),
         ...(fastVoice ? input.voiceJobs?.quickTools() ?? [] : []), LOAD_TOOLS];
       let nextTool: { name: "propose_task_plan"; retry?: true } | { name: "advance_idea"; ideaId: string } | undefined;

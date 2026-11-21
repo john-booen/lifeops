@@ -1,23 +1,11 @@
-import type { AiToolCall, AiToolDefinition } from "../ai";
+import type { AiToolCall } from "../ai";
 import { formatDate, normalizeJournalDate } from "../date";
 import { readContextTasks } from "../contextData";
 import { taskCapacity, taskEstimates } from "../features/tasks/capacity";
 import type { StoreHost } from "../store/settingsSlice";
 import { isTaskOnDate, taskDayInterval, taskScheduleLabel, timeMinutes } from "../taskSchedule";
 
-export const TASK_BATCH_TOOL: AiToolDefinition = {
-  name: "schedule_task_batch",
-  description: "用户明确要求把多项事情安排并保存时，一次提交全部新任务；程序统一排时间、逐项保存并核对回执，无需再逐条询问。仅讨论、先给草案或未授权保存时不用，改用 propose_task_plan。保留用户指定的今天和必做事项，不因历史完成量少而删减。",
-  parameters: { type: "object", additionalProperties: false, properties: {
-    date: { type: "string", description: "用户要求的日期，例如今天。" },
-    availableStart: { type: "string", description: "用户指定的可用开始 HH:mm；未指定省略，今天从当前时间之后排。" },
-    availableEnd: { type: "string", description: "用户指定的可用结束 HH:mm；未指定省略，暂以22:00作排程边界并说明。" },
-    tasks: { type: "array", minItems: 1, maxItems: 20, items: { type: "object", additionalProperties: false,
-      properties: { title: { type: "string", description: "具体动作及对象，保留纠正后的人名、项目名，按依赖和优先顺序排列。" },
-        estimateMin: { type: "integer", minimum: 1, maximum: 720, description: "分钟估算；未提供时程序暂按30分钟，并明确都是暂估。" },
-        category: { type: "string" } }, required: ["title"] } }
-  }, required: ["date", "tasks"] }
-};
+export { TASK_BATCH_TOOL } from "../features/tasks/batchDefinition";
 
 export interface TaskBatchPlan {
   calls: AiToolCall[];
@@ -28,20 +16,21 @@ const clock = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(
 const key = (title: string) => title.trim().normalize("NFKC");
 
 /** Only structured tool arguments choose this path; no text pattern routes user intent. */
-export async function planTaskBatch(store: StoreHost, call: AiToolCall, now: Date): Promise<TaskBatchPlan> {
+export async function planTaskBatch(store: StoreHost, call: AiToolCall, now: Date,
+  options: { retainPastDate?: boolean } = {}): Promise<TaskBatchPlan> {
   const args = call.arguments;
   if (Object.keys(args).some(k => !["date", "tasks", "availableStart", "availableEnd"].includes(k))
     || typeof args.date !== "string" || !Array.isArray(args.tasks) || !args.tasks.length || args.tasks.length > 20) {
     throw Error("请一次提供一至二十项具体任务和安排日期；尚未保存。");
   }
   const today = formatDate(now), date = normalizeJournalDate(args.date, today);
-  if (!date || date < today) throw Error("请指定今天或未来的日期；不会把新安排排进过去。");
+  if (!date || date < today && !options.retainPastDate) throw Error("请指定今天或未来的日期；不会把新安排排进过去。");
   const suppliedClock = (name: "availableStart" | "availableEnd") => {
     if (args[name] === undefined) return undefined;
     if (typeof args[name] !== "string" || timeMinutes(args[name] as string) === undefined) throw Error("可用时间须为 HH:mm；尚未保存。");
     return timeMinutes(args[name] as string)!;
   };
-  const current = date === today ? Math.ceil((now.getHours() * 60 + now.getMinutes() + 1) / 5) * 5 : 9 * 60;
+  const current = date < today ? 1440 : date === today ? Math.ceil((now.getHours() * 60 + now.getMinutes() + 1) / 5) * 5 : 9 * 60;
   const from = Math.max(current, suppliedClock("availableStart") ?? current);
   const until = suppliedClock("availableEnd") ?? 22 * 60;
   if (args.availableStart !== undefined && args.availableEnd !== undefined
@@ -93,6 +82,7 @@ export async function planTaskBatch(store: StoreHost, call: AiToolCall, now: Dat
   }
   const capacity = taskCapacity(data.tasks, now, estimate, date);
   const notes = ["时长均为暂估，任务之间预留10分钟；可随实际进度调整。",
+    ...(date < today ? ["处理时已过记录所指日期，仍归原定日期，未倒填过去的时段。"] : []),
     ...(args.availableEnd === undefined ? ["未提供收工时间，暂按22:00作为排程边界。"] : []),
     ...(unplaced ? [`${unplaced}项在剩余时间内放不下，仍保存到${date}但不编造时段；有延后风险，需要缩短、并行或调整安排，未自动改到明天。`] : []),
     ...(capacity.typicalCount === null ? ["缺少历史完成量，无法据此判断能力上限。"]

@@ -13,6 +13,7 @@ import type { StoreHost } from "./store/settingsSlice";
 import type {VaultQueryRead} from "./vaultQueryRead";
 import {isOwnedVaultQueryRead} from "./vaultQuery";
 import {isOwnedStoredQueryRead} from "./storedQueryRead";
+import { isTaskBatchReceipt } from "./features/tasks/batchReceipt";
 const isHeldQuery=(name:string)=>["query_vault","query_projects","query_trading_research","list_personal_memory_candidates"].includes(name);
 const isOwnedQueryRead=(store:StoreHost,read:VaultQueryRead)=>isOwnedVaultQueryRead(store,read)||isOwnedStoredQueryRead(store,read);
 
@@ -97,6 +98,13 @@ export class AgentRuntime {
         output: `暂不支持这个工具：${request.toolName}`,
         actions: []
       };
+    }
+    if (tool.name === "schedule_task_batch") {
+      const { taskBatchWriteGuard } = await import("./features/tasks/batchWrite");
+      const previous = control, guard = taskBatchWriteGuard(this.context.store, request.callId);
+      control = { ...previous, assertCurrent: () => { previous?.assertCurrent(); guard(); } };
+      try { control.assertCurrent(); }
+      catch (error) { return { callId: request.callId, success: false, output: error instanceof Error ? error.message : "整批保存已停止。", actions: [] }; }
     }
     if (tool.safety === "forbidden") {
       return {
@@ -238,13 +246,17 @@ export class AgentRuntime {
       if (tool.name === "undo_latest_operation" && (undoTaskTitle(request.arguments) !== undefined||request.arguments.creationOnly === true || request.arguments.memoryOnly === true)) {
         return { callId: request.callId, success: false, output: "此调用编号已有撤销回执，本次点名撤销没有重复执行。请先查询最新记录。", actions: [] };
       }
-      const { jobCheckpoint: _localCheckpoint, tradeEdits, ...publicResult } = claim.record.result;
+      const { jobCheckpoint: _localCheckpoint, tradeEdits, taskBatch, ...publicResult } = claim.record.result;
+      if (tool.name === "schedule_task_batch" && !isTaskBatchReceipt(taskBatch)) {
+        return { callId: request.callId, success: false, output: "本条整批回执需要核对，未重复执行。", actions: [] };
+      }
       if(queryRead&&publicResult.success&&publicResult.output!==queryRead.text)return {callId:request.callId,success:false,output:"查询缓存与本次实际原文不一致，已停止旧内容。",actions:[]};
       return deliverRead({
         callId: request.callId,
         ...publicResult,
         ...(tool.safety === "direct-write" && tool.name !== "undo_latest_operation" && publicResult.success && publicResult.undo
-          ? { receipt: { operationId, ...(tradeEdits ? { tradeEdits } : {}) } } : {})
+          ? { receipt: { operationId, ...(tradeEdits ? { tradeEdits } : {}),
+            ...(isTaskBatchReceipt(taskBatch) ? { taskBatch } : {}) } } : {})
       });
     }
     if (claim.kind === "busy") {
@@ -301,7 +313,8 @@ export class AgentRuntime {
         callId: request.callId,
         ...snapshot,
         ...(tool.safety === "direct-write" && tool.name !== "undo_latest_operation" && result.success && result.undo
-          ? { receipt: { operationId, ...(result.tradeEdits ? { tradeEdits: result.tradeEdits } : {}) } } : {})
+          ? { receipt: { operationId, ...(result.tradeEdits ? { tradeEdits: result.tradeEdits } : {}),
+            ...(isTaskBatchReceipt(result.taskBatch) ? { taskBatch: result.taskBatch } : {}) } } : {})
       };
       const undone=factCommitted&&tool.name==="undo_latest_operation"&&result.success&&!result.actions.length
         ?getRecordedUndoEvidence(result,this.context.store,operationId):undefined;

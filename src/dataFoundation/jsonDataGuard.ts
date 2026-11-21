@@ -11,6 +11,7 @@ import { validLearningDocument } from "../features/learning/model";
 import { validQuizDocument } from "../features/learning/quizModel";
 import { DEVICE_INBOX_STATE, PHONE_INBOX_STATE, validPhoneInboxDocument } from "../features/phoneInbox/model";
 import { validReadingDocument } from "../features/reading/model";
+import { validTaskBatchManifest } from "../features/tasks/batchReceipt";
 
 export interface JsonWriteOptions { compact?: boolean }
 export function serializeJsonData(value: unknown, options: JsonWriteOptions = {}): string {
@@ -78,6 +79,10 @@ export function jsonDataContract(
     [path(folders.aiReports, "Desktop", "desktop-state.json")]: object([])
   };
   const normalized = normalizePath(filePath);
+  if (normalized.startsWith(path(folders.aiReports, "System", "TaskBatches") + "/")
+    && /^[a-f0-9]{64}\.json$/u.test(normalized.split("/").at(-1) ?? "")) {
+    return { root: "object", version: 1, validate: validTaskBatchManifest };
+  }
   const signalDate = signalDateFromDocumentPath(normalized, path(folders.aiReports));
   if (signalDate) return { ...object(["晨", "晚"], 1), validate: value => validSignalDocument(value, signalDate) };
   const indexRoot = path(folders.aiReports, "Index") + "/";
