@@ -8,9 +8,7 @@ import { TASK_PLAN_FIELDS, taskPlanUpdate } from "./scheduleUpdate";
 /** Freeze the exact existing records shown in a batch's confirmation preview. */
 export async function bindTaskPlanConfirmation(store: StoreHost, batch: ToolCallResult): Promise<void> {
   const action = batch.actions[0], calls = action?.toolBatch;
-  if (action?.type !== "tool_batch" || !calls?.some(call => call.name === "update_tasks"
-    && Array.isArray(call.arguments.updates) && call.arguments.updates.some(row => row && typeof row === "object"
-      && TASK_PLAN_FIELDS.some(key => row[key] !== undefined)))) return;
+  if (action?.type !== "tool_batch" || !calls?.some(call => call.name === "update_tasks")) return;
   try {
     const { tasks } = await readContextTasks(store), frozen = structuredClone(calls), preview: string[] = [];
     for (const call of frozen) {
@@ -28,7 +26,8 @@ export async function bindTaskPlanConfirmation(store: StoreHost, batch: ToolCall
         row.taskIdOrTitle = before.id; row.expectedRevision = recordRevision(before);
         const oldPlan = [before.date, taskScheduleLabel(before)].filter(Boolean).join(" ") || "未排时间";
         const newPlan = [next.date, taskScheduleLabel(next)].filter(Boolean).join(" ") || "未排时间";
-        preview.push(`「${before.title}」：${oldPlan} → ${newPlan}${row.title !== undefined ? `；新标题「${row.title}」` : ""}${row.note !== undefined ? `；新备注：${row.note}` : ""}`);
+        const plan = TASK_PLAN_FIELDS.some(key => row[key] !== undefined) ? `：${oldPlan} → ${newPlan}` : "";
+        preview.push(`「${before.title}」${plan}${row.title !== undefined ? `；新标题「${row.title}」` : ""}${row.note !== undefined ? `；新备注：${row.note}` : ""}`);
       }
     }
     action.toolBatch = frozen; action.id = `proposal:batch:${recordRevision(frozen)}`; batch.callId = action.id;

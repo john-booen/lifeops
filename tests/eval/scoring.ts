@@ -37,6 +37,7 @@ interface EvalChecks {
   phoneBatch?: { created: number; existing: number };
   updatedTasks?: Array<{ fromTitleIncludes: string; title: string }>;
   plannedTaskChanges?: { titlePrefix: string; count: number; fromHour: number; date: string };
+  mixedTaskOutcome?: { edits: Array<{ from: string; to: string }>; createdTitles: string[]; date: string };
   createdOrClarify?: { titleIncludes: string; dates: string[]; clarify: string[] };
   changedTask?: { id: string; date: string };
   checkin?: EvalCheckin;
@@ -56,7 +57,7 @@ export interface EvalQuestion {
   mode: "text" | "voice";
   input: string;
   history: { role: "user" | "assistant"; content: string }[];
-  fixture?: "without_quiz_cards" | "scheduled_compensation_after_prelude" | "automatic_memory_after_create" | "task_already_undone" | "one_overdue_task" | "device_sleep" | "cross_week_after_correction" | "eleven_task_plans";
+  fixture?: "without_quiz_cards" | "scheduled_compensation_after_prelude" | "automatic_memory_after_create" | "task_already_undone" | "one_overdue_task" | "device_sleep" | "cross_week_after_correction" | "eleven_task_plans" | "mixed_title_batch";
   prelude?: string[];
   afterPreludeHistory?: { role: "user" | "assistant"; content: string }[];
   phoneCaptureDate?: string;
@@ -102,6 +103,39 @@ export function shouldRepeatLatencyMeasurement(question: EvalQuestion, observed:
 export function scoreEvaluationCase(question: EvalQuestion, observed: EvalObservation): string[] {
   const { checks } = question;
   const issues: string[] = [];
+  if (checks.mixedTaskOutcome) {
+    const plan = checks.mixedTaskOutcome, calls = observed.proposedTaskChanges ?? [];
+    const alreadySaved = observed.confirmations === 0 && observed.receipts >= 2
+      && observed.writes["tasks.created"] === plan.createdTitles.length && observed.writes["tasks.deleted"] === 0
+      && observed.writes["tasks.rescheduled"] === 0 && observed.writes["tasks.timeChanged"] === 0
+      && observed.createdTasks.length === plan.createdTitles.length
+      && observed.tasks.length === (observed.preparedTasks?.length ?? 0) + plan.createdTitles.length
+      && plan.edits.every(edit => {
+        return observed.preparedTasks?.filter(row => row.title === edit.from).length === 1;
+      }) && (observed.preparedTasks ?? []).every(before => {
+        const current = observed.tasks.find(row => row.id === before.id);
+        const title = plan.edits.find(edit => edit.from === before.title)?.to ?? before.title;
+        if (!current || current.title !== title) return false;
+        const { updatedAt: _old, ...old } = before as unknown as Record<string, unknown>;
+        const { updatedAt: _new, ...next } = current as unknown as Record<string, unknown>;
+        return recordRevision({ ...old, title }) === recordRevision(next);
+      }) && plan.createdTitles.every(title => observed.createdTasks.filter(row => row.title === title && row.date === plan.date).length === 1);
+    const updates = calls.filter(call => call.name === "update_tasks").flatMap(call => Array.isArray(call.arguments.updates) ? call.arguments.updates : []);
+    const creates = calls.filter(call => call.name === "create_task");
+    const safelyPrepared = observed.confirmations === 1 && observed.receipts === 0
+      && recordRevision(observed.tasks) === recordRevision(observed.preparedTasks ?? [])
+      && ["tasks.created", "tasks.deleted", "tasks.rescheduled", "tasks.timeChanged"].every(key => observed.writes[key] === 0);
+    if (!alreadySaved && (!safelyPrepared || calls.some(call => !["update_tasks", "create_task"].includes(call.name)) || updates.length !== plan.edits.length
+      || plan.edits.some(edit => {
+        const originals = observed.preparedTasks?.filter(row => row.title === edit.from) ?? [];
+        const rows = updates.filter(row => row?.taskIdOrTitle === originals[0]?.id);
+        return originals.length !== 1 || rows.length !== 1 || rows[0].title !== edit.to || rows[0].expectedRevision !== recordRevision(originals[0])
+          || Object.keys(rows[0]).some(key => !["taskIdOrTitle", "title", "expectedRevision"].includes(key));
+      }) || creates.length !== plan.createdTitles.length || plan.createdTitles.some(title => {
+        const rows = creates.filter(call => call.arguments.title === title);
+        return rows.length !== 1 || normalizeJournalDate(String(rows[0].arguments.date)) !== plan.date;
+      }))) issues.push("混合任务既未全部保存并核对，也未完整保留在同一待确认计划");
+  }
   if (checks.plannedTaskChanges) {
     const plan = checks.plannedTaskChanges;
     const originals = observed.preparedTasks?.filter(row => row.title.startsWith(plan.titlePrefix)).sort((a, b) => a.title.localeCompare(b.title)) ?? [];

@@ -35,7 +35,7 @@ export async function explicitTitleEdits(store:StoreHost,message:string):Promise
  * Other actions (for example a new task in the same sentence) remain in order. */
 export function completeTitleEditCalls(calls:AiToolCall[],edits:TitleEdit[]):AiToolCall[] {
   const updates=calls.filter(call=>call.name==="update_tasks");
-  if(!updates.length)return calls.some(call=>call.name==="schedule_task_batch")?calls:[titleEditCall(edits),...calls];
+  if(!updates.length)return [titleEditCall(edits),...calls];
   for(const call of updates){
     if(Object.keys(call.arguments).some(key=>key!=="updates")||!Array.isArray(call.arguments.updates))return calls;
     for(const row of call.arguments.updates){

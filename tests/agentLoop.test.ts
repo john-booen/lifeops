@@ -1672,6 +1672,19 @@ it("records a literal running distance only for the configured manual habit with
   expect((await store.readHabitDb()).checkins.some(item => item.habitId === other.id)).toBe(false);
 });
 
+it("does not answer with only an older recurring fact when a second confirmed fact uses introductory wording", async () => {
+  const loop = new AgentLoop(host);
+  for (const content of ["我每周三晚上整理虚构读书卡。", "用户明确要求记住：周三晚上固定开会。"] ) {
+    responses.push(reply("", [tool("append_memory_note", { content, fileName: "个人画像.md", explicit: true })]));
+    await loop.run(input({ message: "记住：" + content }));
+  }
+  const before = requests.length;
+  responses.push(reply("周三晚上有固定会议，以及整理虚构读书卡。"));
+  const result = await loop.run(input({ message: "我周三晚上有什么？" }));
+  expect(result.text).toContain("会议"); expect(requests).toHaveLength(before + 1);
+  expect(JSON.stringify(requests.at(-1))).toContain("周三晚上固定开会");
+});
+
 it("uses an explicit timed reminder locally and preserves its named person in the voice receipt", async () => {
   const loop = new AgentLoop(host);
   const title = "虚构人名叶宁给纸盒贴标签";

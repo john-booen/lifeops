@@ -262,6 +262,42 @@ it("does not leave two explicit quoted corrections waiting on another model conf
  expect((await store.readTaskDb()).tasks.map(task=>task.id)).toEqual(rows.map(row=>row.id));
 });
 
+it("keeps two explicit corrections when the model only schedules several new tasks in the same turn", async () => {
+ const rows = await seed();
+ const before = await store.readPath(store.taskDbPath());
+ const { result } = await run([{ id: "fictional-new-batch", name: "schedule_task_batch", arguments: {
+   date, tasks: Array.from({ length: 5 }, (_, i) => ({ title: "虚构新增整批纸袋" + i, estimateMin: 20 }))
+ } }], '把「虚构旧纸样0」改为「虚构新纸样甲」，把「虚构旧纸样1」改为「虚构新纸样乙」。保留原安排，再把五项新的纸袋任务排好今天并一起保存。');
+ expect(result.confirmations).toHaveLength(1); expect(result.receipts).toEqual([]);
+ expect(result.confirmations[0].toolBatch?.find(call => call.name === "update_tasks")?.arguments.updates)
+   .toEqual(expect.arrayContaining(rows.map(row => expect.objectContaining({ taskIdOrTitle: row.id, expectedRevision: expect.any(String) }))));
+ expect(await store.readPath(store.taskDbPath())).toBe(before);
+ await executeConfirmedToolBatch(result.confirmations[0], runtime, () => {});
+ const after = (await store.readTaskDb()).tasks;
+ expect(after).toHaveLength(7); expect(after.find(row => row.id === rows[0].id)?.title).toBe("虚构新纸样甲");
+ expect(after.find(row => row.id === rows[1].id)?.title).toBe("虚构新纸样乙");
+});
+
+it("saves a small mixed correction and new batch directly with both actual receipts", async () => {
+ const rows = await seed();
+ const { result } = await run([{ name: "schedule_task_batch", arguments: { date, tasks: [{ title: "虚构新增一项纸袋" }] } }],
+   '把「虚构旧纸样0」改为「虚构新纸样甲」，把「虚构旧纸样1」改为「虚构新纸样乙」。保留原安排，再新增虚构新增一项纸袋并安排今天。');
+ expect(result.confirmations).toEqual([]); expect(result.receipts).toHaveLength(2);
+ expect(result.text).toContain("实际更新2项"); expect(result.text).toContain("虚构新增一项纸袋");
+ expect((await store.getTask(rows[0].id)).title).toBe("虚构新纸样甲");
+ await runtime.undoLatestOperation(); await runtime.undoLatestOperation();
+ expect((await store.readTaskDb()).tasks).toEqual(rows);
+});
+
+it("does not apply the explicit corrections when the mixed new batch cannot be planned", async () => {
+ await seed(); const before = await store.readPath(store.taskDbPath());
+ const { result } = await run([{ name: "schedule_task_batch", arguments: { date, tasks: [{ title: "虚构新增一项纸袋" }],
+   availableStart: "16:00", availableEnd: "15:00" } }],
+   '把「虚构旧纸样0」改为「虚构新纸样甲」，把「虚构旧纸样1」改为「虚构新纸样乙」。再安排新任务。');
+ expect(result.receipts).toEqual([]); expect(result.confirmations).toEqual([]); expect(result.text).toContain("结束时间须晚于");
+ expect(await store.readPath(store.taskDbPath())).toBe(before);
+});
+
 it.each(["如果确认后才执行。","这只是举例。","请只讨论，不保存。","这句话英文怎么说？","先给我确认卡，等我确认。"])("does not directly prepare a hypothetical or deferred instruction: %s",async tail=>{
  await seed();expect(await explicitTitleEdits(store,'把「虚构旧纸样0」改为「虚构新标题甲」。'+tail)).toBeUndefined();
 });

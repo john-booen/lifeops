@@ -145,6 +145,10 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
       date: formatDate(fixedNow), startTime: String(12 + index).padStart(2, "0") + ":00", endTime: String(12 + index).padStart(2, "0") + ":30",
       note: "虚构原备注" + index });
   }
+  if (question.fixture === "mixed_title_batch") {
+    for (let i = 0; i < 2; i++) await store.createTask({ title: "虚构混批旧纸样" + i, date: formatDate(fixedNow),
+      startTime: "09:00", endTime: "09:30", note: "虚构原备注" + i });
+  }
   if (question.fixture === "cross_week_after_correction") {
     await (await import("./crossWeekFixture")).prepareCorrectedCrossWeekFixture(store as unknown as StoreHost);
   }
@@ -313,6 +317,9 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
     inputTokens: usage.inputTokens, firstTokenMs, errorCode
   };
   const issues = scoreEvaluationCase(question, observed);
+  if (question.checks.plannedTaskChanges && process.env.LIFEOPS_EVAL_DIAGNOSTICS === "1") {
+    process.stdout.write(`${question.id} 虚构计划字段诊断 · ${redactSensitiveText(JSON.stringify({ proposed: observed.proposedTaskChanges, prepared: preparedTasks }), credentials)}\n`);
+  }
   if (question.fixture === "task_already_undone") {
     const latest = await new OperationLedger(store as unknown as StoreHost).latestReversible();
     if (latest?.operationId !== "fictional-history-upsert_idea") issues.push("较早的虚构想法操作未保留");

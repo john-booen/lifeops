@@ -162,6 +162,8 @@ export async function exerciseNativeDeviceBatch({ getPage, root, vault, profile,
   await (await import("./native-cross-week.mjs")).crossWeekUi(page,root,result);
   await (await import("./native-hotwords.mjs")).nativeHotwords(page,result);
   await (await import("./native-task-lookup.mjs")).nativeTaskLookup(page,result);
+  await (await import("./native-mixed-task-batch.mjs")).nativeMixedTaskBatch(page,root,result);
+  await (await import("./native-recurring-memory.mjs")).nativeRecurringMemory(page,result);
   const preserved = await phoneBatchUi(page, root);
   result.checks.firstRoleUiAndPhoneBatchUndo = true;
   await close();

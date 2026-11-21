@@ -26,6 +26,7 @@ import { bindTaskPlanConfirmation } from "../features/tasks/planConfirmation";
 import type { AgentActionSuggestion, AgentConversationMessage, AgentResponse, AgentWriteReceipt, LifeOpsSettings, ProviderRunResult } from "../types";
 import { agentHistoryMessages, buildResidentContext, clipBytes, type ResidentContext } from "./context";
 import { explicitTitleEdits,completeTitleEditCalls,titleEditCall } from "./explicitTitleEdits";
+import { expandMixedTaskBatch } from "./mixedTaskBatch";
 import { recurringScheduleAnswer } from "./recurringSchedule";
 import { previousSavedTask, unverifiedTaskTimeChanges, type SavedTaskReference } from "./taskTimeCorrection";
 import { explicitRunningCheckin, explicitSingleTimedTask } from "./offlineFallback";
@@ -94,6 +95,7 @@ interface TurnState {
   voiceUndoAllowed?: boolean;
   previousTask?: SavedTaskReference;
   taskContentCalls?: Set<string>;
+  taskBatchNotes?: string[];
   errorCode?: string;
 }
 
@@ -382,7 +384,14 @@ export class AgentLoop {
           break;
         }
         const priority = repeatedTaskListPriority(response.toolCalls, formatDate(input.now));
-        const calls = this.scopedCalls(priority ? [priority] : response.toolCalls, state.id, round);
+        let calls = this.scopedCalls(priority ? [priority] : response.toolCalls, state.id, round);
+        const mixed = !input.voiceBackground ? await expandMixedTaskBatch(this.host.store, calls, input.now) : undefined;
+        assertPolicy();
+        if (mixed?.error) {
+          this.recordResult(input, state, TASK_BATCH_TOOL.name, { ...mixed.error, success: false, actions: [] });
+          state.text = mixed.error.output; break;
+        }
+        if (mixed) { calls = mixed.calls; state.taskBatchNotes = mixed.notes; }
         if (fastVoice) for (const call of calls) this.compactVoiceRead(call);
         if (requiredTool === "propose_task_plan") calls[0].arguments.capacityAware = true;
         if (required?.name === "advance_idea") calls[0].arguments = { id: required.ideaId };
@@ -1000,7 +1009,7 @@ export class AgentLoop {
         .map(result => result.output).join("\n") + (state.errorCode ? "\n后续处理未完成，请核对以上实际回执。" : "") : state.text;
     const voiceSpeech = !state.confirmations.size && state.spokenWrites.size
       ? [...state.spokenWrites.values(), ...(state.errorCode || state.toolCalls.some(tool => !tool.ok) ? ["还有内容没处理完，请看面板。"] : [])].join(" ") : state.voiceSpeech;
-    return { text, ...(voiceSpeech ? { voiceSpeech } : {}), toolCalls: state.toolCalls, receipts: [...state.receipts.values()],
+    return { text: [text, ...state.taskBatchNotes ?? []].join("\n"), ...(voiceSpeech ? { voiceSpeech } : {}), toolCalls: state.toolCalls, receipts: [...state.receipts.values()],
       confirmations: [...state.confirmations.values()], usage: {
         model: state.model, ...(state.usageKnown ? { inputTokens: state.inputTokens, outputTokens: state.outputTokens } : {}),
         firstTokenMs: state.firstTokenMs, totalMs: performance.now() - state.started

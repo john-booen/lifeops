@@ -10,10 +10,18 @@ export function recurringScheduleAnswer(message: string, memories: PersonalMemor
   const period = /^晚/u.test(question[2]) ? "晚(?:上)?" : question[2];
   const recurring = new RegExp(`^(?:我)?(?:(?:每|固定)(?:周|星期)${weekday}${period}|(?:周|星期)${weekday}${period}固定)[^，,。；;？！!?\\r\\n]+`, "u");
   const protect = createPersonalMemoryContextFilter(memories);
-  const facts = selectPersonalMemories(memories, "", memories.length, now).flatMap(record => {
+  const days = ["日", "天"].includes(question[1]) ? ["日", "天"] : [question[1]];
+  const periods = question[2].startsWith("晚") ? ["晚", "晚上"] : [question[2]];
+  const slots = ["周", "星期"].flatMap(prefix => days.flatMap(day => periods.map(time => prefix + day + time)));
+  const facts: string[] = [];
+  for (const record of selectPersonalMemories(memories, "", memories.length, now)) {
+    if (!slots.some(slot => record.content.includes(slot))) continue;
+    // A related fact outside the narrow shortcut must reach normal interpretation;
+    // returning only the recognized subset would hide a newly confirmed arrangement.
     if (record.summarySource || !record.confirmedAt || record.content.length > 90 || !recurring.test(record.content)
-      || /[，,；;？！!?\r\n]|取消|暂停|改到|不再|改期|如果/u.test(record.content)) return [];
-    return protect(record.content) === record.content ? [record.content.replace(/[。]$/u, "")] : [];
-  });
+      || /[，,；;？！!?\r\n]|取消|暂停|改到|不再|改期|如果/u.test(record.content)
+      || protect(record.content) !== record.content) return;
+    facts.push(record.content.replace(/[。]$/u, ""));
+  }
   if (facts.length) return `已确认的固定安排：${[...new Set(facts)].join("；")}。`;
 }

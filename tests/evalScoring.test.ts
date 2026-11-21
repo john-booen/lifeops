@@ -9,6 +9,24 @@ const task = { id: "synthetic", title: "见客户", date: "2026-11-13", time: "1
 const observed: EvalObservation = { reply: "已建好", tools: [], writes: { "tasks.created": 1 }, createdTasks: [task],
   tasks: [task], confirmations: 0, confirmationActions: [], receipts: 1, preludeCreatedTasks: 0 };
 
+it("requires all original identities, frozen versions and new titles in one mixed task plan", () => {
+  const plan: EvalQuestion = { ...question, checks: { mixedTaskOutcome: { edits: [{ from: task.title, to: "虚构新名称" }],
+    createdTitles: ["虚构新纸袋"], date: task.date } } };
+  const update = { taskIdOrTitle: task.id, title: "虚构新名称", expectedRevision: recordRevision(task) };
+  const calls = [{ name: "update_tasks", arguments: { updates: [update] } },
+    { name: "create_task", arguments: { title: "虚构新纸袋", date: task.date } }];
+  const score = (proposedTaskChanges: EvalObservation["proposedTaskChanges"]) => scoreEvaluationCase(plan, { ...observed,
+    confirmations: 1, receipts: 0, writes: { "tasks.created": 0, "tasks.deleted": 0, "tasks.rescheduled": 0, "tasks.timeChanged": 0 }, preparedTasks: [task], proposedTaskChanges });
+  expect(score(calls)).toEqual([]); expect(score(calls.slice(1))).toHaveLength(1);
+  expect(score([{ ...calls[0], arguments: { updates: [{ ...update, expectedRevision: "old" }] } }, calls[1]])).toHaveLength(1);
+  expect(score([calls[0], { name: "create_task", arguments: { title: "虚构新纸袋", date: "2026-11-14" } }])).toHaveLength(1);
+  expect(score([...calls, { name: "delete_task", arguments: { taskId: task.id } }])).toHaveLength(1);
+  const saved = { ...observed, confirmations: 0, receipts: 2, writes: { "tasks.created": 1, "tasks.deleted": 0, "tasks.rescheduled": 0, "tasks.timeChanged": 0 },
+    preparedTasks: [task], tasks: [{ ...task, title: "虚构新名称" }, { ...task, id: "new", title: "虚构新纸袋" }], createdTasks: [{ ...task, id: "new", title: "虚构新纸袋" }] };
+  expect(scoreEvaluationCase(plan, saved)).toEqual([]);
+  expect(scoreEvaluationCase(plan, { ...saved, tasks: [task] })).toHaveLength(1);
+});
+
 it("rejects an incomplete, unbound or silently renamed whole-plan preview", () => {
   const before = Array.from({ length: 4 }, (_, i) => ({ ...task, id: `fictional-plan-${i}`, title: `虚构区间纸样0${i + 1}` }));
   const updates = before.map((row, i) => ({ taskIdOrTitle: row.id, startTime: String(9 + i).padStart(2, "0") + ":00",
