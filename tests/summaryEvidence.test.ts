@@ -8,6 +8,7 @@ import type { VaultQueryRead } from "../src/vaultQueryRead";
 import { DEFAULT_SETTINGS } from "../src/defaults";
 import { prepareSparseSummaryFixture } from "./eval/sparseSummaryFixture";
 import { prepareTaskIntervalFixture } from "./eval/taskIntervalFixture";
+import { prepareSourceDateFixture } from "./eval/sourceDateFixture";
 vi.mock("obsidian",()=>({App:class{},TFile:class{},TFolder:class{},Modal:class{},Notice:class{},normalizePath:(p:string)=>p.replace(/\\/g,"/"),parseYaml:JSON.parse,stringifyYaml:JSON.stringify}));
 const { LifeOpsStore }=await import("../src/store");
 const { AgentRuntime }=await import("../src/agentRuntime");
@@ -90,6 +91,26 @@ it("reports edited summary provenance without overwriting the user's additions",
  expect(output.summaries[0]).toMatchObject({generatedBy:"model",edited:true,inputCount:2});
  expect(output.summaries[0].summary).toContain("虚构手工补充");
  expect(await vault.bytes(path)).toBe(edited);expect(result.receipt).toBeUndefined();
+});
+
+it("refuses relative-date fixture writes without the fictional marker",async()=>{
+ await vault.seed(journal("2026-11-04","早"),"虚构保留的早间原文。");
+ await expect(prepareSourceDateFixture(store)).rejects.toThrow("全虚构夹具");
+ expect(await vault.bytes(journal("2026-11-04","早"))).toBe("虚构保留的早间原文。");
+});
+
+it("keeps dated morning narration separate from event dates without changing task records",async()=>{
+ await vault.seed("TEST_VAULT_ONLY.md","内容全部为虚构数据。");await vault.seed(journal("2026-11-11"),"虚构其他周原文。");
+ await store.createTask({title:"虚构保留任务",date:"2026-11-04"});const before=await store.readTaskDb();
+ await prepareSourceDateFixture(store);
+ const result=await query("fictional-narrated-date",{range:{from:"2026-11-02",to:"2026-11-08"},includeOriginals:true});
+ expect(result.success,result.output).toBe(true);const output=JSON.parse(result.output);
+ expect(output.originalEvidence.notes).toEqual([
+  expect.objectContaining({date:"2026-11-04",path:journal("2026-11-04","早"),text:expect.stringContaining("昨晚21:15")}),
+  expect.objectContaining({date:"2026-11-05",path:journal("2026-11-05","早"),text:expect.stringContaining("没有完成记录")})
+ ]);
+ expect(output.interpretationBoundary.dates).toContain("笔记日期与事件日期分开");
+ expect(await store.readTaskDb()).toEqual(before);expect(await vault.bytes(journal("2026-11-11"))).toBe("虚构其他周原文。");
 });
 
 it("provides calendar-day counts from actual morning and evening files without changing the originals",async()=>{
