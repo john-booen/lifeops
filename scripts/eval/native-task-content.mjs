@@ -133,6 +133,10 @@ try {
   });
   assert.equal(edited.tasks.length, 13); assert(edited.firstReply.includes("实际更新2项")); assert(edited.reply.includes("实际更新2项"));
   assert.equal(edited.firstReceipts.flatMap(r => r.taskEdits ?? []).length, 2); assert(edited.historyPresent);
+  for (const [index, title] of [[4, "虚构更正纸样甲"], [7, "虚构更正纸样乙"], [1, "虚构后续名称甲"], [8, "虚构后续名称乙"]]) {
+    assert.equal(edited.tasks.find(row => row.id === edited.baseline[index].id)?.title, title);
+  }
+  assert(edited.tasks.some(row => row.title === "虚构新增纸样"));
   for (const prior of edited.baseline) {
     const current = edited.tasks.find(row => row.id === prior.id); assert(current);
     const { title: _title, updatedAt: _time, ...same } = current;
