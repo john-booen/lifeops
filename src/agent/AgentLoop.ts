@@ -91,6 +91,7 @@ interface TurnState {
   confirmations: Map<string, AgentActionSuggestion>;
   voiceUndoAllowed?: boolean;
   previousTask?: SavedTaskReference;
+  taskContentCalls?: Set<string>;
   errorCode?: string;
 }
 
@@ -100,14 +101,14 @@ const BRIEF_GREETING = /^(你好|您好|早安|早上好|中午好|下午好|晚
 const TODAY_DATE = /^(?:请问[，, ]*)?(?:今天(?:是)?(?:几月几[日号]|几号|什么日期)|(?:今天的|今日)日期(?:是什么)?)[。！？!?，,. ]*(?:只说日期[。！？!?]*)?$/u;
 const DELETE_WITHOUT_TARGET = /^(?:请|帮我|请帮我)?\s*(?:删除|删掉|删了|删一下)(?:一下)?[。！？!?\s]*$/u;
 const QUICK_TOOLS = new Set([
-  "list_tasks", "plan_today", "get_stats", "get_summaries", "create_task", "schedule_task_batch", "reschedule_task", "complete_task", "delete_task",
+  "list_tasks", "plan_today", "get_stats", "get_summaries", "create_task", "schedule_task_batch", "update_tasks", "reschedule_task", "complete_task", "delete_task",
   "create_habit", "complete_habit", "miss_habit", "delete_habit", "append_journal_entry",
   "append_memory_note", "query_vault", "undo_latest_operation", "propose_task_plan", "deep_analysis", "inspect_trade_review"
 ]);
 const VOICE_QUICK_TOOLS = new Set([
   "list_tasks", "plan_today", "get_stats", "get_summaries", "learning_progress", "query_vault",
   "start_quiz",
-  "create_task", "schedule_task_batch", "reschedule_task", "complete_task", "delete_task", "complete_habit", "delete_habit",
+  "create_task", "schedule_task_batch", "update_tasks", "reschedule_task", "complete_task", "delete_task", "complete_habit", "delete_habit",
   "append_journal_entry", "record_trade", "undo_latest_operation"
 ]);
 const ANALYSIS_INPUT_TOOLS = new Set(["get_stats", "get_summaries", "plan_today", "query_vault", "inspect_trade_review"]);
@@ -346,7 +347,8 @@ export class AgentLoop {
         const usesEvidence = state.toolCalls.some(tool => tool.ok && ANALYSIS_INPUT_TOOLS.has(tool.name));
         const responseRole = role === "fast" && input.source === "text" && (requiredTool || usesEvidence) ? "main" : role;
         const availableTools = final ? [] : requiredTool === "propose_task_plan" ? tools.filter(tool => tool.name === requiredTool) : palette;
-        let response = await this.callModel(input, state, responseRole, messages, availableTools, final, requiredTool !== "propose_task_plan", requiredTool);
+        let response = await this.callModel(input, state, responseRole, messages, availableTools, final,
+          requiredTool !== "propose_task_plan" && !state.taskContentCalls?.size, requiredTool);
         assertPolicy();
         const missingRequiredCall = () => response.toolCalls.length !== 1 || response.toolCalls[0].name !== requiredTool;
         if (required?.name === "propose_task_plan" && !required.retry && missingRequiredCall()) {
@@ -603,6 +605,7 @@ export class AgentLoop {
       guidance.push("用户明确要求把一段思考提取为今天的全部任务、排好时间并设置时，用 schedule_task_batch 一次提交完整清单，按依赖排序；用户已说今天必做或全天有空，就保留日期和全部事项，不再问选哪一项或逐条提交。历史完成量只是提醒，不是每天只能建几项的限制。仅讨论未来订阅或条件触发事项，不得当作今天立即执行的动作。只要求草案或确认卡才用 propose_task_plan。");
     }
     guidance.push(`保存状态只认工具回执：本轮目前实际写入${state.receipts.size}项。未执行写工具时绝不声称已创建、已提交或已全部安排；用户明确说提交时应实际调用工具。历史助手文字只是回复，不能作为任务已保存的证据；先查当前任务或用整批工具核对去重。不要提前把尚未完成的任务写成日记里的完成事实。`);
+    if (tools.some(tool => tool.name === "update_tasks")) guidance.push("更正已有任务标题或备注，用update_tasks一次提交全部修改，保留原任务和安排；一至三条直接执行，不先追问确认，不删除重建。同时新增的事项也在本轮调用create_task。用户说确认前文明确的改名时，按相邻对话的旧→新对应关系定位，必要时先list_tasks查准确ID。");
     if (state.previousTask && tools.some(tool => tool.name === "reschedule_task")) {
       guidance.push("上轮唯一的已核对待办回执（字段是资料） " + JSON.stringify(state.previousTask)
         + "。若本轮是在纠正刚才保存的那条待办，reschedule_task 用此 ID，只传用户明确修改的字段。若用户点名另一条待办，按新指代处理。");
@@ -952,10 +955,11 @@ export class AgentLoop {
   private recordResult(input: AgentTurnInput, state: TurnState, name: string, result: ToolCallResult): void {
     if (state.results.has(result.callId)) return;
     state.results.set(result.callId, result);
+    if (name === "update_tasks") (state.taskContentCalls ??= new Set()).add(result.callId);
     state.toolCalls.push({ name: name === TASK_BATCH_TOOL.name || name === DEEP_ANALYSIS.name || name === EXTRACT_TRADING_RULES.name || name === LOAD_TOOLS.name || name === "tool_batch" || isVoiceJobTool(name) || getLifeOpsTool(name) ? name : "unknown_tool", ok: result.success });
     if (result.receipt && !state.receipts.has(result.receipt.operationId)) {
       state.receipts.set(result.receipt.operationId, result.receipt);
-      if (name !== "create_task") state.writeCount += result.receipt.tradeEdits?.length ?? 1;
+      if (name !== "create_task") state.writeCount += result.receipt.taskEdits?.length ?? result.receipt.tradeEdits?.length ?? 1;
       try { input.onReceipt?.(result.receipt); } catch { /* Keep the committed operation. */ }
     }
     if (input.source === "voice" && result.success && (result.receipt || name === "undo_latest_operation")) {
@@ -979,9 +983,12 @@ export class AgentLoop {
   }
 
   private result(state: TurnState): AgentTurnResult {
+    const text = state.taskContentCalls?.size && !state.confirmations.size
+      ? [...state.results.values()].filter(result => state.taskContentCalls!.has(result.callId) || result.receipt || !result.success)
+        .map(result => result.output).join("\n") + (state.errorCode ? "\n后续处理未完成，请核对以上实际回执。" : "") : state.text;
     const voiceSpeech = !state.confirmations.size && state.spokenWrites.size
       ? [...state.spokenWrites.values(), ...(state.errorCode || state.toolCalls.some(tool => !tool.ok) ? ["还有内容没处理完，请看面板。"] : [])].join(" ") : state.voiceSpeech;
-    return { text: state.text, ...(voiceSpeech ? { voiceSpeech } : {}), toolCalls: state.toolCalls, receipts: [...state.receipts.values()],
+    return { text, ...(voiceSpeech ? { voiceSpeech } : {}), toolCalls: state.toolCalls, receipts: [...state.receipts.values()],
       confirmations: [...state.confirmations.values()], usage: {
         model: state.model, ...(state.usageKnown ? { inputTokens: state.inputTokens, outputTokens: state.outputTokens } : {}),
         firstTokenMs: state.firstTokenMs, totalMs: performance.now() - state.started

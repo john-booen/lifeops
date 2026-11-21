@@ -8,6 +8,16 @@ const task = { id: "synthetic", title: "见客户", date: "2026-11-13", time: "1
 const observed: EvalObservation = { reply: "已建好", tools: [], writes: { "tasks.created": 1 }, createdTasks: [task],
   tasks: [task], confirmations: 0, confirmationActions: [], receipts: 1, preludeCreatedTasks: 0 };
 
+it("requires content correction on the original task identity and preserves its schedule", () => {
+  const correction: EvalQuestion = { ...question, checks: { updatedTasks: [{ fromTitleIncludes: "虚构旧标题", title: "虚构新标题" }] } };
+  const prior = { ...task, id: "fictional-existing", title: "虚构旧标题", startTime: "15:00", endTime: "16:00" };
+  const current = { ...prior, title: "虚构新标题" };
+  const valid = { ...observed, preparedTasks: [prior], tasks: [current] };
+  expect(scoreEvaluationCase(correction, valid)).toEqual([]);
+  expect(scoreEvaluationCase(correction, { ...valid, tasks: [{ ...current, id: "fictional-recreated" }] })).toHaveLength(1);
+  expect(scoreEvaluationCase(correction, { ...valid, tasks: [{ ...current, startTime: "15:30" }] })).toHaveLength(1);
+});
+
 it("scores actual created rows and receipts instead of trusting a completion claim", () => {
   expect(scoreEvaluationCase(question, observed)).toEqual([]);
   expect(scoreEvaluationCase(question, { ...observed, createdTasks: [], writes: { "tasks.created": 0 } }))

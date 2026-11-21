@@ -399,6 +399,7 @@ export interface AgentWriteReceipt {
   operationId: string;
   tradeEdits?: Array<{ id: string; label: string; summary: string }>;
   taskBatch?: import("./features/tasks/batchReceipt").TaskBatchReceipt;
+  taskEdits?: Array<{ id: string; beforeTitle: string; title: string }>;
 }
 
 export interface AgentResponse {

@@ -31,6 +31,7 @@ interface EvalChecks {
   createdTask?: { titleIncludes: string; date: string } &
     ({ time: string; endTime?: never } | { endTime: string; time?: never });
   createdTaskBatch?: { date: string; notBefore: string; titleIncludes: string[] };
+  updatedTasks?: Array<{ fromTitleIncludes: string; title: string }>;
   createdOrClarify?: { titleIncludes: string; dates: string[]; clarify: string[] };
   changedTask?: { id: string; date: string };
   checkin?: EvalCheckin;
@@ -52,6 +53,7 @@ export interface EvalQuestion {
   history: { role: "user" | "assistant"; content: string }[];
   fixture?: "without_quiz_cards" | "scheduled_compensation_after_prelude" | "automatic_memory_after_create" | "task_already_undone" | "one_overdue_task" | "device_sleep";
   prelude?: string[];
+  afterPreludeHistory?: { role: "user" | "assistant"; content: string }[];
   checks: EvalChecks;
 }
 export interface EvalObservation {
@@ -61,6 +63,7 @@ export interface EvalObservation {
   writes: Record<string, number>;
   createdTasks: EvalTask[];
   tasks: EvalTask[];
+  preparedTasks?: EvalTask[];
   confirmations: number;
   confirmationActions: { type: string; targetIds: string[] }[];
   receipts: number;
@@ -91,6 +94,15 @@ export function shouldRepeatLatencyMeasurement(question: EvalQuestion, observed:
 export function scoreEvaluationCase(question: EvalQuestion, observed: EvalObservation): string[] {
   const { checks } = question;
   const issues: string[] = [];
+  for (const edit of checks.updatedTasks ?? []) {
+    const originals = observed.preparedTasks?.filter(task => task.title.includes(edit.fromTitleIncludes)) ?? [];
+    const prior = originals.length === 1 ? originals[0] : undefined;
+    const current = prior && observed.tasks.find(task => task.id === prior.id);
+    if (!prior || current?.title !== edit.title
+      || (["date", "time", "startTime", "endTime", "dueDate"] as const).some(key => (current?.[key] ?? "") !== (prior?.[key] ?? ""))) {
+      issues.push("任务内容未按原编号及原安排更正：" + edit.fromTitleIncludes);
+    }
+  }
   if (checks.createdTaskBatch) {
     const batch = checks.createdTaskBatch;
     if (observed.createdTasks.length !== batch.titleIncludes.length

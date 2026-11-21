@@ -8,7 +8,8 @@ import { discardUnstatedTradePnl } from "./features/trading/inputs";
 const batchJournalOriginals = new WeakMap<AgentActionSuggestion, string>();
 
 function countWrites(calls: AiToolCall[]): number {
-  return calls.reduce((total, call) => total + (call.name === "record_trade" && Array.isArray(call.arguments.trades)
+  return calls.reduce((total, call) => total + (call.name === "update_tasks" && Array.isArray(call.arguments.updates)
+    ? Math.max(1, call.arguments.updates.length) : call.name === "record_trade" && Array.isArray(call.arguments.trades)
     ? Math.max(1, call.arguments.trades.length) : 1), 0);
 }
 

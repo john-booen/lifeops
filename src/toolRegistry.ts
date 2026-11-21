@@ -40,6 +40,7 @@ import type { TaskPlanReviewAction } from "./taskPlanReviewRegistry";
 import type { ProjectJobArguments } from "./projectJobRepository";
 import { TASK_BATCH_TOOL } from "./features/tasks/batchDefinition";
 import { isTaskBatchReceipt } from "./features/tasks/batchReceipt";
+import { UPDATE_TASKS_TOOL, updateTaskContents } from "./features/tasks/contentUpdate";
 
 export type ToolSafetyLevel = "safe" | "direct-write" | "ui-confirm" | "forbidden";
 export type ToolSource = "qwen-omni" | "kimi" | "system";
@@ -74,6 +75,7 @@ export interface ToolExecutionResult {
   undo?: OperationUndoDescriptor;
   tradeEdits?: OperationResultSnapshot["tradeEdits"];
   taskBatch?: OperationResultSnapshot["taskBatch"];
+  taskEdits?: OperationResultSnapshot["taskEdits"];
   jobCheckpoint?: OperationResultSnapshot["jobCheckpoint"];
 }
 interface UndoExecution {host:StoreHost;operationId:string;claim:OperationLedgerRecord;options:FactOperationOptions;taskTitle?:string;taskCreationOnly?:boolean;}
@@ -107,6 +109,8 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
   { ...TASK_BATCH_TOOL, safety: "direct-write",
     execute: async (args, context, request) => (await import("./features/tasks/batchWrite"))
       .saveTaskBatch(args, context, request, getLifeOpsTool("create_task")!.execute) },
+  { ...UPDATE_TASKS_TOOL, safety: "direct-write", execute: (args, context, request) =>
+    updateTaskContents(args, context, request, resolveTaskByReference) },
   STATS_TOOL,
   SUMMARIES_TOOL,
   ...TASK_PLANNING_TOOLS,
