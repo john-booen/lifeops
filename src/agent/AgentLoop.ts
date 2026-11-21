@@ -25,7 +25,7 @@ import { prepareToolBatch } from "../toolBatch";
 import { bindTaskPlanConfirmation } from "../features/tasks/planConfirmation";
 import type { AgentActionSuggestion, AgentConversationMessage, AgentResponse, AgentWriteReceipt, LifeOpsSettings, ProviderRunResult } from "../types";
 import { agentHistoryMessages, buildResidentContext, clipBytes, type ResidentContext } from "./context";
-import { explicitTitleEdits,completeTitleEditCalls,titleEditCall } from "./explicitTitleEdits";
+import { explicitTitleEdits,confirmedTitleEdits,completeTitleEditCalls,titleEditCall } from "./explicitTitleEdits";
 import { expandMixedTaskBatch } from "./mixedTaskBatch";
 import { recurringScheduleAnswer } from "./recurringSchedule";
 import { previousSavedTask, unverifiedTaskTimeChanges, type SavedTaskReference } from "./taskTimeCorrection";
@@ -341,7 +341,8 @@ export class AgentLoop {
         && /(?:交易系统|交易纪律)[^。！？!?]*提一条改进建议/u.test(input.message) && /(?:哪笔|哪一笔)[^。！？!?]*哪条规则/u.test(input.message);
       const asksMarketWinRates = !input.voiceBackground && /(?:各[^。！？!?]*市场|市场[^。！？!?]*分别)[^。！？!?]*胜率/u.test(input.message)
         && !/盈亏|回撤|收益率|最大亏损/u.test(input.message);
-      const exactTitleEdits=!input.voiceBackground?await explicitTitleEdits(this.host.store,input.message):undefined;
+      const exactTitleEdits=!input.voiceBackground?(await explicitTitleEdits(this.host.store,input.message)
+        ?? await confirmedTitleEdits(this.host.store,input.message,input.history,context.memories??[])):undefined;
       let taskListAnswer: string | undefined;
       for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
         assertPolicy();
@@ -613,7 +614,7 @@ export class AgentLoop {
     }
     if (tools.some(tool => tool.name === "get_stats")) {
       guidance.push("评价或批评这周表现，先用 get_stats(domain=habits,range=this_week) 查达标次数和漏做日期。");
-      guidance.push("只问具体时段的任务完成率、完成数或计划数，先用 get_stats(domain=tasks) 查指定时段的指标。");
+      guidance.push("单问具体时段完成率、完成数或计划数，用get_stats查指标；比较多个日、周、月周期，先用get_summaries核对各期摘要及统计到哪天，再按需补get_stats。");
       guidance.push("设备睡眠时长、步数、体重等用 get_stats(domain=health)。只问某时段的设备睡眠时长可加 directReply=device_sleep。日记里的主观睡眠、情绪或精力用 get_stats(domain=journal)。只问睡得怎么样时先查同一时段的健康记录，按需要补充日记感受并标明来源。最近三天用 range=last_3d。要找原因、原话或具体事件时，再查同一范围的日记。");
     }
     if (evidenceCalls.length) {

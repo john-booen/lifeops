@@ -1,8 +1,21 @@
 import type { AiToolCall } from "../ai";
 import { readContextTasks } from "../contextData";
 import type { StoreHost } from "../store/settingsSlice";
+import type { AgentConversationMessage } from "../types";
+import type { PersonalMemoryRecord } from "../personalMemory";
+import { isCurrentAgentHistoryPair } from "../personalMemoryHistory";
+import { isLiteralTaskConfirmation } from "../features/tasks/confirmationText";
 
 interface TitleEdit { id:string; before:string; title:string }
+
+export async function confirmedTitleEdits(store: StoreHost, message: string, history: AgentConversationMessage[], memories: PersonalMemoryRecord[]): Promise<TitleEdit[] | undefined> {
+  if (!isLiteralTaskConfirmation(message)) return;
+  const user = history.at(-2), assistant = history.at(-1);
+  if (!isCurrentAgentHistoryPair(user, assistant, store, memories) || !assistant!.content.includes("确认")) return;
+  const edits = await explicitTitleEdits(store, user!.content);
+  if (!edits?.length || edits.length > 3 || !edits.every(edit => assistant!.content.includes(edit.before) && assistant!.content.includes(edit.title))) return;
+  return edits;
+}
 /** Only a leading, explicit quoted old→new instruction supplies exact content.
  * Discussion, conditional requests, and ambiguous task names keep the normal route. */
 export async function explicitTitleEdits(store:StoreHost,message:string):Promise<TitleEdit[]|undefined> {

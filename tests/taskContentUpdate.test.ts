@@ -6,6 +6,10 @@ import type { StoreHost } from "../src/store/settingsSlice";
 import type { AgentLoopHost } from "../src/agent/AgentLoop";
 import type { AiToolCall } from "../src/ai";
 import { DEFAULT_SETTINGS } from "../src/defaults";
+import type { AgentConversationMessage } from "../src/types";
+import { personalMemoryContextRevision } from "../src/personalMemoryContext";
+import { attestAgentHistoryResponse, bindAgentHistoryResponse } from "../src/personalMemoryHistory";
+import { memorySourcePolicy, readPersonalMemoryWithSources } from "../src/personalMemorySources";
 vi.mock("obsidian", () => ({ App: class {}, TFile: class {}, TFolder: class {}, Notice: class {},
   normalizePath: (s: string) => s.replace(/\\/g, "/").replace(/\/{2,}/g, "/"), requestUrl: vi.fn(),
   parseYaml: JSON.parse, stringifyYaml: JSON.stringify }));
@@ -222,6 +226,39 @@ async function run(calls: AiToolCall[], message: string, history: Parameters<Ins
   const result = await new AgentLoop(host).run({ message, history, source: "text", now: new Date(2066, 0, 10, 10) });
   return { result, model };
 }
+
+async function pendingTitleHistory(proven = true, different = false): Promise<AgentConversationMessage[]> {
+ const history: AgentConversationMessage[] = [
+  { role: "user", content: '把「虚构旧纸样0」改为「虚构新纸样甲」，把「虚构旧纸样1」改为「虚构新纸样乙」。其他安排都保留。' },
+  { role: "assistant", content: different ? "请确认其他事项。" : "虚构旧纸样0改为虚构新纸样甲，虚构旧纸样1改为虚构新纸样乙。请确认后我再改。" }
+ ];
+ if (proven) {
+  const { records } = await readPersonalMemoryWithSources(store);
+  const response = attestAgentHistoryResponse({ reply: history[1].content, actions: [] }, store,
+   personalMemoryContextRevision(records), memorySourcePolicy(store), history[0].content);
+  bindAgentHistoryResponse(response, history[0], history[1]);
+ }
+ return history;
+}
+
+it("retains the adjacent proven two-name confirmation even if the model only looks on the wrong date", async () => {
+ const before = await seed(), history = await pendingTitleHistory();
+ const { result } = await run([{ name: "list_tasks", arguments: { date: "2066-01-09", query: "纸样", directReply: true } }], "确定", history);
+ expect(result.confirmations).toEqual([]); expect(result.receipts.flatMap(receipt => receipt.taskEdits ?? [])).toHaveLength(2);
+ expect(result.text).toContain("虚构新纸样甲");
+ const after = (await store.readTaskDb()).tasks;
+ for (const [i, row] of before.entries()) expect(after.find(task => task.id === row.id)).toMatchObject({
+  title: i ? "虚构新纸样乙" : "虚构新纸样甲", date: row.date, startTime: row.startTime, endTime: row.endTime
+ });
+});
+
+it.each(["unproven", "changed", "policy", "other-proposal"])("does not borrow a %s history pair as confirmation authority", async kind => {
+ const before = await seed(), history = await pendingTitleHistory(kind !== "unproven", kind === "other-proposal");
+ if (kind === "changed") history[1].content += "请确认。";
+ if (kind === "policy") store.settings.privacy!.excludedVaultPrefixes = ["虚构另一个排除目录"];
+ const { result } = await run([{ name: "list_tasks", arguments: { date: "2066-01-09", directReply: true } }], "确定", history);
+ expect(result.receipts).toEqual([]); expect((await store.readTaskDb()).tasks).toEqual(before);
+});
 
 it("handles a two-task correction plus a third new task in one turn without asking for confirmation", async () => {
   const rows = await seed();

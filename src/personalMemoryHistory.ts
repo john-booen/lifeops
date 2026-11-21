@@ -53,6 +53,16 @@ export function bindAgentHistoryResponse(response: AgentResponse, user: AgentCon
   Object.defineProperty(assistant, evidence, { value: token, enumerable: true });
 }
 
+/** A visible pair alone is not authority: check its current producer, vault, policy and exact text. */
+export function isCurrentAgentHistoryPair(user: AgentConversationMessage | undefined, assistant: AgentConversationMessage | undefined,
+  store: StoreHost, records: PersonalMemoryRecord[]): boolean {
+  if (user?.role !== "user" || assistant?.role !== "assistant") return false;
+  const token = (user as Proven)[evidence], owner = token && owners.get(token);
+  return !!owner && token === (assistant as Proven)[evidence] && owner.vault === store.app.vault
+    && owner.revision === personalMemoryContextRevision(records) && owner.policy === memorySourcePolicy(store)
+    && owner.userHash === hash(user.content) && owner.assistantHash === hash(assistant.content);
+}
+
 /** Validate complete entries before normalizeAgentHistory clips them. A stale
  * or fabricated proof never falls back to the unproven-history branch. The
  * original objects and persisted conversation remain unchanged. */

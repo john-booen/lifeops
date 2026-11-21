@@ -1,4 +1,5 @@
 import { recordRevision } from "../operationIdentity";
+import { isLiteralTaskConfirmation } from "../features/tasks/confirmationText";
 import type { AgentActionSuggestion, AgentConversationMessage } from "../types";
 
 interface PlanView {
@@ -21,8 +22,7 @@ export function armAdjacentTaskPlan(view: PlanView, message: AgentConversationMe
 /** A literal reply authorizes only the single frozen plan in the immediately preceding response. */
 export function consumeAdjacentTaskPlan(view: PlanView, text: string): AgentActionSuggestion | undefined {
   const pending = adjacentPlans.get(view); adjacentPlans.delete(view);
-  const answer = text.trim().replace(/[。！？.!?]+$/u, "").trim();
-  if (!["确认", "确定", "是"].includes(answer) || !pending || view.agentMessages.at(-1) !== pending.message
+  if (!isLiteralTaskConfirmation(text) || !pending || view.agentMessages.at(-1) !== pending.message
     || view.pendingAgentActions.length !== 1 || view.pendingAgentActions[0] !== pending.action
     || recordRevision(pending.action) !== pending.revision) return;
   return pending.action;
