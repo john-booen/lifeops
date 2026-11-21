@@ -117,3 +117,24 @@ it("explains the single-week tool boundary without incorrectly claiming the oper
  expect(result.success).toBe(false);expect(result.output).toContain("get_summaries");
  expect(result.output).not.toContain("操作记录无法安全读取");
 });
+
+it("distinguishes a topic miss in an existing diary from a date without an available diary",async()=>{
+ await vault.seed(journal("2026-11-04"),"虚构纸样归档：25分钟完成12张。");
+ await vault.seed(journal("2026-11-11"),"纯虚构今天整理读书卡片，没有提及所问主题。");
+ const result=await query("fictional-topic-date-coverage",{query:"纸样归档"});expect(result.success,result.output).toBe(true);
+ const evidence=JSON.parse(result.output).originalEvidence;
+ expect(evidence.notes).toHaveLength(1);expect(evidence.missingDates).toContain("2026-11-05");
+ expect(evidence.missingDates).not.toContain("2026-11-11");expect(evidence.unmatchedDates).toContain("2026-11-11");
+ expect(evidence.coverageByDate).toContainEqual({date:"2026-11-11",status:"有日记，可读正文未命中主题"});
+});
+
+it("does not describe the already covered summary week as missing original evidence",async()=>{
+ await seedSummary("2026-11-04","纯虚构已可读取的第一周总结。");
+ await vault.seed(journal("2026-11-04"),"纯虚构不需重复读取的第一周日记。");
+ await vault.seed(journal("2026-11-11"),"纯虚构第二周日记可作为补证。");
+ const read=vi.spyOn(vault,"read"),result=await query("fictional-covered-week");expect(result.success,result.output).toBe(true);
+ const evidence=JSON.parse(result.output).originalEvidence;
+ expect(evidence.notes.map((note:{date:string})=>note.date)).toEqual(["2026-11-11"]);
+ expect(evidence.missingDates).not.toContain("2026-11-04");
+ expect(read.mock.calls.some(([file])=>file.path===journal("2026-11-04"))).toBe(false);
+});

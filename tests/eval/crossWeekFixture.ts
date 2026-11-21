@@ -21,6 +21,7 @@ export async function prepareCorrectedCrossWeekFixture(store: StoreHost): Promis
     await store.writeFile(summaryPath(store,period),renderSummary(period,period.to,scope.hash,
       {tasksCompleted:null,taskCompletionPercent:null,energy:null,tradePnlCny:null,tradePnlUsd:null},2,true,"model",row.text+"上午归档更好。"));
   }
+  await store.appendDaily("2026-11-05","日记","纯虚构今天整理读书卡片，未记录其他目标的进度。","晚","纯虚构今天整理读书卡片，未记录其他目标的进度。");
   const context={store,refreshViews:async()=>{}},runtime=new AgentRuntime(context);
   const proposal=await runtime.executeAiToolCall({id:"fictional-cross-week-correction",name:"review_personal_memory",
     arguments:{memoryId:memory.id,decision:"correct",correctedContent:corrected}},"kimi");

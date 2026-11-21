@@ -335,7 +335,9 @@ export function personalMemoriesToMarkdown(records: PersonalMemoryRecord[], sour
         `- ${record.content}`,
         `  - id: ${record.id}`,
         `  - truth: ${record.truth}`,
-        `  - confidence: ${record.confidence.toFixed(2)}`,
+        // A ranking score is not a probability about the user's stated fact.
+        // Keep it in the audit view and canonical record, outside chat evidence.
+        sourceView === "all" ? `  - confidence: ${record.confidence.toFixed(2)}` : "",
         record.summarySource && !record.confirmedAt ? `  - 自动从摘要记下: ${record.createdAt}`
           : `  - 确认时间: ${record.confirmedAt}（确认或最近纠正记录，不代表事件发生或状态更新）`,
         sourceView === "verified" ? `  - 当前来源核验: ${projected.length ? projected.map(source => `${source.ref.path}（${basisLabels[source.basis]}）`).join("；") : "未提供可核验的来源说明，不推断确认或更正过程"}` : "",

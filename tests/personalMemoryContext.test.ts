@@ -18,6 +18,15 @@ describe("partial prepared personal-memory source audit", () => {
     expect(confirmedMemoryContextSourcePaths(records, "", context)).toEqual([source.path]);
     expect(JSON.stringify(records)).toBe(before);
   });
+  it("keeps confidence in the stored record and audit view while omitting the ranking score from conversation evidence",async()=>{
+    const records=assessed(),before=JSON.stringify(records);
+    const {personalMemoriesToMarkdown}=await import("../src/personalMemory");
+    expect(personalMemoriesToMarkdown(records,"all")).toContain("confidence:");
+    const context=formatConfirmedPersonalMemoryContext(records);
+    expect(context).not.toContain("confidence:");
+    expect(confirmedMemoryContextSourcePaths(records,"",context)).toEqual([source.path]);
+    expect(JSON.stringify(records)).toBe(before);
+  });
   it.each(["missing-assessment", "unusable", "unverified-ref", "expired", "excluded"])("does not turn %s into an audited source", state => {
     const records = assessed(), context = formatConfirmedPersonalMemoryContext(records);
     if (state === "missing-assessment") delete records[0][personalMemorySourceAssessment];

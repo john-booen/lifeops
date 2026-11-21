@@ -26,9 +26,12 @@ async function phoneBatchUi(page, root) {
   await syntheticModel(page);
   const state = await page.evaluate(async () => {
     const p = app.plugins.getPlugin("lifeops-assistant"), date = new Date().toLocaleDateString("sv-SE");
-    await p.store.createTask({ title: "虚构已完成纸样", date });
-    const first = (await p.store.readTaskDb()).tasks[0]; await p.store.completeTask(first.id);
-    await p.store.createTask({ title: "虚构保留的独立任务", date });
+    const existing=(await p.store.readTaskDb()).tasks;
+    if(!existing.length){
+      await p.store.createTask({ title: "虚构已完成纸样", date });
+      const first = (await p.store.readTaskDb()).tasks.find(row=>row.title==="虚构已完成纸样"); await p.store.completeTask(first.id);
+      await p.store.createTask({ title: "虚构保留的独立任务", date });
+    }
     const preserved = (await p.store.readTaskDb()).tasks;
     p.settings.phoneInboxEnabled = true;
     const raw = `[${date} 10:00] 虚构手机批：今天五项纸样工作全部安排并一次保存。\n`;
@@ -143,12 +146,15 @@ export async function exerciseNativeDeviceBatch({ getPage, root, vault, profile,
     return { setup: p.devices.execution.needsSetup, canWrite: p.devices.execution.canWriteFacts };
   });
   assert.deepEqual(initial, { setup: true, canWrite: false });
+  const writerId=await (await import("./native-setup-rollback.mjs")).immediateSetupRollback({getPage,result,candidate,rollback,packageFiles,launch,close});
+  page=getPage();
   await page.getByRole("button", { name: "这台负责处理", exact: true }).waitFor();
   await page.getByRole("button", { name: "这台负责处理", exact: true }).click();
   await page.waitForFunction(() => app.plugins.getPlugin("lifeops-assistant").devices.execution.canWriteFacts
     && !app.plugins.getPlugin("lifeops-assistant").dataFoundationBootstrap
     && app.plugins.getPlugin("lifeops-assistant").store.getFile(app.plugins.getPlugin("lifeops-assistant").store.taskDbPath()));
-  const writerId = await page.evaluate(() => app.plugins.getPlugin("lifeops-assistant").devices.execution.deviceId);
+  assert.equal(await page.evaluate(() => app.plugins.getPlugin("lifeops-assistant").devices.execution.deviceId),writerId);
+  await (await import("./native-cross-week.mjs")).crossWeekUi(page,root,result);
   const preserved = await phoneBatchUi(page, root);
   result.checks.firstRoleUiAndPhoneBatchUndo = true;
   await close();

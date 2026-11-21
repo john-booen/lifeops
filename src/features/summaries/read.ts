@@ -57,17 +57,20 @@ export async function readSummaryQueryWithSources(store: StoreHost, args: Record
       : "这个区间没有可读取的摘要，可以查原始记录。");
     let originalEvidence;
     if (missingPeriods.length || args.includeOriginals === true || query) {
-      const files = journalFiles().filter(({date})=>args.includeOriginals===true||query||missingPeriods.includes(summaryPeriod(level,date).key));
+      const wantsDate = (date:string) => args.includeOriginals===true || query!==undefined || missingPeriods.includes(summaryPeriod(level,date).key);
+      const files = journalFiles().filter(({date})=>wantsDate(date));
       const selected = files.slice(-28), limit = Math.min(1600,Math.floor(12000/Math.max(1,selected.length)));
       const notes: Array<{date:string;path:string;text:string;truncated:boolean}> = [];
+      const knownDates = new Set(files.map(row=>row.date));
+      const unavailableDates = new Set<string>(), limitedDates = new Set(files.slice(0,Math.max(0,files.length-28)).map(row=>row.date));
       let unavailable = 0;
       for (const {file,date} of selected) {
         // Large originals stay available through exact-path query_vault paging.
-        if (file.stat.size > 32768) { unavailable++; continue; }
+        if (file.stat.size > 32768) { unavailable++;unavailableDates.add(date);continue; }
         const raw = await reader.read(file);
-        if (Buffer.byteLength(raw,"utf8") > 32768) { unavailable++; continue; }
+        if (Buffer.byteLength(raw,"utf8") > 32768) { unavailable++;unavailableDates.add(date);continue; }
         const protectedText = scope.protect(raw).trim();
-        if (!protectedText || protectedText === MEMORY_CONTEXT_OMISSION) { unavailable++; continue; }
+        if (!protectedText || protectedText === MEMORY_CONTEXT_OMISSION) { unavailable++;unavailableDates.add(date);continue; }
         const searchable = protectedText.toLocaleLowerCase();
         if (!terms.every(term=>searchable.includes(term))) continue;
         const match = terms.length ? searchable.indexOf(terms[0]) : 0;
@@ -76,11 +79,18 @@ export async function readSummaryQueryWithSources(store: StoreHost, args: Record
         reader.contributed(file.path,JSON.stringify(item));notes.push(item);
       }
       const dated = new Set(notes.map(note=>note.date));
+      const wantedDates = from<=through ? datesBetween(from,through).filter(wantsDate) : [];
+      const coverageByDate = wantedDates.map(date => ({date,
+        status: dated.has(date)?"已返回可读片段":unavailableDates.has(date)?"有日记，片段暂不可核对":limitedDates.has(date)?"有日记，本次未读齐":knownDates.has(date)?"有日记，可读正文未命中主题":"允许范围未找到日记"}));
       originalEvidence = {from,to:through,...(query?{query}:{}),notes,unavailable,
-        missingDates: from<=through?datesBetween(from,through).filter(date=>!dated.has(date)):[],
+        coverageByDate,
+        missingDates: wantedDates.filter(date=>!knownDates.has(date)),
+        unmatchedDates: query ? wantedDates.filter(date=>knownDates.has(date)&&!dated.has(date)&&!unavailableDates.has(date)&&!limitedDates.has(date)) : [],
+        unavailableDates: [...unavailableDates].filter(date=>!dated.has(date)),
+        limitedDates: [...limitedDates].filter(date=>!dated.has(date)),
         limited: from>range.from||files.length>selected.length||notes.some(note=>note.truncated),
         eventDates:"未核对",
-        coverage:"仅核对所问范围内最近28天、最多28篇日记片段。没有可读记录不能推出当天没做；截断不能当全文，可用准确path续查。笔记日期不等于事件日期，历史表现不能证明因果或当前偏好；后续安排以当前已确认记忆为准。"};
+        coverage:"仅核对所问范围内最近28天、最多28篇日记片段。missingDates表示允许范围未找到该日日记；unmatchedDates表示已有日记但可读正文未命中主题，不能说成没有日记。unavailableDates或limitedDates表示依据未读齐。以上均不能推出当天没做；截断不能当全文，可用准确path续查。笔记日期不等于事件日期，历史表现不能证明因果或当前偏好；后续安排以当前已确认记忆为准。"};
     }
     await noPending();
     if ((await readSummaryScope(store)).hash!==scope.hash) throw Error("摘要可读取的资料范围有变化，请重试。");
