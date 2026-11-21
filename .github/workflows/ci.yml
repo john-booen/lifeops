@@ -128,5 +128,8 @@ jobs:
         if: always()
         with:
           name: native-task-content-${{ matrix.version }}
-          path: ${{ runner.temp }}/native-task-content-*
+          path: |
+            ${{ runner.temp }}/native-task-content-*/result.json
+            ${{ runner.temp }}/native-task-content-*/*.png
+            ${{ runner.temp }}/native-task-content-*/*.log
           if-no-files-found: warn

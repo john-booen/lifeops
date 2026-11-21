@@ -7,6 +7,7 @@ import { mkdtemp, mkdir, readFile, writeFile, cp, readdir, rm } from "node:fs/pr
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { setTimeout } from "node:timers/promises";
+import { nativeFixtureSeed } from "./native-fixture.mjs";
 
 assert(process.env.GITHUB_ACTIONS === "true" && process.env.RUNNER_OS === "macOS", "Native QA runs on GitHub macOS only");
 const source = process.env.LIFEOPS_QA_SOURCE, candidate = process.env.LIFEOPS_QA_PACKAGE;
@@ -20,9 +21,7 @@ const vault = join(root, "Fictional-vault"), profile = join(root, "profile");
 const plugin = join(vault, ".obsidian/plugins/lifeops-assistant");
 await mkdir(plugin, { recursive: true }); await mkdir(profile);
 await writeFile(join(vault, "TEST_VAULT_ONLY.md"), "内容全部为虚构数据。\n");
-const seed = JSON.parse(await readFile(join(source, "fixtures/test-vault/.obsidian/plugins/lifeops-assistant/data.json"), "utf8"));
-assert(seed.ai.provider === "off" && seed.embedding.provider === "off" && seed.vision.provider === "off" && seed.externalVaults.length === 0);
-seed.setupComplete = true; seed.proactive = { ...seed.proactive, enabled: false }; seed.phoneInboxEnabled = false;
+const seed = nativeFixtureSeed(JSON.parse(await readFile(join(source, "fixtures/test-vault/.obsidian/plugins/lifeops-assistant/data.json"), "utf8")));
 await writeFile(join(plugin, "data.json"), JSON.stringify(seed));
 await writeFile(join(vault, ".obsidian/community-plugins.json"), JSON.stringify(["lifeops-assistant"]));
 await writeFile(join(vault, ".obsidian/app.json"), JSON.stringify({ safeMode: false }));
@@ -81,6 +80,12 @@ try {
   await packageFiles(candidate);
   assert.equal(createHash("sha256").update(await readFile(join(plugin, "main.js"))).digest("hex"), expected);
   await launch();
+  await page.waitForFunction(async sha => {
+    const p = app.plugins.getPlugin("lifeops-assistant");
+    const heartbeat = await p.store.readJson(p.store.path(p.settings.folders.aiReports, "System", "heartbeat.json"), {});
+    return heartbeat.ok === true && heartbeat.mainSha256 === sha;
+  }, expected);
+  result.checks.loadedHeartbeatMatchesSealedPackage = true;
   const edited = await page.evaluate(async () => {
     const p = app.plugins.getPlugin("lifeops-assistant");
     const date = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
@@ -159,4 +164,5 @@ try {
   await close().catch(error => { result.closeError = error.message; result.passed = false; });
   await writeFile(join(root, "result.json"), JSON.stringify(result, null, 2) + "\n");
   console.log(JSON.stringify(result));
+  if (!result.passed) process.exitCode = 1;
 }
