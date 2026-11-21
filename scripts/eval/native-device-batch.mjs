@@ -190,6 +190,7 @@ export async function exerciseNativeDeviceBatch({ getPage, root, vault, profile,
   await (await import("./native-recent-undo.mjs")).nativeRecentUndo(page,result);
   await (await import("./native-task-follow-through.mjs")).nativeTaskFollowThrough(page,root,result);
   await (await import("./native-report-speech.mjs")).nativeReportSpeech(page,result);
+  await (await import("./native-stat-meaning.mjs")).nativeStatMeaning(page,result);
   const preserved = await phoneBatchUi(page, root);
   result.checks.firstRoleUiAndPhoneBatchUndo = true;
   await close();

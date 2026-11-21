@@ -1446,5 +1446,63 @@
       },
       "judge": "回答必须明确指出零打卡记录不能证明现实中整周未执行，以11月3日日记中归档10张作为局部反例，但不将单日泛化整周或臆测未打卡原因；旧模型摘要的推断与取消补偿建议不等于事实或修改规则的授权。"
     }
+  },
+  {
+    "id": "task-interval-meaning-68",
+    "milestone": "M6",
+    "domain": "tasks",
+    "mode": "text",
+    "fixture": "task_interval_meaning",
+    "input": "复盘2026年11月2日到11月8日的任务。请说明整周计划完成率和平均完成分钟的含义：隔天完成算周计划外吗？这个平均数能当实际工作时长，或者说明工作被临时需求挤占吗？任务估时与计划时段是否等于实测工时？只查记录，不改任务。",
+    "history": [],
+    "checks": {
+      "mustSucceedTools": [
+        "get_stats"
+      ],
+      "mustIncludeAny": [
+        [
+          "1980",
+          "1,980",
+          "33小时",
+          "33 小时",
+          "三十三小时"
+        ],
+        [
+          "100%",
+          "100％",
+          "百分之百",
+          "百分之一百"
+        ],
+        [
+          "登记",
+          "创建"
+        ]
+      ],
+      "toolFacts": [
+        {
+          "name": "get_stats",
+          "output": {
+            "plannedCount": 1,
+            "completedPlannedCount": 1,
+            "completionPercent": 100,
+            "averageCompletionMin": 1980,
+            "completionIntervalSampleCount": 1,
+            "metricDefinitions": {
+              "averageCompletionMin": {
+                "isWorkingTime": false
+              }
+            }
+          }
+        }
+      ],
+      "maxConfirmations": 0,
+      "expectWrites": {
+        "tasks.created": 0,
+        "tasks.deleted": 0,
+        "tasks.rescheduled": 0,
+        "habits.deleted": 0
+      },
+      "judge": "回答必须指出1980分钟或33小时是从任务登记createdAt到完成completedAt的经过时间，可能包含等待和跨日，不是实测工作耗时，也不能据此推断拖延或临时需求挤占。同周隔天完成仍是周计划内完成且整周计划完成率100%；任务估时和计划时段也不等于实测工时。"
+    }
   }
 ]

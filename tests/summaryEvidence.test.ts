@@ -7,6 +7,7 @@ import type { StoreHost } from "../src/store/settingsSlice";
 import type { VaultQueryRead } from "../src/vaultQueryRead";
 import { DEFAULT_SETTINGS } from "../src/defaults";
 import { prepareSparseSummaryFixture } from "./eval/sparseSummaryFixture";
+import { prepareTaskIntervalFixture } from "./eval/taskIntervalFixture";
 vi.mock("obsidian",()=>({App:class{},TFile:class{},TFolder:class{},Modal:class{},Notice:class{},normalizePath:(p:string)=>p.replace(/\\/g,"/"),parseYaml:JSON.parse,stringifyYaml:JSON.stringify}));
 const { LifeOpsStore }=await import("../src/store");
 const { AgentRuntime }=await import("../src/agentRuntime");
@@ -52,11 +53,43 @@ it("seeds a contradictory legacy summary with one dated original and preserves o
  await prepareSparseSummaryFixture(store);
  const result=await query("fictional-sparse-summary",{range:{from:"2026-11-02",to:"2026-11-08"},includeOriginals:true});
  expect(result.success,result.output).toBe(true);const output=JSON.parse(result.output);
- expect(output.summaries).toHaveLength(1);expect(output.summaries[0]).toMatchObject({generatedBy:"model",complete:true});
+ expect(output.summaries).toHaveLength(1);expect(output.summaries[0]).toMatchObject({generatedBy:"model",complete:true,inputCount:1,edited:false});
+ expect(output.recordScope).toMatchObject({population:"permitted_registered_records",unrecordedActivity:"unknown"});
  expect(output.summaries[0].summary).toContain("本周一张也没有归档");
  expect(output.originalEvidence.notes).toEqual([expect.objectContaining({date:"2026-11-03",text:expect.stringContaining("10张")})]);
  expect((await store.readTaskDb()).tasks).toEqual([]);expect((await store.readHabitDb()).checkins).toEqual([]);
  expect(await vault.bytes(journal("2026-11-11"))).toBe("虚构其他周原文应保留。");
+});
+
+it("rejects task interval preparation before changing records without the fictional marker",async()=>{
+ await store.createTask({title:"虚构应保留登记",date:"2026-11-04"});await seedSummary("2026-11-04","虚构旧统计正文。");
+ const before=await store.readTaskDb(),path=summaryPath(store,summaryPeriod("week","2026-11-04")),bytes=await vault.bytes(path);
+ await expect(prepareTaskIntervalFixture(store)).rejects.toThrow("全虚构夹具");
+ expect(await store.readTaskDb()).toEqual(before);expect(await vault.bytes(path)).toBe(bytes);
+});
+
+it("removes unrelated old totals only for the isolated task interval scenario's week",async()=>{
+ await vault.seed("TEST_VAULT_ONLY.md","内容全部为虚构数据。");
+ await seedSummary("2026-11-04","虚构旧任务群体完成26项，完成率70.27%。");
+ await seedSummary("2026-11-11","虚构另一周统计应保留。");
+ const other=summaryPath(store,summaryPeriod("week","2026-11-11")),bytes=await vault.bytes(other);
+ await prepareTaskIntervalFixture(store);
+ expect(store.getFile(summaryPath(store,summaryPeriod("week","2026-11-04")))).toBeNull();
+ expect(await vault.bytes(other)).toBe(bytes);
+ const result=await runtime.executeAiToolCall({id:"fictional-interval-metrics",name:"get_stats",arguments:{domain:"tasks",range:{from:"2026-11-02",to:"2026-11-08"},groupBy:"day"}},"kimi");
+ expect(result.success,result.output).toBe(true);
+ expect(JSON.parse(result.output)).toMatchObject({plannedCount:1,completedPlannedCount:1,completionPercent:100,averageCompletionMin:1980,completionIntervalSampleCount:1});
+});
+
+it("reports edited summary provenance without overwriting the user's additions",async()=>{
+ await seedSummary("2026-11-04","纯虚构模型摘要正文。");
+ const path=summaryPath(store,summaryPeriod("week","2026-11-04"));
+ const edited=(await vault.bytes(path))+"\n\n虚构手工补充：此处等待原文核对。\n";await vault.seed(path,edited);
+ const result=await query("fictional-edited-provenance",{range:{from:"2026-11-02",to:"2026-11-08"}});
+ expect(result.success,result.output).toBe(true);const output=JSON.parse(result.output);
+ expect(output.summaries[0]).toMatchObject({generatedBy:"model",edited:true,inputCount:2});
+ expect(output.summaries[0].summary).toContain("虚构手工补充");
+ expect(await vault.bytes(path)).toBe(edited);expect(result.receipt).toBeUndefined();
 });
 
 it("provides calendar-day counts from actual morning and evening files without changing the originals",async()=>{

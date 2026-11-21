@@ -155,6 +155,9 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
   if (question.fixture === "sparse_legacy_summary") {
     await (await import("./sparseSummaryFixture")).prepareSparseSummaryFixture(store as unknown as StoreHost);
   }
+  if (question.fixture === "task_interval_meaning") {
+    await (await import("./taskIntervalFixture")).prepareTaskIntervalFixture(store as unknown as StoreHost);
+  }
   if (question.fixture === "device_sleep") {
     await store.appendHealthEntry({ date: "2026-11-10", sleepHours: 7.25 });
     await store.appendHealthEntry({ date: "2026-11-12", sleepHours: 8.25 });
@@ -346,7 +349,7 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
   }
   if (process.env.LIFEOPS_EVAL_DIAGNOSTICS === "1") {
     if (process.env.LIFEOPS_EVAL_REVIEW_IDS?.split(",").includes(question.id)) {
-      process.stdout.write(`${question.id} 语气抽样 · ${redactSensitiveText(reply.reply, credentials).slice(0, 1400)}\n`);
+      process.stdout.write(`${question.id} 语气抽样 · ${redactSensitiveText(reply.reply, credentials).slice(0, 4000)}\n`);
     }
     const qualityPath = (store as unknown as StoreHost).qualityLogPath();
     const quality = await readFile(join(activeRoot, qualityPath), "utf8").catch(() => "");

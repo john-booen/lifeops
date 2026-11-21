@@ -8,6 +8,7 @@ import { produceVaultQueryRead } from "../../vaultQueryRead";
 import { readSummary, readSummaryScope, summaryPath, summaryPathAllowed } from "./notes";
 import { resolveSummaryRange, summaryLevels, summaryPeriod, summaryPeriodsInRange, type SummaryLevel } from "./periods";
 import { evidenceCoverage } from "./evidenceCoverage";
+import { RECORDED_DATA_SCOPE } from "../stats/definitions";
 
 /** Read historical evidence without regenerating summaries or confirming memory. */
 export async function readSummaryQueryWithSources(store: StoreHost, args: Record<string, unknown>) {
@@ -45,7 +46,7 @@ export async function readSummaryQueryWithSources(store: StoreHost, args: Record
       if (!note) { missingPeriods.push(period.key); continue; }
       const item = {
         period: period.key, from: period.from, through: note.properties.through, complete: note.properties.complete,
-        generatedBy: note.properties.generatedBy, metrics: note.properties.metrics,
+        generatedBy: note.properties.generatedBy, edited: note.edited, inputCount: note.properties.inputCount, metrics: note.properties.metrics,
         summary: scope.protect(note.text).slice(0,1600), path: note.path
       };
       reader.dependOn(note.path,note.revision);reader.contributed(note.path,JSON.stringify(item));
@@ -96,7 +97,11 @@ export async function readSummaryQueryWithSources(store: StoreHost, args: Record
     }
     await noPending();
     if ((await readSummaryScope(store)).hash!==scope.hash) throw Error("摘要可读取的资料范围有变化，请重试。");
-    return JSON.stringify({level,range,summaries,...(missingPeriods.length?{missingPeriods}:{}),
+    return JSON.stringify({level,range,summaries,recordScope:RECORDED_DATA_SCOPE,
+      interpretationBoundary:{summary:"模型或本地生成的二手总结，不是直接事件证明；edited表示生成后有编辑，不能仅凭它认定原文已核对。",
+        complete:"周期完成标记，不是原始记录齐全的证明。",inputCount:"已完成的子摘要份数，不是日记篇数或有行为的天数。",
+        dates:"原文中的相对日期以该段叙述的时点理解，笔记日期与事件日期分开；不能改为当前读取日。",
+        suggestions:"建议不等于事实、已定计划或修改现有目标与规则的授权。"},...(missingPeriods.length?{missingPeriods}:{}),
       ...(coverage.length?{coverage:coverage.join(" ")} : {}),...(originalEvidence?{originalEvidence}:{})});
   });
   try { await noPending();await read.assertSourcesCurrent();return read; }

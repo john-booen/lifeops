@@ -79,6 +79,26 @@ describe("task statistics", () => {
   });
 });
 
+it("distinguishes cross-day record lifetime from actual working time and whole-range plans", () => {
+  const result = getStats({ domain: "tasks", range: { from: "2026-02-01", to: "2026-02-02" }, groupBy: "day" }, {
+    tasks: [task({ id: "fictional-cross-day", date: "2026-02-01", status: "completed",
+      createdAt: "2026-02-01T08:00:00+08:00", completedAt: "2026-02-02T09:00:00+08:00" }),
+    task({ id: "fictional-date-only", date: "2026-02-01", status: "completed", createdAt: "", completedAt: "2026-02-02" })]
+  }, new Date("2026-02-02T20:00:00+08:00"));
+  expect(result).toMatchObject({ averageCompletionMin: 1500, completionIntervalSampleCount: 1,
+    completedCount: 2, completedPlannedCount: 2, plannedCount: 2, completionPercent: 100,
+    groups: [{ date: "2026-02-01", plannedCount: 2, completedCount: 0 }, { date: "2026-02-02", plannedCount: 0, completedCount: 2 }],
+    metricDefinitions: { averageCompletionMin: { unit: "minutes", from: "createdAt", to: "completedAt", isWorkingTime: false },
+      completionPercent: { numerator: "completedPlannedCount", denominator: "plannedCount" },
+      plannedTime: { fields: ["estimateMin", "startTime", "endTime"], isWorkingTime: false } } });
+});
+
+it("keeps missing completion intervals unknown instead of reporting zero work", () => {
+  const result = getStats({ domain: "tasks", range: "today" }, { tasks: [task({ status: "completed", createdAt: "", completedAt: "2026-02-02" })] }, now);
+  expect(result).toMatchObject({ completedCount: 1, averageCompletionMin: null, completionIntervalSampleCount: 0,
+    metricDefinitions: { averageCompletionMin: { isWorkingTime: false } } });
+});
+
 describe("habit statistics", () => {
   it("returns no habits for an empty database", () => {
     expect(getStats({ domain: "habits", range: "this_week" }, {}, now)).toMatchObject({ habits: [] });

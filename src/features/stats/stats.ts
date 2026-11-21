@@ -9,6 +9,7 @@ import { healthStats, type HealthDay } from "../health/model";
 import { isHealthHabitSource } from "../health/habitSources";
 import type { LearningTrack } from "../learning/model";
 import { tradeStats, type TradeStatGroup, type TradeStatsSettings } from "./trades";
+import { COMPLETION_INTERVAL_MEANING, RECORDED_DATA_SCOPE, TASK_METRIC_DEFINITIONS } from "./definitions";
 
 export type StatsDomain = "tasks" | "habits" | "journal" | "trades" | "ideas" | "learning" | "health";
 export const statsNamedRanges = ["today", "last_3d", "this_week", "last_week", "last_7d", "this_month", "last_month", "last_30d"] as const;
@@ -80,13 +81,13 @@ export function getStats(request: StatsRequest, data: StatsData, now: Date) {
   const { domain, groupBy } = request;
   const group = groupBy === "day" || groupBy === "week" ? groupBy : undefined;
   switch (domain) {
-    case "tasks": return { domain, range, ...taskStats(data.tasks ?? [], range, now, group) };
-    case "habits": return { domain, range, ...habitStats(data.habits ?? [], data.checkins ?? [], range, now, group) };
-    case "journal": return { domain, range, ...journalStats(data.journal ?? [], range, group) };
-    case "health": return { domain, range, ...healthStats((data.health ?? []).filter(day => inRange(day.date, range))) };
-    case "trades": return { domain, range, ...tradeStats(data.trades ?? [], range, groupBy as TradeStatGroup | undefined, data.tradeSettings, request.combineUsd) };
-    case "ideas": return { domain, range, ...ideaStats(data.ideas ?? [], range, group) };
-    case "learning": return { domain, range, ...learningStats(data.learning ?? [], range, group) };
+    case "tasks": return { domain, range, ...taskStats(data.tasks ?? [], range, now, group), metricDefinitions: TASK_METRIC_DEFINITIONS, recordScope: RECORDED_DATA_SCOPE };
+    case "habits": return { domain, range, ...habitStats(data.habits ?? [], data.checkins ?? [], range, now, group), recordScope: RECORDED_DATA_SCOPE };
+    case "journal": return { domain, range, ...journalStats(data.journal ?? [], range, group), recordScope: RECORDED_DATA_SCOPE };
+    case "health": return { domain, range, ...healthStats((data.health ?? []).filter(day => inRange(day.date, range))), recordScope: RECORDED_DATA_SCOPE };
+    case "trades": return { domain, range, ...tradeStats(data.trades ?? [], range, groupBy as TradeStatGroup | undefined, data.tradeSettings, request.combineUsd), recordScope: RECORDED_DATA_SCOPE };
+    case "ideas": return { domain, range, ...ideaStats(data.ideas ?? [], range, group), recordScope: RECORDED_DATA_SCOPE };
+    case "learning": return { domain, range, ...learningStats(data.learning ?? [], range, group), recordScope: RECORDED_DATA_SCOPE };
   }
 }
 
@@ -162,11 +163,13 @@ export function todayTaskCounts(tasks: readonly LifeOpsTask[], date: string, now
 function taskTotals(planned: readonly LifeOpsTask[], completed: readonly Completion[], today: string) {
   const completedIds = new Set(completed.map(event => event.task.id));
   const completedPlannedCount = planned.filter(task => completedIds.has(task.id)).length;
+  const intervals = completed.flatMap(event => event.elapsedMin === null ? [] : [event.elapsedMin]);
   return {
     plannedCount: planned.length, completedCount: completed.length, completedPlannedCount,
     completionPercent: percent(completedPlannedCount, planned.length),
     overdueCount: planned.filter(task => task.status === "active" && isTaskOverdue(task, today)).length,
-    averageCompletionMin: mean(completed.flatMap(event => event.elapsedMin === null ? [] : [event.elapsedMin]))
+    averageCompletionMin: mean(intervals), averageCompletionMinMeaning: COMPLETION_INTERVAL_MEANING,
+    completionIntervalSampleCount: intervals.length
   };
 }
 

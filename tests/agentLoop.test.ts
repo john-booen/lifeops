@@ -102,6 +102,19 @@ function reply(content: string, toolCalls: AiToolCall[] = []): AiChatResult {
     providerRun: { requestedProvider: "custom", requestedModel: "synthetic-model", actualModel: "synthetic-model",
       status: "success", fallbackUsed: false, attempts: [], responseUsage: usage } };
 }
+
+it("keeps task interval numbers and their meaning before compact voice output is truncated",async()=>{
+  const task=await store.createTask({title:"虚构跨日间隔",date:"2026-11-10",estimateMin:30,startTime:"09:00",endTime:"09:30"});
+  await store.updateTask(task.id,row=>({...row,status:"completed",createdAt:"2026-11-10T08:00:00+08:00",completedAt:"2026-11-11T17:00:00+08:00"}));
+  responses.push(reply("",[tool("get_stats",{domain:"tasks",range:{from:"2026-11-09",to:"2026-11-15"},groupBy:"day"})]),
+    reply("这是从登记到完成的经过时间，不是实测工作工时。"));
+  const result=await new AgentLoop(host).run(input({source:"voice",message:"统计这周任务的平均完成间隔。"}));
+  expect(result.toolCalls).toContainEqual({name:"get_stats",ok:true});
+  const evidence=requests.at(-1)!.filter(message=>message.role==="tool").map(message=>message.content).join("\n");
+  expect(evidence).toContain('"averageCompletionMin":1980');expect(evidence).toContain('"completionPercent":100');
+  expect(evidence).toContain("不是实测工作工时");expect(evidence).toContain("只显示已查结果的前部");
+  expect(result.receipts).toEqual([]);
+});
 function input(overrides: Partial<AgentTurnInput> = {}): AgentTurnInput {
   return { message: "请创建任务 纯虚构循环任务。", history: [], source: "text", now, ...overrides };
 }
