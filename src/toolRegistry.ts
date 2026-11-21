@@ -187,7 +187,7 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
         operation: { type: "string", enum: ["get", "list", "search"], description: "get读原文，list列信息，search搜词；memory仅有效记忆。" },
         query: { type: "string", description: "search填连续关键词；list筛文件名；日记get用日期、时段或路径。" },
         date: { type: "string", description: "日期或今天/昨天；日记省略取最新，习惯默认今天。" },
-        range: { type: "string", enum: ["today", "week"], description: "仅任务/习惯的今日或本周至指定日期。日记不用range，跨日按date逐日get。" },
+        range: { type: "string", enum: ["today", "week"], description: "任务/习惯的今日或本周至指定日期；日记today查date当天，week查date所在周一至周日，未给date以今天为基准。" },
         period: { type: "string", enum: ["早", "晚"], description: "日记时段。用户问昨晚、晚间时填晚，问晨间时填早；省略且指定日期时返回同日各篇。" },
         path: { type: "string", description: "准确库内Markdown路径，缺失不替代；排除生成/隐私内容，memory不用。" },
         vault: { type: "string", description: "默认全部。local 只搜日用库，或填外部库名。外部来源注明原私人库。" },

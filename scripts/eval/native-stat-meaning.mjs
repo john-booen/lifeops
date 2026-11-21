@@ -17,7 +17,7 @@ export async function nativeStatMeaning(page, result) {
         arguments: { level: "week", range: { from: "2026-01-05", to: "2026-01-11" } } }, "kimi");
       const invalidQueries = [];
       for (const [i, arguments_] of [{ domain: "journal", operation: "list", offset: 12 },
-        { domain: "journal", operation: "get", date: "2026-01-05", range: "week" }].entries()) {
+        { domain: "note", operation: "get", range: "week" }].entries()) {
         invalidQueries.push(await runtime.executeAiToolCall({ id: "fictional-native-query-parameter-" + i,
           name: "query_vault", arguments: arguments_ }, "kimi"));
       }

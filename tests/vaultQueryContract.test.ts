@@ -33,13 +33,45 @@ describe("query_vault contract on a real temporary synthetic Vault", () => {
     expect(result.output).toContain("原文分页"); expect(result.output).toContain("准确 path");
     expect(result.output).not.toContain("权限刚刚变化");
   });
-  it("does not silently turn a requested diary week into a one-day read", async () => {
-    const path = store.dailyNotePath("2026-11-02", "晚"); await vault.seed(path, "虚构只在周一的记录。");
+  it("reads the requested diary week instead of silently reducing it to its anchor date", async () => {
+    for (const [date, text] of [["2026-11-01", "虚构前周"], ["2026-11-02", "虚构周一原话"],
+      ["2026-11-04", "虚构周三原话"], ["2026-11-08", "虚构周日原话"], ["2026-11-09", "虚构后周"]]) {
+      await vault.seed(store.dailyNotePath(date, "晚"), text);
+    }
     const runtime = new AgentRuntime({ store, refreshViews: async () => {} });
     const result = await runtime.executeToolCall({ toolName: "query_vault", callId: "fictional-invalid-diary-range", source: "kimi",
-      arguments: { domain: "journal", operation: "get", date: "2026-11-02", range: "week" } });
-    expect(result.success).toBe(false); expect(result.output).toContain("range 仅适用于任务和习惯");
-    expect(result.output).toContain("逐日"); expect(result.output).not.toContain("虚构只在周一的记录");
+      arguments: { domain: "journal", operation: "get", date: "2026-11-04", range: "week" } });
+    expect(result.success, result.output).toBe(true);
+    for (const word of ["虚构周一原话", "虚构周三原话", "虚构周日原话"]) expect(result.output).toContain(word);
+    expect(result.output).not.toContain("虚构前周"); expect(result.output).not.toContain("虚构后周");
+  });
+  it("keeps diary week search and listing within the same privacy-filtered dates", async () => {
+    for (const date of ["2026-11-01", "2026-11-02", "2026-11-04", "2026-11-08", "2026-11-09"]) {
+      await vault.seed(store.dailyNotePath(date, "晚"), "虚构纸样 " + date);
+    }
+    store.settings.privacy!.excludedVaultPrefixes = [store.dailyNotePath("2026-11-04", "晚")];
+    for (const operation of ["search", "list"] as const) {
+      const result = await executeVaultQuery(store, { domain: "journal", operation, date: "2026-11-04", range: "week",
+        ...(operation === "search" ? { query: "虚构纸样" } : {}), sort: "oldest", limit: 12 });
+      expect(result).toContain("2026-11-02晚.md"); expect(result).toContain("2026-11-08晚.md");
+      expect(result.indexOf("2026-11-02晚.md")).toBeLessThan(result.indexOf("2026-11-08晚.md"));
+      for (const date of ["2026-11-01", "2026-11-04", "2026-11-09"]) expect(result).not.toContain(date + "晚.md");
+    }
+    await expect(executeVaultQuery(store, { domain: "journal", operation: "get", date: "2026-11-04", range: "week",
+      path: store.dailyNotePath("2026-11-09", "晚") })).rejects.toThrow("不匹配");
+  });
+  it("uses today's date for an unanchored diary range and honors a specific single-day anchor", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date(2026, 10, 12, 9));
+    try {
+      for (const date of ["2026-11-02", "2026-11-09", "2026-11-12", "2026-11-15", "2026-11-16"]) {
+        await vault.seed(store.dailyNotePath(date, "晚"), "虚构范围 " + date);
+      }
+      const week = await executeVaultQuery(store, { domain: "journal", operation: "get", range: "week" });
+      for (const date of ["2026-11-09", "2026-11-12", "2026-11-15"]) expect(week).toContain(date + "晚.md");
+      expect(week).not.toContain("2026-11-02晚.md"); expect(week).not.toContain("2026-11-16晚.md");
+      const day = await executeVaultQuery(store, { domain: "journal", operation: "get", date: "2026-11-02", range: "today" });
+      expect(day).toContain("2026-11-02晚.md"); expect(day).not.toContain("2026-11-12晚.md");
+    } finally { vi.useRealTimers(); }
   });
   it("pages protected raw text with real later-page provenance and reports only the actual interval", async () => {
     const path = store.dailyNotePath("2026-10-06", "晚"), raw = "甲".repeat(20_000) + "FICT-LATER-PAGE";
