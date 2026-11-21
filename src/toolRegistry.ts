@@ -38,6 +38,7 @@ import { NOTE_UNDERSTANDING_SOURCE_TOOL } from "./noteUnderstandingSource";
 import { TASK_PLAN_TOOL, PROJECT_WORK_PLAN_TOOL } from "./taskPlanTools";
 import type { TaskPlanReviewAction } from "./taskPlanReviewRegistry";
 import type { ProjectJobArguments } from "./projectJobRepository";
+import { UPDATE_TASKS_TOOL, updateTaskContents } from "./features/tasks/contentUpdate";
 
 export type ToolSafetyLevel = "safe" | "direct-write" | "ui-confirm" | "forbidden";
 export type ToolSource = "qwen-omni" | "kimi" | "system";
@@ -71,6 +72,7 @@ export interface ToolExecutionResult {
   actions: AgentActionSuggestion[];
   undo?: OperationUndoDescriptor;
   tradeEdits?: OperationResultSnapshot["tradeEdits"];
+  taskEdits?: OperationResultSnapshot["taskEdits"];
   jobCheckpoint?: OperationResultSnapshot["jobCheckpoint"];
 }
 interface UndoExecution {host:StoreHost;operationId:string;claim:OperationLedgerRecord;options:FactOperationOptions;taskTitle?:string;taskCreationOnly?:boolean;}
@@ -101,6 +103,8 @@ export interface LifeOpsToolDefinition extends AiToolDefinition {
 const memoryFileNames = ["个人画像.md", "当前状态.md", "长期目标.md", "管家规则.md", "交易纪律.md"];
 
 export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
+  { ...UPDATE_TASKS_TOOL, safety: "direct-write", execute: (args, context, request) =>
+    updateTaskContents(args, context, request, resolveTaskByReference) },
   STATS_TOOL,
   SUMMARIES_TOOL,
   ...TASK_PLANNING_TOOLS,

@@ -972,5 +972,110 @@
         ]
       }
     }
+  },
+  {
+    "id": "task-content-correction-58",
+    "milestone": "M6",
+    "domain": "tasks",
+    "mode": "text",
+    "prelude": [
+      "明天下午3:00提醒我给虚构蓝色纸夹贴标签。",
+      "明天下午4:00提醒我整理虚构绿色纸盒。"
+    ],
+    "input": "把刚才的「给虚构蓝色纸夹贴标签」改为「给虚构蓝色纸夹添加橙色标签」，把「整理虚构绿色纸盒」改为「检查虚构绿色纸盒的清单」。只改这两条标题，编号、日期和原时间都保留，直接修改好，不要删掉重建，也不要再问确认。再新增一条明天17:00给虚构紫色纸袋编号。",
+    "history": [],
+    "checks": {
+      "preludeCreatedTasks": 2,
+      "mustSucceedTools": [
+        "update_tasks",
+        "create_task"
+      ],
+      "mustNotCallTools": [
+        "delete_task",
+        "propose_task_plan"
+      ],
+      "minReceipts": 2,
+      "maxConfirmations": 0,
+      "expectWrites": {
+        "tasks.created": 3,
+        "tasks.deleted": 0,
+        "tasks.rescheduled": 0,
+        "tasks.timeChanged": 0
+      },
+      "updatedTasks": [
+        {
+          "fromTitleIncludes": "虚构蓝色纸夹",
+          "title": "给虚构蓝色纸夹添加橙色标签"
+        },
+        {
+          "fromTitleIncludes": "虚构绿色纸盒",
+          "title": "检查虚构绿色纸盒的清单"
+        }
+      ],
+      "createdTask": {
+        "titleIncludes": "虚构紫色纸袋",
+        "date": "2026-11-13",
+        "time": "17:00"
+      },
+      "mustInclude": [
+        "橙色标签",
+        "绿色纸盒",
+        "紫色纸袋"
+      ]
+    }
+  },
+  {
+    "id": "task-content-confirmation-59",
+    "milestone": "M6",
+    "domain": "tasks",
+    "mode": "text",
+    "prelude": [
+      "明天下午3:00提醒我核对虚构青色图卡。",
+      "明天下午4:00提醒我整理虚构银色纸盒。"
+    ],
+    "afterPreludeHistory": [
+      {
+        "role": "user",
+        "content": "把「核对虚构青色图卡」改成「给虚构青色图卡添加黄色标记」，把「整理虚构银色纸盒」改成「检查虚构银色纸盒的封口」。其他安排都保留。"
+      },
+      {
+        "role": "assistant",
+        "content": "两条修改如下：核对虚构青色图卡→给虚构青色图卡添加黄色标记；整理虚构银色纸盒→检查虚构银色纸盒的封口。请确认后我再改。"
+      }
+    ],
+    "input": "确定",
+    "history": [],
+    "checks": {
+      "preludeCreatedTasks": 2,
+      "mustSucceedTools": [
+        "update_tasks"
+      ],
+      "mustNotCallTools": [
+        "delete_task",
+        "propose_task_plan"
+      ],
+      "minReceipts": 1,
+      "maxConfirmations": 0,
+      "expectWrites": {
+        "tasks.created": 2,
+        "tasks.deleted": 0,
+        "tasks.rescheduled": 0,
+        "tasks.timeChanged": 0
+      },
+      "updatedTasks": [
+        {
+          "fromTitleIncludes": "虚构青色图卡",
+          "title": "给虚构青色图卡添加黄色标记"
+        },
+        {
+          "fromTitleIncludes": "虚构银色纸盒",
+          "title": "检查虚构银色纸盒的封口"
+        }
+      ],
+      "mustInclude": [
+        "黄色标记",
+        "银色纸盒"
+      ]
+    }
   }
 ]

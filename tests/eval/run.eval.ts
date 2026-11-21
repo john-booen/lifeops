@@ -13,7 +13,7 @@ import type { AgentResponse } from "../../src/types";
 import type { StoreHost } from "../../src/store/settingsSlice";
 import { isolatedProviderConfig } from "./isolatedProviderConfig";
 import { EvalTransport } from "./liveTransport";
-import { correctionHistory } from "./correctionHistory";
+import { correctionHistory, attestedCorrectionHistory } from "./correctionHistory";
 import { scoreEvaluationCase, shouldRepeatLatencyMeasurement, type EvalCheckin, type EvalObservation, type EvalQuestion, type EvalTask } from "./scoring";
 import { writeEvaluationReport, type EvalResult } from "./report";
 // @ts-expect-error The deterministic fixture generator shares the evaluation clock and marker.
@@ -204,6 +204,7 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
   let mainStarted = started;
   let firstTokenMs: number | undefined;
   let preludeCreatedTasks = 0;
+  let preparedTasks = before.tasks;
   let errorCode: string | undefined;
   let errorDetail: string | undefined;
   try {
@@ -213,7 +214,9 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
       history.push({ role: "user", content: message }, { role: "assistant", content: result.reply, receipts: result.receipts });
     }
     runningPrelude = false;
+    if (question.afterPreludeHistory) history.push(...await attestedCorrectionHistory(question.afterPreludeHistory, store as unknown as StoreHost));
     const prepared = await snapshot(activeRoot);
+    preparedTasks = prepared.tasks;
     preludeCreatedTasks = prepared.tasks.filter((task) => !before.tasks.some((old) => old.id === task.id)).length;
     if (question.fixture === "scheduled_compensation_after_prelude") {
       const evening = new Date(fixedNow);
@@ -241,7 +244,7 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
   const judge = question.checks.judge && !errorCode ? await judgeAnswer(question.checks.judge, question.input, reply.reply,
     JSON.stringify(judgeEvidence).slice(0, 16000), new LifeOpsAi(settingsForAgentModel(settings, "fast")), credentials) : undefined;
   const observed: EvalObservation = {
-    reply: reply.reply, voiceSpeech: reply.voiceSpeech, tools, createdTasks, tasks: after.tasks, preludeCreatedTasks, checkins: after.checkins,
+    reply: reply.reply, voiceSpeech: reply.voiceSpeech, tools, createdTasks, tasks: after.tasks, preparedTasks, preludeCreatedTasks, checkins: after.checkins,
     createdTrades, judge,
     activeMemories: memory?.records.filter(record => record.status === "active").map(record => record.content),
     proposedTaskDates: reply.actions.filter(action => action.type === "task_plan").flatMap(action =>

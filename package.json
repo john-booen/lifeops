@@ -1,6 +1,6 @@
 {
   "name": "lifeops-assistant",
-  "version": "0.5.98",
+  "version": "0.5.100",
   "description": "Obsidian personal data steward for daily planning, habits, trading review, health notes, and AI-assisted summaries.",
   "main": "main.js",
   "scripts": {

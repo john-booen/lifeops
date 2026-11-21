@@ -398,6 +398,7 @@ export interface AgentConversationMessage {
 export interface AgentWriteReceipt {
   operationId: string;
   tradeEdits?: Array<{ id: string; label: string; summary: string }>;
+  taskEdits?: Array<{ id: string; beforeTitle: string; title: string }>;
 }
 
 export interface AgentResponse {

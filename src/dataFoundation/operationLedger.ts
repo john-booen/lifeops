@@ -31,6 +31,7 @@ export interface OperationResultSnapshot {
   actions: AgentActionSuggestion[];
   undo?: OperationUndoDescriptor;
   tradeEdits?: import("../types").AgentWriteReceipt["tradeEdits"];
+  taskEdits?: import("../types").AgentWriteReceipt["taskEdits"];
   /** Local first-party checkpoint, never a Provider result or another task database. */
   jobCheckpoint?: { path: string; beforeHash: string; afterHash: string; document: string;
     jobId: string; planHash: string; stepIndex: number };
@@ -95,6 +96,7 @@ const automaticOperations = new Set([
   "local_checkHabitPunishments", "observe_personal_memory_candidate", "local_capture_learning_note", "local_index_reading", "project_job_metadata"
 ]);
 const legacyUserOperations = new Set([
+  "update_tasks",
   "create_task", "reschedule_task", "complete_task", "create_habit", "complete_habit", "miss_habit",
   "append_journal_entry", "append_knowledge_note", "append_trading_model_note", "record_trade", "update_trade",
   "record_learning", "update_learning_unit", "start_quiz", "grade_answer", "set_idea_status", "upsert_idea",
