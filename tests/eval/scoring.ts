@@ -1,3 +1,6 @@
+import { recordRevision } from "../../src/operationIdentity";
+import { normalizeJournalDate } from "../../src/date";
+
 export interface EvalTask {
   id: string;
   title: string;
@@ -33,6 +36,7 @@ interface EvalChecks {
   createdTaskBatch?: { date: string; notBefore: string; titleIncludes: string[]; unscheduled?: true };
   phoneBatch?: { created: number; existing: number };
   updatedTasks?: Array<{ fromTitleIncludes: string; title: string }>;
+  plannedTaskChanges?: { titlePrefix: string; count: number; fromHour: number; date: string };
   createdOrClarify?: { titleIncludes: string; dates: string[]; clarify: string[] };
   changedTask?: { id: string; date: string };
   checkin?: EvalCheckin;
@@ -52,7 +56,7 @@ export interface EvalQuestion {
   mode: "text" | "voice";
   input: string;
   history: { role: "user" | "assistant"; content: string }[];
-  fixture?: "without_quiz_cards" | "scheduled_compensation_after_prelude" | "automatic_memory_after_create" | "task_already_undone" | "one_overdue_task" | "device_sleep" | "cross_week_after_correction";
+  fixture?: "without_quiz_cards" | "scheduled_compensation_after_prelude" | "automatic_memory_after_create" | "task_already_undone" | "one_overdue_task" | "device_sleep" | "cross_week_after_correction" | "eleven_task_plans";
   prelude?: string[];
   afterPreludeHistory?: { role: "user" | "assistant"; content: string }[];
   phoneCaptureDate?: string;
@@ -76,6 +80,7 @@ export interface EvalObservation {
   checkins?: EvalCheckin[];
   activeMemories?: string[];
   proposedTaskDates?: string[];
+  proposedTaskChanges?: Array<{ name: string; arguments: Record<string, unknown> }>;
   proposedIdeaPlans?: { title: string; steps: { date: string; minutes: number }[] }[];
   createdTrades?: Record<string, unknown>[];
   judge?: { passed: boolean; reason: string };
@@ -97,6 +102,22 @@ export function shouldRepeatLatencyMeasurement(question: EvalQuestion, observed:
 export function scoreEvaluationCase(question: EvalQuestion, observed: EvalObservation): string[] {
   const { checks } = question;
   const issues: string[] = [];
+  if (checks.plannedTaskChanges) {
+    const plan = checks.plannedTaskChanges;
+    const originals = observed.preparedTasks?.filter(row => row.title.startsWith(plan.titlePrefix)).sort((a, b) => a.title.localeCompare(b.title)) ?? [];
+    const calls = observed.proposedTaskChanges ?? [], updates = calls[0]?.arguments.updates;
+    const rows = Array.isArray(updates) ? updates as Array<Record<string, unknown>> : [];
+    if (calls.length !== 1 || calls[0].name !== "update_tasks" || originals.length !== plan.count || rows.length !== plan.count
+      || originals.some((before, index) => {
+        const matching = rows.filter(row => row.taskIdOrTitle === before.id);
+        if (matching.length !== 1) return true;
+        const row = matching[0], hour = String(plan.fromHour + index).padStart(2, "0");
+        return row.startTime !== hour + ":00" || row.endTime !== hour + ":30"
+          || row.expectedRevision !== recordRevision(before)
+          || row.date !== undefined && normalizeJournalDate(String(row.date)) !== plan.date
+          || Object.keys(row).some(key => !["taskIdOrTitle", "startTime", "endTime", "date", "expectedRevision"].includes(key));
+      })) issues.push("完整计划未在一份绑定原任务版本的确认卡中准备齐全");
+  }
   for (const edit of checks.updatedTasks ?? []) {
     const originals = observed.preparedTasks?.filter(task => task.title.includes(edit.fromTitleIncludes)) ?? [];
     const prior = originals.length === 1 ? originals[0] : undefined;

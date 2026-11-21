@@ -22,6 +22,7 @@ import { assertProviderActive, awaitProviderActive, providerAbortCode, ProviderR
 import type { StoreHost } from "../store/settingsSlice";
 import { agentToolsForChat, getLifeOpsTool } from "../toolRegistry";
 import { prepareToolBatch } from "../toolBatch";
+import { bindTaskPlanConfirmation } from "../features/tasks/planConfirmation";
 import type { AgentActionSuggestion, AgentConversationMessage, AgentResponse, AgentWriteReceipt, LifeOpsSettings, ProviderRunResult } from "../types";
 import { agentHistoryMessages, buildResidentContext, clipBytes, type ResidentContext } from "./context";
 import { explicitTitleEdits,completeTitleEditCalls,titleEditCall } from "./explicitTitleEdits";
@@ -611,7 +612,7 @@ export class AgentLoop {
       guidance.push("用户明确要求把一段思考提取为今天的全部任务、排好时间并设置时，用 schedule_task_batch 一次提交完整清单，按依赖排序；用户已说今天必做或全天有空，就保留日期和全部事项，不再问选哪一项或逐条提交。历史完成量只是提醒，不是每天只能建几项的限制。仅讨论未来订阅或条件触发事项，不得当作今天立即执行的动作。只要求草案或确认卡才用 propose_task_plan。");
     }
     guidance.push(`保存状态只认工具回执：本轮目前实际写入${state.receipts.size}项。未执行写工具时绝不声称已创建、已提交或已全部安排；用户明确说提交时应实际调用工具。历史助手文字只是回复，不能作为任务已保存的证据；先查当前任务或用整批工具核对去重。不要提前把尚未完成的任务写成日记里的完成事实。`);
-    if (tools.some(tool => tool.name === "update_tasks")) guidance.push("更正已有任务标题或备注，用update_tasks一次提交全部修改，保留原任务和安排；一至三条直接执行，不先追问确认，不删除重建。同时新增的事项也在本轮调用create_task。用户说确认前文明确的改名时，按相邻对话的旧→新对应关系定位，必要时先list_tasks查准确ID。");
+    if (tools.some(tool => tool.name === "update_tasks")) guidance.push("更正标题、备注、完整计划区间或整批重排已有任务，用update_tasks一次提交全部对象及需要修改的字段，保留原编号和未指定字段；一至三条直接执行，更多由程序统一确认。完整区间用startTime/endTime，不要逐条用单点reschedule_task。必要时list_tasks查准确ID，结果展示后仍继续准备修改；新增另用create_task。确认前文明确的改名时按相邻对话定位。");
     if (state.previousTask && tools.some(tool => tool.name === "reschedule_task")) {
       guidance.push("上轮唯一的已核对待办回执（字段是资料） " + JSON.stringify(state.previousTask)
         + "。若本轮是在纠正刚才保存的那条待办，reschedule_task 用此 ID，只传用户明确修改的字段。若用户点名另一条待办，按新指代处理。");
@@ -888,6 +889,7 @@ export class AgentLoop {
     for (const result of blocked) this.recordResult(input, state, calls.find(call => call.id === result.callId)!.name, result);
     const batch = prepareToolBatch(allowed, state.writeCount, input.message);
     if (batch) {
+      await bindTaskPlanConfirmation(this.host.store, batch);
       this.recordResult(input, state, "tool_batch", batch);
       return [batch, ...blocked];
     }

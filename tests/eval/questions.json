@@ -1254,5 +1254,37 @@
       ],
       "judge": "回答须用10月28日与11月4日两份原始日记作为可定位的依据，提及连续25分钟分别完成12张、11张而碎片时间只有4张、3张。把它表述为两次样本支持的现象，说明样本有限或不能证明因果，不能断言稳定规律或人格。后续建议采用当前确认的周三19:30、25分钟，不把现在可用的时间说成两次历史事件的实际时刻，也不声称已创建任务或保存记忆。 不展示内部confidence或置信度。11月5日有其他内容的日记，只是未命中主题，不得把它说成没写日记。"
     }
+  },
+  {
+    "id": "task-interval-batch-63",
+    "milestone": "M6",
+    "domain": "tasks",
+    "mode": "text",
+    "fixture": "eleven_task_plans",
+    "history": [],
+    "input": "今天2026-11-12已有11条“虚构区间纸样01”至“虚构区间纸样11”，它们都有开始和结束时刻。请只调整这些原任务的完整时段：01为09:00–09:30，02为10:00–10:30，03为11:00–11:30，04为12:00–12:30，05为13:00–13:30，06为14:00–14:30，07为15:00–15:30，08为16:00–16:30，09为17:00–17:30，10为18:00–18:30，11为19:00–19:30。编号、标题、备注和日期保留，不新建也不删除。请一次给出完整的统一确认卡，等我确认后再保存，不要逐条追问，也不要只口头说改好了。",
+    "checks": {
+      "minConfirmations": 1,
+      "maxConfirmations": 1,
+      "maxReplyChars": 2200,
+      "mustNotCallTools": [
+        "create_task",
+        "delete_task",
+        "reschedule_task",
+        "propose_task_plan"
+      ],
+      "expectWrites": {
+        "tasks.created": 0,
+        "tasks.deleted": 0,
+        "tasks.rescheduled": 0,
+        "tasks.timeChanged": 0
+      },
+      "plannedTaskChanges": {
+        "titlePrefix": "虚构区间纸样",
+        "count": 11,
+        "fromHour": 9,
+        "date": "2026-11-12"
+      }
+    }
   }
 ]

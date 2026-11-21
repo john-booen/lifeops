@@ -140,6 +140,11 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
   const app = createFsApp(activeRoot);
   const store = new LifeOpsStore(app, structuredClone(settings));
   await store.initializeVault();
+  if (question.fixture === "eleven_task_plans") {
+    for (let index = 0; index < 11; index++) await store.createTask({ title: "虚构区间纸样" + String(index + 1).padStart(2, "0"),
+      date: formatDate(fixedNow), startTime: String(12 + index).padStart(2, "0") + ":00", endTime: String(12 + index).padStart(2, "0") + ":30",
+      note: "虚构原备注" + index });
+  }
   if (question.fixture === "cross_week_after_correction") {
     await (await import("./crossWeekFixture")).prepareCorrectedCrossWeekFixture(store as unknown as StoreHost);
   }
@@ -280,6 +285,7 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
     activeMemories: memory?.records.filter(record => record.status === "active").map(record => record.content),
     proposedTaskDates: reply.actions.filter(action => action.type === "task_plan").flatMap(action =>
       [...action.content.matchAll(/^日期：(\d{4}-\d{2}-\d{2})$/gm)].map(match => match[1])),
+    proposedTaskChanges: reply.actions.filter(action => action.type === "tool_batch").flatMap(action => action.toolBatch ?? []),
     proposedIdeaPlans: reply.actions.filter(action => action.type === "idea_advance").map(action => ({ title: action.title,
       steps: [...action.content.matchAll(/^(\d{4}-\d{2}-\d{2}) · .+ · (\d+) 分钟$/gm)].map(match => ({ date: match[1], minutes: Number(match[2]) })) })),
     writes: {

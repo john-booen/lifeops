@@ -70,10 +70,113 @@ it("preflights every target and refuses ambiguous or missing references before e
   expect(duplicate.success).toBe(false); expect(duplicate.output).toContain("唯一");
 });
 
-it("does not accept date/status fields through content editing", async () => {
+it("does not accept status fields through task editing", async () => {
   const [row] = await seed(1);
-  const result = await runtime.executeAiToolCall(tool([{ ...edit(row.id, "虚构新纸样"), date: "2066-02-01" }]), "kimi");
+  const result = await runtime.executeAiToolCall(tool([{ ...edit(row.id, "虚构新纸样"), status: "done" }]), "kimi");
   expect(result.success).toBe(false); expect(await store.getTask(row.id)).toEqual(row);
+});
+
+it("confirms eleven complete schedule changes once, saves them together and undoes without removing later tasks", async () => {
+  const rows = await seed(11), before = await store.readPath(store.taskDbPath());
+  const updates = rows.map((row, i) => ({ taskIdOrTitle: row.id, startTime: `${9 + i}`.padStart(2, "0") + ":00", endTime: `${9 + i}`.padStart(2, "0") + ":30" }));
+  const { result } = await run([tool(updates)], "把这十一项现有纸样任务按刚给出的完整时段统一重排，其他内容不变。");
+  expect(await store.readPath(store.taskDbPath())).toBe(before);
+  expect(result.confirmations).toHaveLength(1); expect(result.confirmations[0].type).toBe("tool_batch");
+  const saved = await executeConfirmedToolBatch(result.confirmations[0], runtime, () => {});
+  expect(saved).toContain("本次实际更新11项");
+  for (const [i, row] of rows.entries()) {
+    const { updatedAt: _old, ...old } = row;
+    const { updatedAt: _new, ...next } = await store.getTask(row.id);
+    expect(next).toEqual({ ...old, startTime: updates[i].startTime, endTime: updates[i].endTime });
+  }
+  await store.createTask({ title: "虚构后续独立工作" });
+  await runtime.undoLatestOperation();
+  expect((await store.readTaskDb()).tasks.slice(0, 11)).toEqual(rows);
+  expect((await store.readTaskDb()).tasks.at(-1)?.title).toBe("虚构后续独立工作");
+});
+
+it("changes two full intervals and creates a new task in the same turn", async () => {
+  const rows = await seed();
+  const { result } = await run([tool(rows.map((row, i) => ({ taskIdOrTitle: row.id, startTime: `1${5 + i}:00`, endTime: `1${5 + i}:45` }))),
+    { id: "fictional-extra-plan", name: "create_task", arguments: { title: "虚构新增计划", date } }], "把这两个已有纸样改成新时段，再增加一条虚构新增计划。");
+  expect(result.confirmations).toEqual([]); expect(result.receipts).toHaveLength(2);
+  const after = (await store.readTaskDb()).tasks;
+  expect(after).toHaveLength(3); expect(after[0]).toMatchObject({ id: rows[0].id, title: rows[0].title, startTime: "15:00", endTime: "15:45" });
+  expect(after[1]).toMatchObject({ id: rows[1].id, title: rows[1].title, startTime: "16:00", endTime: "16:45" });
+  expect(after[2].title).toBe("虚构新增计划");
+});
+
+it.each([{ startTime: "24:00" }, { endTime: "11:00" }, { date: "2066-02-30" }, { startTime: 900 },
+  { endDate: "2065-12-01" }, { time: "09:00" }])("rejects an invalid second plan before applying either change: %j", async invalid => {
+  const rows = await seed(), before = await store.readPath(store.taskDbPath());
+  const result = await runtime.executeAiToolCall(tool([{ taskIdOrTitle: rows[0].id, startTime: "15:00", endTime: "15:30" },
+    { taskIdOrTitle: rows[1].id, ...invalid }]), "kimi");
+  expect(result.success).toBe(false); expect(await store.readPath(store.taskDbPath())).toBe(before);
+});
+
+it("refuses to move a completed task while allowing the existing title correction behavior", async () => {
+  const [row] = await seed(1); await store.completeTask(row.id); const before = await store.getTask(row.id);
+  const blocked = await runtime.executeAiToolCall(tool([{ taskIdOrTitle: row.id, startTime: "15:00", endTime: "15:30" }]), "kimi");
+  expect(blocked.success).toBe(false); expect(await store.getTask(row.id)).toEqual(before);
+  const renamed = await runtime.executeAiToolCall(tool([edit(row.id, "虚构完成后的准确标题")], "fictional-finished-name"), "kimi");
+  expect(renamed.success).toBe(true); expect(await store.getTask(row.id)).toMatchObject({ status: before.status, completedAt: before.completedAt });
+});
+
+it("binds the whole preview to record revisions and refuses a stale last task before any schedule changes", async () => {
+  const rows = await seed(4);
+  const updates = rows.map(row => ({ taskIdOrTitle: row.id, startTime: "15:00", endTime: "15:30" }));
+  const { result } = await run([tool(updates)], "把这四项完整时段统一改成15点到15点半。");
+  expect(result.confirmations).toHaveLength(1);
+  const action = result.confirmations[0];
+  expect(action.content).toContain("虚构旧纸样0"); expect(action.content).toContain("15:00");
+  expect(action.content).not.toContain("expectedRevision");
+  await store.updateTask(rows[3].id, current => ({ ...current, note: "虚构外部新备注" }));
+  const changed = await store.readPath(store.taskDbPath());
+  await expect(executeConfirmedToolBatch(action, runtime, () => {})).rejects.toThrow("过期");
+  expect(await store.readPath(store.taskDbPath())).toBe(changed);
+});
+
+it("shows one readable frozen preview for schedule changes and additional new tasks", async () => {
+  const rows = await seed(4);
+  const { result } = await run([tool(rows.map(row => ({ taskIdOrTitle: row.title, startTime: "15:00", endTime: "15:30" }))),
+    { id: "fictional-with-plan", name: "create_task", arguments: { title: "虚构额外新工作", date } }], "四条纸样统一改时段，并加一条新工作，给一份确认。");
+  expect(result.confirmations).toHaveLength(1);
+  expect(result.confirmations[0].content).toContain("新建「虚构额外新工作」");
+  expect(result.confirmations[0].content).not.toContain("taskIdOrTitle");
+  await executeConfirmedToolBatch(result.confirmations[0], runtime, () => {});
+  expect((await store.readTaskDb()).tasks).toHaveLength(5);
+});
+
+it("does not present an executable plan if one of the batch targets is missing", async () => {
+  const rows = await seed(3), before = await store.readPath(store.taskDbPath());
+  const { result } = await run([tool([...rows.map(row => ({ taskIdOrTitle: row.id, startTime: "15:00", endTime: "15:30" })),
+    { taskIdOrTitle: "fictional-missing-task", startTime: "16:00", endTime: "16:30" }])], "给这四项准备整批时段。");
+  expect(result.confirmations).toEqual([]); expect(result.receipts).toEqual([]);
+  expect(await store.readPath(store.taskDbPath())).toBe(before);
+});
+
+it("updates explicit cross-day plan dates while keeping the independent deadline and other content", async () => {
+  const [row] = await seed(1); await store.updateTask(row.id, current => ({ ...current, dueDate: "2066-01-20" }));
+  const saved = await runtime.executeAiToolCall(tool([{ taskIdOrTitle: row.id, date: "2066-01-11", endDate: "2066-01-12",
+    startTime: "23:30", endTime: "00:30" }]), "kimi");
+  expect(saved.success).toBe(true);
+  expect(await store.getTask(row.id)).toMatchObject({ id: row.id, title: row.title, note: row.note, dueDate: "2066-01-20",
+    date: "2066-01-11", endDate: "2066-01-12", startTime: "23:30", endTime: "00:30" });
+});
+
+it("supports an explicit single-point change and clearing plan fields without recreating tasks", async () => {
+  const row = await store.createTask({ title: "虚构单点安排", date, time: "10:00" });
+  const saved = await runtime.executeAiToolCall(tool([{ taskIdOrTitle: row.id, time: "11:30" }]), "kimi");
+  expect(saved.success).toBe(true); expect((await store.getTask(row.id)).time).toBe("11:30");
+  const cleared = await runtime.executeAiToolCall(tool([{ taskIdOrTitle: row.id, time: "", startTime: "", endTime: "", endDate: "" }], "fictional-clear-slot"), "kimi");
+  expect(cleared.success).toBe(true); expect(await store.getTask(row.id)).toMatchObject({ id: row.id, title: row.title,
+    date, time: "", startTime: "", endTime: "", endDate: "" });
+});
+
+it("does not write an interval that is already identical", async () => {
+  const [row] = await seed(1), change = vi.spyOn(LifeOpsStore.prototype, "updateTask");
+  const saved = await runtime.executeAiToolCall(tool([{ taskIdOrTitle: row.id, startTime: row.startTime, endTime: row.endTime }]), "kimi");
+  expect(saved.success).toBe(true); expect(change).not.toHaveBeenCalled(); expect(await store.getTask(row.id)).toEqual(row);
 });
 
 it("rolls back the first edit when the second save fails", async () => {

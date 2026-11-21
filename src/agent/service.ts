@@ -24,6 +24,7 @@ import type { StoreHost } from "../store/settingsSlice";
 import { runConfirmedToolAction, type StructuredJsonRequest } from "../toolRegistry";
 import { writeReceipts } from "../writeReceipts";
 import { executeConfirmedToolBatch, prepareToolBatch } from "../toolBatch";
+import { bindTaskPlanConfirmation } from "../features/tasks/planConfirmation";
 import type { AgentActionSuggestion, AgentResponse, QualityLogEntry, ProviderRunResult, ProviderRequestOptions, ProviderStage } from "../types";
 
 export interface AgentHost {
@@ -105,7 +106,10 @@ export async function executeToolCalls(this: AgentHost, toolCalls: AiToolCall[],
       return { ...toolResultsToAgentExecution(refused), results: refused };
     }
     const batch = prepareToolBatch(frozenCalls, 0, userMessage);
-    if (batch) return { ...toolResultsToAgentExecution([batch]), results: [batch] };
+    if (batch) {
+      await bindTaskPlanConfirmation(this.store as unknown as StoreHost, batch);
+      return { ...toolResultsToAgentExecution([batch]), results: [batch] };
+    }
     const queries = frozenCalls.filter(call => call.name === "query_vault");
     const planSources = [...new Set([...sourcePaths, ...queries.flatMap(call => typeof call.arguments.path === "string" ? [call.arguments.path.trim()] : []).filter(Boolean)])];
     const containsPlan = frozenCalls.some(call => ["propose_task_plan","propose_project_work_plan"].includes(call.name));

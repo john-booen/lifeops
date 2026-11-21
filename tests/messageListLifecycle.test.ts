@@ -17,6 +17,7 @@ vi.mock("obsidian", () => ({
 }));
 
 const { applyMessageListPanel, cancelMessageListRequest } = await import("../src/panel/messageList");
+const { recordRevision } = await import("../src/operationIdentity");
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -97,6 +98,23 @@ function fixture() {
 beforeEach(() => {
   notices.length = 0;
   vi.stubGlobal("window", { setTimeout, clearTimeout, requestAnimationFrame: vi.fn() });
+});
+
+it("uses the single adjacent bound schedule plan for a text confirmation without another model round", async () => {
+  const h = fixture(); h.host.agentMode = "text"; h.host.pendingAgentActions = [];
+  const action: AgentActionSuggestion = { id: "fictional-confirm-plan", type: "tool_batch", title: "确认4项调整", description: "虚构安排", content: "虚构安排预览", date: "",
+    toolBatch: [{ name: "update_tasks", arguments: { updates: Array.from({ length: 4 }, (_, i) =>
+      ({ taskIdOrTitle: `fictional-${i}`, startTime: "15:00", endTime: "15:30", expectedRevision: recordRevision({ i }) })) } }] };
+  h.host.acceptAgentSuggestion = vi.fn(async target => {
+    expect(target).toBe(action); h.host.pendingAgentActions = [];
+    h.host.agentMessages.push({ role: "assistant", content: "实际保存4项" });
+  });
+  const first = h.start("text"); h.response.resolve({ reply: "完整计划已准备", actions: [action] }); await first;
+  h.host.agentInput = "确定"; await h.start("text");
+  expect(h.host.acceptAgentSuggestion).toHaveBeenCalledOnce();
+  expect(h.host.controller.submitAgentMessageStream).toHaveBeenCalledOnce();
+  expect(h.host.agentInput).toBe("");
+  expect(h.host.agentMessages.at(-2)).toMatchObject({ role: "user", content: "确定" });
 });
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 

@@ -7,6 +7,7 @@ import { mergePendingAgentActions, PENDING_ACTION_CONFLICT_NOTICE } from "../pen
 import { bindAgentHistoryResponse } from "../personalMemoryHistory";
 import { renderWriteReceipts } from "../writeReceipts";
 import { renderChatMessageContent } from "./chatInteraction";
+import { armAdjacentTaskPlan, consumeAdjacentTaskPlan } from "./taskPlanApproval";
 import {
   addEchoText,
   clearEchoMemories,
@@ -322,6 +323,15 @@ const messageListPanel = {
       const isVoice = source === "voice";
       let message = isVoice ? this.currentVoiceMessageText() : this.agentInput.trim();
       if (!message || this.agentBusy) return;
+      if (!isVoice) {
+        const plan = consumeAdjacentTaskPlan(this, message);
+        if (plan) {
+          const confirmation: AgentConversationMessage = { role: "user", content: message };
+          this.agentMessages = [...this.agentMessages, confirmation].slice(-12);
+          this.appendAgentMessage(confirmation); this.setAgentInput("");
+          await this.acceptAgentSuggestion(plan); return;
+        }
+      }
       if (isVoice && this.agentVoiceSendInFlight) return;
       const history = this.agentMessages.slice(-10);
       let actionSuggestions = 0;
@@ -432,6 +442,7 @@ const messageListPanel = {
         this.agentMessages = next.slice(-12);
         const pending = mergePendingAgentActions(this.pendingAgentActions, response.actions);
         this.pendingAgentActions = pending.actions;
+        armAdjacentTaskPlan(this, next[assistantIndex], response.actions);
         if (pending.conflictingIds.length > 0) new Notice(PENDING_ACTION_CONFLICT_NOTICE);
         if (streamMessageEl) {
           streamMessageEl.classList.remove("is-pending");

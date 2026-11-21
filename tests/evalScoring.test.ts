@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import { scoreEvaluationCase, shouldRepeatLatencyMeasurement, type EvalObservation, type EvalQuestion } from "./eval/scoring";
+import { recordRevision } from "../src/operationIdentity";
 
 const question: EvalQuestion = { id: "create", milestone: "M1", domain: "tasks", mode: "text", input: "建任务", history: [],
   checks: { expectWrites: { "tasks.created": 1 }, minReceipts: 1, maxConfirmations: 0,
@@ -7,6 +8,19 @@ const question: EvalQuestion = { id: "create", milestone: "M1", domain: "tasks",
 const task = { id: "synthetic", title: "见客户", date: "2026-11-13", time: "15:00" };
 const observed: EvalObservation = { reply: "已建好", tools: [], writes: { "tasks.created": 1 }, createdTasks: [task],
   tasks: [task], confirmations: 0, confirmationActions: [], receipts: 1, preludeCreatedTasks: 0 };
+
+it("rejects an incomplete, unbound or silently renamed whole-plan preview", () => {
+  const before = Array.from({ length: 4 }, (_, i) => ({ ...task, id: `fictional-plan-${i}`, title: `虚构区间纸样0${i + 1}` }));
+  const updates = before.map((row, i) => ({ taskIdOrTitle: row.id, startTime: String(9 + i).padStart(2, "0") + ":00",
+    endTime: String(9 + i).padStart(2, "0") + ":30", expectedRevision: recordRevision(row) }));
+  const plan: EvalQuestion = { ...question, checks: { plannedTaskChanges: { titlePrefix: "虚构区间纸样", count: 4, fromHour: 9, date: task.date } } };
+  const proposal = (rows: unknown[]) => ({ ...observed, preparedTasks: before,
+    proposedTaskChanges: [{ name: "update_tasks", arguments: { updates: rows } }] });
+  expect(scoreEvaluationCase(plan, proposal(updates))).toEqual([]);
+  expect(scoreEvaluationCase(plan, proposal(updates.slice(1)))).toHaveLength(1);
+  expect(scoreEvaluationCase(plan, proposal(updates.map(row => ({ ...row, expectedRevision: "old-version" }))))).toHaveLength(1);
+  expect(scoreEvaluationCase(plan, proposal(updates.map(row => ({ ...row, title: "虚构不应更名" }))))).toHaveLength(1);
+});
 
 it("requires both dated references while accepting one combined read or two separate weekly reads",()=>{
  const references=["2026-10-28","2026-11-04"].map(date=>({name:"get_summaries",output:{originalEvidence:{notes:[{date}]}}}));
