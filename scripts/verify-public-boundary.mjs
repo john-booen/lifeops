@@ -25,6 +25,8 @@ const forbidden = /^(?:docs\/(?:archive\/|plan\/|vault-map\/|PROGRESS\.md|QUESTI
 const privateEvalReport = /^docs\/eval\/20[^/]{2}-[^/]{2}-[^/]{2}[^/]*\.md$/i;
 // Only the reviewed fictional images may bypass text scanning.
 const reviewedImages = [
+  ["docs/images/lifeops-device-capture.png", "53c2057620f4a037dda439e54527b26612b18de2bde6fbe6e63dc10df1baf452"],
+  ["docs/images/lifeops-phone-batch.png", "24171e6ad41cb62f9b32c4b13f0e97fc13f1a6aa987342496f50a493291e6093"],
   ["docs/images/lifeops-overview.png", "9e6d8c5f4596b3c199b44fcb22564550bc1b981c6c139b25acc37a8886baaa99"],
   ["docs/images/lifeops-overview.png", "4ec2e6c178b78348a56e7a0ec9e1c9c04319e496fff630f047d86ae761591ac7"],
   ["docs/images/lifeops-operations.png", "56b270ef863ca155c0236896df7d85edf8a018590fc0972ed12a13e5398afb68"],
