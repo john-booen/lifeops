@@ -187,14 +187,14 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
         operation: { type: "string", enum: ["get", "list", "search"], description: "get读原文，list列信息，search搜词；memory仅有效记忆。" },
         query: { type: "string", description: "search填连续关键词；list筛文件名；日记get用日期、时段或路径。" },
         date: { type: "string", description: "日期或今天/昨天；日记省略取最新，习惯默认今天。" },
-        range: { type: "string", enum: ["today", "week"], description: "任务/习惯的今日或本周至指定日期；日记today查date当天，week查date所在周一至周日，未给date以今天为基准。" },
+        range: { type: "string", enum: ["today", "week"], description: "任务/习惯查今日或本周；日记查date当天或整周，省略date用今天。" },
         period: { type: "string", enum: ["早", "晚"], description: "日记时段。用户问昨晚、晚间时填晚，问晨间时填早；省略且指定日期时返回同日各篇。" },
         path: { type: "string", description: "准确库内Markdown路径，缺失不替代；排除生成/隐私内容，memory不用。" },
         vault: { type: "string", description: "默认全部。local 只搜日用库，或填外部库名。外部来源注明原私人库。" },
         sort: { type: "string", enum: ["newest", "oldest"], description: "日记按日期/早晚，其余按修改时间；默认最新，同日早到晚；记忆按相关性。" },
         limit: { type: "number", description: "list/search默认5最多12；get一篇，同日日记/记忆最多12条。" },
         maxChars: { type: "number", description: "每条最多18000字符；截断非全文，准确路径get可用offset续读。" },
-        offset: { type: "integer", minimum: 0, description: "任务/习惯按条分页；其余仅准确path的get沿用nextOffset续读，list/search不能分页。" }
+        offset: { type: "integer", minimum: 0, description: "任务/习惯按条分页；其余仅准确路径get续读，清单/搜索不可用。" }
       },
       required: ["domain", "operation"]
     },
