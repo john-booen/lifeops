@@ -24,3 +24,12 @@ it("keeps prior year context, partial ranges, other tools, invalid and already g
   const other = { ...call, name: "get_stats" };
   expect(requestedSummaryDates([other], message, now)[0]).toBe(other);
 });
+it("does not treat earlier current-year records as a request to query a different year", () => {
+  for (const content of ["先看2026-11-02的虚构任务", "2026年有一份虚构归档", "Review ２０２６/１１/０２ first"]) {
+    expect(requestedSummaryDates([call], message, now, [{ role: "user", content }])[0].arguments.range)
+      .toEqual({ from: "2026-10-26", to: "2026-11-08" });
+  }
+  for (const content of ["回顾2025年的虚构归档", "先读2027-01-02的虚构安排", "刚才说的是去年"]) {
+    expect(requestedSummaryDates([call], message, now, [{ role: "user", content }])[0]).toBe(call);
+  }
+});

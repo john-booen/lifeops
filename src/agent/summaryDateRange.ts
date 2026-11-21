@@ -6,8 +6,12 @@ import { formatDate, journalDateToken, normalizeJournalDate } from "../date";
 export function requestedSummaryDates(calls: AiToolCall[], message: string, now: Date,
   history: Pick<ChatMessage, "role" | "content">[] = []): AiToolCall[] {
   const text = message.normalize("NFKC");
-  const yearContext = /(?:\d{4}(?:年|[-/])|去年|前年|明年|后年|那年|当年)/u;
-  if (yearContext.test(text) || history.some(row => yearContext.test(row.content.normalize("NFKC")))) return calls;
+  const relativeYear = /去年|前年|明年|后年|那年|当年/u;
+  const explicitYears = (value: string) => [...value.matchAll(/(\d{4})(?:年|[-/])/gu)];
+  if (relativeYear.test(text) || explicitYears(text).length || history.some(row => {
+    const previous = row.content.normalize("NFKC");
+    return relativeYear.test(previous) || explicitYears(previous).some(match => Number(match[1]) !== now.getFullYear());
+  })) return calls;
   const pairs = [...text.matchAll(new RegExp(`(${journalDateToken})\\s*(?:到|至|—|–|~|～|-)\\s*(${journalDateToken})`, "gu"))]
     .filter(match => match[1].includes("月") && match[2].includes("月"));
   if (pairs.length !== 1) return calls;
