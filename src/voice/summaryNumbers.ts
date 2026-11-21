@@ -1,7 +1,7 @@
 const digits = "零一二三四五六七八九";
 const chineseNumerals = "零〇一二两三四五六七八九十百千万亿";
 const amount = `[${chineseNumerals}]+(?:点[零〇一二两三四五六七八九]+)?`;
-const boundary = "(?=[个件项条笔次只份杯张位套组台本页题周天月年日小时分钟秒成元角分美元欧港人民币公里克公斤吨米%倍，,:：]|$)";
+const boundary = "(?=[个件项条笔次只份杯张篇步字位套组台本页题周天月年日小时分钟秒成元角分美元欧港人民币公里克公斤吨米%倍，,:：]|$)";
 const amountPattern = new RegExp(`百分之([+-]?(?:${amount}|\\d+(?:\\.\\d+)?))|(${amount})成|(${amount})${boundary}`, "gu");
 const numericMarker = new RegExp(`\\p{N}|百分之|半数|[一近过]半|半${boundary}|[俩仨]${boundary}|第[${chineseNumerals}]|${amount}${boundary}|[十百千万亿][${chineseNumerals}]`, "u");
 const percentToken = /(约?)([+-]?)(\d+(?:\.\d+)?)%/gu;

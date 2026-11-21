@@ -10,7 +10,7 @@ export async function nativeReportSpeech(page, result) {
     const reports = [
       ["交易", ["上周记录4笔交易。", "上周人民币净盈亏是-120元。", "上周美元净盈亏是35美元。"]],
       ["学习", ["上周学习记录75分钟。", "上周完成3项练习。", "上周计划150分钟。"]],
-      ["归档", ["这两周覆盖14天。", "这两周2天命中归档主题。", "这两周12天有日记但未提及归档主题。"]]
+      ["归档", ["这两周覆盖14天。", "这两周返回2篇归档日记。", "这两周12天有日记但未提及归档主题。"]]
     ];
     const runs = [];
     p.settings.ai = { ...ai, provider: "custom", endpoint: "https://fiction.invalid/chat", apiKey: "fictional-key",
@@ -26,7 +26,7 @@ export async function nativeReportSpeech(page, result) {
           if (calls === 2) return { content: detail, toolCalls: [] };
           if (calls !== 3) throw Error("Unexpected extra report request");
           if (mode === "unavailable") throw Error("虚构口语整理不可用");
-          return { content: mode === "wrong-number" ? "上周记录999笔交易。" : "# 请看面板", toolCalls: [] };
+          return { content: mode === "wrong-number" ? name === "归档" ? "这两周返回五篇归档日记。" : "上周记录999笔交易。" : "# 请看面板", toolCalls: [] };
         };
         p.ai.agentTurnStream = mock; proto.agentTurnStream = mock;
         const answer = await p.submitAgentMessage("总结虚构" + name + "报告", [], { source: "voice", voiceBackground: true, selfTest: true });
@@ -42,6 +42,7 @@ export async function nativeReportSpeech(page, result) {
   for (const run of observed.runs) {
     assert.equal(run.reply, run.detail); assert.equal(run.calls, 3); assert.equal(run.receipts, 0);
     for (const fact of run.facts) assert(run.speech.includes(fact));
+    assert.equal(run.speech, run.facts.join("") + "完整报告还有其他细节。");
     assert(run.speech.length <= 180 && !/999|面板|\||#/u.test(run.speech));
   }
   result.checks.backgroundReportSpeechKeepsFactsAcrossNineFailures = true;

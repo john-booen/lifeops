@@ -1635,14 +1635,15 @@ describe("voice background AgentLoop", () => {
   for (const [name, facts] of [
     ["交易", ["上周记录4笔交易。", "上周人民币净盈亏是-120元。", "上周美元净盈亏是35美元。"]],
     ["学习", ["上周学习记录75分钟。", "上周完成3项练习。", "上周计划150分钟。"]],
-    ["归档", ["这两周覆盖14天。", "这两周2天命中归档主题。", "这两周12天有日记但未提及归档主题。"]]
+    ["归档", ["这两周覆盖14天。", "这两周返回2篇归档日记。", "这两周12天有日记但未提及归档主题。"]]
   ] as const) it.each(["unavailable", "wrong-number", "markdown"])("keeps actual background " + name + " report facts when speech fails: %s", async mode => {
     const detail = "# 虚构" + name + "报告\n\n" + facts.join("\n");
     responses.push(reply("正在核对。"), reply(detail), mode === "unavailable" ? new Error("虚构口语整理不可用")
-      : reply(mode === "wrong-number" ? "上周记录999笔交易。" : "# 请看面板"));
+      : reply(mode === "wrong-number" ? name === "归档" ? "这两周返回五篇归档日记。" : "上周记录999笔交易。" : "# 请看面板"));
     const result = await new AgentLoop(host).run(input({ source: "voice", voiceBackground: true, message: "总结虚构" + name + "报告" }));
     expect(result.text).toBe(detail);
     for (const fact of facts) expect(result.voiceSpeech).toContain(fact);
+    expect(result.voiceSpeech).toBe(facts.join("") + "完整报告还有其他细节。");
     expect(result.voiceSpeech).not.toMatch(/999|面板|#|\|/u);
     expect(hasGroundedSpeechNumbers(detail, result.voiceSpeech!)).toBe(true);
     expect(roles).toEqual(["deep", "deep", "fast"]);
