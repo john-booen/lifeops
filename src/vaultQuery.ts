@@ -9,6 +9,8 @@ import { dailyQueryPaths, readDailyQuery } from "./dailyQuery";
 
 export type VaultQueryDomain = "journal" | "note" | "trade" | "health" | "memory" | "task" | "habit";
 export type VaultQueryOperation = "get" | "list" | "search";
+/** Curated repair instructions may be returned without exposing read failures. */
+export class VaultQueryParameterError extends Error {}
 
 export interface VaultQuery {
   domain: VaultQueryDomain;
@@ -102,8 +104,9 @@ async function executeVaultQueryCore(store:StoreHost,input:VaultQuery,reader:Vau
   const requestedPath = input.path?.trim() || "";
   const requestedDate = input.date?.trim() || "";
   const paged = input.offset !== undefined;
+  if (input.range !== undefined) throw new VaultQueryParameterError("range 仅适用于任务和习惯，不能用于日记或笔记。跨日日记请按所问日期逐日用 get 和 date 读取，或用 get_summaries 的日期范围和 includeOriginals 查原话；不要用 list 的 offset 翻页。");
   if (paged && (input.operation !== "get" || !requestedPath || input.query?.trim() || input.domain === "memory"
-    || !Number.isSafeInteger(input.offset) || input.offset! < 0)) throw new Error("原文分页仅支持准确 path 的 get 和非负整数 offset，不得混入搜索或记忆查询。");
+    || !Number.isSafeInteger(input.offset) || input.offset! < 0)) throw new VaultQueryParameterError("原文分页仅支持准确 path 的 get 和非负整数 offset，不得混入清单、搜索或记忆查询。日记可按 date 逐日 get；跨周也可用 get_summaries 的日期范围和 includeOriginals 读取原话。");
   if (requestedPath && !validRelativePath(requestedPath)) throw new Error("Vault 路径无效：请提供库内准确的相对 Markdown 路径，不得使用绝对路径或上级目录。");
   if (input.domain !== "journal" && (requestedDate || input.period)) throw new Error("date 和 period 仅适用于日记；其他资料请使用 path 或关键词。");
   if (input.domain === "memory") {

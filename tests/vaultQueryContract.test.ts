@@ -25,6 +25,22 @@ beforeEach(async () => {
 afterEach(async () => { vi.restoreAllMocks(); await rm(root, { recursive: true, force: true }); });
 
 describe("query_vault contract on a real temporary synthetic Vault", () => {
+  it("explains unsupported catalog pagination instead of reporting a permission change", async () => {
+    const runtime = new AgentRuntime({ store, refreshViews: async () => {} });
+    const result = await runtime.executeToolCall({ toolName: "query_vault", callId: "fictional-invalid-list-page", source: "kimi",
+      arguments: { domain: "journal", operation: "list", limit: 12, offset: 12 } });
+    expect(result.success).toBe(false); expect(result.actions).toEqual([]);
+    expect(result.output).toContain("原文分页"); expect(result.output).toContain("准确 path");
+    expect(result.output).not.toContain("权限刚刚变化");
+  });
+  it("does not silently turn a requested diary week into a one-day read", async () => {
+    const path = store.dailyNotePath("2026-11-02", "晚"); await vault.seed(path, "虚构只在周一的记录。");
+    const runtime = new AgentRuntime({ store, refreshViews: async () => {} });
+    const result = await runtime.executeToolCall({ toolName: "query_vault", callId: "fictional-invalid-diary-range", source: "kimi",
+      arguments: { domain: "journal", operation: "get", date: "2026-11-02", range: "week" } });
+    expect(result.success).toBe(false); expect(result.output).toContain("range 仅适用于任务和习惯");
+    expect(result.output).toContain("逐日"); expect(result.output).not.toContain("虚构只在周一的记录");
+  });
   it("pages protected raw text with real later-page provenance and reports only the actual interval", async () => {
     const path = store.dailyNotePath("2026-10-06", "晚"), raw = "甲".repeat(20_000) + "FICT-LATER-PAGE";
     await vault.seed(path, raw); const read = await readVaultQueryWithSources(store, { domain: "journal", operation: "get", path, offset: 20_000, maxChars: 500 });

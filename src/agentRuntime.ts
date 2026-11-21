@@ -11,7 +11,7 @@ import { personalMemorySourceAssessment, personalMemoryReadSnapshot } from "./pe
 import type { AgentActionSuggestion, AgentWriteReceipt, ClassifiedInput } from "./types";
 import type { StoreHost } from "./store/settingsSlice";
 import type {VaultQueryRead} from "./vaultQueryRead";
-import {isOwnedVaultQueryRead} from "./vaultQuery";
+import {isOwnedVaultQueryRead, VaultQueryParameterError} from "./vaultQuery";
 import {isOwnedStoredQueryRead} from "./storedQueryRead";
 import { isTaskBatchReceipt } from "./features/tasks/batchReceipt";
 import { taskContentWriteGuard } from "./features/tasks/contentUpdate";
@@ -239,7 +239,7 @@ export class AgentRuntime {
       });
     } catch(error) {
       if (error instanceof UndoRecoveryRequiredError) return { callId: request.callId, success: false, output: error.message, actions: [] };
-      const queryParameterError=tool.name==="query_vault"&&error instanceof Error&&/路径无效|日期无效|关键词为空|date 和 period|该路径|指定路径/.test(error.message)?error.message:undefined;
+      const queryParameterError=tool.name==="query_vault"&&error instanceof Error&&(error instanceof VaultQueryParameterError||/路径无效|日期无效|关键词为空|date 和 period|该路径|指定路径/.test(error.message))?error.message:undefined;
       return { callId: request.callId, success: false, output: queryParameterError??(tool.name==="query_vault"?"查询原文、选择、个人记忆或权限刚刚变化或暂无法安全核对，已停止本次查询，请重新读取。":tool.name === "query_projects"
         ? "目标与项目或个人记忆暂时无法安全核对，已停止本次查询，请稍后重新查询。"
         : tool.name === "inspect_note_understanding_source" ? error instanceof Error && /保存尚未结束|资料整理仍在进行/.test(error.message)

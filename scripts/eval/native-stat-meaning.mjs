@@ -15,7 +15,13 @@ export async function nativeStatMeaning(page, result) {
         arguments: { domain: "tasks", range: { from: "2026-01-05", to: "2026-01-11" }, groupBy: "day" } }, "kimi");
       const summary = await runtime.executeAiToolCall({ id: "fictional-native-summary-meaning", name: "get_summaries",
         arguments: { level: "week", range: { from: "2026-01-05", to: "2026-01-11" } } }, "kimi");
-      return { stats, summary, unchanged: bytes === await p.store.readPath(p.store.taskDbPath()) };
+      const invalidQueries = [];
+      for (const [i, arguments_] of [{ domain: "journal", operation: "list", offset: 12 },
+        { domain: "journal", operation: "get", date: "2026-01-05", range: "week" }].entries()) {
+        invalidQueries.push(await runtime.executeAiToolCall({ id: "fictional-native-query-parameter-" + i,
+          name: "query_vault", arguments: arguments_ }, "kimi"));
+      }
+      return { stats, summary, invalidQueries, unchanged: bytes === await p.store.readPath(p.store.taskDbPath()) };
     } finally { await p.store.deleteTask(task.id); }
   });
   assert(observed.unchanged); assert(observed.stats.success, observed.stats.output); assert(observed.summary.success, observed.summary.output);
@@ -30,4 +36,7 @@ export async function nativeStatMeaning(page, result) {
   for (const key of ["complete", "inputCount", "dates", "suggestions"]) assert(summary.interpretationBoundary[key]);
   result.checks.taskIntervalsDoNotClaimMeasuredWorkingTime = true;
   result.checks.summaryFlagsDoNotClaimCompleteOriginalRecords = true;
+  assert(observed.invalidQueries.every(row => !row.success && !row.actions.length && !row.output.includes("权限刚刚变化")));
+  assert(observed.invalidQueries[0].output.includes("原文分页")); assert(observed.invalidQueries[1].output.includes("range 仅适用于"));
+  result.checks.queryParametersGiveRepairInstructionsWithoutClaimingPermissionChanges = true;
 }
