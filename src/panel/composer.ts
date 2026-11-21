@@ -4,6 +4,7 @@ import { BailianRealtimeTtsClient } from "../bailianTtsRealtime";
 import { createTtsClient } from "../breezeLocalTts";
 import { realtimeVoiceReadiness, textAiReadiness } from "../capabilityReadiness";
 import { cancelMessageListRequest } from "./messageList";
+import { bindChatInputKeyboard } from "./chatInteraction";
 import { markVoiceLatency, resetVoiceLatencyCapture, takeVoiceLatencyCapture, type VoiceLatency } from "../voice/latency";
 import { closeSessionBreeze } from "../voice/breezeSpeech";
 import type { AudioOutputActor } from "../voice/audioOutput";
@@ -422,13 +423,11 @@ const composerPanel = {
         event.preventDefault();
         this.controller.openTradeScreenshotImport(image);
       };
-      input.onkeydown = (event) => {
-        if (event.isComposing || event.keyCode === 229) return;
-        if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-          event.preventDefault();
-          void this.sendAgentMessage();
-        }
-      };
+      bindChatInputKeyboard(input, {
+        textMode: () => this.agentMode === "text",
+        unavailable: () => this.agentBusy || this.viewClosed,
+        send: () => { void this.sendAgentMessage(); }
+      });
 
       const actions = body.createDiv({ cls: "lifeops-agent-actions" });
       if (this.agentMode === "voice") {
@@ -440,6 +439,7 @@ const composerPanel = {
           button.disabled = this.agentBusy;
           button.onclick = () => void this.sendAgentMessage();
         });
+        body.createDiv({ text: "Enter 发送 · Shift+Enter 换行", cls: "lifeops-chat-shortcut-hint" });
       }
     },
 

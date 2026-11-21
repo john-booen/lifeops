@@ -6,6 +6,7 @@ import { addDays, todayString, weekDates } from "../date";
 import { mergePendingAgentActions, PENDING_ACTION_CONFLICT_NOTICE } from "../pendingAgentActions";
 import { bindAgentHistoryResponse } from "../personalMemoryHistory";
 import { renderWriteReceipts } from "../writeReceipts";
+import { renderChatMessageContent } from "./chatInteraction";
 import {
   addEchoText,
   clearEchoMemories,
@@ -695,7 +696,7 @@ const messageListPanel = {
   setAgentMessageBubbleContent(this: ViewHost, bubble: HTMLElement, content: string): void {
       bubble.empty();
       bubble.classList.remove("is-pending");
-      bubble.createDiv({ text: content, cls: "lifeops-agent-message-text" });
+      renderChatMessageContent(bubble, content);
     },
 };
 

@@ -279,6 +279,24 @@
 
 .lifeops-agent-message-text {
   min-width: 0;
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
+}
+
+.lifeops-agent-message-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.lifeops-agent-message-actions .lifeops-agent-copy {
+  min-height: 26px;
+  padding: 2px 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 400;
+  box-shadow: none;
 }
 
 .lifeops-agent-message-vision {
@@ -906,6 +924,10 @@
   border-radius: var(--lifeops-radius-sm);
   background: transparent;
   color: var(--text-normal);
+  caret-color: var(--text-normal);
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
   font-size: 13px;
   font-weight: 600;
   line-height: 1.45;
@@ -914,6 +936,13 @@
 
 .lifeops-agent-input:focus {
   box-shadow: none;
+}
+
+.lifeops-chat-shortcut-hint {
+  grid-column: 1 / -1;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .lifeops-agent-compose.mode-voice .lifeops-agent-input {

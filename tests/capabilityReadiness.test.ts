@@ -83,7 +83,7 @@ describe("capability configuration presentation", () => {
     const view = host(settings); view.agentMode = "text";
     const nodes: any[] = [];
     const element = (tag = "div", options: any = {}): any => {
-      const node: any = { tag, ...options, empty: vi.fn() };
+      const node: any = { tag, ...options, empty: vi.fn(), addEventListener: vi.fn() };
       node.createDiv = (options: any = {}) => element("div", options);
       node.createSpan = (options: any = {}) => element("span", options);
       node.createEl = (tag: string, options: any = {}, callback?: (node: any) => void) => {
@@ -100,6 +100,11 @@ describe("capability configuration presentation", () => {
     expect(view.sendAgentMessage).toHaveBeenCalledOnce();
     nodes.find(node => node.text === "查看设置").onclick();
     expect(view.controller.openStewardSettings).toHaveBeenCalledOnce();
+    view.sendAgentMessage.mockClear();
+    input.onkeydown({ key: "Enter", preventDefault: vi.fn() });
+    expect(view.sendAgentMessage).toHaveBeenCalledOnce();
+    input.onkeydown({ key: "Enter", shiftKey: true, preventDefault: vi.fn() });
+    expect(view.sendAgentMessage).toHaveBeenCalledOnce();
   });
 });
 
