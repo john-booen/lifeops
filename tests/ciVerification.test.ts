@@ -85,7 +85,7 @@ describe("safe local CI planning and orchestration", () => {
     const child = spawnSync(process.execPath, [resolve("scripts/verify-ci-local.mjs"), "--plan"], { encoding: "utf8" });
     expect(child.status).toBe(0); const plan = JSON.parse(child.stdout);
     expect(plan.steps.map((step: { name: string }) => step.name)).toEqual(["network-guard", "typecheck", "coverage", "coverage-gate", "gateway-syntax", "production-bundle", "package-prepare", "package-verify"]);
-    expect(child.stdout).not.toMatch(/test-vault|rebuild|install-plugin|offline-verify|dist\//);
+    expect(child.stdout.replaceAll(plan.root, "<source-root>")).not.toMatch(/test-vault|rebuild|install-plugin|offline-verify|dist\//);
     expect(plan.steps.find((step: { name: string }) => step.name === "production-bundle").args).toContain("--outfile");
     expect(plan.steps.find((step: { name: string }) => step.name === "coverage").args).toContain("--maxWorkers=2");
   });

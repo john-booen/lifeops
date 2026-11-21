@@ -721,7 +721,7 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
   },
   {
     name: "undo_latest_operation",
-    description: "明确撤销写入才用。删除须确认。撤销最近操作或修改用 {}。点名撤销创建用 taskTitle，只撤创建用 creationOnly。撤记忆用 memoryOnly，先查再撤用 requirePriorQuery。",
+    description: "撤销最近操作或修改用 {}；删除须确认。taskTitle和creationOnly只撤创建；memoryOnly撤记忆，requirePriorQuery仅先查再撤。",
     safety: "direct-write",
     parameters: {
       type: "object",
