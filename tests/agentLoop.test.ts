@@ -2101,7 +2101,8 @@ describe("complete batch task scheduling", () => {
 
   it("preserves the selected day even when time is insufficient", async () => {
     responses.push(reply("", [batch({ availableEnd: "12:40" })]));
-    const result = await new AgentLoop(host).run(input());
+    const localNoon = new Date(2026, 10, 12, 12, 0);
+    const result = await new AgentLoop(host).run(input({ now: localNoon }));
     expect(result.receipts).toHaveLength(5);
     expect(result.text).toContain("4项在剩余时间内放不下");
     expect((await store.readTaskDb()).tasks.every(t => t.date === formatDate(now))).toBe(true);
