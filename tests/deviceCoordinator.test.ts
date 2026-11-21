@@ -111,7 +111,7 @@ it("reopens with a competing policy in capture-only state and cannot re-elect it
 
 it("honors an excluded workspace path before enumerating its directory",async()=>{
  const a=await device();await a.devices.chooseWriter(a.runtime);await a.store.initializeVault();
- a.settings.privacy.excludedVaultPrefixes=["输入/设备协作.json"];
+ a.settings.privacy={...a.settings.privacy,excludedVaultPrefixes:["输入/设备协作.json"]};
  const list=vi.spyOn(a.app.vault.adapter,"list");
  await expect(a.devices.execution.refresh()).rejects.toThrow("不允许读取");
  expect(list).not.toHaveBeenCalled();expect(a.devices.execution.canWriteFacts).toBe(false);
