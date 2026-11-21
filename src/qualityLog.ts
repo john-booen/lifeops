@@ -98,7 +98,7 @@ function normalizeProviderRun(run: ProviderRunResult): ProviderRunResult {
     attempts: (Array.isArray(run.attempts) ? run.attempts : []).slice(0, 8).map(attempt => ({
       provider: providerIdentifier(attempt.provider) ?? "unknown",
       model: providerIdentifier(attempt.model) ?? "unknown",
-      transport: (["stream", "request_url", "fetch", "websocket"] as ProviderTransport[]).includes(attempt.transport) ? attempt.transport : "unknown",
+      transport: (["stream", "request_url", "node_https", "fetch", "websocket"] as ProviderTransport[]).includes(attempt.transport) ? attempt.transport : "unknown",
       status: ["success", "failed", "cancelled"].includes(attempt.status) ? attempt.status : "failed",
       ...(attempt.errorCode && errorCodes.includes(attempt.errorCode) ? { errorCode: attempt.errorCode } : {}),
       ...(attempt.networkFailure === "dns" ? { networkFailure: "dns" as const } : {}),

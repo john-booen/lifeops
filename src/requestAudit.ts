@@ -9,7 +9,7 @@ const countIsValid = (value: unknown): value is number => typeof value === "numb
 export function normalizeRequestAudit(value: unknown): ProviderRequestAudit | undefined {
   if (!value || typeof value !== "object") return;
   const item = value as Record<string, unknown>;
-  if (item.stage !== "prepared" || (item.transport !== "request_url" && item.transport !== "stream")
+  if (item.stage !== "prepared" || (typeof item.transport !== "string" || !["request_url", "stream", "node_https"].includes(item.transport))
     || counts.some(key => !countIsValid(item[key]))) return;
   const event: ProviderRequestAudit = {
     stage: "prepared", requestedProvider: providerIdentifier(item.requestedProvider) ?? "unknown",

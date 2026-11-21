@@ -425,7 +425,7 @@ export interface AgentSubmissionOptions {
 export type ProviderErrorCode = "timeout" | "auth" | "rate_limit" | "cancelled" | "network" | "http" | "invalid_response" | "configuration" | "response_incomplete";
 export type ProviderIncompleteReason = "length" | "content_filter" | "unknown" | "missing";
 
-export type ProviderTransport = "stream" | "request_url" | "fetch" | "websocket" | "unknown";
+export type ProviderTransport = "stream" | "request_url" | "node_https" | "fetch" | "websocket" | "unknown";
 export type ProviderStage = "classification" | "daily_review" | "trading_review" | "idea_advance" | "learning_plan" | "learning_quiz" | "reading_index" | "transcription" | "vision" | "screen" | "embedding" | "voice_connection" | "voice_asr" | "voice_response" | "tts" | "system_speech";
 
 export interface ProviderRequestOptions {
@@ -447,7 +447,7 @@ export interface ProviderRequestAudit {
   stage: "prepared";
   requestedProvider: string;
   requestedModel: string;
-  transport: "request_url" | "stream";
+  transport: "request_url" | "stream" | "node_https";
   requestBytes: number;
   messageCount: number;
   messageChars: number;
