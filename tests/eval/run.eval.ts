@@ -108,6 +108,29 @@ async function judgeAnswer(criterion: string, question: string, reply: string, t
   return { passed: false, reason: "未收到可读取的裁判结果" };
 }
 
+async function submitPhoneQuestion(plugin: InstanceType<typeof Plugin>, store: StoreHost, question: EvalQuestion,
+  onText: (text: string) => void): Promise<{ reply: AgentResponse; observed: EvalObservation["phoneInbox"] }> {
+  const { PhoneInbox } = await import("../../src/features/phoneInbox/service");
+  const { PHONE_INBOX_PATH } = await import("../../src/features/phoneInbox/model");
+  const raw = `[${question.phoneCaptureDate} 19:59] ${question.input}\n`;
+  await store.ensureFile(PHONE_INBOX_PATH, raw);
+  let reply: AgentResponse = { reply: "", actions: [] };
+  const inbox = new PhoneInbox({ store: () => store, enabled: () => true,
+    submit: async (message, phoneInbox, signal) => {
+      reply = await plugin.submitAgentMessageStream(message, [], onText, { phoneInbox, signal, source: "text" });
+      return { reply: reply.reply, receipts: reply.receipts, actions: reply.actions, toolCalls: reply.toolCalls };
+    }, confirm: async () => { throw Error("虚构新建批次不应要求确认。"); },
+    undo: id => (plugin as unknown as { createAgentRuntime(): InstanceType<typeof AgentRuntime> }).createAgentRuntime().undoOperation(id), notify: () => {}
+  }, new (await import("../../src/lifeOpsEventBus")).LifeOpsEventBus());
+  try {
+    await inbox.scan();
+    const rows = await inbox.list();
+    if (rows.length !== 1) throw Error("手机评测必须只有一条原始输入。");
+    return { reply, observed: { status: rows[0].status, taskBatch: rows[0].taskBatch,
+      sourceUnchanged: await store.readPath(PHONE_INBOX_PATH) === raw } };
+  } finally { inbox.stop(); }
+}
+
 async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_SETTINGS, transport: EvalTransport): Promise<EvalResult> {
   activeRoot = await mkdtemp(join(tmpdir(), "lifeops-eval-"));
   await cp("fixtures/eval-vault", activeRoot, { recursive: true });
@@ -207,6 +230,7 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
   let preparedTasks = before.tasks;
   let errorCode: string | undefined;
   let errorDetail: string | undefined;
+  let phoneInbox: EvalObservation["phoneInbox"];
   try {
     runningPrelude = true;
     for (const message of question.prelude ?? []) {
@@ -224,9 +248,13 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
       await runScheduledPunishmentCheck(plugin, store as unknown as StoreHost, evening, () => {});
     }
     mainStarted = performance.now();
-    reply = await plugin.submitAgentMessageStream(question.input, history, (text: string) => {
+    const onText = (text: string) => {
       if (text.trim() && firstTokenMs === undefined) firstTokenMs = Math.round(performance.now() - mainStarted);
-    }, { source: question.mode });
+    };
+    if (question.phoneCaptureDate) {
+      const result = await submitPhoneQuestion(plugin, store as unknown as StoreHost, question, onText);
+      reply = result.reply; phoneInbox = result.observed;
+    } else reply = await plugin.submitAgentMessageStream(question.input, history, onText, { source: question.mode });
     if (reply.reply.trim() && firstTokenMs === undefined) firstTokenMs = Math.round(performance.now() - mainStarted);
   } catch (error) {
     errorCode = "TURN_FAILED";
@@ -245,7 +273,7 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
     JSON.stringify(judgeEvidence).slice(0, 16000), new LifeOpsAi(settingsForAgentModel(settings, "fast")), credentials) : undefined;
   const observed: EvalObservation = {
     reply: reply.reply, voiceSpeech: reply.voiceSpeech, tools, createdTasks, tasks: after.tasks, preparedTasks, preludeCreatedTasks, checkins: after.checkins,
-    createdTrades, judge,
+    createdTrades, judge, phoneInbox,
     activeMemories: memory?.records.filter(record => record.status === "active").map(record => record.content),
     proposedTaskDates: reply.actions.filter(action => action.type === "task_plan").flatMap(action =>
       [...action.content.matchAll(/^日期：(\d{4}-\d{2}-\d{2})$/gm)].map(match => match[1])),

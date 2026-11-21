@@ -1077,5 +1077,85 @@
         "银色纸盒"
       ]
     }
+  },
+  {
+    "id": "phone-task-batch-60",
+    "milestone": "M8",
+    "domain": "phone_tasks",
+    "mode": "text",
+    "phoneCaptureDate": "2026-11-12",
+    "input": "这些都是今天必须完成的五件事：折好虚构蓝纸盒，各20分钟；给虚构红文件夹贴标签，各20分钟；核对虚构绿纸卡，各20分钟；整理虚构黄信封，各20分钟；装订虚构紫纸本，各20分钟。请一次把五项全部创建并排好时间，不要逐条问。今天放不下就保留今天的日期并提醒延后风险。",
+    "history": [],
+    "checks": {
+      "mustSucceedTools": [
+        "schedule_task_batch"
+      ],
+      "mustNotCallTools": [
+        "delete_task",
+        "propose_task_plan"
+      ],
+      "expectWrites": {
+        "tasks.created": 5
+      },
+      "minReceipts": 1,
+      "maxConfirmations": 0,
+      "phoneBatch": {
+        "created": 5,
+        "existing": 0
+      },
+      "createdTaskBatch": {
+        "date": "2026-11-12",
+        "notBefore": "20:00",
+        "titleIncludes": [
+          "折好虚构蓝纸盒",
+          "给虚构红文件夹贴标签",
+          "核对虚构绿纸卡",
+          "整理虚构黄信封",
+          "装订虚构紫纸本"
+        ]
+      }
+    }
+  },
+  {
+    "id": "phone-delayed-batch-61",
+    "milestone": "M8",
+    "domain": "phone_tasks",
+    "mode": "text",
+    "phoneCaptureDate": "2026-11-10",
+    "input": "这些都是今天必须完成的五件事：折好虚构蓝纸盒，各20分钟；给虚构红文件夹贴标签，各20分钟；核对虚构绿纸卡，各20分钟；整理虚构黄信封，各20分钟；装订虚构紫纸本，各20分钟。请一次把五项全部创建并排好时间，不要逐条问。今天放不下就保留今天的日期并提醒延后风险。",
+    "history": [],
+    "checks": {
+      "mustSucceedTools": [
+        "schedule_task_batch"
+      ],
+      "mustNotCallTools": [
+        "delete_task",
+        "propose_task_plan"
+      ],
+      "expectWrites": {
+        "tasks.created": 5
+      },
+      "minReceipts": 1,
+      "maxConfirmations": 0,
+      "phoneBatch": {
+        "created": 5,
+        "existing": 0
+      },
+      "createdTaskBatch": {
+        "date": "2026-11-10",
+        "notBefore": "00:00",
+        "titleIncludes": [
+          "折好虚构蓝纸盒",
+          "给虚构红文件夹贴标签",
+          "核对虚构绿纸卡",
+          "整理虚构黄信封",
+          "装订虚构紫纸本"
+        ],
+        "unscheduled": true
+      },
+      "mustInclude": [
+        "未倒填过去的时段"
+      ]
+    }
   }
 ]

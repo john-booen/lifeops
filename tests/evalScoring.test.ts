@@ -24,6 +24,20 @@ it("scores actual created rows and receipts instead of trusting a completion cla
     .toEqual(expect.arrayContaining(["新建任务的标题、日期或时间不符", "写入数量 tasks.created 期望 1，实际 0"]));
 });
 
+it("requires a saved whole-phone receipt and retained source, and rejects invented past slots", () => {
+  const phone: EvalQuestion = { ...question, checks: { phoneBatch: { created: 1, existing: 0 },
+    createdTaskBatch: { date: task.date, notBefore: "00:00", titleIncludes: [task.title], unscheduled: true } } };
+  const unscheduled = { id: task.id, title: task.title, date: task.date };
+  const valid: EvalObservation = { ...observed, createdTasks: [unscheduled],
+    phoneInbox: { status: "saved", sourceUnchanged: true, taskBatch: { created: 1, existing: 0 } } };
+  expect(scoreEvaluationCase(phone, valid)).toEqual([]);
+  expect(scoreEvaluationCase(phone, { ...valid, phoneInbox: { ...valid.phoneInbox!, status: "review" } }))
+    .toContain("手机原文、整批保存状态或实际数量回执未核对通过");
+  expect(scoreEvaluationCase(phone, { ...valid, phoneInbox: { ...valid.phoneInbox!, sourceUnchanged: false } })).toHaveLength(1);
+  expect(scoreEvaluationCase(phone, { ...valid, createdTasks: [{ ...unscheduled, startTime: "10:00", endTime: "11:00" }] }))
+    .toContain("批量任务名称、日期或排程不符");
+});
+
 it("requires a planned finish without storing a start or point appointment", () => {
   const finish: EvalQuestion = { ...question, checks: { createdTask: {
     titleIncludes: task.title, date: task.date, endTime: "15:00"

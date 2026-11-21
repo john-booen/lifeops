@@ -30,7 +30,8 @@ interface EvalChecks {
   absentTaskTitle?: string;
   createdTask?: { titleIncludes: string; date: string } &
     ({ time: string; endTime?: never } | { endTime: string; time?: never });
-  createdTaskBatch?: { date: string; notBefore: string; titleIncludes: string[] };
+  createdTaskBatch?: { date: string; notBefore: string; titleIncludes: string[]; unscheduled?: true };
+  phoneBatch?: { created: number; existing: number };
   updatedTasks?: Array<{ fromTitleIncludes: string; title: string }>;
   createdOrClarify?: { titleIncludes: string; dates: string[]; clarify: string[] };
   changedTask?: { id: string; date: string };
@@ -54,6 +55,7 @@ export interface EvalQuestion {
   fixture?: "without_quiz_cards" | "scheduled_compensation_after_prelude" | "automatic_memory_after_create" | "task_already_undone" | "one_overdue_task" | "device_sleep";
   prelude?: string[];
   afterPreludeHistory?: { role: "user" | "assistant"; content: string }[];
+  phoneCaptureDate?: string;
   checks: EvalChecks;
 }
 export interface EvalObservation {
@@ -77,6 +79,7 @@ export interface EvalObservation {
   proposedIdeaPlans?: { title: string; steps: { date: string; minutes: number }[] }[];
   createdTrades?: Record<string, unknown>[];
   judge?: { passed: boolean; reason: string };
+  phoneInbox?: { status: string; sourceUnchanged: boolean; taskBatch?: { created: number; existing: number } };
 }
 
 function includesFacts(value: unknown, expected: unknown): boolean {
@@ -108,9 +111,16 @@ export function scoreEvaluationCase(question: EvalQuestion, observed: EvalObserv
     if (observed.createdTasks.length !== batch.titleIncludes.length
       || !batch.titleIncludes.every(title => observed.createdTasks.some(task => task.title.includes(title)))
       || observed.createdTasks.some(task => task.date !== batch.date
+        || batch.unscheduled && !!(task.time || task.startTime || task.endTime)
         || !!task.startTime !== !!task.endTime
         || task.startTime && (task.startTime < batch.notBefore || task.endTime! <= task.startTime))
-      || observed.createdTasks.some(task => !task.startTime) && !observed.reply.includes("延后风险")) issues.push("批量任务名称、日期或排程不符");
+      || !batch.unscheduled && observed.createdTasks.some(task => !task.startTime) && !observed.reply.includes("延后风险")) issues.push("批量任务名称、日期或排程不符");
+  }
+  if (checks.phoneBatch) {
+    const row = observed.phoneInbox;
+    if (row?.status !== "saved" || !row.sourceUnchanged || !includesFacts(row.taskBatch, checks.phoneBatch)) {
+      issues.push("手机原文、整批保存状态或实际数量回执未核对通过");
+    }
   }
   if (observed.errorCode) issues.push("运行错误 " + observed.errorCode);
   for (const phrase of checks.mustInclude ?? []) {
