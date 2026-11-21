@@ -40,6 +40,7 @@ import { speakTaskReport, taskReportBrief, TASK_REPORT_SPOKEN_INSTRUCTIONS } fro
 import { formatVoiceStats, voiceStatsTool } from "../voice/quickStats";
 import { explicitTaskCount, voiceTaskCountFollowup } from "../voice/taskCountFollowup";
 import { planTaskBatch, TASK_BATCH_TOOL, taskBatchOutput } from "./taskBatch";
+import { recoverReadOnlyStats, type StatsRecoveryRead } from "./readOnlyStatsRecovery";
 
 export type WriteReceipt = AgentWriteReceipt;
 export interface AgentTurnInput {
@@ -73,6 +74,7 @@ export interface AgentLoopHost {
     onResult: (call: AiToolCall, result: ToolCallResult) => void) => Promise<ToolCallResult[]>;
   offlineFallback: (input: AgentTurnInput) => Promise<AgentResponse | null>;
   onContext?: (context: ResidentContext) => void;
+  assertReadOnlyReplyCurrent?: () => void;
 }
 
 interface TurnState {
@@ -98,6 +100,7 @@ interface TurnState {
   previousTask?: SavedTaskReference;
   taskContentCalls?: Set<string>;
   taskBatchNotes?: string[];
+  statsReads?: Map<string, StatsRecoveryRead>;
   errorCode?: string;
 }
 
@@ -525,7 +528,17 @@ export class AgentLoop {
       state.usageKnown = false;
       state.errorCode = input.signal?.aborted ? providerAbortCode(input.signal)
         : error instanceof ProviderRunFailure ? error.code : "operation_failed";
-      if (!state.receipts.size && !state.confirmations.size) throw error;
+      if (!state.receipts.size && !state.confirmations.size) {
+        if (input.source === "text" && !input.voiceBackground && this.host.assertReadOnlyReplyCurrent
+          && ["response_incomplete", "network", "timeout", "rate_limit"].includes(state.errorCode)
+          && state.toolCalls.length && state.toolCalls.every(call => call.ok && ["get_stats", LOAD_TOOLS.name].includes(call.name))) {
+          const reply = await recoverReadOnlyStats(this.host.store, [...state.statsReads?.values() ?? []], input.now,
+            () => { assertPolicy(); this.host.assertReadOnlyReplyCurrent!(); }, input.signal).catch(() => undefined);
+          assertProviderActive(input.signal); assertPolicy(); this.host.assertReadOnlyReplyCurrent();
+          if (reply) { state.text = reply; return this.result(state); }
+        }
+        throw error;
+      }
       state.text = this.savedOutput(state, input.signal?.aborted ? "其余处理已停止。" : "后续回复未完成，请重试剩余事项。");
       return this.result(state);
     } finally {
@@ -949,7 +962,12 @@ export class AgentLoop {
     assertProviderActive(input.signal);
     const results = await this.host.executeTools(allowed, input.message, input.signal,
       (call, result) => this.recordResult(input, state, call.name, result));
-    for (const result of results) this.recordResult(input, state, allowed.find(call => call.id === result.callId)?.name ?? "tool_batch", result);
+    for (const result of results) {
+      const call = allowed.find(call => call.id === result.callId);
+      this.recordResult(input, state, call?.name ?? "tool_batch", result);
+      if (call?.name === "get_stats" && result.success) (state.statsReads ??= new Map()).set(result.callId,
+        { arguments: structuredClone(call.arguments), output: result.output });
+    }
     return [...denied, ...results];
   }
 

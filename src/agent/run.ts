@@ -12,6 +12,7 @@ import type { StoreHost } from "../store/settingsSlice";
 import type { AgentConversationMessage, AgentResponse, AgentSubmissionOptions } from "../types";
 import { AgentLoop } from "./AgentLoop";
 import { settingsForAgentModel } from "./models";
+import { assertProviderActive } from "../providerRun";
 
 export interface AgentTurnHost {
   activeProviderRequests: LifeOpsPlugin["activeProviderRequests"];
@@ -39,6 +40,11 @@ export async function runAgentTurn(this: AgentTurnHost, message: string, history
   let lastQuery: VaultQueryRead | undefined;
   const loop = new AgentLoop({
     settings, store,
+    assertReadOnlyReplyCurrent: () => {
+      assertProviderActive(request.signal);
+      if (this.unloaded || (this.store as unknown as StoreHost) !== store
+        || this.finiteProviderRevision("classification") !== entry.revision) throw new DOMException("本轮读取已停止。", "AbortError");
+    },
     onContext: ({ memories }) => { if (memories) historyRevision = personalMemoryContextRevision(memories); },
     aiForRole: role => {
       const selected = settingsForAgentModel(settings, role);
