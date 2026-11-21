@@ -37,7 +37,7 @@ export async function crossWeekUi(page,root,result) {
       if(!output)return{content:"",toolCalls:[{id:"fictional-cross-week-read",name:"get_summaries",arguments:{level:"week",range:{from:"2026-10-26",to:"2026-11-08"},includeOriginals:true,query:"纸样 归档 虚纸 裁剪 纸样归档"}}]};
       evidence=output.originalEvidence;
       if(!messages[0].content.includes(corrected))throw Error("Corrected availability missing from live context");
-      return{content:evidence.notes.map(note=>note.date+" · "+note.path+"\n"+note.text).join("\n\n")+"\n下一步：按当前记忆周三19:30连续25分钟。仅两次样本，未创建任务；未命中不代表没有日记。",toolCalls:[]};
+      return{content:evidence.notes.map(note=>note.date+" · "+note.path+"\n"+note.text).join("\n\n")+"\n"+evidence.coverageSummary+"\n下一步：按当前记忆周三19:30连续25分钟。仅两次样本，未创建任务；未命中不代表没有日记。",toolCalls:[]};
     };
     p.ai.agentTurnStream=mock;Object.getPrototypeOf(p.ai).agentTurnStream=mock;
     await p.activateView(true);const view=app.workspace.getLeavesOfType("lifeops-assistant-view")[0].view;await view.navigateSteward("chat");
@@ -48,6 +48,10 @@ export async function crossWeekUi(page,root,result) {
   assert.equal(observed.calls,2);assert.equal(observed.before,observed.after);assert.deepEqual(observed.receipts,[]);
   assert.deepEqual(observed.evidence.notes.map(note=>note.date),["2026-10-28","2026-11-04"]);
   assert.equal(observed.evidence.query,"纸样 归档 纸样归档");
+  const counts=observed.evidence.counts;
+  assert.equal(counts.requestedDays,14);assert.equal(counts.scopeDays,14);assert.equal(counts.matchedDays,2);assert.equal(counts.returnedNotes,2);
+  assert(counts.unmatchedDays>=1);assert.equal(counts.withJournalDays+counts.missingDays,14);
+  assert(observed.reply.includes("本次覆盖14天"));result.checks.crossWeekCoverageCountsDatesInsteadOfNotes=true;
   assert(observed.evidence.unmatchedDates.includes("2026-11-05"));assert(!observed.evidence.missingDates.includes("2026-11-05"));
   for(const expected of ["2026-10-28","2026-11-04","19:30"])assert(observed.reply.includes(expected));
   assert(!observed.reply.includes("09:30"));assert(!observed.reply.includes("confidence:"));

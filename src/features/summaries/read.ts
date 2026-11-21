@@ -7,6 +7,7 @@ import type { StoreHost } from "../../store/settingsSlice";
 import { produceVaultQueryRead } from "../../vaultQueryRead";
 import { readSummary, readSummaryScope, summaryPath, summaryPathAllowed } from "./notes";
 import { resolveSummaryRange, summaryLevels, summaryPeriod, summaryPeriodsInRange, type SummaryLevel } from "./periods";
+import { evidenceCoverage } from "./evidenceCoverage";
 
 /** Read historical evidence without regenerating summaries or confirming memory. */
 export async function readSummaryQueryWithSources(store: StoreHost, args: Record<string, unknown>) {
@@ -82,8 +83,9 @@ export async function readSummaryQueryWithSources(store: StoreHost, args: Record
       const wantedDates = from<=through ? datesBetween(from,through).filter(wantsDate) : [];
       const coverageByDate = wantedDates.map(date => ({date,
         status: dated.has(date)?"已返回可读片段":unavailableDates.has(date)?"有日记，片段暂不可核对":limitedDates.has(date)?"有日记，本次未读齐":knownDates.has(date)?"有日记，可读正文未命中主题":"允许范围未找到日记"}));
+      const counted = evidenceCoverage(range, coverageByDate, notes.length, !!query);
       originalEvidence = {from,to:through,...(query?{query}:{}),notes,unavailable,
-        coverageByDate,
+        coverageByDate,counts:counted.counts,coverageSummary:counted.summary,
         missingDates: wantedDates.filter(date=>!knownDates.has(date)),
         unmatchedDates: query ? wantedDates.filter(date=>knownDates.has(date)&&!dated.has(date)&&!unavailableDates.has(date)&&!limitedDates.has(date)) : [],
         unavailableDates: [...unavailableDates].filter(date=>!dated.has(date)),

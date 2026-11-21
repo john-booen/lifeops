@@ -37,6 +37,17 @@ async function memory(){
  await store.reviewPersonalMemory(row.id,{decision:"confirm"});return row.id;
 }
 
+it("provides calendar-day counts from actual morning and evening files without changing the originals",async()=>{
+ for(let i=2;i<=15;i++)for(const suffix of ["早","晚"])await vault.seed(journal("2026-11-"+String(i).padStart(2,"0"),suffix),
+   i===4||i===11?"虚构纸样归档：连续25分钟。":"虚构其他主题。");
+ const result=await query("fictional-counted-originals",{includeOriginals:true,query:"纸样 归档"});
+ expect(result.success,result.output).toBe(true);const evidence=JSON.parse(result.output).originalEvidence;
+ expect(evidence.notes).toHaveLength(4);
+ expect(evidence.counts).toMatchObject({requestedDays:14,scopeDays:14,withJournalDays:14,matchedDays:2,unmatchedDays:12,missingDays:0,returnedNotes:4});
+ expect(evidence.coverageSummary).toContain("本次覆盖14天");expect(evidence.coverageSummary).toContain("4篇片段");
+ expect(await vault.bytes(journal("2026-11-04"))).toBe("虚构纸样归档：连续25分钟。");
+});
+
 it("keeps dated original evidence from both weeks when a correction makes the old summaries unavailable",async()=>{
  const id=await memory();
  await vault.seed(journal("2026-11-04"),"纯虚构蓝纸样：完整25分钟完成12张，碎片时间只完成4张。\n\n"+original);
