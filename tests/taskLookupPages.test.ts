@@ -61,3 +61,11 @@ it("labels filtered totals and later page positions and never merges different f
   expect(repeatedTaskListPriority([{ name: "list_tasks", arguments: { ...args, query: "纸样" } },
     { name: "list_tasks", arguments: { ...args, query: "纸袋" } }], date)).toBeUndefined();
 });
+
+it("uses the same verified priority answer when a model redundantly asks for a wider ordinary list", () => {
+  const priority = { name: "list_tasks", arguments: { order: "priority", limit: 2, directReply: true } };
+  const wider = { name: "list_tasks", arguments: { date, status: "active", limit: 30 } };
+  expect(repeatedTaskListPriority([priority, wider], date)).toBe(priority);
+  expect(repeatedTaskListPriority([priority, { ...wider, arguments: { ...wider.arguments, directReply: false } }], date)).toBeUndefined();
+  expect(repeatedTaskListPriority([priority, { ...wider, arguments: { ...wider.arguments, query: "纸样" } }], date)).toBeUndefined();
+});

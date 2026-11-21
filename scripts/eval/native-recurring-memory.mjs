@@ -21,18 +21,24 @@ export async function nativeRecurringMemory(page, result) {
     p.settings.ai = { ...p.settings.ai, provider: "custom", endpoint: "https://fiction.invalid/chat", apiKey: "fictional-recurring-key", model: "synthetic", fallbackProvider: "off", dataDisclosureAccepted: true };
     p.settings.privacy = { ...p.settings.privacy, plaintextCredentialStorageAccepted: true };
     const mock = async messages => {
-      old.calls++; for (const content of prepared.records) if (!JSON.stringify(messages).includes(content)) throw Error("A confirmed recurring fact was omitted from model context");
+      old.calls++;
+      const read = messages.filter(message => message.role === "tool").map(message => message.content).join("\n");
+      if (!read) return { content: "", toolCalls: [{ id: "fictional-recurring-current-read", name: "query_vault",
+        arguments: { domain: "memory", operation: "search", query: "周三", limit: 12 } }] };
+      old.missing = prepared.records.filter(content => !read.includes(content));
       return { content: "周三晚上有固定会议，以及整理虚构读书卡。", toolCalls: [] };
     };
     p.ai.agentTurnStream = mock; Object.getPrototypeOf(p.ai).agentTurnStream = mock;
     const view = app.workspace.getLeavesOfType("lifeops-assistant-view")[0].view;
-    view.agentMessages = []; view.pendingAgentActions = []; view.setAgentInput("我周三晚上有什么？"); await view.sendAgentMessage();
-    const answer = { reply: view.agentReply, calls: old.calls, after: await p.store.readPath(p.store.taskDbPath()) };
+    view.agentMessages = []; view.pendingAgentActions = []; view.agentMode = "text"; await view.navigateSteward("chat");
+    view.setAgentInput("我周三晚上有什么？"); await view.sendAgentMessage();
+    const answer = { reply: view.agentReply, calls: old.calls, missing: old.missing, after: await p.store.readPath(p.store.taskDbPath()) };
     p.settings.ai = old.ai; p.settings.privacy = old.privacy; p.ai.agentTurnStream = old.instance; Object.getPrototypeOf(p.ai).agentTurnStream = old.prototype;
     for (const id of old.ids) await p.store.reviewPersonalMemory(id, { decision: "forget" });
     view.agentMessages = []; view.pendingAgentActions = []; return answer;
   }, prepared);
-  assert.equal(observed.calls, 1); assert(observed.reply.includes("会议") && observed.reply.includes("读书卡"));
+  assert.equal(observed.calls, 2); assert.deepEqual(observed.missing, [], JSON.stringify(observed));
+  assert(observed.reply.includes("会议") && observed.reply.includes("读书卡"), JSON.stringify(observed));
   assert.equal(observed.after, prepared.before);
   result.checks.relatedRecurringMemoryIsNotHiddenByNarrowLocalShortcut = true;
 }

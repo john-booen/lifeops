@@ -680,7 +680,7 @@ export class AgentLoop {
       guidance.push("用户问实际学了多久，要带上核对到的学习轨道名称和本轮时段，再报 recordedMinutes 或统计里的 minutes。即使是在纠正前一句，也不能只回一个数字。weeklyMinutes 是本周计划目标；差值不是已学习或未登记时长。");
     }
     if (evidenceCalls.some(call => call.name === "get_summaries")) {
-      guidance.push("历史总结只用用户所问的日期范围。已有摘要能回答就直接答，缺项用originalEvidence的同范围日记证据。逐日按coverageByDate说明可读范围：unmatchedDates是有日记但未命中主题，不能列成没写日记；missingDates才是允许范围未找到日记；两者都不表示没做。truncated不是全文。跨周比较分别给出两周的日期和来源，只把样本支持的现象当建议依据，不断言因果；当前可用时段不是历史发生时刻，后续安排遵从当前已确认记忆。不要把本周习惯混进上周。明确要求改进时，在核对后的指标之后另起一行，用「下一步」标出一条具体做法。不得从完成率倒推遗漏项数，也不能借当前待办举证。");
+      guidance.push("历史总结只用用户所问的日期范围。主题检索沿用用户原词，不联想扩展行业或同义词；未命中时先减少关键词在同一范围重查。已有摘要能回答就直接答，缺项用originalEvidence的同范围日记证据。逐日按coverageByDate说明可读范围：unmatchedDates是有日记但未命中主题，不能列成没写日记；missingDates才是允许范围未找到日记；两者都不表示没做。truncated不是全文。跨周比较分别给出两周的日期和来源，只把样本支持的现象当建议依据，不断言因果；当前可用时段不是历史发生时刻，后续安排遵从当前已确认记忆。不要把本周习惯混进上周。明确要求改进时，在核对后的指标之后另起一行，用「下一步」标出一条具体做法。不得从完成率倒推遗漏项数，也不能借当前待办举证。");
     }
     if (evidenceCalls.some(call => call.name === "list_ideas")) {
       guidance.push("如果用户明确要把已找到的想法拆成任务或要确认卡，立即用该想法的准确 id 调用 advance_idea。调用只生成卡，点击才保存，生成卡前无需问是否立项或先等用户同意。只问状态时按列表回答。");
