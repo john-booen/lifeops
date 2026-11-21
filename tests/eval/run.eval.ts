@@ -152,6 +152,9 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
   if (question.fixture === "cross_week_after_correction") {
     await (await import("./crossWeekFixture")).prepareCorrectedCrossWeekFixture(store as unknown as StoreHost);
   }
+  if (question.fixture === "sparse_legacy_summary") {
+    await (await import("./sparseSummaryFixture")).prepareSparseSummaryFixture(store as unknown as StoreHost);
+  }
   if (question.fixture === "device_sleep") {
     await store.appendHealthEntry({ date: "2026-11-10", sleepHours: 7.25 });
     await store.appendHealthEntry({ date: "2026-11-12", sleepHours: 8.25 });

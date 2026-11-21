@@ -6,6 +6,7 @@ import type { App } from "obsidian";
 import type { StoreHost } from "../src/store/settingsSlice";
 import type { VaultQueryRead } from "../src/vaultQueryRead";
 import { DEFAULT_SETTINGS } from "../src/defaults";
+import { prepareSparseSummaryFixture } from "./eval/sparseSummaryFixture";
 vi.mock("obsidian",()=>({App:class{},TFile:class{},TFolder:class{},Modal:class{},Notice:class{},normalizePath:(p:string)=>p.replace(/\\/g,"/"),parseYaml:JSON.parse,stringifyYaml:JSON.stringify}));
 const { LifeOpsStore }=await import("../src/store");
 const { AgentRuntime }=await import("../src/agentRuntime");
@@ -36,6 +37,27 @@ async function memory(){
  const row=await store.upsertPersonalMemory({kind:"user_rule",content:original,sourceRefs:[{sourceId:"fictional-availability",path,capturedAt:new Date().toISOString()}]});
  await store.reviewPersonalMemory(row.id,{decision:"confirm"});return row.id;
 }
+
+it("refuses to prepare sparse evidence without a fictional marker before changing any records", async () => {
+ await store.createTask({title:"虚构应保留任务",date:"2026-11-04"});
+ await vault.seed(journal("2026-11-04"),"虚构应保留原文。");const before=await store.readTaskDb();
+ await expect(prepareSparseSummaryFixture(store)).rejects.toThrow("全虚构夹具");
+ expect(await store.readTaskDb()).toEqual(before);expect(await vault.bytes(journal("2026-11-04"))).toBe("虚构应保留原文。");
+});
+
+it("seeds a contradictory legacy summary with one dated original and preserves out-of-week files", async () => {
+ await vault.seed("TEST_VAULT_ONLY.md","内容全部为虚构数据。");
+ await vault.seed(journal("2026-11-04"),"虚构待清理的旧模板。");
+ await vault.seed(journal("2026-11-11"),"虚构其他周原文应保留。");
+ await prepareSparseSummaryFixture(store);
+ const result=await query("fictional-sparse-summary",{range:{from:"2026-11-02",to:"2026-11-08"},includeOriginals:true});
+ expect(result.success,result.output).toBe(true);const output=JSON.parse(result.output);
+ expect(output.summaries).toHaveLength(1);expect(output.summaries[0]).toMatchObject({generatedBy:"model",complete:true});
+ expect(output.summaries[0].summary).toContain("本周一张也没有归档");
+ expect(output.originalEvidence.notes).toEqual([expect.objectContaining({date:"2026-11-03",text:expect.stringContaining("10张")})]);
+ expect((await store.readTaskDb()).tasks).toEqual([]);expect((await store.readHabitDb()).checkins).toEqual([]);
+ expect(await vault.bytes(journal("2026-11-11"))).toBe("虚构其他周原文应保留。");
+});
 
 it("provides calendar-day counts from actual morning and evening files without changing the originals",async()=>{
  for(let i=2;i<=15;i++)for(const suffix of ["早","晚"])await vault.seed(journal("2026-11-"+String(i).padStart(2,"0"),suffix),
