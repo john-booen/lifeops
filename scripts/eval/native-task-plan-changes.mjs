@@ -59,6 +59,45 @@ async function confirm(page) {
   });
 }
 
+async function mixedTitleCorrection(page, root, result, baseline) {
+  const request = await page.evaluate(async () => {
+    const p = app.plugins.getPlugin("lifeops-assistant"), rows = (await p.store.readTaskDb()).tasks;
+    p.settings.ai = { ...p.settings.ai, provider: "custom", endpoint: "https://fiction.invalid/chat", apiKey: "fictional-mixed-key",
+      model: "synthetic", fallbackProvider: "off", dataDisclosureAccepted: true };
+    p.settings.privacy = { ...p.settings.privacy, plaintextCredentialStorageAccepted: true };
+    let calls = 0;
+    const mock = async () => ++calls === 1 ? { content: "", toolCalls: [{ id: "fictional-only-create", name: "create_task",
+      arguments: { title: "虚构混合新增纸袋" } }] } : { content: "模型结束语不作保存证据。", toolCalls: [] };
+    p.ai.agentTurnStream = mock; Object.getPrototypeOf(p.ai).agentTurnStream = mock;
+    const view = app.workspace.getLeavesOfType("lifeops-assistant-view")[0].view;
+    view.agentMessages = []; view.pendingAgentActions = []; view.setAgentInput(""); await view.navigateSteward("chat");
+    return `把「${rows[0].title}」改为「虚构混合改名甲」，把「${rows[1].title}」改为「虚构混合改名乙」。原安排和状态保留，再新增虚构混合新增纸袋。`;
+  });
+  const input = page.locator("textarea.lifeops-agent-input").last(); await input.fill(request); await input.press("Enter");
+  await page.waitForFunction(() => !app.workspace.getLeavesOfType("lifeops-assistant-view")[0].view.agentBusy);
+  const saved = await page.evaluate(async () => {
+    const p = app.plugins.getPlugin("lifeops-assistant"), view = app.workspace.getLeavesOfType("lifeops-assistant-view")[0].view;
+    return { tasks: (await p.store.readTaskDb()).tasks, receipts: view.agentMessages.at(-1)?.receipts ?? [], pending: view.pendingAgentActions.length };
+  });
+  assert.equal(saved.tasks.length, baseline.length + 1); assert.equal(saved.pending, 0); assert.equal(saved.receipts.length, 2);
+  for (const [i, row] of baseline.entries()) {
+    const current = saved.tasks.find(task => task.id === row.id), { title, updatedAt, ...rest } = current;
+    const { title: oldTitle, updatedAt: oldUpdated, ...old } = row;
+    assert.equal(title, i === 0 ? "虚构混合改名甲" : i === 1 ? "虚构混合改名乙" : row.title); assert.deepEqual(rest, old);
+  }
+  assert(saved.tasks.some(task => task.title === "虚构混合新增纸袋"));
+  result.checks.explicitRenamesAndNewTaskCompleteWhenModelOmitsEdits = true;
+  await page.screenshot({ path: join(root, "mixed-title-and-new-task.png") });
+  const after = await page.evaluate(async receipts => {
+    const p = app.plugins.getPlugin("lifeops-assistant"), runtime = p.createAgentRuntime();
+    for (const receipt of receipts.slice().reverse()) await runtime.undoOperation(receipt.operationId);
+    const old = globalThis.__nativePlanOld; p.settings.ai = old.ai; p.settings.privacy = old.privacy;
+    p.ai.agentTurnStream = old.instance; Object.getPrototypeOf(p.ai).agentTurnStream = old.prototype;
+    return (await p.store.readTaskDb()).tasks;
+  }, saved.receipts);
+  assert.deepEqual(after, baseline); result.checks.mixedCorrectionUndoRestoresExistingTasks = true;
+}
+
 export async function taskPlanChangesUi(page, root, result) {
   assert.equal(process.env.GITHUB_ACTIONS, "true"); assert.equal(process.env.RUNNER_OS, "macOS");
   const original = await prepare(page), prepared = await proposal(page);
@@ -98,4 +137,5 @@ export async function taskPlanChangesUi(page, root, result) {
     return (await p.store.readTaskDb()).tasks;
   });
   assert.deepEqual(cleaned, original.before); result.checks.scheduleFixtureLeavesUnrelatedTasksUntouched = true;
+  await mixedTitleCorrection(page, root, result, original.before);
 }

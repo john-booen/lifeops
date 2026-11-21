@@ -234,6 +234,18 @@ it("handles a two-task correction plus a third new task in one turn without aski
   expect((await store.readTaskDb()).tasks.map(row => row.title)).toEqual(["虚构更正名称0", "虚构更正名称1", "虚构新增第三项"]);
 });
 
+it("does not omit the explicit title edits when the model submits only a lookup and the new task", async () => {
+  const rows = await seed();
+  const { result } = await run([
+    { id: "fictional-title-lookup", name: "list_tasks", arguments: { date, directReply: true } },
+    { id: "fictional-only-new", name: "create_task", arguments: { title: "虚构紫色纸袋", date } }
+  ], '把「虚构旧纸样0」改为「虚构新纸样甲」，把「虚构旧纸样1」改为「虚构新纸样乙」。保留原安排，再新增虚构紫色纸袋。');
+  expect(result.confirmations).toEqual([]); expect(result.receipts).toHaveLength(2);
+  expect((await store.getTask(rows[0].id)).title).toBe("虚构新纸样甲");
+  expect((await store.getTask(rows[1].id)).title).toBe("虚构新纸样乙");
+  expect((await store.readTaskDb()).tasks.at(-1)?.title).toBe("虚构紫色纸袋");
+});
+
 it("completes both exact quoted title edits when the model submits only the second plus a new task",async()=>{
  const rows=await seed();
  const {result}=await run([tool([edit(rows[1].id,"虚构新标题乙")]),{name:"create_task",arguments:{title:"虚构新增第三项",date}}],

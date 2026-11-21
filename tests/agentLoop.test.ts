@@ -479,7 +479,7 @@ describe("unified agent loop", () => {
     const date = formatDate(now);
     await store.createTask({ title: "纯虚构待办", date, startTime: "15:00" });
     responses.push(reply("", [tool("list_tasks", { date, directReply: true })]),
-      reply("今天有 1 个未完成任务：纯虚构待办（计划 15:00 开始 · 结束未定）。"));
+      reply("模型误说有99项任务，详细回答很长。"));
     const chunks: string[] = [];
     const result = await new AgentLoop(host).run(input({ message: "把今天没完成的任务列出来。", onText: delta => chunks.push(delta) }));
     expect(requests).toHaveLength(2);
@@ -579,7 +579,8 @@ describe("unified agent loop", () => {
     expect(result.receipts).toEqual([]);
   });
 
-  it.each(["single", "duplicate", "also-plan"])("reports the remaining count and highest priorities (%s)", async mode => {
+  it.each(["single", "duplicate", "also-plan"].flatMap(mode => ["text", "voice"].map(source => [mode, source] as const)))(
+    "reports a brief computed remaining count after continuation (%s/%s)", async (mode, source) => {
     const date = formatDate(now);
     await store.createTask({ title: "虚构归档", date, quadrant: "not-important-not-urgent" });
     await store.createTask({ title: "虚构核对计划", date, quadrant: "important-not-urgent" });
@@ -587,12 +588,15 @@ describe("unified agent loop", () => {
     responses.push(reply("", [tool("list_tasks", { date, order: "priority", limit: 2, directReply: true }),
       ...(mode === "duplicate" ? [tool("list_tasks", { directReply: true }, "synthetic-count")] : []),
       ...(mode === "also-plan" ? [tool("plan_today", {}, "synthetic-plan")] : [])]));
-    responses.push(reply("今天还有 3 项未完成任务。先做：虚构验收、虚构核对计划。"));
-    const result = await new AgentLoop(host).run(input({ message: "今天还剩几项，只说最要紧的两件。" }));
+    responses.push(reply("模型很长的提醒。".repeat(50)));
+    const spoken: string[] = [];
+    const result = await new AgentLoop(host).run(input({ message: "今天还剩几项，只说最要紧的两件。", source: source as "text" | "voice",
+      onVoiceText: source === "voice" ? text => spoken.push(text) : undefined }));
     expect(requests).toHaveLength(2);
     expect(result.text).toBe("今天还有 3 项未完成任务。先做：虚构验收、虚构核对计划。");
     expect(result.toolCalls).toEqual([{ name: "list_tasks", ok: true }]);
     expect((await store.readTaskDb({ readOnly: true })).tasks).toHaveLength(3);
+    expect(spoken.join("")).toBe(source === "voice" ? result.text : "");
   });
 
   it.each(["text", "voice"] as const)("reads the three status domains without a model for an overall status request (%s)", async source => {

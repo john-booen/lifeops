@@ -340,6 +340,7 @@ export class AgentLoop {
       const asksMarketWinRates = !input.voiceBackground && /(?:各[^。！？!?]*市场|市场[^。！？!?]*分别)[^。！？!?]*胜率/u.test(input.message)
         && !/盈亏|回撤|收益率|最大亏损/u.test(input.message);
       const exactTitleEdits=!input.voiceBackground?await explicitTitleEdits(this.host.store,input.message):undefined;
+      let taskListAnswer: string | undefined;
       for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
         assertPolicy();
         const final = round === MAX_TOOL_ROUNDS || state.confirmations.size > 0;
@@ -351,7 +352,7 @@ export class AgentLoop {
         const responseRole = role === "fast" && input.source === "text" && (requiredTool || usesEvidence) ? "main" : role;
         const availableTools = final ? [] : requiredTool === "propose_task_plan" ? tools.filter(tool => tool.name === requiredTool) : palette;
         let response = await this.callModel(input, state, responseRole, messages, availableTools, final,
-          requiredTool !== "propose_task_plan" && !state.taskContentCalls?.size && !exactTitleEdits, requiredTool);
+          requiredTool !== "propose_task_plan" && !state.taskContentCalls?.size && !exactTitleEdits && !taskListAnswer, requiredTool);
         assertPolicy();
         if(!requiredTool&&!final&&exactTitleEdits&&!state.taskContentCalls?.size){
           const proposed=!response.toolCalls.length&&!state.receipts.size&&!state.confirmations.size?[titleEditCall(exactTitleEdits)]:response.toolCalls;
@@ -369,7 +370,10 @@ export class AgentLoop {
           break;
         }
         if (!response.toolCalls.length) {
-          if (!final && !state.receipts.size && !state.spokenWrites.size && !state.confirmations.size && response.content.trim()) input.onVoiceText?.(response.content);
+          if (taskListAnswer && !state.receipts.size && !state.confirmations.size) {
+            state.text = taskListAnswer; input.onText?.(state.text);
+          }
+          if (!final && !state.receipts.size && !state.spokenWrites.size && !state.confirmations.size && state.text.trim()) input.onVoiceText?.(state.text);
           break;
         }
         if (final) {
@@ -425,6 +429,10 @@ export class AgentLoop {
           return this.localAnswer(input, state, results[0].output);
         }
         const single = calls.length === 1 && results[0]?.success ? results[0] : undefined;
+        taskListAnswer = !input.voiceBackground && single && call.name === "list_tasks" && call.arguments.category === undefined
+          && call.arguments.directReply !== false && (call.arguments.directReply === true
+            || call.arguments.dueStatus === "overdue_and_today" || call.arguments.order === "priority" && Number.isInteger(call.arguments.limit))
+          ? formatTaskListReply(single.output, formatDate(input.now)) : undefined;
         if (single) {
           let reply: string | undefined;
           if (call.name === TASK_BATCH_TOOL.name) reply = single.output;
