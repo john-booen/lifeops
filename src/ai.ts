@@ -1,4 +1,5 @@
 import { standardAgentSystemPrompt } from "./agentInstructions";
+import { isChromiumConnectionClosed, nodeHttpsText } from "./nodeHttpsText";
 import { ACCOUNTABILITY_BOUNDARY } from "./accountability";
 import { requestUrl } from "obsidian";
 import { createToolResultTextFilter } from "./toolResultText";
@@ -538,7 +539,7 @@ export class LifeOpsAi {
     const auditOptions = { ...options, auditCredentials: credentials };
     return runProviderRequest(primary, [primary, ...(fallback ? [fallback] : [])].map(config => ({
       ...config, transport: "request_url" as const,
-      execute: signal => this.chatWithConfigAgent(config, messages, { ...auditOptions, signal })
+      execute: (signal, observeTransport) => this.chatWithConfigAgent(config, messages, { ...auditOptions, signal }, observeTransport)
     })), { ...auditOptions, sensitiveValues: credentials, additionalSensitiveValues: () => [...credentials, ...configuredCredentials(this.settings)] });
   }
 
@@ -554,10 +555,10 @@ export class LifeOpsAi {
     const credentials = configuredCredentials(this.settings);
     const auditOptions = { ...options, auditCredentials: credentials };
     const streams = configs.map(config => ({ ...config, transport: "stream" as const,
-      execute: () => this.chatWithConfigStream(config, messages, onText, auditOptions) }));
+      execute: (signal?: AbortSignal) => this.chatWithConfigStream(config, messages, onText, { ...auditOptions, signal }) }));
     const finite = configs.map(config => ({ ...config, transport: "request_url" as const,
-        execute: async () => {
-          const result = await this.chatWithConfigAgent(config, messages, auditOptions);
+        execute: async (signal?: AbortSignal, observeTransport?: ProviderTransportObserver) => {
+          const result = await this.chatWithConfigAgent(config, messages, { ...auditOptions, signal }, observeTransport);
           assertProviderActive(options.signal);
           if (result.content && (!options.suppressToolText || !result.toolCalls.length)) onText(result.content);
           return result;
@@ -625,7 +626,8 @@ export class LifeOpsAi {
   private async chatWithConfigAgent(
     config: ChatConfig,
     messages: ChatMessage[],
-    options: ChatRequestOptions = {}
+    options: ChatRequestOptions = {},
+    observeTransport?: ProviderTransportObserver
   ): Promise<AiChatResult> {
     assertProviderActive(options.signal);
     assertCredentialStorageAccepted(this.settings.privacy?.plaintextCredentialStorageAccepted === true, config.apiKey);
@@ -650,6 +652,7 @@ export class LifeOpsAi {
     if (options.beforeTextRequest) await assertTextRequestBoundary(options);
     else assertTextRequestCurrent(options);
     notifyRequestAudit(body, config, "request_url", options, options.auditCredentials);
+    const requestStarted = Date.now();
     const response = await withTimeout(
       awaitProviderActive(() => { assertTextRequestCurrent(options); return requestUrl({
         url: config.endpoint,
@@ -657,7 +660,18 @@ export class LifeOpsAi {
         headers,
         throw: false,
         body
-      }); }, options.signal).catch(error => { throw normalizeProviderConnectionError(error); }),
+      }); }, options.signal).catch(async error => {
+        if (!isChromiumConnectionClosed(error)) throw normalizeProviderConnectionError(error);
+        assertProviderActive(options.signal);
+        if (options.beforeTextRequest) await assertTextRequestBoundary(options); else assertTextRequestCurrent(options);
+        await recordProviderEgress({ capability: "text", provider: config.provider, model: config.model,
+          purpose: options.tools?.length ? "tool_chat" : "chat", requestBytes: utf8RequestBytes(body), sourceCount: countProviderSources(messages) }, options.auditCredentials ?? [config.apiKey]);
+        assertProviderActive(options.signal);
+        assertTextRequestCurrent(options);
+        notifyRequestAudit(body, config, "node_https", options, options.auditCredentials);
+        observeTransport?.({ provider: config.provider, model: config.model, transport: "node_https" });
+        return nodeHttpsText(config.endpoint, headers, body, options.signal, (options.timeoutMs ?? 30_000) - (Date.now() - requestStarted));
+      }),
       options.timeoutMs ?? 30_000,
       `${config.provider}/${config.model} 请求超时`
     );
@@ -716,6 +730,7 @@ export class LifeOpsAi {
     }
 
     let stopReading: (() => void) | undefined;
+    let receivedAnswer = false;
     try {
       const body = JSON.stringify({
         ...buildChatRequestBody(config.model, messages, options),
@@ -765,6 +780,7 @@ export class LifeOpsAi {
       const consume = (line: string) => {
         const delta = parseStreamLine(line);
         if (delta === null) return;
+        if (delta.content || delta.toolCalls?.length) receivedAnswer = true;
         reportedModel = safeReportedModel(delta.payload?.model, config.apiKey, options.auditCredentials) ?? reportedModel;
         if (delta.invalid) throw new ProviderResponseIncompleteError("unknown", reportedModel, response.status);
         if (delta.done) { ended = true; done = true; return; }
@@ -825,6 +841,8 @@ export class LifeOpsAi {
     } catch (error) {
       assertProviderActive(options.signal);
       if (error instanceof TextRequestContextError) throw error;
+      if (error instanceof ProviderResponseIncompleteError) throw error;
+      if (receivedAnswer) throw new ProviderResponseIncompleteError("missing");
       if (timedOut) throw new ProviderTransportError("timeout", "AI 请求超时");
       throw error;
     } finally {

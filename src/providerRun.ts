@@ -2,7 +2,7 @@ import type { ProviderAttempt, ProviderErrorCode, ProviderIncompleteReason, Prov
 import { redactSensitiveText } from "./credentialSecurity";
 import { normalizeProviderResponseUsage } from "./voice/realtimeResponseUsage";
 
-export interface ProviderTarget { provider: string; model: string }
+export interface ProviderTarget { provider: string; model: string; transport?: ProviderAttempt["transport"] }
 export type ProviderTransportObserver = (target: ProviderTarget) => void;
 export interface ProviderRequestAttempt<T> extends ProviderTarget {
   transport: ProviderAttempt["transport"];
@@ -179,6 +179,8 @@ async function executeProviderRequest<T extends { reportedModel?: string; respon
           const model = auditIdentifier(target.model) ?? "unknown";
           row.provider = provider;
           row.model = model;
+          const transport = target.transport;
+          if (transport && ["stream", "request_url", "node_https", "fetch", "websocket"].includes(transport)) row.transport = transport;
         } catch {
           // Diagnostic metadata cannot prevent I/O or retry the business request.
           row.provider = "unknown";
