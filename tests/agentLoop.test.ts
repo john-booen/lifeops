@@ -1179,27 +1179,29 @@ describe("unified agent loop", () => {
     expect(result.text).toContain("本轮处理已到上限");
   });
 
-  it("requires confirmation before four writes in one response", async () => {
+  it("saves four newly requested tasks in one response with individual undo receipts", async () => {
     responses.push(reply("", Array.from({ length: 4 }, (_, index) => tool("create_task", { title: `纯虚构批量${index}` }, `call-${index}`))), reply("四项任务等待确认。"));
     const execute = vi.spyOn(host, "executeTools");
     const result = await new AgentLoop(host).run(input());
-    expect(execute).not.toHaveBeenCalled();
-    expect((await store.readTaskDb({ readOnly: true })).tasks).toEqual([]);
-    expect(result.confirmations).toHaveLength(1);
-    await executeConfirmedToolBatch(result.confirmations[0], runtime, () => {});
+    expect(execute).toHaveBeenCalledOnce();
+    expect(result.confirmations).toHaveLength(0);
+    expect(result.receipts).toHaveLength(4);
     expect((await store.readTaskDb({ readOnly: true })).tasks).toHaveLength(4);
+    await runtime.undoOperation(result.receipts[0].operationId);
+    expect((await store.readTaskDb({ readOnly: true })).tasks).toHaveLength(3);
   });
 
   it("counts writes across rounds and confirms only the remaining write", async () => {
-    responses.push(...Array.from({ length: 4 }, (_, index) => reply("", [tool("create_task", { title: `纯虚构分轮${index}` })])), reply("三项已保存，剩余一项待确认。"));
+    const tasks = [];
+    for (let i = 0; i < 4; i++) tasks.push(await store.createTask({ title: `纯虚构完成${i}` }));
+    responses.push(...tasks.map(t => reply("", [tool("complete_task", { taskIdOrTitle: t.id })])), reply("三项已保存，剩余一项待确认。"));
     const result = await new AgentLoop(host).run(input());
     expect(result.receipts).toHaveLength(3);
-    expect((await store.readTaskDb({ readOnly: true })).tasks).toHaveLength(3);
+    expect((await store.readTaskDb({ readOnly: true })).tasks.filter(t => t.status === "completed")).toHaveLength(3);
     expect(result.confirmations[0]).toMatchObject({ type: "tool_batch", batchWriteCount: 4 });
     expect(result.confirmations[0].toolBatch).toHaveLength(1);
     await executeConfirmedToolBatch(result.confirmations[0], runtime, () => {});
-    expect((await store.readTaskDb({ readOnly: true })).tasks.map(task => task.title).sort())
-      .toEqual(Array.from({ length: 4 }, (_, index) => `纯虚构分轮${index}`));
+    expect((await store.readTaskDb({ readOnly: true })).tasks.every(t => t.status === "completed")).toBe(true);
   });
 
   it("retains a committed receipt when cancellation arrives after a write", async () => {
@@ -2027,6 +2029,92 @@ it("waits for a complete phone inbox line while mobile sync updates an unfinishe
     expect(moved.sourceUnavailable).toBeUndefined();
     expect(saved).toHaveBeenCalledTimes(2);
   } finally { inbox.stop(); }
+});
+
+describe("complete batch task scheduling", () => {
+  const tasks = () => Array.from({ length: 5 }, (_, i) => ({ title: `虚构纸样流程${i}`, estimateMin: 30 }));
+  const batch = (args: Record<string, unknown> = {}) => tool("schedule_task_batch", { date: "今天", tasks: tasks(), ...args });
+
+  it("creates the entire plan in one user turn and returns only verified saved results", async () => {
+    responses.push(reply("", [batch()]));
+    const result = await new AgentLoop(host).run(input({ message: "五件虚构纸样工作今天必须完成，全天有时间，排好时间后全部创建。" }));
+    expect(result.receipts).toHaveLength(5);
+    expect(result.confirmations).toEqual([]);
+    expect(result.text).toContain("本批实际保存5项新任务");
+    expect(requests).toHaveLength(1);
+    expect(catalogs[0]).toContain("schedule_task_batch");
+    const saved = (await store.readTaskDb()).tasks;
+    expect(saved.map(t => t.title).sort()).toEqual(tasks().map(t => t.title).sort());
+    expect(saved.every(t => t.date === formatDate(now) && !!t.startTime && !!t.endTime)).toBe(true);
+    await runtime.undoOperation(result.receipts[1].operationId);
+    expect((await store.readTaskDb()).tasks).toHaveLength(4);
+  });
+
+  it("checks existing tasks when retrying and preserves independently completed work", async () => {
+    const loop = new AgentLoop(host);
+    responses.push(reply("", [batch()]));
+    const first = await loop.run(input());
+    const saved = (await store.readTaskDb()).tasks;
+    await store.completeTask(saved[0].id);
+    responses.push(reply("", [batch()]));
+    const retry = await loop.run(input({ message: "继续，全部提交。", history: [
+      { role: "assistant", content: first.text, receipts: first.receipts }
+    ] }));
+    expect(retry.receipts).toEqual([]);
+    expect(retry.text).toContain("实际保存0项新任务");
+    expect((await store.readTaskDb()).tasks).toHaveLength(5);
+    expect((await store.getTask(saved[0].id))?.status).toBe("completed");
+  });
+
+  it("does not trust a previous assistant's unsupported claim that all tasks were saved", async () => {
+    responses.push(reply("", [batch()]));
+    const result = await new AgentLoop(host).run(input({ message: "提交这些今天要做的任务。", history: [
+      { role: "user", content: "把五项虚构纸样工作排在今天并创建。" },
+      { role: "assistant", content: "五项全部建好了。", receipts: [] }
+    ] }));
+    expect(result.receipts).toHaveLength(5);
+    expect((await store.readTaskDb()).tasks).toHaveLength(5);
+  });
+
+  it("reports an exact partial count on failure and does not let a model claim full success", async () => {
+    const original = host.executeTools;
+    let count = 0;
+    host.executeTools = async (...args) => ++count === 3
+      ? [{ callId: args[0][0].id!, success: false, output: "虚构磁盘写入失败", actions: [] }]
+      : original(...args);
+    responses.push(reply("", [batch()]), reply("全部完成，五项已经创建。"));
+    const result = await new AgentLoop(host).run(input());
+    expect(result.receipts).toHaveLength(2);
+    expect(result.text).toContain("本批实际保存2项，后续已停止");
+    expect(result.text).not.toContain("五项已经创建");
+    expect((await store.readTaskDb()).tasks).toHaveLength(2);
+    expect(requests).toHaveLength(1);
+  });
+
+  it("stops on missing receipts rather than treating an unverified success flag as a save", async () => {
+    host.executeTools = async calls => calls.map(call => ({ callId: call.id!, success: true, output: "保存成功", actions: [] }));
+    responses.push(reply("", [batch()]));
+    const result = await new AgentLoop(host).run(input());
+    expect(result.text).toContain("本批实际保存0项，后续已停止");
+    expect((await store.readTaskDb()).tasks).toEqual([]);
+  });
+
+  it("preserves the selected day even when time is insufficient", async () => {
+    responses.push(reply("", [batch({ availableEnd: "12:40" })]));
+    const result = await new AgentLoop(host).run(input());
+    expect(result.receipts).toHaveLength(5);
+    expect(result.text).toContain("4项在剩余时间内放不下");
+    expect((await store.readTaskDb()).tasks.every(t => t.date === formatDate(now))).toBe(true);
+  });
+
+  it("still requires one confirmation for four modifications to existing tasks", async () => {
+    const saved = [];
+    for (let i = 0; i < 4; i++) saved.push(await store.createTask({ title: `虚构已有${i}` }));
+    responses.push(reply("", saved.map((t, i) => tool("complete_task", { taskIdOrTitle: t.id }, `complete-${i}`))), reply("等待确认。"));
+    const result = await new AgentLoop(host).run(input({ message: "四项已有任务都标记完成。" }));
+    expect(result.confirmations).toHaveLength(1);
+    expect((await store.readTaskDb()).tasks.every(t => t.status === "active")).toBe(true);
+  });
 });
 
 it("keeps phone inbox receipts visible when the source is unreadable", async () => {

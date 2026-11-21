@@ -253,16 +253,16 @@ describe("task planning through real files", () => {
     expect(await store.getTask(original.id)).toEqual(original);
   });
 
-  it("rejects a capacity-aware preview that exceeds the remaining room", async () => {
+  it("keeps a full requested preview even when historical suggested room is lower", async () => {
     const tomorrow = addDays(today, 1);
     await store.createTask({ title: "已有一项", date: tomorrow });
-    const prepareTaskPlan = vi.fn();
+    const prepareTaskPlan = vi.fn(async (_tasks: unknown[]) => ({ id: "fictional-preview", type: "task_plan" as const,
+      title: "确认安排", description: "虚构", content: "虚构", date: tomorrow, taskPlanToken: "fictional-token" }));
     const agent = new AgentRuntime({ store, refreshViews: async () => {}, prepareTaskPlan });
     const result = await agent.executeAiToolCall({ name: "propose_task_plan", arguments: { capacityAware: true,
       tasks: ["一", "二", "三"].map(title => ({ title, date: tomorrow })) } }, "kimi", "安排明天");
-    expect(result.output).toContain("可再安排 2 项");
-    expect(result.success).toBe(false);
-    expect(prepareTaskPlan).not.toHaveBeenCalled();
+    expect(result.success, result.output).toBe(true);
+    expect(prepareTaskPlan.mock.calls[0][0]).toHaveLength(3);
     expect((await store.readTaskDb()).tasks).toHaveLength(1);
   });
 });

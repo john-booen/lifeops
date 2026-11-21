@@ -14,8 +14,9 @@ function countWrites(calls: AiToolCall[]): number {
 
 export function prepareToolBatch(calls: AiToolCall[], previousWriteCount = 0, userMessage = ""): ToolCallResult | undefined {
   const writes = calls.filter(call => getLifeOpsTool(call.name)?.safety === "direct-write" && call.name !== "undo_latest_operation");
-  const count = countWrites(writes), total = count + previousWriteCount;
-  if (!count || total <= 3) return;
+  const count = countWrites(writes), guarded = countWrites(writes.filter(call => call.name !== "create_task"));
+  if (!guarded || count + previousWriteCount <= 3) return;
+  const total = count + previousWriteCount;
   const reviewed = writes.map(call => call.name === "record_trade" && Array.isArray(call.arguments.trades)
     ? { ...call, arguments: { ...call.arguments, trades: call.arguments.trades.map(row => discardUnstatedTradePnl(row, userMessage)) } } : call);
   const journalOriginal = userMessage.trim() && reviewed.some(call => call.name === "append_journal_entry" && call.arguments.period === "晚")

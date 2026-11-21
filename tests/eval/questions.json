@@ -934,5 +934,43 @@
       "createdTask": {"titleIncludes": "给靛色纸样夹贴标签", "date": "2026-11-13", "time": "15:15"},
       "mustInclude": ["靛色纸样夹", "15:15"], "mustSpeak": ["15:15"]
     }
+  },
+  {
+    "id": "batch-today-tasks-57",
+    "milestone": "M6",
+    "domain": "tasks",
+    "mode": "text",
+    "input": "以下全部为虚构情景。我今天有五件必须完成的事：整理蓝纸样片30分钟，核对青盒清单20分钟，联系虚构角色林小葵取黄卡15分钟，装订紫色练习册40分钟，汇总白板笔库存25分钟。按这个先后顺序做。今天全天有时间，请现在统一安排今天剩余的时间并把五项任务一次全部创建，不要逐项询问，不要改成明天。时长可以暂估，但做不完要提醒我延期风险。以后如果虚构青鸟软件涨价才考虑停用，这是未来的条件，不是今天的第六项。",
+    "history": [],
+    "checks": {
+      "mustSucceedTools": [
+        "create_task"
+      ],
+      "minReceipts": 5,
+      "maxConfirmations": 0,
+      "expectWrites": {
+        "tasks.created": 5,
+        "tasks.deleted": 0,
+        "tasks.rescheduled": 0
+      },
+      "mustInclude": [
+        "蓝纸样片",
+        "青盒清单",
+        "林小葵",
+        "紫色练习册",
+        "白板笔"
+      ],
+      "createdTaskBatch": {
+        "date": "2026-11-12",
+        "notBefore": "08:30",
+        "titleIncludes": [
+          "蓝纸样片",
+          "青盒清单",
+          "林小葵",
+          "紫色练习册",
+          "白板笔"
+        ]
+      }
+    }
   }
 ]
