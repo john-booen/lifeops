@@ -6,6 +6,7 @@ import { memoryContentHash, personalMemorySourceAssessment,
 import type { StoreHost } from "./store/settingsSlice";
 import { isVaultPathExcluded } from "./privacy";
 import { createHash } from "node:crypto";
+import { SUMMARY_ORIGINAL_VERSION, isSummaryConversationOriginalRef, summaryOriginalRefCurrent, type SummaryOriginalReadCache } from "./features/memory/summaryOriginals";
 
 type Assessment = NonNullable<PersonalMemoryRecord[typeof personalMemorySourceAssessment]>;
 type LedgerSnapshot = { document: OperationLedgerDocument | null };
@@ -63,10 +64,11 @@ export async function readPersonalMemoryWithSources(store: StoreHost): Promise<P
     return ledger;
   };
   const records: PersonalMemoryRecord[] = [];
+  const originalCache: SummaryOriginalReadCache = {};
   for (const record of document.records) {
     const assessment: Assessment = provisionalOperation !== undefined && record.sourceBinding && record.confirmationReceipt?.operationId === provisionalOperation
       ? { usable: false, reason: "本次确认尚未保存，暂不使用", verifiedSourceIds: [] }
-      : await assessMemory(record, store, ledgerPath, exists, readLedger, readSource);
+      : await assessMemory(record, store, ledgerPath, exists, readLedger, readSource, originalCache);
     records.push({ ...record, [personalMemorySourceAssessment]: assessment });
   }
   return { ...document, records };
@@ -74,7 +76,7 @@ export async function readPersonalMemoryWithSources(store: StoreHost): Promise<P
 
 async function assessMemory(
   record: PersonalMemoryRecord, store: StoreHost, ledgerPath: string, exists: (path: string) => boolean,
-  readLedger: () => Promise<LedgerSnapshot>, readSource: (path: string) => Promise<string | null>
+  readLedger: () => Promise<LedgerSnapshot>, readSource: (path: string) => Promise<string | null>, originalCache: SummaryOriginalReadCache
 ): Promise<Assessment> {
   const unavailable = (reason: string): Assessment => ({ usable: false, reason, verifiedSourceIds: [] });
   if (record.status === "forgotten") return unavailable("已停止使用");
@@ -83,10 +85,16 @@ async function assessMemory(
   }
   // Check every declared original dependency before either confirmation path.
   // A receipt proves approval of this version, never approval of later bytes.
+  const verifiedOriginals: PersonalMemorySourceRef[] = [];
   for (const ref of record.sourceRefs.filter(ref => ref.contentHash !== undefined)) {
+    if (record.summarySource?.evidenceVersion === 2 && ref.extractionVersion === "summary-v1" && isSummaryMemoryRef(ref, store)) continue;
     if (!allowedVersionSource(ref, store)) return unavailable("固定版本来源缺失、被排除或不在允许范围，待重新核对");
     const raw = await readSource(ref.path);
     if (raw === null || sourceContentHash(raw) !== ref.contentHash) return unavailable("原文已变化或无法读取，旧理解暂停使用；请核对新的原文版本");
+    if (ref.extractionVersion === SUMMARY_ORIGINAL_VERSION) {
+      if (!await summaryOriginalRefCurrent(ref, record.content, store, readSource, originalCache)) return unavailable("自动记忆的原始陈述无法核对，原记忆保留，暂不使用。");
+      verifiedOriginals.push(ref);
+    }
   }
   const refs = record.sourceRefs.filter(ref => validRef(ref)
     && !isVaultPathExcluded(ref.path, store.settings.privacy?.excludedVaultPrefixes));
@@ -101,6 +109,7 @@ async function assessMemory(
   };
   const available = (reason: string, verified: PersonalMemoryContextSource[]): Assessment => {
     const originals = refs.filter(ref => !verified.some(source => source.ref.sourceId === ref.sourceId && source.ref.path === ref.path)
+      && !(record.summarySource?.evidenceVersion === 2 && ref.extractionVersion === "summary-v1" && isSummaryMemoryRef(ref, store))
       && (ref.contentHash !== undefined || existingOriginal(ref)))
       .map(ref => ({ ref, basis: ref.contentHash !== undefined ? "fixed_version" as const : "legacy_existing" as const }));
     const contextSources = [...verified, ...originals];
@@ -136,9 +145,10 @@ async function assessMemory(
   }
   const valid = refs.filter(existingOriginal);
   if (record.summarySource) {
-    const summary = refs.filter(ref => isSummaryMemoryRef(ref, store) && !!ref.contentHash);
-    return summary.length ? available("来源为已核对的日摘要", summary.map(ref => ({ ref, basis: "summary" })))
-      : unavailable("日摘要来源暂时无法核对。");
+    if (record.summarySource.evidenceVersion !== 2) return unavailable("旧摘要提炼缺少原始陈述依据，原记忆保留，核对后再使用。");
+    return verifiedOriginals.length ? { usable: true, reason: "已逐字核对原始陈述及固定版本", verifiedSourceIds: [...new Set(verifiedOriginals.map(ref => ref.sourceId))],
+      contextSources: verifiedOriginals.map(ref => ({ ref, basis: "fixed_version" as const })) }
+      : unavailable("自动记忆的原始陈述无法核对，原记忆保留，暂不使用。");
   }
   return valid.length ? available("原始来源存在；内容含义仍以用户确认为准", valid.map(ref => ({ ref, basis: ref.contentHash !== undefined ? "fixed_version" : "legacy_existing" })))
     : unavailable("原始来源缺失或不在允许范围，待核对；原记忆保留");
@@ -175,7 +185,7 @@ export function memorySourcePolicy(store: StoreHost): string {
   return sourceContentHash(JSON.stringify({ folders: store.settings.folders, privacy: store.settings.privacy, externalVaults: store.settings.externalVaults ?? [] }));
 }
 function allowedVersionSource(ref: PersonalMemorySourceRef, store: StoreHost): boolean {
-  return validRef(ref) && (isSummaryMemoryRef(ref, store) || store.isManagedSourcePath(ref.path) && ref.path.endsWith(".md"))
+  return validRef(ref) && (isSummaryMemoryRef(ref, store) || isSummaryConversationOriginalRef(ref, store) || store.isManagedSourcePath(ref.path) && ref.path.endsWith(".md"))
     && !isVaultPathExcluded(ref.path, store.settings.privacy?.excludedVaultPrefixes);
 }
 export function isSummaryMemoryRef(ref: Pick<PersonalMemorySourceRef, "sourceId" | "path">, store: StoreHost): boolean {
@@ -186,9 +196,19 @@ export function isSummaryMemoryRef(ref: Pick<PersonalMemorySourceRef, "sourceId"
 /** Used by confirmation guards as well as read-only context. No hash is updated. */
 export async function assertPersonalMemoryDependencies(record: PersonalMemoryRecord, store: StoreHost): Promise<void> {
   const before = memorySourcePolicy(store);
+  const cache: SummaryOriginalReadCache = {};
+  const originals = new Map<string, string | null>();
+  const read = async (path: string) => {
+    if (!originals.has(path)) originals.set(path, store.getFile(path) ? await store.readPath(path) : null);
+    return originals.get(path)!;
+  };
   for (const ref of record.sourceRefs.filter(ref => ref.contentHash !== undefined)) {
+    if (record.summarySource?.evidenceVersion === 2 && ref.extractionVersion === "summary-v1" && isSummaryMemoryRef(ref, store)) continue;
     if (!allowedVersionSource(ref, store) || !store.getFile(ref.path)) throw new Error("理解候选的固定来源已失效或被排除，请重新整理；原内容保留。");
     if (sourceContentHash(await store.readPath(ref.path)) !== ref.contentHash) throw new Error("理解候选对应的原文已经变化，请核对新版本；未确认旧理解。");
+    if (ref.extractionVersion === SUMMARY_ORIGINAL_VERSION && !await summaryOriginalRefCurrent(ref, record.content, store, read, cache)) {
+      throw new Error("自动记忆的原始陈述已经变化或无法核对，请核对后再确认；原内容保留。");
+    }
   }
   if (memorySourcePolicy(store) !== before) throw new Error("核对期间资料权限变化，请重新整理理解候选。");
 }

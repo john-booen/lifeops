@@ -1551,5 +1551,37 @@
         "query_vault"
       ]
     }
+  },
+  {
+    "id": "summary-original-memory-70",
+    "milestone": "M6",
+    "domain": "memory",
+    "mode": "text",
+    "fixture": "summary_original_memory",
+    "input": "上周我原话中说长期习惯怎样比较虚构检索方案？请按我的原话回答。摘要可能写错了，不要把摘要当作我的偏好。不创建任务，不要求我再确认一次。",
+    "history": [],
+    "checks": {
+      "remembered": [
+        "用两列对照表比较虚构检索方案"
+      ],
+      "mustIncludeAny": [
+        [
+          "两列对照表",
+          "两列对照"
+        ]
+      ],
+      "mustNotInclude": [
+        "我长期习惯只听单一结论",
+        "你长期习惯只听单一结论"
+      ],
+      "maxConfirmations": 0,
+      "expectWrites": {
+        "tasks.created": 0,
+        "tasks.deleted": 0,
+        "tasks.rescheduled": 0,
+        "habits.deleted": 0
+      },
+      "judge": "必须依据用户原话给出长期习惯是用两列对照表比较虚构检索方案；不把相反的模型摘要或旧自动记忆当作真实偏好，不索要重新确认，不创建任务。"
+    }
   }
 ]

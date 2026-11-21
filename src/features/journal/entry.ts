@@ -98,3 +98,16 @@ export function appendEveningEntry(text: string, heading: string, entry: string,
   const draft = appendSection(text, section, entry, original === undefined && heading === "日记");
   return original === undefined ? draft : appendSection(draft, "原话", journalOriginalBlock(original));
 }
+
+/** Read author evidence without promoting the assistant's organized section. */
+export function journalOriginalText(text: string): string {
+  const scanned = scanDiaryHeadings(text, true);
+  if (!scanned.complete) return "";
+  const sections = scanned.headings.filter(row => row.level <= 2);
+  const originals = sections.flatMap((row, index) => row.level === 2 && row.title === "原话"
+    ? [text.slice(row.through, sections[index + 1]?.from ?? text.length).trim()] : []);
+  if (originals.length) return originals.join("\n\n");
+  if (sections.some(row => /^(?:AI\s*)?整理(?:稿)?$/iu.test(row.title))) return "";
+  // Older manually written diaries have no generated/original split.
+  return text.replace(/^\uFEFF?---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/u, "").trim();
+}

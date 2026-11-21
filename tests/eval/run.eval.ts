@@ -11,6 +11,7 @@ import { formatDate } from "../../src/date";
 import type { QuizDocument } from "../../src/features/learning/quizModel";
 import type { AgentResponse } from "../../src/types";
 import type { StoreHost } from "../../src/store/settingsSlice";
+import { selectPersonalMemories } from "../../src/personalMemory";
 import { isolatedProviderConfig } from "./isolatedProviderConfig";
 import { EvalTransport } from "./liveTransport";
 import { correctionHistory, attestedCorrectionHistory } from "./correctionHistory";
@@ -161,6 +162,9 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
   if (question.fixture === "source_relative_dates") {
     await (await import("./sourceDateFixture")).prepareSourceDateFixture(store as unknown as StoreHost);
   }
+  if (question.fixture === "summary_original_memory") {
+    await (await import("./summaryMemoryFixture")).prepareSummaryMemoryFixture(store as unknown as StoreHost);
+  }
   if (question.fixture === "device_sleep") {
     await store.appendHealthEntry({ date: "2026-11-10", sleepHours: 7.25 });
     await store.appendHealthEntry({ date: "2026-11-12", sleepHours: 8.25 });
@@ -253,6 +257,11 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
   let errorDetail: string | undefined;
   let phoneInbox: EvalObservation["phoneInbox"];
   try {
+    if (question.fixture === "summary_original_memory") {
+      const { extractWeeklyMemories } = await import("../../src/features/memory/summaryMemory");
+      await extractWeeklyMemories(plugin as unknown as import("../../src/features/memory/service").MemoryHost,
+        store as unknown as StoreHost, new Date(2026, 10, 9, 9));
+    }
     runningPrelude = true;
     for (const message of question.prelude ?? []) {
       const result = await plugin.submitAgentMessageStream(message, history, () => {}, { source: "text" });
@@ -295,7 +304,7 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
   const observed: EvalObservation = {
     reply: reply.reply, voiceSpeech: reply.voiceSpeech, tools, createdTasks, tasks: after.tasks, preparedTasks, preludeCreatedTasks, checkins: after.checkins,
     createdTrades, judge, phoneInbox,
-    activeMemories: memory?.records.filter(record => record.status === "active").map(record => record.content),
+    activeMemories: memory ? selectPersonalMemories(memory.records, "", memory.records.length, fixedNow).map(record => record.content) : undefined,
     proposedTaskDates: reply.actions.filter(action => action.type === "task_plan").flatMap(action =>
       [...action.content.matchAll(/^日期：(\d{4}-\d{2}-\d{2})$/gm)].map(match => match[1])),
     proposedTaskChanges: reply.actions.filter(action => action.type === "tool_batch").flatMap(action => action.toolBatch ?? []),

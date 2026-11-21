@@ -43,7 +43,7 @@ export interface PersonalMemoryRecord {
   expiresAt?: string;
   archivedAt?: string;
   confirmedAt?: string;
-  summarySource?: { settingsRevision: string };
+  summarySource?: { settingsRevision: string; evidenceVersion?: 2 };
   revisions: PersonalMemoryRevision[];
   tags: string[];
   sourceBinding?: { version: 1; dependenciesHash: string };

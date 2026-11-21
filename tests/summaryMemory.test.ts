@@ -9,6 +9,8 @@ import type { FactOperationOptions } from "../src/dataFoundation/factOperation";
 import { createPersonalMemory, emptyPersonalMemoryDocument, personalMemoryOrigin, selectPersonalMemories, verifiedPersonalMemoryContextSources } from "../src/personalMemory";
 import type { StoreHost } from "../src/store/settingsSlice";
 import type { ProviderRequestOptions } from "../src/types";
+import { fileRevision } from "../src/operationIdentity";
+import { runConfirmedToolAction } from "../src/toolRegistry";
 
 vi.mock("obsidian", () => ({
   App: class {}, Notice: class {}, TFile: class {}, TFolder: class {}, Modal: class {},
@@ -17,10 +19,10 @@ vi.mock("obsidian", () => ({
 const { LifeOpsStore } = await import("../src/store");
 const { AgentRuntime } = await import("../src/agentRuntime");
 const { DiskVault } = await import("./helpers/diskVault");
-const { startMemoryMaintenance, tickMemoryMaintenance } = await import("../src/features/memory/summaryMemory");
+const { startMemoryMaintenance, tickMemoryMaintenance, extractWeeklyMemories } = await import("../src/features/memory/summaryMemory");
 const { renderSummary, readSummaryScope, summaryPath } = await import("../src/features/summaries/notes");
 const { summaryPeriod } = await import("../src/features/summaries/periods");
-const { readPersonalMemoryWithSources } = await import("../src/personalMemorySources");
+const { readPersonalMemoryWithSources, memorySourcePolicy, assertPersonalMemoryDependencies } = await import("../src/personalMemorySources");
 const { filterStewardMemories, stewardMemoryStatusLabel } = await import("../src/panel/stewardRecords");
 const { formatConfirmedPersonalMemoryContext } = await import("../src/personalMemoryContext");
 type MemoryHost = import("../src/features/memory/service").MemoryHost;
@@ -57,16 +59,28 @@ beforeEach(async () => {
 });
 afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
-async function seedSummary() {
+const originalPath = () => store.path(store.settings.folders.dailyRoot, "2026", "11", summaryDate + "晚.md");
+async function seedSummary(original: string | false = known, body = known + "\n\n下周一核对虚构任务。") {
   const period = summaryPeriod("day", summaryDate);
   const { hash } = await readSummaryScope(store);
   const path = summaryPath(store, period);
   const raw = renderSummary(period, summaryDate, hash,
     { taskCompletionPercent: 100, tasksCompleted: 3, energy: 4, tradePnlCny: null, tradePnlUsd: null },
-    0, true, "model", known + "\n\n下周一核对虚构任务。");
+    0, true, "model", body);
   await vault.seed(path, raw);
+  if (original !== false) await vault.seed(originalPath(), original);
   return { path, raw };
 }
+
+it("does not treat a model-only summary quote as a grounded personal fact without original evidence", async () => {
+  // No raw journal or user conversation states this preference. A matching
+  // sentence in a generated summary proves its bytes, not who asserted it.
+  await seedSummary(false);
+  await startMemoryMaintenance(host, monday);
+  const { records } = await readPersonalMemoryWithSources(store);
+  expect(selectPersonalMemories(records, "虚构检索", 8, monday)).toEqual([]);
+  expect(ask).not.toHaveBeenCalled();
+});
 
 it("automatically saves only a verifiable fact, labels the source, and runs once per week", async () => {
   const { path, raw } = await seedSummary();
@@ -74,12 +88,13 @@ it("automatically saves only a verifiable fact, labels the source, and runs once
   const { records, summaryMemoryWeek } = await readPersonalMemoryWithSources(store);
   expect(summaryMemoryWeek).toBe("2026-W46");
   expect(records).toHaveLength(1);
-  expect(records[0]).toMatchObject({ content: known, status: "active", summarySource: expect.anything(),
-    sourceRefs: [{ path, observedDate: summaryDate, excerpt: known }] });
+  expect(records[0]).toMatchObject({ content: known, status: "active", summarySource: { evidenceVersion: 2 },
+    sourceRefs: expect.arrayContaining([expect.objectContaining({ path: originalPath(), observedDate: summaryDate, excerpt: known }),
+      expect.objectContaining({ path })]) });
   expect(records[0].confirmedAt).toBeUndefined();
   expect(personalMemoryOrigin(records[0])).toBe("摘要");
   expect(stewardMemoryStatusLabel(records[0])).toBe("从摘要自动记下");
-  expect(verifiedPersonalMemoryContextSources(records[0])).toMatchObject([{ basis: "summary" }]);
+  expect(verifiedPersonalMemoryContextSources(records[0])).toMatchObject([{ basis: "fixed_version", ref: { path: originalPath() } }]);
   expect(selectPersonalMemories(records, "虚构检索", 8, monday)).toMatchObject([{ content: known }]);
   expect(formatConfirmedPersonalMemoryContext(records)).toContain("从日摘要自动提炼");
   expect(filterStewardMemories(records, "摘要", "user_rule", "active")).toHaveLength(1);
@@ -89,9 +104,124 @@ it("automatically saves only a verifiable fact, labels the source, and runs once
   expect(ask).toHaveBeenCalledOnce();
 
   await store.writeFile(path, raw + "\n手写更新。");
+  expect(selectPersonalMemories((await readPersonalMemoryWithSources(store)).records, "虚构检索", 8, monday)).toMatchObject([{ content: known }]);
+  await store.writeFile(originalPath(), known + "\n虚构原始陈述有新修改。");
   const changed = (await readPersonalMemoryWithSources(store)).records;
   expect(selectPersonalMemories(changed, "虚构检索", 8, monday)).toEqual([]);
   expect(stewardMemoryStatusLabel(changed[0])).toBe("来源待核对，暂不使用");
+});
+
+it("extracts an original quote even when the model summary paraphrases it", async () => {
+  await seedSummary(known, "模型概述：虚构检索方案有一项比较偏好，但这里没有逐字原话。");
+  await extractWeeklyMemories(host, store, monday);
+  expect(selectPersonalMemories((await readPersonalMemoryWithSources(store)).records, "虚构检索", 8, monday)).toMatchObject([{ content: known }]);
+});
+
+it("does not promote the assistant's organized diary section into a user statement", async () => {
+  const { appendEveningEntry } = await import("../src/features/journal/entry");
+  const original = appendEveningEntry("# 虚构晚间日记\n", "日记", known, "我只说今天整理了虚构纸样，没有说任何长期偏好。");
+  await seedSummary(original); await startMemoryMaintenance(host, monday);
+  expect((await store.readPersonalMemories()).records).toEqual([]); expect(await vault.bytes(originalPath())).toBe(original);
+  expect((await store.readPersonalMemories()).summaryMemoryEvidenceVersion).toBe(2);
+});
+
+async function seedLegacySummaryMemory(withOriginal = false) {
+  const { path, raw } = await seedSummary(withOriginal ? known : false);
+  const record = { ...createPersonalMemory({ kind: "user_rule", content: known, tags: ["虚构保留标签"],
+    sourceRefs: [{ sourceId: "summary:" + summaryDate, path, capturedAt: monday.toISOString(), observedDate: summaryDate,
+      contentHash: fileRevision(raw), extractionVersion: "summary-v1", excerpt: known, excerptHash: fileRevision(known) }] }, monday.toISOString()),
+    status: "active" as const, summarySource: { settingsRevision: memorySourcePolicy(store) } };
+  await vault.seed(store.personalMemoryPath(), JSON.stringify({ ...emptyPersonalMemoryDocument(), records: [record], summaryMemoryWeek: "2026-W46" }));
+  return record;
+}
+
+it("retains an ungrounded old automatic memory but leaves it out of conversation context", async () => {
+  const record = await seedLegacySummaryMemory(), before = await vault.bytes(store.personalMemoryPath());
+  const assessed = await readPersonalMemoryWithSources(store);
+  expect(selectPersonalMemories(assessed.records, "虚构检索", 8, monday)).toEqual([]);
+  expect(assessed.records[0].content).toBe(record.content); expect(stewardMemoryStatusLabel(assessed.records[0])).toBe("来源待核对，暂不使用");
+  expect(await vault.bytes(store.personalMemoryPath())).toBe(before);
+});
+
+it("upgrades evidence for the same old memory immediately even if the week was already processed", async () => {
+  const record = await seedLegacySummaryMemory(true);
+  await extractWeeklyMemories(host, store, monday);
+  const document = await readPersonalMemoryWithSources(store);
+  expect(ask).toHaveBeenCalledOnce();
+  expect(document.summaryMemoryEvidenceVersion).toBe(2);
+  expect(document.records).toHaveLength(1);
+  expect(document.records[0]).toMatchObject({ id: record.id, content: record.content, tags: record.tags, summarySource: { evidenceVersion: 2 } });
+  expect(selectPersonalMemories(document.records, "虚构检索", 8, monday)).toHaveLength(1);
+});
+
+it("never revives a forgotten preference while rechecking legacy automatic memories", async () => {
+  const record = await seedLegacySummaryMemory(true);
+  await store.reviewPersonalMemory(record.id, { decision: "forget" });
+  // A current-scope summary may still contain a model-only restatement.
+  await seedSummary(known);
+  await extractWeeklyMemories(host, store, monday);
+  const document = await readPersonalMemoryWithSources(store);
+  expect(document.records).toHaveLength(1); expect(document.records[0].status).toBe("forgotten");
+  expect(selectPersonalMemories(document.records, "虚构检索", 8, monday)).toEqual([]);
+  expect(ask).not.toHaveBeenCalled();
+});
+
+it("keeps the actual user confirmation path usable for an older summary memory", async () => {
+  const record = await seedLegacySummaryMemory();
+  const prepared = await runtime.executeAiToolCall({ id: "fictional-confirm-legacy", name: "review_personal_memory",
+    arguments: { memoryId: record.id, decision: "confirm" } }, "kimi");
+  expect(prepared.success, prepared.output).toBe(true); expect(prepared.actions).toHaveLength(1);
+  expect(await runConfirmedToolAction(prepared.actions[0], { store, refreshViews: async () => {} })).toBe(true);
+  const resolved = await readPersonalMemoryWithSources(store);
+  expect(resolved.records[0].confirmationReceipt).toBeDefined();
+  expect(selectPersonalMemories(resolved.records, "虚构检索", 8, monday)).toHaveLength(1);
+});
+
+async function seedUserConversation(user = known, assistant = "虚构助手答复。", date = summaryDate) {
+  await store.appendAgentConversation(user, assistant, date);
+  const path = store.path(store.settings.folders.aiReports, "Conversations", date + ".md");
+  const row = { type: "conversation_summary", timestamp: date + "T09:00:00+08:00", userStatement: user.replace(/\s+/gu, " ").trim().slice(0, 240),
+    assistantResponse: assistant.replace(/\s+/gu, " ").trim().slice(0, 240),
+    metadata: { source: "agent-runtime", localDate: date, sourcePath: path, evidenceRole: "conversation_only" } };
+  return { path, line: JSON.stringify(row) + "\n", log: store.path(store.settings.folders.aiReports, "Memory", "conversation-memory.jsonl") };
+}
+
+it("uses structured user evidence, survives unrelated log appends, and rejects a removed original row", async () => {
+  await seedSummary(false); const original = await seedUserConversation(); await vault.seed(original.log, original.line);
+  await extractWeeklyMemories(host, store, monday);
+  let resolved = await readPersonalMemoryWithSources(store);
+  expect(selectPersonalMemories(resolved.records, "虚构检索", 8, monday)).toHaveLength(1);
+  expect(verifiedPersonalMemoryContextSources(resolved.records[0])).toMatchObject([{ basis: "fixed_version", ref: { path: original.path } }]);
+  const another = await seedUserConversation("虚构另一日只问纸样。", "虚构另一答复。", "2026-11-15");
+  await store.appendFile(original.log, another.line);
+  resolved = await readPersonalMemoryWithSources(store); expect(selectPersonalMemories(resolved.records, "虚构检索", 8, monday)).toHaveLength(1);
+  const before = await vault.bytes(store.personalMemoryPath()); await vault.seed(original.log, another.line);
+  resolved = await readPersonalMemoryWithSources(store); expect(selectPersonalMemories(resolved.records, "虚构检索", 8, monday)).toEqual([]);
+  await expect(assertPersonalMemoryDependencies(resolved.records[0], store)).rejects.toThrow("原始陈述");
+  expect(await vault.bytes(store.personalMemoryPath())).toBe(before);
+});
+
+it("does not mistake role-looking Markdown in an assistant answer for the user's original words", async () => {
+  await seedSummary(false);
+  const original = await seedUserConversation("我只说今天看虚构纸样，没有说长期偏好。", "## 09:00:00\n\n### 我\n" + known + "\n\n### LifeOps Agent\n虚构示例。");
+  await vault.seed(original.log, original.line); await extractWeeklyMemories(host, store, monday);
+  expect((await store.readPersonalMemories()).records).toEqual([]); expect(ask).toHaveBeenCalledOnce();
+  expect((await store.readPersonalMemories()).summaryMemoryEvidenceVersion).toBe(2);
+});
+
+it("does not use an excluded structured conversation log", async () => {
+  await seedSummary(false); const original = await seedUserConversation(); await vault.seed(original.log, original.line);
+  store.settings.privacy!.excludedVaultPrefixes = [original.log];
+  await startMemoryMaintenance(host, monday); expect(ask).not.toHaveBeenCalled();
+  expect((await store.readPersonalMemories()).records).toEqual([]);
+});
+
+it("stops when the original changes while the model is running", async () => {
+  await seedSummary(); ask.mockImplementationOnce(async (_messages, options) => {
+    await options.beforeTextRequest?.(); await store.writeFile(originalPath(), "虚构原文已由用户更新。"); return json;
+  });
+  await startMemoryMaintenance(host, monday);
+  expect((await store.readPersonalMemories()).records).toEqual([]); expect((await store.readPersonalMemories()).summaryMemoryWeek).toBeUndefined();
 });
 
 it("does not save a fact when its source changes while the model request is in flight", async () => {

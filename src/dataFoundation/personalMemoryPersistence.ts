@@ -24,7 +24,10 @@ function validateRecords(document: PersonalMemoryDocument): void {
       || typeof record.createdAt !== "string" || typeof record.updatedAt !== "string") conflict();
     if (record.archivedAt !== undefined && (typeof record.archivedAt !== "string" || !Number.isFinite(Date.parse(record.archivedAt)))) conflict();
     if (record.summarySource !== undefined && (!record.summarySource || !/^[a-f0-9]{64}$/.test(record.summarySource.settingsRevision)
-      || !record.sourceRefs.some(source => source.sourceId.startsWith("summary:") && source.extractionVersion === "summary-v1"))) conflict();
+      || (record.summarySource.evidenceVersion === 2
+        ? !record.sourceRefs.some(source => source.sourceId.startsWith("summary:") && source.contentHash !== undefined && source.extractionVersion === "summary-v1")
+          || !record.sourceRefs.some(source => source.extractionVersion === "summary-original-v2" && source.contentHash !== undefined)
+        : !record.sourceRefs.some(source => source.sourceId.startsWith("summary:") && source.extractionVersion === "summary-v1")))) conflict();
     ids.add(record.id);
     for (const source of record.sourceRefs) {
       if (source.contentHash !== undefined && (typeof source.contentHash !== "string" || !/^[a-f0-9]{64}$/.test(source.contentHash)
