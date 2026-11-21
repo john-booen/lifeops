@@ -17,7 +17,10 @@ export function bindChatInputKeyboard(input: HTMLTextAreaElement, state: {
   };
 }
 
-export function renderChatMessageContent(bubble: HTMLElement, content: string): void {
+export function renderChatMessageContent(bubble: HTMLElement, content: string, verifiedWrite = false): void {
+  if (verifiedWrite) content = content
+    .replace(/^(已创建任务：[^\r\n]*)已从任务库读回校验（ID：task-[A-Za-z0-9_-]+）。$/gmu, "$1")
+    .replace(/^((?:已更新|已保留)[^\r\n]*。)编号task-[A-Za-z0-9_-]+；(原安排[^\r\n]*)$/gmu, "$1$2");
   bubble.createDiv({ text: content, cls: "lifeops-agent-message-text" });
   if (!content.trim()) return;
   const actions = bubble.createDiv({ cls: "lifeops-agent-message-actions" });

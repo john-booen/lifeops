@@ -61,6 +61,28 @@ class Element {
 }
 
 describe("chat copy action", () => {
+  it("copies the readable verified task receipt while keeping names, dates and the original transcript intact", async () => {
+    const writeText = vi.fn(async () => {}); vi.stubGlobal("navigator", { clipboard: { writeText } });
+    const original = "已更新「虚构旧清单」→「虚构新清单」。编号task-fiction-1；原安排2026-11-23 15:00；完成状态保留。\n"
+      + "已创建任务：给虚构紫色纸袋编号（明天 17:00）。已从任务库读回校验（ID：task-fiction-2）。";
+    const expected = "已更新「虚构旧清单」→「虚构新清单」。原安排2026-11-23 15:00；完成状态保留。\n已创建任务：给虚构紫色纸袋编号（明天 17:00）。";
+    const bubble = new Element(); renderChatMessageContent(bubble as any, original, true);
+    expect(bubble.children[0].textContent).toBe(expected); await bubble.children[1].children[0].onclick!();
+    expect(writeText).toHaveBeenCalledExactlyOnceWith(expected); expect(original).toContain("task-fiction-1");
+  });
+  it.each([false, undefined])("keeps literal receipt text intact without verified write evidence: %s", async verified => {
+    const writeText = vi.fn(async () => {}); vi.stubGlobal("navigator", { clipboard: { writeText } });
+    const original = "已创建任务：虚构文字范例。已从任务库读回校验（ID：task-example）。";
+    const bubble = new Element(); renderChatMessageContent(bubble as any, original, verified);
+    expect(bubble.children[0].textContent).toBe(original); await bubble.children[1].children[0].onclick!();
+    expect(writeText).toHaveBeenCalledExactlyOnceWith(original);
+  });
+  it("preserves a quoted protocol fragment inside the task title and other user identifiers", () => {
+    const content = "已创建任务：整理文字“已从任务库读回校验（ID：task-quoted）。”（明天 17:00）。已从任务库读回校验（ID：task-actual）。\n客户ID：task-other。";
+    const bubble = new Element(); renderChatMessageContent(bubble as any, content, true);
+    expect(bubble.children[0].textContent).toContain("task-quoted"); expect(bubble.children[0].textContent).toContain("task-other");
+    expect(bubble.children[0].textContent).not.toContain("task-actual");
+  });
   it("copies only the exact message body, including lines and Markdown, without the controls", async () => {
     const writeText = vi.fn(async () => {}); vi.stubGlobal("navigator", { clipboard: { writeText } });
     const body = "**虚构清单**\n1. 蓝纸\n2. 绿纸";

@@ -264,7 +264,7 @@ interface ViewHost {
   agentSubmissionOptions(source: "text" | "voice"): AgentSubmissionOptions;
   sendAgentMessage(source?: "text" | "voice"): Promise<void>;
   sendAgentMessageWithPipeline(message: string, history: AgentConversationMessage[], voicePipelineGeneration: number): Promise<void>;
-  setAgentMessageBubbleContent(bubble: HTMLElement, content: string): void;
+  setAgentMessageBubbleContent(bubble: HTMLElement, content: string, verifiedWrite?: boolean): void;
   scrollAgentTranscriptToBottom(): void;
   refreshAgentSuggestions(): void;
   refreshAgentSurfaceState(): void;
@@ -446,7 +446,7 @@ const messageListPanel = {
         if (pending.conflictingIds.length > 0) new Notice(PENDING_ACTION_CONFLICT_NOTICE);
         if (streamMessageEl) {
           streamMessageEl.classList.remove("is-pending");
-          this.setAgentMessageBubbleContent(streamMessageEl, response.reply);
+          this.setAgentMessageBubbleContent(streamMessageEl, response.reply, !!response.receipts?.length);
           renderWriteReceipts(streamMessageEl, response.receipts, this.controller.undoStewardOperation?.bind(this.controller), this.controller.openTradeEditModal?.bind(this.controller));
         }
         this.refreshAgentSuggestions();
@@ -601,7 +601,7 @@ const messageListPanel = {
         if (pending.conflictingIds.length > 0) new Notice(PENDING_ACTION_CONFLICT_NOTICE);
         if (streamMessageEl) {
           streamMessageEl.classList.remove("is-pending");
-          this.setAgentMessageBubbleContent(streamMessageEl, response.reply);
+          this.setAgentMessageBubbleContent(streamMessageEl, response.reply, !!response.receipts?.length);
           renderWriteReceipts(streamMessageEl, response.receipts, this.controller.undoStewardOperation?.bind(this.controller), this.controller.openTradeEditModal?.bind(this.controller));
         }
         this.refreshAgentSuggestions();
@@ -700,14 +700,14 @@ const messageListPanel = {
         return;
       }
       const bubble = container.createDiv({ cls: `lifeops-agent-message ${message.role}` });
-      this.setAgentMessageBubbleContent(bubble, message.content);
+      this.setAgentMessageBubbleContent(bubble, message.content, message.role === "assistant" && !!message.receipts?.length);
       renderWriteReceipts(bubble, message.receipts, this.controller.undoStewardOperation?.bind(this.controller), this.controller.openTradeEditModal?.bind(this.controller));
     },
 
-  setAgentMessageBubbleContent(this: ViewHost, bubble: HTMLElement, content: string): void {
+  setAgentMessageBubbleContent(this: ViewHost, bubble: HTMLElement, content: string, verifiedWrite = false): void {
       bubble.empty();
       bubble.classList.remove("is-pending");
-      renderChatMessageContent(bubble, content);
+      renderChatMessageContent(bubble, content, verifiedWrite);
     },
 };
 

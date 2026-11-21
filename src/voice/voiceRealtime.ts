@@ -1204,7 +1204,7 @@ function updateManagedAssistantText(view: VoiceRealtimeView, text: string): void
   }
   const bubble = view.agentOmniE2eStreamMessageEl;
   if (bubble) {
-    view.setAgentMessageBubbleContent(bubble, text);
+    view.setAgentMessageBubbleContent(bubble, text, !!view.agentMessages[assistantIndex]?.receipts?.length);
     renderWriteReceipts(bubble, view.agentMessages[assistantIndex]?.receipts, view.controller.undoStewardOperation?.bind(view.controller), view.controller.openTradeEditModal?.bind(view.controller));
     view.scrollAgentTranscriptToBottom();
   }

@@ -259,7 +259,7 @@ interface ViewHost {
   agentSubmissionOptions(source: "text" | "voice"): AgentSubmissionOptions;
   sendAgentMessage(source?: "text" | "voice"): Promise<void>;
   sendAgentMessageWithPipeline(message: string, history: AgentConversationMessage[], voicePipelineGeneration: number): Promise<void>;
-  setAgentMessageBubbleContent(bubble: HTMLElement, content: string): void;
+  setAgentMessageBubbleContent(bubble: HTMLElement, content: string, verifiedWrite?: boolean): void;
   scrollAgentTranscriptToBottom(): void;
   refreshAgentSuggestions(): void;
   refreshAgentSurfaceState(): void;

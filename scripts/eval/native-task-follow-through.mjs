@@ -40,6 +40,13 @@ export async function nativeTaskFollowThrough(page, root, result) {
   for (const title of ["虚构续办新甲", "虚构续办新乙", "给虚构续办紫色纸袋编号"]) assert(observed.rows.some(row => row.title === title));
   assert.equal(observed.rows.find(row => row.title.includes("紫色纸袋")).time, "17:00");
   assert.deepEqual(observed.after, observed.before);
+  const visible = await page.locator(".lifeops-agent-message.assistant .lifeops-agent-message-text").last().textContent();
+  assert(observed.reply.includes("编号task-") && observed.reply.includes("已从任务库读回校验（ID："));
+  assert(visible && !visible.includes("编号task-") && !visible.includes("已从任务库读回校验（ID："));
+  await page.getByRole("button", { name: "复制这条消息", exact: true }).last().click();
+  await page.getByRole("button", { name: "复制这条消息", exact: true }).last().filter({ hasText: "已复制" }).waitFor();
+  assert.equal(await page.evaluate(() => require("electron").clipboard.readText()), visible);
+  result.checks.taskReceiptsHideInternalIdsAndCopyVisibleBody = true;
   await page.screenshot({ path: join(root, "task-follow-through.png") });
   result.checks.completedTitleEditsLeaveCapacityForNewTask = true;
 }
