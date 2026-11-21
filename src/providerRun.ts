@@ -6,6 +6,8 @@ export interface ProviderTarget { provider: string; model: string; transport?: P
 export type ProviderTransportObserver = (target: ProviderTarget) => void;
 export interface ProviderRequestAttempt<T> extends ProviderTarget {
   transport: ProviderAttempt["transport"];
+  /** Host routing identity, never copied into an attempt or request payload. */
+  fallback?: boolean;
   execute: (signal?: AbortSignal, observeTransport?: ProviderTransportObserver) => Promise<T>;
 }
 
@@ -170,7 +172,7 @@ async function executeProviderRequest<T extends { reportedModel?: string; respon
       const row: ProviderAttempt = { provider: auditIdentifier(attempt.provider) ?? "unknown", model: auditIdentifier(attempt.model) ?? "unknown", transport: attempt.transport, status: "failed" };
       run.attempts.push(row);
       activeRow = row;
-      run.fallbackUsed = run.attempts.length > 1;
+      run.fallbackUsed = run.fallbackUsed || attempt.fallback === true || run.attempts.length > 1;
       const observeTransport: ProviderTransportObserver = target => {
         if (published || activeRow !== row || options.signal?.aborted) return;
         try {

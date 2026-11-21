@@ -17,6 +17,7 @@ import {
 } from "./privacy";
 import type { AgentConversationMessage, ClassifiedInput, LifeOpsSettings, ProviderRequestOptions, ProviderResponseUsage, ProviderRunResult, VisualAnalysisResult } from "./types";
 import { normalizeProviderResponseUsage } from "./voice/realtimeResponseUsage";
+import { TextRouteCooldown } from "./textRouteCooldown";
 
 interface ChatConfig {
   provider: string;
@@ -99,6 +100,7 @@ interface StreamToolCallAccumulator {
 
 
 export class LifeOpsAi {
+  private readonly textRoutes = new TextRouteCooldown();
   constructor(private readonly settings: LifeOpsSettings) {}
 
   async agentTurnStream(messages: ChatMessage[], onText: (content: string) => void, options: ChatRequestOptions = {}): Promise<AiChatResult> {
@@ -537,9 +539,10 @@ export class LifeOpsAi {
     const fallback = this.fallbackChatConfig();
     const credentials = configuredCredentials(this.settings);
     const auditOptions = { ...options, auditCredentials: credentials };
-    return runProviderRequest(primary, [primary, ...(fallback ? [fallback] : [])].map(config => ({
-      ...config, transport: "request_url" as const,
-      execute: (signal, observeTransport) => this.chatWithConfigAgent(config, messages, { ...auditOptions, signal }, observeTransport)
+    const routing = this.textRoutes.prepare([primary, ...(fallback ? [fallback] : [])]);
+    return runProviderRequest(primary, routing.routes.map(({ config, fallback: fallbackRoute }) => ({
+      ...config, fallback: fallbackRoute, transport: "request_url" as const,
+      execute: (signal, observeTransport) => routing.track(config, () => this.chatWithConfigAgent(config, messages, { ...auditOptions, signal }, observeTransport))
     })), { ...auditOptions, sensitiveValues: credentials, additionalSensitiveValues: () => [...credentials, ...configuredCredentials(this.settings)] });
   }
 
@@ -551,18 +554,18 @@ export class LifeOpsAi {
       return result;
     }
     const fallback = this.fallbackChatConfig();
-    const configs = [primary, ...(fallback ? [fallback] : [])];
+    const routing = this.textRoutes.prepare([primary, ...(fallback ? [fallback] : [])]);
     const credentials = configuredCredentials(this.settings);
     const auditOptions = { ...options, auditCredentials: credentials };
-    const streams = configs.map(config => ({ ...config, transport: "stream" as const,
-      execute: (signal?: AbortSignal) => this.chatWithConfigStream(config, messages, onText, { ...auditOptions, signal }) }));
-    const finite = configs.map(config => ({ ...config, transport: "request_url" as const,
-        execute: async (signal?: AbortSignal, observeTransport?: ProviderTransportObserver) => {
+    const streams = routing.routes.map(({ config, fallback: fallbackRoute }) => ({ ...config, fallback: fallbackRoute, transport: "stream" as const,
+      execute: (signal?: AbortSignal) => routing.track(config, () => this.chatWithConfigStream(config, messages, onText, { ...auditOptions, signal })) }));
+    const finite = routing.routes.map(({ config, fallback: fallbackRoute }) => ({ ...config, fallback: fallbackRoute, transport: "request_url" as const,
+        execute: (signal?: AbortSignal, observeTransport?: ProviderTransportObserver) => routing.track(config, async () => {
           const result = await this.chatWithConfigAgent(config, messages, { ...auditOptions, signal }, observeTransport);
           assertProviderActive(options.signal);
           if (result.content && (!options.suppressToolText || !result.toolCalls.length)) onText(result.content);
           return result;
-        } }));
+        }) }));
     return runProviderRequest(primary, options.preferFinite ? [...finite, ...streams] : [...streams, ...finite],
       { ...auditOptions, sensitiveValues: credentials, additionalSensitiveValues: () => [...credentials, ...configuredCredentials(this.settings)] });
   }
