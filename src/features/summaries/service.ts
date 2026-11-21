@@ -8,6 +8,7 @@ import { healthSummaryLine, localSummaryText, summaryMessages, validSummaryText,
 import { collectChildSummaries, collectSummaryData, sameSummaryTaskMetrics, sameSummaryTradeTotals, summaryInputRevision } from "./data";
 import { readSummary, readSummaryScope, renderSummary, summaryPath, summaryPathAllowed, type SummaryKind } from "./notes";
 import { scheduledSummaryPeriods, summaryBackfillPeriods, summaryFolders, summaryPeriod, type SummaryLevel, type SummaryPeriod } from "./periods";
+import { journalCoverageText } from "./journalCoverage";
 
 export interface SummaryHost extends LocalOperationHost {
   app: LifeOpsPlugin["app"];
@@ -132,6 +133,8 @@ async function generateSummary(host: SummaryHost, store: StoreHost, period: Summ
       const health = healthSummaryLine(data);
       if (health) text += "\n\n" + health;
     }
+    const journalCoverage = journalCoverageText(data.daily?.journalCoverage);
+    if (journalCoverage) text = journalCoverage + "\n\n" + text;
     if (period.level === "week") text = weeklySummaryHighlights(data) + "\n\n" + text;
     const generatedBy = local ? "local" : "model";
     const markdown = renderSummary(period, through, scope.hash, data.metrics, inputCount, complete, generatedBy, text, inputRevision);

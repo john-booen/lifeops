@@ -9,6 +9,7 @@ import { readStats, statsDomains } from "../stats/tools";
 import type { tradeStats } from "../stats/trades";
 import { readSummary, summaryPathAllowed, type SummaryMetrics } from "./notes";
 import { summaryPeriodsInRange, type SummaryPeriod } from "./periods";
+import { journalSignalCoverage } from "./journalCoverage";
 
 export function conversationUserTurns(raw: string, protect: (text: string) => string): string[] {
   const headers = /^## \d{1,2}:\d{2}:\d{2}[^\S\r\n]*\r?\n\s*?### 我\r?\n([\s\S]*?)(?=\r?\n### LifeOps Agent\r?\n)/gm;
@@ -35,6 +36,7 @@ async function collectDailySignals(store: StoreHost, day: string, now: Date, pro
     ? [...new Set(taskCompletionEvents(tasks.tasks, { from: day, to: day }, now).map(event => event.task.title))].slice(0, 15)
     : null;
   return {
+    journalCoverage: journalSignalCoverage(store, day, signals),
     signals: signals.map(({ sources: _sources, quotes: _quotes, ...signal }) => signal),
     signalValues: currentSignalValues(signals), conversation, completedTasks, penalties
   };
