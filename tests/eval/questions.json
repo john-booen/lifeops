@@ -1319,5 +1319,26 @@
         "date": "2026-11-13"
       }
     }
+  },
+  {
+    "id": "undo-recent-modification-65",
+    "milestone": "M6",
+    "domain": "undo",
+    "mode": "voice",
+    "history": [],
+    "prelude": [
+      "明天下午三点十五提醒我给林小葵送蓝色样品盒。",
+      "刚刚那条改成明天下午四点。"
+    ],
+    "input": "撤销刚才的修改。",
+    "checks": {
+      "mustInclude": ["已撤销", "林小葵"],
+      "mustSucceedTools": ["reschedule_task", "undo_latest_operation"],
+      "maxConfirmations": 0,
+      "preludeCreatedTasks": 1,
+      "createdTask": { "titleIncludes": "林小葵", "date": "2026-11-13", "time": "15:15" },
+      "expectWrites": { "tasks.created": 1, "tasks.deleted": 0 },
+      "maxReplyChars": 200
+    }
   }
 ]

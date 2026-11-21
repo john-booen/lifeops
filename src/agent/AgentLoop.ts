@@ -138,7 +138,7 @@ function isBackgroundReadTool(name: string): boolean {
   return getLifeOpsTool(name)?.safety === "safe";
 }
 
-const localUndoCommands = new Set(["撤销", "撤销一下", "撤销刚才那个", "撤销刚才的操作", "把刚才保存的撤销", "撤回刚才那条"]);
+const localUndoCommands = new Set(["撤销", "撤销一下", "撤销刚才那个", "撤销刚才的操作", "撤销刚才的修改", "撤销刚刚的修改", "把刚才保存的撤销", "撤回刚才那条"]);
 
 function isLocalUndoCommand(message: string): boolean {
   const text = message.trim();

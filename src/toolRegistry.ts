@@ -7,7 +7,7 @@ import { explicitReminderClock, explicitScheduledTaskTitle, isCopiedTaskTitleRef
 import type { AiToolDefinition } from "./ai";
 import { assertSafeOperationId, fileRevision, MAX_CONFIRMATION_ACTION_ID_LENGTH, recordRevision } from "./operationIdentity";
 import { OperationLedger, type OperationUndoDescriptor, type OperationResultSnapshot, type OperationLedgerRecord } from "./dataFoundation/operationLedger";
-import { createdTaskForUndo, rebaseTaskRecordUndo } from "./dataFoundation/taskRecordUndo";
+import { createdTaskForUndo, taskSavedByReceipt, rebaseTaskRecordUndo } from "./dataFoundation/taskRecordUndo";
 import type { FactOperationOptions, GuardedFileChange } from "./dataFoundation/factOperation";
 import { addDays, normalizeJournalDate, todayString } from "./date";
 import { isVaultPathExcluded } from "./privacy";
@@ -721,7 +721,7 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
   },
   {
     name: "undo_latest_operation",
-    description: "明确撤销写入才用。删除须确认。单说撤销用 {}。点名用 taskTitle，只撤创建用 creationOnly。撤记忆用 memoryOnly，先查再撤用 requirePriorQuery。",
+    description: "明确撤销写入才用。删除须确认。撤销最近操作或修改用 {}。点名撤销创建用 taskTitle，只撤创建用 creationOnly。撤记忆用 memoryOnly，先查再撤用 requirePriorQuery。",
     safety: "direct-write",
     parameters: {
       type: "object",
@@ -744,7 +744,8 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
       if (!record) return toolError(args.memoryOnly === true ? "没有找到刚才保存的记忆。" : "没找到能确定的刚才那一项，请说具体要撤哪一条。");
       const execution = undoExecutions.get(context), title = execution?.taskTitle;
       const isTaskCreation = ["create_task", "local_createTask", "schedule_task_batch"].includes(record.toolName);
-      const task = isTaskCreation && typeof context.store.taskDbPath === "function" ? createdTaskForUndo(record, context.store.taskDbPath()) : undefined;
+      const task = typeof context.store.taskDbPath === "function"
+        ? isTaskCreation ? createdTaskForUndo(record, context.store.taskDbPath()) : taskSavedByReceipt(record, context.store.taskDbPath()) : undefined;
       if ((title !== undefined || execution?.taskCreationOnly) && !isTaskCreation
         || title !== undefined && (task?.title ?? record.arguments.title) !== title) {
         return toolError("最近一次可撤销操作不是创建你指定的任务，未撤销其它记录。");
@@ -1281,7 +1282,7 @@ function undoReceiptText(record: OperationLedgerRecord, task?: LifeOpsTask): str
     record_trade: "交易记录", local_record_trade: "交易记录", append_memory_note: "个人记忆保存",
     observe_personal_memory_candidate: "个人记忆候选保存", confirm_review_memory: "个人记忆审查"
   };
-  const name = toolArgString(args, "name") || toolArgString(args, "taskIdOrTitle");
+  const name = task?.title || toolArgString(args, "name") || toolArgString(args, "taskIdOrTitle");
   return `已撤销这次${label[record.toolName] ?? "资料修改"}${name && !name.startsWith("task-") ? `「${name}」` : ""}。`;
 }
 
