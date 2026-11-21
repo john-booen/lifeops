@@ -1,6 +1,6 @@
 {
-  "version": "0.5.94",
-  "date": "2026-11-20",
+  "version": "0.5.105",
+  "source": "4b3cfdc36441063550d6bac6082a966e775c5935",
   "passRate": 1,
   "questionIds": [
     "today-unfinished-01",
@@ -58,7 +58,15 @@
     "voice-planned-finish-53",
     "text-planned-finish-54",
     "device-sleep-55",
-    "voice-correct-task-time-56"
+    "voice-correct-task-time-56",
+    "batch-today-tasks-57",
+    "task-content-correction-58",
+    "task-content-confirmation-59",
+    "phone-task-batch-60",
+    "phone-delayed-batch-61",
+    "cross-week-corrected-evidence-62",
+    "task-interval-batch-63",
+    "mixed-task-title-batch-64"
   ],
   "passedIds": [
     "today-unfinished-01",
@@ -116,6 +124,14 @@
     "voice-planned-finish-53",
     "text-planned-finish-54",
     "device-sleep-55",
-    "voice-correct-task-time-56"
+    "voice-correct-task-time-56",
+    "batch-today-tasks-57",
+    "task-content-correction-58",
+    "task-content-confirmation-59",
+    "phone-task-batch-60",
+    "phone-delayed-batch-61",
+    "cross-week-corrected-evidence-62",
+    "task-interval-batch-63",
+    "mixed-task-title-batch-64"
   ]
 }
