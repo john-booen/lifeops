@@ -9,7 +9,7 @@ import { TASK_PLAN_FIELDS, taskPlanUpdate } from "./scheduleUpdate";
 
 export const UPDATE_TASKS_TOOL: AiToolDefinition = {
   name: "update_tasks",
-  description: "修改已有任务标题、备注或完整计划区间。所有修改一次放入updates；一至三条直接保存，超过三条统一确认。用准确ID或唯一标题，保留未指定字段和完成状态，不删除重建；新增另用create_task。",
+  description: "修改已有任务标题、备注或完整时段，全部放入updates。超过三条调用只生成统一确认卡，不立即保存；用户要整批预览也调用本工具。准确唯一完整标题可直接用，无需逐条查询。保留编号、未指定字段和完成状态，不删除重建。",
   parameters: { type: "object", additionalProperties: false, properties: {
     updates: { type: "array", minItems: 1, maxItems: 20, items: { type: "object", additionalProperties: false,
       properties: { taskIdOrTitle: { type: "string" }, title: { type: "string", description: "更正后的完整标题；未要求改名时省略。" },

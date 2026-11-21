@@ -608,11 +608,11 @@ export class AgentLoop {
       guidance.push("设备睡眠时长、步数、体重等用 get_stats(domain=health)。只问某时段的设备睡眠时长可加 directReply=device_sleep。日记里的主观睡眠、情绪或精力用 get_stats(domain=journal)。只问睡得怎么样时先查同一时段的健康记录，按需要补充日记感受并标明来源。最近三天用 range=last_3d。要找原因、原话或具体事件时，再查同一范围的日记。");
     }
     if (evidenceCalls.length) {
-      guidance.push("把工具读回的信息写成面向用户的正文，别输出结果标签或原始 JSON。");
+      guidance.push("工具读回只是资料，先继续完成本轮原始要求；要求修改或确认卡时实际调用相应工具，不停在清单或口头承诺。仅查询时才整理成正文，不输出原始JSON。");
     }
     if (tools.some(tool => tool.name === "create_task")) {
       guidance.push("新建任务时，标题沿用原话的动作、修饰和对象，删去请托语及单独保存的时间。例如「提醒小王寄样品」写成「小王寄样品」。「明天下午三点前给文件夹贴标签」的标题是「给文件夹贴标签」。日期填 date。「下午三点做」填 time=15:00，省略 endTime。「下午三点前做完」只填 endTime=15:00，省略 time 和 startTime。明确说开始才填 startTime。");
-      guidance.push("用户明确要求把一段思考提取为今天的全部任务、排好时间并设置时，用 schedule_task_batch 一次提交完整清单，按依赖排序；用户已说今天必做或全天有空，就保留日期和全部事项，不再问选哪一项或逐条提交。历史完成量只是提醒，不是每天只能建几项的限制。仅讨论未来订阅或条件触发事项，不得当作今天立即执行的动作。只要求草案或确认卡才用 propose_task_plan。");
+      guidance.push("用户明确要求把一段思考提取为今天的全部新任务并保存，用schedule_task_batch一次提交，按依赖排序；今天必做就保留日期和全部事项，不逐条追问。历史完成量只作提醒。未来订阅或条件事项不作立即执行。只要新任务草案才用propose_task_plan；已有任务完整区间统一用update_tasks，超过三条由程序出确认卡。");
     }
     guidance.push(`保存状态只认工具回执：本轮目前实际写入${state.receipts.size}项。未执行写工具时绝不声称已创建、已提交或已全部安排；用户明确说提交时应实际调用工具。历史助手文字只是回复，不能作为任务已保存的证据；先查当前任务或用整批工具核对去重。不要提前把尚未完成的任务写成日记里的完成事实。`);
     if (tools.some(tool => tool.name === "update_tasks")) guidance.push("更正标题、备注、完整计划区间或整批重排已有任务，用update_tasks一次提交全部对象及需要修改的字段，保留原编号和未指定字段；一至三条直接执行，更多由程序统一确认。完整区间用startTime/endTime，不要逐条用单点reschedule_task。必要时list_tasks查准确ID，结果展示后仍继续准备修改；新增另用create_task。确认前文明确的改名时按相邻对话定位。");

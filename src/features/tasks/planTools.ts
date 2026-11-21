@@ -24,7 +24,7 @@ async function planningInputs(context: ToolExecutionContext) {
 export const TASK_PLANNING_TOOLS: LifeOpsToolDefinition[] = [
   {
     name: "list_tasks",
-    description: "查未完成任务。只有明确要求按截止状态分组才填 dueStatus。问今天还剩几项或最要紧事项时省略 dueStatus。",
+    description: "查任务，默认未完成。查修改对象时用query筛标题或按nextOffset续查，不能把前20条当全部。只有明确要求按截止状态分组才填dueStatus。",
     safety: "safe",
     parameters: { type: "object", additionalProperties: false, properties: {
       date: { type: "string", description: "日期，省略为今天。" },
@@ -34,7 +34,9 @@ export const TASK_PLANNING_TOOLS: LifeOpsToolDefinition[] = [
       dueStatus: { type: "string", enum: ["overdue_and_today"], description: "仅用于明确要求分别列出逾期和今日到期。" },
       directReply: { type: "boolean", description: "兼容旧客户端；查询结果仍交回本轮继续处理。" },
       order: { type: "string", enum: ["priority"], description: "用户问最要紧的待办时按优先级排序。" },
-      limit: { type: "integer", minimum: 1, maximum: 30, description: "列出几项就填几，不改变返回的总数。" }
+      limit: { type: "integer", minimum: 1, maximum: 30, description: "列出几项就填几，不改变返回的总数。" },
+      query: { type: "string", description: "普通列表按标题的连续文字筛选，不是正则；找修改对象时填对应共同关键词。" },
+      offset: { type: "integer", minimum: 0, maximum: 100000, description: "普通列表沿用nextOffset取下一页；总数不变。" }
     } },
     async execute(args, context) {
       const date = args.date === undefined ? todayString() : typeof args.date === "string" ? normalizeJournalDate(args.date) : "";
@@ -43,6 +45,8 @@ export const TASK_PLANNING_TOOLS: LifeOpsToolDefinition[] = [
       const penalties = args.category === "punishment";
       const ordered = args.order === "priority";
       const dueGroups = args.dueStatus === "overdue_and_today";
+      const offset = args.offset === undefined ? 0 : args.offset;
+      const query = typeof args.query === "string" ? args.query.trim() : "";
       const habitName = typeof args.habitName === "string" ? args.habitName.trim().normalize("NFKC") : "";
       const anyDate = penalties && args.date === undefined;
       if (!date || typeof status !== "string" || !["active", "completed", "all"].includes(status)
@@ -51,6 +55,9 @@ export const TASK_PLANNING_TOOLS: LifeOpsToolDefinition[] = [
         || (args.order !== undefined && (!ordered || status !== "active" || penalties))
         || (args.habitName !== undefined && (!penalties || !habitName || habitName.length > 40))
         || (args.directReply !== undefined && typeof args.directReply !== "boolean")
+        || typeof offset !== "number" || !Number.isSafeInteger(offset) || offset < 0 || offset > 100000
+        || (args.query !== undefined && (typeof args.query !== "string" || !query || query.length > 1000))
+        || (dueGroups && (args.query !== undefined || offset !== 0))
         || typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > 30) {
         return { success: false, output: "任务日期、状态或条数无效。", actions: [] };
       }
@@ -88,12 +95,15 @@ export const TASK_PLANNING_TOOLS: LifeOpsToolDefinition[] = [
       }
       const items = visible.filter(task => (anyDate || isTaskOnDate(task, date) || task.dueDate === date)
         && (status === "all" || task.status === status) && (!penalties || task.category === "punishment")
-        && (!selectedHabit || task.habitPunishment?.habitId === selectedHabit));
+        && (!selectedHabit || task.habitPunishment?.habitId === selectedHabit)
+        && (!query || protect(task.title).toLocaleLowerCase().includes(query.toLocaleLowerCase())));
       const selected = orderedItems(items);
-      return { success: true, output: JSON.stringify({ date: anyDate ? null : date, status, count: items.length, scope, truncated: items.length > limit,
+      return { success: true, output: JSON.stringify({ date: anyDate ? null : date, status, count: items.length, scope, truncated: items.length > offset + limit,
+        ...(query ? { query } : {}), ...(offset ? { offset } : {}),
+        ...(items.length > offset + limit ? { nextOffset: offset + limit } : {}),
         ...(ordered ? { order: "priority" } : {}),
         ...(selectedHabit ? { compensationEnabled: enabled } : {}),
-        tasks: selected.slice(0, limit).map(task => ({ id: task.id, title: protect(task.title), time: taskScheduleLabel(task),
+        tasks: selected.slice(offset, offset + limit).map(task => ({ id: task.id, title: protect(task.title), time: taskScheduleLabel(task),
           quadrant: task.quadrant, category: protect(taskCategory(task)), status: task.status, estimateMin: estimate(task),
           ...(task.habitPunishment?.evidence ? { evidence: protect(task.habitPunishment.evidence), dueDate: task.dueDate,
             ...(penalties ? { compensationDue: compensationDueLabel(task.habitPunishment) } : {}) } : {}) })) }), actions: [] };
@@ -218,7 +228,7 @@ function dueGroupLines(label: string, group: TaskListGroup): string[] {
 }
 
 export function formatTaskListReply(output: string, today: string): string | undefined {
-  let list: TaskListGroup & { date: string; status: string; scope?: string; truncated?: boolean; order?: string;
+  let list: TaskListGroup & { date: string; status: string; scope?: string; truncated?: boolean; order?: string; query?: string; offset?: number;
     dueGroups?: { overdue: TaskListGroup; dueToday: TaskListGroup } };
   try { list = JSON.parse(output); } catch { return undefined; }
   if (list?.dueGroups && typeof list.date === "string") {
@@ -230,7 +240,7 @@ export function formatTaskListReply(output: string, today: string): string | und
     return lines.join("\n");
   }
   if (!validTaskListGroup(list) || typeof list.date !== "string") return undefined;
-  const day = list.date === today ? "今天" : list.date;
+  const day = (list.date === today ? "今天" : list.date) + (list.query ? `匹配「${list.query}」的` : "");
   const status = list.status === "active" ? "未完成任务" : list.status === "completed" ? "已完成任务" : "任务";
   if (list.order === "priority") {
     const first = list.tasks.map(task => task.title).join("、");
@@ -238,7 +248,8 @@ export function formatTaskListReply(output: string, today: string): string | und
   }
   const lines = [`${day}有 ${list.count} 个${status}。`,
     ...taskListLines(list.tasks)];
-  if (list.truncated) lines.push(`以上是前 ${list.tasks.length} 个。`);
+  if (list.offset) lines.push(list.tasks.length ? `本页为第 ${list.offset + 1}–${list.offset + list.tasks.length} 个。` : "本页没有更多任务。");
+  else if (list.truncated) lines.push(`以上是前 ${list.tasks.length} 个。`);
   if (list.scope) lines.push(list.scope + "。");
   return lines.join("\n");
 }
@@ -257,6 +268,7 @@ export function repeatedTaskListPriority(calls: readonly AiToolCall[], today: st
     : call.name === "list_tasks" && call.arguments.directReply === true
     && call.arguments.category === undefined && call.arguments.dueStatus === undefined && call.arguments.habitName === undefined
     && (call.arguments.status === undefined || call.arguments.status === "active") && date(call) === selectedDate
+    && call.arguments.query === first.arguments.query && call.arguments.offset === first.arguments.offset
     && (call.arguments.order === undefined && call.arguments.limit === undefined
       || call.arguments.order === "priority" && call.arguments.limit === first.arguments.limit))) return first;
 }
