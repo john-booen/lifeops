@@ -27,7 +27,7 @@ export const TASK_PLANNING_TOOLS: LifeOpsToolDefinition[] = [
     description: "查任务，默认未完成。按名称查找用query：省略date时跨日期；普通/优先列表仍默认今天。查修改对象须核对返回日期和ID，按nextOffset续查，不能把前20条当全部。",
     safety: "safe",
     parameters: { type: "object", additionalProperties: false, properties: {
-      date: { type: "string", description: "日期；名称查找query省略日期时查全部日期，普通/优先列表省略为今天。" },
+      date: { type: "string", description: "query查找省略日期时跨日期；普通/优先列表默认今天。" },
       status: { type: "string", enum: ["active", "completed", "all"] },
       category: { type: "string", enum: ["punishment"], description: "查补偿待办时可不限定日期。" },
       habitName: { type: "string", description: "只查这一项习惯的补偿时填写习惯名称。" },
@@ -35,7 +35,7 @@ export const TASK_PLANNING_TOOLS: LifeOpsToolDefinition[] = [
       directReply: { type: "boolean", description: "兼容旧客户端；查询结果仍交回本轮继续处理。" },
       order: { type: "string", enum: ["priority"], description: "用户问最要紧的待办时按优先级排序。" },
       limit: { type: "integer", minimum: 1, maximum: 30, description: "列出几项就填几，不改变返回的总数。" },
-      query: { type: "string", description: "按标题的连续文字筛选，不是正则。找修改对象填共同关键词；未指定date且不是优先列表时跨日期查找。" },
+      query: { type: "string", description: "按标题连续文字查找；省略日期跨日期，优先列表仍今天。" },
       offset: { type: "integer", minimum: 0, maximum: 100000, description: "普通列表沿用nextOffset取下一页；总数不变。" }
     } },
     async execute(args, context) {

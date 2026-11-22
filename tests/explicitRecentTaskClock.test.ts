@@ -12,3 +12,6 @@ it("treats tonight as an explicit current date instead of retaining a future tas
 it.each(["请把刚才那两条改到下午四点","不要把上一条改到下午四点","引用：请把刚才那条改到下午四点","把刚才那条改到明天今晚八点"])("does not turn plural, rejected, quoted or contradictory requests into a write: %s",message=>{expect(explicitRecentTaskTimeChange(message,"2026-11-21",previous)).toBeUndefined();});
 
 it("does not force an interval or deadline task through a single-point correction",()=>{expect(explicitRecentTaskTimeChange("请把刚才那条改到下午四点","2026-11-21",{...previous,startTime:"15:00",endTime:"17:00"})).toBeUndefined();});
+
+it.each(["不对，刚刚那条改成下午三点十五，日期不变。","请把上一条时间改到下午三点十五，保持其他信息不变。"])("keeps an explicit preservation clause without reinterpreting it as a deadline: %s",message=>{expect(explicitRecentTaskTimeChange(message,"2026-11-21",{...previous,date:"2099-02-04"})).toEqual({taskIdOrTitle:previous.id,time:"15:15"});});
+it("does not discard a conflicting explicit request to retain the date",()=>{expect(explicitRecentTaskTimeChange("刚刚那条改到明天下午四点，日期不变","2026-11-21",{...previous,date:"2099-02-04"})).toBeUndefined();});

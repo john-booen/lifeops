@@ -50,7 +50,9 @@ export function explicitRecentTaskTimeChange(message: string, today: string, pre
   const text = message.trim().normalize("NFKC").replace(/[。！!]$/u, "");
   const match = /^(?:不对[,，]\s*)?(?:(?:请|麻烦)(?:帮我)?|帮我)?\s*(?:把|将)?\s*(?:(?:刚才|刚刚)的?(?:这|那)一?(?:条|项|个)(?:任务|待办)?|上一(?:条|项)(?:任务|待办)?|(?:这|那)条(?:任务|待办)?)\s*(?:的?时间)?\s*再?(?:改(?:成|到|为)|调整(?:到|为))\s*(.+)$/u.exec(text);
   if (!match) return;
-  const value = match[1], clocks = clockMatches(value);
+  const preservation = /^(.*?)[,，]\s*((?:原)?日期(?:保持)?不变|(?:保持)?其他(?:信息|内容|字段)?不变)$/u.exec(match[1]);
+  const value = preservation?.[1].trimEnd() ?? match[1], keepDate = !!preservation && /^(?:原)?日期/u.test(preservation[2]);
+  const clocks = clockMatches(value);
   if (clocks.length !== 1) return;
   const clock = clocks[0];
   if (clock.index! + clock[0].length !== value.length || !clock[1] && !/^\d{1,2}[:：]\d{2}$/u.test(clock[0])) return;
@@ -58,6 +60,6 @@ export function explicitRecentTaskTimeChange(message: string, today: string, pre
   if (!time || prefix && !new RegExp("^(?:" + journalDateToken + ")$", "u").test(prefix)) return;
   if (clock[1] === "今晚" && prefix) return;
   const date = prefix ? normalizeJournalDate(prefix, today) : clock[1] === "今晚" ? today : undefined;
-  if (prefix && !date) return;
+  if (prefix && !date || keepDate && date && date !== previous.date) return;
   return { taskIdOrTitle: previous.id, time, ...(date ? { date } : {}) };
 }

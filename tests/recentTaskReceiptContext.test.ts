@@ -66,3 +66,10 @@ it("moves an attested future task to tonight with the current explicit date",asy
  expect(reply.receipts).toHaveLength(1);expect((await store.readTaskDb()).tasks[0]).toMatchObject({id:prior.id,date:"2026-11-22",endDate:prior.endDate,time:"20:00"});expect(model).not.toHaveBeenCalled();
  await runtime.undoOperation(reply.receipts[0].operationId);expect((await store.readTaskDb()).tasks).toEqual([prior]);
 });
+
+for(const source of ["text","voice"] as const)it(`keeps the date and changes the actual clock after an explicit preservation clause in ${source}`,async()=>{
+ const created=await runtime.executeAiToolCall({id:"receipt-preserved-clock",name:"create_task",arguments:{title:"虚构靛色纸样夹",date:"2099-02-04",time:"15:00"}},"kimi");
+ const prior=(await store.readTaskDb()).tasks[0],reply=await new AgentLoop(host).run({source,message:"不对，刚刚那条改成下午三点十五，日期不变。",history:[{role:"assistant",content:created.output,receipts:[created.receipt!]}],now:new Date("2026-11-22T12:00:00+08:00")});
+ expect(reply.toolCalls).toEqual([{name:"reschedule_task",ok:true}]);const saved=(await store.readTaskDb()).tasks[0];expect(saved).toMatchObject({id:prior.id,date:prior.date,time:"15:15"});expect(saved.endTime).toBe(prior.endTime);expect(model).not.toHaveBeenCalled();
+ if(source==="voice")expect(reply.voiceSpeech).toContain("15:15");await runtime.undoOperation(reply.receipts[0].operationId);expect((await store.readTaskDb()).tasks).toEqual([prior]);
+});

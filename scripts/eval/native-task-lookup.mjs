@@ -23,7 +23,7 @@ export async function nativeTaskLookup(page, result) {
       const response = await runtime.executeAiToolCall({ name: "list_tasks", arguments: { query: "虚构跨日期查找蓝盒" } }, "kimi");
       if (!response.success) throw Error(response.output); crossDate = JSON.parse(response.output);
       const instance = p.ai.agentTurnStream, prototype = Object.getPrototypeOf(p.ai).agentTurnStream;
-      const mock = async () => { modelCalls++; return { content: "", toolCalls: [{ id: "fictional-all-date-lookup", name: "list_tasks", arguments: { query: "虚构跨日期查找蓝盒", directReply: true } }] }; };
+      const mock = async () => { modelCalls++; if (modelCalls > 1) return { content: "", toolCalls: [] }; return { content: "", toolCalls: [{ id: "fictional-all-date-lookup", name: "list_tasks", arguments: { query: "虚构跨日期查找蓝盒", directReply: true } }] }; };
       try {
         p.ai.agentTurnStream = mock; Object.getPrototypeOf(p.ai).agentTurnStream = mock;
         const bytes = await p.store.readPath(p.store.taskDbPath());
@@ -43,8 +43,8 @@ export async function nativeTaskLookup(page, result) {
   result.checks.nativeTaskLookupPagesKeepAllIdsAndOriginalTasks = true;
   assert.equal(state.crossDate.date, null); assert.equal(state.crossDate.dateScope, "all"); assert.equal(state.crossDate.count, 2);
   assert.deepEqual(state.crossDate.tasks.map(task => task.date), ["2001-02-03", "2099-02-04"]);
-  assert(state.readable.includes("所有日期") && state.readable.includes("2001-02-03") && state.readable.includes("2099-02-04"));
-  assert(state.queryTasksUnchanged && state.modelCalls === 1);
+  assert(state.readable.includes("所有日期") && state.readable.includes("2001-02-03") && state.readable.includes("2099-02-04"), JSON.stringify({ readable: state.readable, modelCalls: state.modelCalls }));
+  assert(state.queryTasksUnchanged && state.modelCalls === 2);
   const visible = await page.locator(".lifeops-agent-message.assistant .lifeops-agent-message-text").last().textContent();
   assert(visible.includes("2001-02-03") && visible.includes("2099-02-04"));
   result.checks.nativeNamedTaskLookupFindsPastAndFutureDates = true;

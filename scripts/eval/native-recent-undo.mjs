@@ -18,8 +18,9 @@ export async function nativeRecentUndo(page, result) {
         const edited = await runtime.executeAiToolCall({ id: "fictional-undo-title-" + source, name: "update_tasks", arguments: { updates: [{ taskIdOrTitle: original.id, title: "虚构送蓝色样品盒" + source, note: "虚构备注保持" }] } }, "kimi");
         if (!edited.success) throw Error(edited.output);
         const prior = (await p.store.readTaskDb()).tasks.find(task => task.id === original.id);
-        const changed = await p.submitAgentMessageStream("请把刚才那条的时间改成2026-11-22下午四点。", [{ role: "assistant", content: edited.output, receipts: [edited.receipt] }], () => {}, { source, selfTest: true });
-        if (changed.receipts.length !== 1 || (await p.store.readTaskDb()).tasks.find(t => t.id === prior.id)?.time !== "16:00") throw Error("Explicit native recent correction not committed");
+        const changed = await p.submitAgentMessageStream(source === "voice" ? "不对，刚刚那条改成下午四点，日期不变。" : "请把刚才那条的时间改成2026-11-22下午四点。", [{ role: "assistant", content: edited.output, receipts: [edited.receipt] }], () => {}, { source, selfTest: true });
+        const movedTask = (await p.store.readTaskDb()).tasks.find(t => t.id === prior.id);
+        if (changed.receipts.length !== 1 || movedTask?.time !== "16:00" || movedTask.date !== (source === "voice" ? prior.date : "2026-11-22")) throw Error("Explicit native recent correction not committed");
         const reply = await p.submitAgentMessageStream("撤销刚才的修改。", [], () => {}, { source, selfTest: true });
         const after = (await p.store.readTaskDb()).tasks.find(task => task.id === prior.id);
         await runtime.undoOperation(edited.receipt.operationId);
