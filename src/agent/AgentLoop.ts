@@ -46,6 +46,7 @@ import { resolvedTaskLookup, taskLookupResolution } from "./taskLookupResolution
 import { holdToolProtocolPrefix, isLeakedToolProtocol, toolProtocolRepairMessages, unavailableToolProtocol, TOOL_PROTOCOL_UNAVAILABLE } from "./toolProtocol";
 import { historicalAnswerMessages, historicalEvidenceFallback } from "./historicalAnswer";
 import { simpleReadOnlyTaskLookup } from "./readOnlyTaskLookup";
+import { preferJournalOriginalReads } from "./journalOriginalRouting";
 
 export type WriteReceipt = AgentWriteReceipt;
 export interface AgentTurnInput {
@@ -417,7 +418,10 @@ export class AgentLoop {
           break;
         }
         const priority = repeatedTaskListPriority(response.toolCalls, formatDate(input.now));
-        const grounded = requestedSummaryDates(priority ? [priority] : response.toolCalls, input.message, input.now, history);
+        const requested = priority ? [priority] : response.toolCalls;
+        const originalReads = input.source === "text" && !input.voiceBackground
+          ? preferJournalOriginalReads(requested, input.message, input.now, history) : requested;
+        const grounded = requestedSummaryDates(originalReads, input.message, input.now, history);
         let calls = this.scopedCalls(requestedSummaryTopics(grounded, input.message), state.id, round);
         const mixed = !input.voiceBackground ? await expandMixedTaskBatch(this.host.store, calls, input.now) : undefined;
         assertPolicy();

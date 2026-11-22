@@ -203,6 +203,7 @@ export async function exerciseNativeDeviceBatch({ getPage, root, vault, profile,
   await (await import("./native-task-plan-changes.mjs")).taskPlanChangesUi(page,root,result);
   await (await import("./native-cross-week.mjs")).crossWeekUi(page,root,result);
   await (await import("./native-historical-stats-fallback.mjs")).nativeHistoricalStatsFallback(page,root,result);
+  await (await import("./native-journal-range-routing.mjs")).nativeJournalRangeRouting(page,root,result);
   await (await import("./native-hotwords.mjs")).nativeHotwords(page,result);
   await (await import("./native-task-lookup.mjs")).nativeTaskLookup(page,result);
   await (await import("./native-mixed-task-batch.mjs")).nativeMixedTaskBatch(page,root,result);

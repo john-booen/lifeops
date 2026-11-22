@@ -213,6 +213,21 @@ async function historicalFixture(): Promise<AiChatResult> {
   return reply("", [tool("get_summaries", { level: "week", range: { from: "2026-11-02", to: "2026-11-08" }, includeOriginals: true })]);
 }
 
+it("reads the requested multi-day journal originals instead of spending rounds listing the current week", async () => {
+  await store.appendDaily("2026-11-04", "日记", "昨晚21:15到家，23:40开始，今早00:20结束整理，08:00起床。", "早");
+  await store.appendDaily("2026-11-05", "日记", "昨晚22:10完成黄纸袋标记，今早07:30起床。青色纸盒编号是今天计划，尚未完成。", "早");
+  responses.push(reply("", [tool("query_vault", { domain: "journal", operation: "list", range: "week", date: "2026-11-02", limit: 40 })]),
+    reply("虚构未核对草稿"), reply("来源11月4日早、11月5日早；11月3日21:15到家，23:40开始；11月4日00:20结束、08:00起床、22:10标记；11月5日07:30起床，青色纸盒编号仅计划。"));
+  const before = await store.readPath(store.taskDbPath());
+  const result = await new AgentLoop(host).run(input({ message: "请只查2026年11月2日至11月8日的原始日记，按事件实际发生日期列出到家、整理、标记与起床，给出来源，不修改任务。" }));
+  expect(requests).toHaveLength(3); expect(result.toolCalls).toEqual([{ name: "get_summaries", ok: true }]);
+  expect(result.text).toContain("00:20"); expect(result.text).not.toContain("虚构未核对草稿");
+  const evidence = JSON.stringify(requests.at(-1));
+  for (const text of ["2026-11-04早.md", "2026-11-05早.md", "21:15", "00:20", "尚未完成"]) expect(evidence).toContain(text);
+  expect(evidence).not.toContain("2026-11-09"); expect(result.receipts).toEqual([]); expect(result.confirmations).toEqual([]);
+  expect(await store.readPath(store.taskDbPath())).toBe(before);
+});
+
 it.each(["查一下虚构蓝盒相关未完成任务，不限定日期，先不要修改。", "查一下虚构蓝盒相关未完成任务，不限定日期。"])("finishes a simple named task lookup with verified dates and no second model request (%s)", async message => {
   await store.createTask({ title: "虚构蓝盒贴标签", date: "2026-11-13", time: "15:15" });
   await store.createTask({ title: "虚构蓝盒核对编号", date: "2026-11-14", time: "16:00" });
