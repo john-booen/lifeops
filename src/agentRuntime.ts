@@ -14,6 +14,7 @@ import type {VaultQueryRead} from "./vaultQueryRead";
 import {isOwnedVaultQueryRead, VaultQueryParameterError} from "./vaultQuery";
 import {isOwnedStoredQueryRead} from "./storedQueryRead";
 import { isTaskBatchReceipt } from "./features/tasks/batchReceipt";
+import { retrySummaryRead } from "./agent/summaryReadRetry";
 import { taskContentWriteGuard } from "./features/tasks/contentUpdate";
 const isHeldQuery=(name:string)=>["query_vault","query_projects","query_trading_research","list_personal_memory_candidates","get_summaries"].includes(name);
 const isOwnedQueryRead=(store:StoreHost,read:VaultQueryRead)=>isOwnedVaultQueryRead(store,read)||isOwnedStoredQueryRead(store,read);
@@ -214,7 +215,13 @@ export class AgentRuntime {
         operationId = `${request.callId}:memory:${queryMemoryRevision}`;
       }
       if(isHeldQuery(tool.name)){
-        preparedQuery=await tool.execute(request.arguments,{...this.context,onVaultQueryRead:read=>{if(queryRead||!isOwnedQueryRead(this.context.store,read)){read.dispose();throw Error("查询实际读取身份无法核对。");}queryRead=read;}},{operationId,source:request.source});
+        const store=this.context.store,execute=tool.execute;
+        const prepare=()=>execute(structuredClone(request.arguments),{...this.context,onVaultQueryRead:read=>{if(queryRead||!isOwnedQueryRead(this.context.store,read)){read.dispose();throw Error("查询实际读取身份无法核对。");}queryRead=read;}},{operationId,source:request.source});
+        preparedQuery=await prepare();
+        if(tool.name==="get_summaries"&&!queryRead)preparedQuery=await retrySummaryRead(preparedQuery,prepare,async()=>{
+          const current=()=>{control?.signal?.throwIfAborted();control?.assertCurrent();this.context.assertCurrent?.();if(this.context.store!==store||policy!==readPolicy())throw Error("查询权限或库已变化。");};
+          current();if(await readQueryMemoryRevision(store)!==queryMemoryRevision)throw Error("查询使用的记忆已变化。");current();
+        });
         if(!preparedQuery.success)return tool.name==="query_vault"?{callId:request.callId,...preparedQuery}:{callId:request.callId,success:false,output:"查询记录、原文或个人记忆暂无法安全核对，已停止本次查询，请重新读取。",actions:[]};
         if(!queryRead||preparedQuery.output!==queryRead.text)throw Error("查询实际读取身份无法核对。");
         if (queryRead.hasExternalSources) {
