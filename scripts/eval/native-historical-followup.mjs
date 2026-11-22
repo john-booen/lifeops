@@ -26,7 +26,7 @@ export async function nativeHistoricalFollowup(page, root, result) {
       if (calls === 1) {
         const text = JSON.stringify(messages);
         if (!text.includes("2026-10-26") || !text.includes("2026-11-08") || !text.includes(prepared.corrected)
-          || text.includes(prepared.old) || text.includes(prepared.oldReply)) throw Error("Checked dates or current memory missing; old prose reused");
+          || text.includes(prepared.old) || messages.some(message => message.content.includes(prepared.oldReply))) throw Error("Checked dates or current memory missing; old prose reused");
         return { content: "", toolCalls: [{ id: "fictional-native-followup-reread", name: "get_summaries", arguments: { level: "week", range: { from: "2026-10-26", to: "2026-11-08" }, includeOriginals: true, query: "纸样 归档" } }] };
       }
       const final = options?.toolChoice === "none";
