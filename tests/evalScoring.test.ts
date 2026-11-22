@@ -21,6 +21,38 @@ const task = { id: "synthetic", title: "见客户", date: "2026-11-13", time: "1
 const observed: EvalObservation = { reply: "已建好", tools: [], writes: { "tasks.created": 1 }, createdTasks: [task],
   tasks: [task], confirmations: 0, confirmationActions: [], receipts: 1, preludeCreatedTasks: 0 };
 
+const weekQuestion = questions.find(row => row.id === "previous-week-summary-37")! as EvalQuestion;
+const improvementObservation: EvalObservation = { ...observed, reply: "上周完成26项。\n**一条改进建议（建议，不是已定规则）**：给阅读定一个固定落点，提前留出三十分钟。",
+  tools: [{ name: "get_summaries", ok: true, facts: { level: "week", summaries: [{ period: "2026-W45", metrics: { tasksCompleted: 26 }, complete: true }] } }],
+  writes: { "tasks.created": 0, "tasks.deleted": 0 }, createdTasks: [], tasks: [], receipts: 0 };
+
+it("recognizes an explicit actionable improvement as an equivalent next step in the original week criterion", () => {
+  expect(scoreEvaluationCase(weekQuestion, improvementObservation)).toEqual([]);
+});
+it("does not accept empty or negative improvement headings", () => {
+  for (const action of ["没有。", "暂无可提供的改进建议。", "无法给出有依据的改进建议。", "……", "待补充。", "给阅读。"])
+    expect(scoreEvaluationCase(weekQuestion, { ...improvementObservation, reply: "完成26项。\n**一条改进建议**：" + action })).not.toEqual([]);
+});
+it("does not count quoted, questioned or negated improvement labels as a next action", () => {
+  for (const label of ["> 一条改进建议", "没有改进建议", "你问我一条改进建议", "一条改进建议？"])
+    expect(scoreEvaluationCase(weekQuestion, { ...improvementObservation, reply: "完成26项。\n" + label + "：给阅读定一个固定落点，提前留出三十分钟。" })).not.toEqual([]);
+});
+it("does not accept a bare improvement claim without an action", () => {
+  expect(scoreEvaluationCase(weekQuestion, { ...improvementObservation, reply: "完成26项。\n改进建议：上周阅读的记录缺少了三天。" })).not.toEqual([]);
+});
+it("keeps the original week statistics and actual successful tool facts mandatory", () => {
+  expect(scoreEvaluationCase(weekQuestion, { ...improvementObservation, reply: improvementObservation.reply.replace("26", "25") })).not.toEqual([]);
+  expect(scoreEvaluationCase(weekQuestion, { ...improvementObservation, tools: [] })).not.toEqual([]);
+  expect(scoreEvaluationCase(weekQuestion, { ...improvementObservation, tools: [{ ...improvementObservation.tools[0], ok: false }] })).not.toEqual([]);
+});
+it("does not let an improvement heading waive the original week zero-write limits", () => {
+  expect(scoreEvaluationCase(weekQuestion, { ...improvementObservation, writes: { "tasks.created": 1, "tasks.deleted": 0 } })).not.toEqual([]);
+});
+it("does not add the improvement alias to differently scoped criteria", () => {
+  for (const group of [["下一步"], ["收尾", "后续"], ["下一步", "收尾", "后续", "其他"]])
+    expect(scoreEvaluationCase({ ...weekQuestion, checks: { mustIncludeAny: [group] } }, improvementObservation)).not.toEqual([]);
+});
+
 it("requires actual active-memory readback to establish that an attributed quote is unavailable",()=>{
   const memory:EvalQuestion={...question,checks:{notRemembered:["虚构引用规则"]}};
   expect(scoreEvaluationCase(memory,{...observed,activeMemories:[]})).toEqual([]);

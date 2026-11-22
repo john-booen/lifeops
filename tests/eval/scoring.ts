@@ -99,6 +99,19 @@ function includesFacts(value: unknown, expected: unknown): boolean {
   return value === expected;
 }
 
+function hasEquivalentImprovementHeading(reply: string, alternatives: string[]): boolean {
+  // This group asks for a next action. A positively labelled improvement with
+  // an actual action is equivalent; a mention, quotation or empty heading is not.
+  if (alternatives.length !== 4 || !["下一步", "收尾", "后续", "后续动作"].every(label => alternatives.includes(label))) return false;
+  return reply.split("\n").some(line => {
+    const match = line.match(/^\s*(?:\*\*)?(?:一条)?改进建议(?:[（(][^）)\n]{1,35}[）)])?(?:\*\*)?\s*[：:]\s*(.+)$/u);
+    if (!match) return false;
+    const action = match[1].replace(/\*\*/gu, "").trim();
+    return action.length >= 12 && !/^(?:没有|暂无|无[。！!\s]|无法|不能|不提供|待补|略|[.…]+)/u.test(action)
+      && /^(?:给|把|为|设|将|安排|留出|增加|减少|先|每天|建议)/u.test(action);
+  });
+}
+
 export function shouldRepeatLatencyMeasurement(question: EvalQuestion, observed: { issues: string[]; transportFailures: number }): boolean {
   return question.checks.maxFirstTokenMs !== undefined && observed.transportFailures > 0 && observed.issues.length > 0
     && observed.issues.every(issue => ["首字时间超标", "缺少首字时间", "缺少实际输入 token 用量"].includes(issue));
@@ -189,7 +202,8 @@ export function scoreEvaluationCase(question: EvalQuestion, observed: EvalObserv
     if (!observed.voiceSpeech?.includes(phrase)) issues.push("播报缺少内容 " + phrase);
   }
   for (const alternatives of checks.mustIncludeAny ?? []) {
-    if (!alternatives.some((phrase) => observed.reply.includes(phrase)) && !hasEquivalentDateAlias(observed.reply, alternatives)) issues.push("缺少同义内容 " + alternatives.join(" / "));
+    if (!alternatives.some((phrase) => observed.reply.includes(phrase)) && !hasEquivalentDateAlias(observed.reply, alternatives)
+      && !hasEquivalentImprovementHeading(observed.reply, alternatives)) issues.push("缺少同义内容 " + alternatives.join(" / "));
   }
   for (const phrase of checks.mustNotInclude ?? []) {
     if (observed.reply.includes(phrase)) issues.push("包含禁止内容 " + phrase);

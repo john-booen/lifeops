@@ -73,6 +73,10 @@ async function captureProfileUi(page, root, sourceVault) {
   await page.getByRole("button", { name: "这台只记录并同步", exact: true }).click();
   try {
     await page.waitForFunction(() => !app.plugins.getPlugin("lifeops-assistant").devices.execution.needsSetup);
+    // The role flips before refreshViews and the native dialog close finish.
+    // Wait for that UI transition too, so it cannot steal the capture's focus.
+    await page.getByRole("button", { name: "这台只记录并同步", exact: true }).waitFor({ state: "detached" });
+    await page.waitForFunction(() => !app.plugins.getPlugin("lifeops-assistant").dataFoundationBootstrap);
   } catch (error) {
     const state = await page.evaluate(() => {
       const p = app.plugins.getPlugin("lifeops-assistant");
@@ -88,9 +92,22 @@ async function captureProfileUi(page, root, sourceVault) {
     return { id: p.devices.execution.deviceId, canWrite: p.devices.execution.canWriteFacts, before, denied };
   });
   assert.equal(state.canWrite, false); assert.equal(state.denied, true);
-  await page.getByPlaceholder("例如：明天提醒我整理学习笔记").fill("虚构设备批：五项纸样工作全部安排今天并一次创建。");
-  await page.getByRole("button", { name: "保存待处理记录", exact: true }).click();
-  await page.getByText("原始记录已保存在本机，等待同步到处理端。任务是否入账以回执为准。", { exact: true }).waitFor();
+  const capture = page.locator(".modal-container").last(), input = capture.getByPlaceholder("例如：明天提醒我整理学习笔记");
+  const original = "虚构设备批：五项纸样工作全部安排今天并一次创建。";
+  try {
+    await input.fill(original);
+    assert.equal(await input.inputValue(), original, "The intended capture text must be present before one save click");
+    await capture.getByRole("button", { name: "保存待处理记录", exact: true }).click();
+    await capture.getByText("原始记录已保存在本机，等待同步到处理端。任务是否入账以回执为准。", { exact: true }).waitFor();
+  } catch (error) {
+    const diagnostic = await page.evaluate(() => {
+      const p = app.plugins.getPlugin("lifeops-assistant"), modal = [...document.querySelectorAll(".modal-container")].at(-1);
+      return { role: p.devices.execution.role, deviceId: p.devices.execution.deviceId, booting: !!p.dataFoundationBootstrap,
+        input: modal?.querySelector("textarea")?.value, status: modal?.querySelector('[role="status"]')?.textContent,
+        focused: document.activeElement?.getAttribute("placeholder"), notices: [...document.querySelectorAll(".notice")].map(node => node.textContent) };
+    });
+    throw Error(error.message + " Capture UI state: " + JSON.stringify(diagnostic));
+  }
   await page.screenshot({ path: join(root, "capture-profile.png") });
   const after = await page.evaluate(async () => {
     const p = app.plugins.getPlugin("lifeops-assistant"), old = new Date(Date.now() - 2 * 86_400_000);
