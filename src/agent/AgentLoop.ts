@@ -797,21 +797,32 @@ export class AgentLoop {
       this.host.assertReadOnlyReplyCurrent?.();
     };
     state.textOnlyAnswerAttempted = true;
+    let needsEvidenceFallback = false;
     try {
       current();
       const answer = await this.callModel(input, state, "deep", historicalAnswerMessages(messages), [], true, false, undefined, "low");
       current();
       if (!answer.content.trim() || answer.toolCalls.length || answer.content === TOOL_PROTOCOL_UNAVAILABLE) {
         state.errorCode = "response_incomplete";
-        state.text = historicalEvidenceFallback(messages);
+        needsEvidenceFallback = true;
       } else state.text = answer.content;
     } catch (error) {
       current();
       state.usageKnown = false;
       state.errorCode = error instanceof ProviderRunFailure ? error.code : "operation_failed";
-      state.text = historicalEvidenceFallback(messages);
+      needsEvidenceFallback = true;
     }
     current();
+    if (needsEvidenceFallback) {
+      const reads = [...state.statsReads?.values() ?? []]
+        .filter(read => ["tasks", "trades"].includes(String(read.arguments.domain)));
+      const stats = this.host.assertReadOnlyReplyCurrent && reads.length
+        ? await recoverReadOnlyStats(store, reads, input.now, current, input.signal).catch(() => undefined) : undefined;
+      // A failed local recheck may omit numbers, but cancellation or changed
+      // sources must still discard the whole reply rather than leak old facts.
+      current();
+      state.text = [stats, historicalEvidenceFallback(messages)].filter(Boolean).join("\n\n");
+    }
     state.firstTokenMs ??= performance.now() - state.started;
     input.onText?.(state.text);
   }

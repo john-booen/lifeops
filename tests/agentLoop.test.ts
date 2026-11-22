@@ -249,6 +249,76 @@ it.each(["network", "empty", "native-call", "protocol"])("retains literal histor
   expect(result.receipts).toEqual([]); expect(await store.readPath(store.taskDbPath())).toBe(before);
 });
 
+it.each(["network", "empty", "native-call", "protocol"])("retains locally rechecked historical task statistics when final analysis returns %s", async mode => {
+  const task = await store.createTask({ title: "虚构已完成纸样", date: "2026-11-03" });
+  await store.updateTask(task.id, row => ({ ...row, status: "completed", createdAt: "2026-11-03T09:00:00+08:00", completedAt: "2026-11-03T10:00:00+08:00" }));
+  host.assertReadOnlyReplyCurrent = () => {};
+  const summary = await historicalFixture(), range = { from: "2026-11-02", to: "2026-11-08" };
+  responses.push(reply("", [...summary.toolCalls, tool("get_stats", { domain: "tasks", range }, "historical-task-stats"),
+    tool("get_stats", { domain: "habits", range }, "historical-habit-stats")]), reply("错误草稿：一周都没做。"),
+    mode === "network" ? new Error("fictional network failure") : mode === "native-call"
+      ? reply("", [tool("create_task", { title: "虚构不可执行" })]) : reply(mode === "protocol" ? "<｜｜DSML｜｜ calls></｜｜DSML｜｜ calls>" : ""));
+  const streamed: string[] = [], before = await store.readPath(store.taskDbPath());
+  const result = await new AgentLoop(host).run(input({ message: "回顾11月2日到8日原文与任务完成情况，不修改。", onText: value => streamed.push(value) }));
+  expect(result.text).toContain("历史分析未完成"); expect(result.text).toContain("虚构紫纸已整理10张");
+  expect(result.text).toContain("2026-11-02 至 2026-11-08");
+  expect(result.text).toContain("计划 1 项，计划内完成 1 项"); expect(result.text).toContain("区间内登记完成 1 项");
+  expect(result.text).toContain("不是实测工时"); expect(result.text).not.toContain("错误草稿"); expect(result.text).not.toContain("DSML");
+  expect(requests).toHaveLength(3); expect(result.receipts).toEqual([]); expect(result.confirmations).toEqual([]);
+  expect(streamed.join("")).toBe(result.text); expect(await store.readPath(store.taskDbPath())).toBe(before);
+});
+
+it.each(["privacy", "cancel", "store", "source"])("discards historical fallback statistics after %s changes during local recovery", async change => {
+  await store.createTask({ title: "虚构本地恢复样本", date: "2026-11-03" });
+  const controller = new AbortController(), original = host.aiForRole, read = store.readPath.bind(store);
+  let recovering = false, stale = false, touched = false;
+  host.assertReadOnlyReplyCurrent = () => { if (stale) throw new DOMException("fictional source changed", "AbortError"); };
+  host.aiForRole = role => ({ agentTurnStream: async (messages, onText, options) => {
+    if (role === "deep") recovering = true;
+    return original(role).agentTurnStream(messages, onText, options);
+  } });
+  vi.spyOn(store, "readPath").mockImplementation(async path => {
+    const result = await read(path);
+    if (recovering && path === store.taskDbPath()) {
+      touched = true;
+      if (change === "privacy") store.settings.privacy!.excludedVaultPrefixes = ["虚构新拒读范围"];
+      if (change === "cancel") controller.abort();
+      if (change === "store") host.store = Object.create(store);
+      if (change === "source") stale = true;
+    }
+    return result;
+  });
+  const summary = await historicalFixture();
+  responses.push(reply("", [...summary.toolCalls, tool("get_stats", { domain: "tasks", range: "last_week" }, "historical-task-stats")]),
+    reply("虚构未采纳草稿"), new Error("fictional network failure"));
+  const streamed: string[] = [];
+  await expect(new AgentLoop(host).run(input({ message: "回顾上周原文与任务统计，不修改。", signal: controller.signal,
+    onText: value => streamed.push(value) }))).rejects.toMatchObject({ name: "AbortError" });
+  expect(touched).toBe(true); expect(requests).toHaveLength(3); expect(streamed.join("")).toBe("");
+});
+
+it("keeps historical originals without inventing numbers when local statistic recovery is unavailable", async () => {
+  await store.createTask({ title: "虚构本地不可用样本", date: "2026-11-03" });
+  const original = host.aiForRole, read = store.readPath.bind(store);
+  let recovering = false, touched = false;
+  host.assertReadOnlyReplyCurrent = () => {};
+  host.aiForRole = role => ({ agentTurnStream: async (messages, onText, options) => {
+    if (role === "deep") recovering = true;
+    return original(role).agentTurnStream(messages, onText, options);
+  } });
+  vi.spyOn(store, "readPath").mockImplementation(async path => {
+    if (recovering && [store.taskDbPath(), store.taskMirrorPath()].includes(path)) { touched = true; throw Error("fictional local statistics unavailable"); }
+    return read(path);
+  });
+  const summary = await historicalFixture();
+  responses.push(reply("", [...summary.toolCalls, tool("get_stats", { domain: "tasks", range: "last_week" }, "historical-task-stats")]),
+    reply("虚构未采纳草稿：完成99项。"), new Error("fictional network failure"));
+  const result = await new AgentLoop(host).run(input({ message: "回顾上周原文与任务统计，不修改。" }));
+  expect(result.text).toContain("历史分析未完成"); expect(result.text).toContain("虚构紫纸已整理10张");
+  expect(result.text).not.toContain("99"); expect(result.text).not.toContain("区间内登记完成");
+  expect(touched).toBe(true); expect(requests).toHaveLength(3); expect(result.receipts).toEqual([]); expect(result.confirmations).toEqual([]);
+});
+
 it.each(["privacy", "cancel", "store", "source"])("discards final historical text and evidence after %s changes", async change => {
   const controller = new AbortController(), original = host.aiForRole;
   let stale = false;
