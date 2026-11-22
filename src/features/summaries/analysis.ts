@@ -3,6 +3,7 @@ import { ACCOUNTABILITY_BOUNDARY } from "../../accountability";
 import { HEALTH_METRICS, healthMetricKeys } from "../health/model";
 import type { SummaryData } from "./data";
 import type { SummaryLevel, SummaryPeriod } from "./periods";
+import { fallbackConversationText } from "./fallbackConversation";
 
 const summaryLengths: Record<SummaryLevel, [number, number]> = { day: [300, 500], week: [800, 1200], month: [800, 1200] };
 
@@ -69,7 +70,7 @@ export function weeklySummaryHighlights(data: SummaryData): string {
   ].join("\n");
 }
 
-export function localSummaryText(period: SummaryPeriod, data: SummaryData): string {
+export function localSummaryText(period: SummaryPeriod, data: SummaryData, credentials: string[] = []): string {
   const { metrics } = data;
   const health = healthSummaryLine(data);
   const energy = "- 精力 " + display(metrics.energy, " / 5") + "。";
@@ -81,6 +82,7 @@ export function localSummaryText(period: SummaryPeriod, data: SummaryData): stri
     ]),
     ...(health ? ["- " + health] : []),
     ...(period.level === "day" ? ["- 有 " + (data.daily?.signals.length ?? 0) + " 份可用日记信号。"]
-      : ["- 有 " + data.summaries.length + " 份可用下级摘要。"])
+      : ["- 有 " + data.summaries.length + " 份可用下级摘要。"]),
+    ...(period.level === "day" ? [fallbackConversationText(data, credentials)].filter(Boolean).map(text => "\n" + text) : [])
   ].join("\n");
 }

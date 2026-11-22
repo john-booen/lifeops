@@ -9,6 +9,7 @@ import { collectChildSummaries, collectSummaryData, sameSummaryTaskMetrics, same
 import { readSummary, readSummaryScope, renderSummary, summaryPath, summaryPathAllowed, type SummaryKind } from "./notes";
 import { scheduledSummaryPeriods, summaryBackfillPeriods, summaryFolders, summaryPeriod, type SummaryLevel, type SummaryPeriod } from "./periods";
 import { journalCoverageText } from "./journalCoverage";
+import { configuredCredentials } from "../../credentialSecurity";
 
 export interface SummaryHost extends LocalOperationHost {
   app: LifeOpsPlugin["app"];
@@ -111,7 +112,7 @@ async function generateSummary(host: SummaryHost, store: StoreHost, period: Summ
       }
       if (summaryInputRevision(latest) !== inputRevision) throw Error("摘要依据在生成期间有变化，请重新生成摘要。");
     };
-    const fallback = localSummaryText(period, data);
+    const fallback = localSummaryText(period, data, configuredCredentials(store.settings));
     let local = false;
     const options = { ...request, beforeTextRequest: assertScope, assertTextRequestCurrent: current,
       onLocalFallback: (reason: Parameters<NonNullable<typeof request.onLocalFallback>>[0]) => {
