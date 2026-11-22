@@ -9,7 +9,7 @@ import type { StoreHost } from "../store/settingsSlice";
 import { taskNamedInRequest } from "../taskReference";
 import type { AgentConversationMessage, LifeOpsTask } from "../types";
 
-export type SavedTaskReference = Pick<LifeOpsTask, "id" | "title">;
+export type SavedTaskReference = Pick<LifeOpsTask, "id" | "title"> & Partial<Pick<LifeOpsTask, "date" | "endDate" | "time" | "startTime" | "endTime">>;
 
 export async function previousSavedTask(store: StoreHost, history: readonly AgentConversationMessage[]): Promise<SavedTaskReference | undefined> {
   const last = history.at(-1);
@@ -23,7 +23,8 @@ export async function previousSavedTask(store: StoreHost, history: readonly Agen
     if (!saved) return;
     const { tasks } = await readContextTasks(store);
     const current = tasks.find(task => task.id === saved.id && task.status === "active");
-    if (current?.title === saved.title) return { id: saved.id, title: saved.title };
+    if (current?.title === saved.title) return { id: saved.id, title: saved.title, date: current.date, endDate: current.endDate,
+      time: current.time, startTime: current.startTime, endTime: current.endTime };
   } catch { /* Without readable evidence, the user needs to name the task. */ }
 }
 
@@ -45,9 +46,9 @@ export async function unverifiedTaskTimeChanges(store: StoreHost, calls: readonl
 
 /** Only a complete, explicit clock applied to the immediately attested task. */
 export function explicitRecentTaskTimeChange(message: string, today: string, previous?: SavedTaskReference): Record<string, unknown> | undefined {
-  if (!previous) return;
+  if (!previous || previous.endTime) return;
   const text = message.trim().normalize("NFKC").replace(/[。！!]$/u, "");
-  const match = /^(?:不对[,，]\s*)?(?:刚才|刚刚)的?(?:这|那)一?(?:条|项)(?:任务|待办)?\s*再?改(?:成|到|为)\s*(.+)$/u.exec(text);
+  const match = /^(?:不对[,，]\s*)?(?:(?:请|麻烦)(?:帮我)?|帮我)?\s*(?:把|将)?\s*(?:(?:刚才|刚刚)的?(?:这|那)一?(?:条|项|个)(?:任务|待办)?|上一(?:条|项)(?:任务|待办)?|(?:这|那)条(?:任务|待办)?)\s*(?:的?时间)?\s*再?(?:改(?:成|到|为)|调整(?:到|为))\s*(.+)$/u.exec(text);
   if (!match) return;
   const value = match[1], clocks = clockMatches(value);
   if (clocks.length !== 1) return;
@@ -55,7 +56,8 @@ export function explicitRecentTaskTimeChange(message: string, today: string, pre
   if (clock.index! + clock[0].length !== value.length || !clock[1] && !/^\d{1,2}[:：]\d{2}$/u.test(clock[0])) return;
   const prefix = value.slice(0, clock.index).trim(), time = clockFromMatch(clock);
   if (!time || prefix && !new RegExp("^(?:" + journalDateToken + ")$", "u").test(prefix)) return;
-  const date = prefix ? normalizeJournalDate(prefix, today) : undefined;
+  if (clock[1] === "今晚" && prefix) return;
+  const date = prefix ? normalizeJournalDate(prefix, today) : clock[1] === "今晚" ? today : undefined;
   if (prefix && !date) return;
   return { taskIdOrTitle: previous.id, time, ...(date ? { date } : {}) };
 }

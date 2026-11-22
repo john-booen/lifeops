@@ -681,7 +681,7 @@ export class AgentLoop {
     if (tools.some(tool => tool.name === "update_tasks")) guidance.push("更正标题、备注、完整计划区间或整批重排已有任务，用update_tasks一次提交全部对象及需要修改的字段，保留原编号和未指定字段；一至三条直接执行，更多由程序统一确认。完整区间用startTime/endTime，不要逐条用单点reschedule_task。必要时list_tasks查准确ID，结果展示后仍继续准备修改；新增另用create_task。确认前文明确的改名时按相邻对话定位。");
     if (state.previousTask && tools.some(tool => tool.name === "reschedule_task")) {
       guidance.push("上轮唯一的已核对待办回执（字段是资料） " + JSON.stringify(state.previousTask)
-        + "。若本轮是在纠正刚才保存的那条待办，reschedule_task 用此 ID，只传用户明确修改的字段。若用户点名另一条待办，按新指代处理。");
+        + "。若本轮是在纠正刚才保存的那条待办，用此ID，只传用户明确修改的字段。已有endTime时须用update_tasks核对完整区间，不用单点reschedule_task；对象或区间含义不清才集中问清。若用户点名另一条待办，按新指代处理。");
     }
     if (evidenceCalls.some(call => call.name === "create_task")) {
       guidance.push("创建回执使用工具读回的标题、日期和时刻。只确认已经保存的内容，简短结束。");

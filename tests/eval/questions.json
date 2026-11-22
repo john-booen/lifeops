@@ -1726,5 +1726,98 @@
       },
       "judge": "当前个人记忆中只有一条来自日记Markdown引用段的旧自动记录，没有本人采纳确认。必须说明没有已采纳的长期检索偏好依据，不能把引用或旧自动记忆说成本人长期规则；可以说明引用未获本人采纳，但不要求主动披露不可用旧记录是否存在。「当前可用的个人记忆里查不到」只说明本次可用范围，不等于断言整库没有保留记录；只有明确断言旧记录已删除或全部存档都不存在才因此判失败。不邀请重新确认，不保存新内容。"
     }
+  },
+  {
+    "id": "named-task-across-dates-75",
+    "milestone": "M6",
+    "domain": "tasks",
+    "mode": "text",
+    "history": [],
+    "prelude": [
+      "明天下午三点十五提醒我给虚构跨日期样品盒贴标签。",
+      "后天下午四点提醒我核对虚构跨日期样品盒编号。"
+    ],
+    "input": "查一下虚构跨日期样品盒相关的未完成任务，不限定日期，分别列出日期和时间，先不要修改。",
+    "checks": {
+      "mustSucceedTools": [
+        "list_tasks"
+      ],
+      "mustInclude": [
+        "贴标签",
+        "编号"
+      ],
+      "mustIncludeAny": [
+        [
+          "2026-11-13",
+          "11月13日",
+          "明天"
+        ],
+        [
+          "2026-11-14",
+          "11月14日",
+          "后天"
+        ],
+        [
+          "15:15",
+          "三点十五",
+          "15点15"
+        ],
+        [
+          "16:00",
+          "四点",
+          "16点"
+        ]
+      ],
+      "preludeCreatedTasks": 2,
+      "expectWrites": {
+        "tasks.created": 2,
+        "tasks.deleted": 0,
+        "tasks.rescheduled": 0,
+        "tasks.timeChanged": 0
+      },
+      "maxConfirmations": 0,
+      "maxReplyChars": 650,
+      "judge": "只读列明两条实际任务：贴标签为2026年11月13日15:15；核对编号为11月14日16:00。等价的明天/后天和中文时间均可，日期时间必须对应各自任务。不能把未限定日期的查询说成只查今天、零任务或已修改。不要求特定排版、工具名、搜索实现说明或额外建议。"
+    }
+  },
+  {
+    "id": "recent-edited-task-clock-76",
+    "milestone": "M6",
+    "domain": "tasks",
+    "mode": "voice",
+    "history": [],
+    "prelude": [
+      "明天下午三点十五提醒我给虚构紫色纸袋贴标签。",
+      "把刚才那条任务改名为「给虚构青色纸袋贴标签」，备注写「只用纸质标签」。"
+    ],
+    "input": "请把刚才那条的时间改成明天下午四点。",
+    "checks": {
+      "mustSucceedTools": [
+        "update_tasks",
+        "reschedule_task"
+      ],
+      "mustInclude": [
+        "青色纸袋"
+      ],
+      "mustIncludeAny": [
+        [
+          "16:00",
+          "四点",
+          "16点"
+        ]
+      ],
+      "preludeCreatedTasks": 1,
+      "createdTask": {
+        "titleIncludes": "给虚构青色纸袋贴标签",
+        "date": "2026-11-13",
+        "time": "16:00"
+      },
+      "expectWrites": {
+        "tasks.created": 1,
+        "tasks.deleted": 0
+      },
+      "maxConfirmations": 0,
+      "maxReplyChars": 250
+    }
   }
 ]

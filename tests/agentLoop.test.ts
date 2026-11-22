@@ -559,7 +559,7 @@ it("binds successive time corrections to the previous saved task and blocks a di
 
   history.push({ role: "user", content: correction }, { role: "assistant", content: result.text, receipts: result.receipts });
   responses.push(reply("", [tool("reschedule_task", { taskIdOrTitle: task.id, time: "15:30" }, "verified-again")]));
-  const again = await loop.run(input({ message: "请把刚刚那条再改到下午三点半。", source: "voice", history }));
+  const again = await loop.run(input({ message: "把刚刚那条再改到下午三点半，保持其他信息不变。", source: "voice", history }));
   expect(again.voiceSpeech).toContain("15:30");
   expect(await store.getTask(task.id)).toMatchObject({ date: "2026-11-13", time: "15:30" });
   await runtime.undoOperation(again.receipts[0].operationId);

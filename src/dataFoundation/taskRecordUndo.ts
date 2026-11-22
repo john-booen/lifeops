@@ -42,7 +42,7 @@ export function createdTaskForUndo(record: OperationLedgerRecord, taskPath: stri
 
 export function taskSavedByReceipt(record: OperationLedgerRecord, taskPath: string): LifeOpsTask | undefined {
   if (record.toolName === "create_task") return createdTaskForUndo(record, taskPath);
-  if (record.toolName === "reschedule_task") {
+  if (record.toolName === "reschedule_task" || record.toolName === "update_tasks") {
     const row = singleTaskChange(record, taskPath);
     if (row?.prior) return row.saved;
   }

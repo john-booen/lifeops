@@ -6,3 +6,9 @@ it.each(["如果刚刚那条改成下午四点", "不要把刚才那条改到下
 it("requires the immediately verified task receipt",()=>{expect(explicitRecentTaskTimeChange("刚刚那条改成明天16:00","2026-11-21")).toBeUndefined();});
 it("keeps an explicit ISO date and 24-hour clock",()=>{expect(explicitRecentTaskTimeChange("刚刚那条改成2026-11-24 16:00","2026-11-21",previous)).toEqual({taskIdOrTitle:previous.id,time:"16:00",date:"2026-11-24"});});
 it("does not invent a date when only the clock is changed",()=>{expect(explicitRecentTaskTimeChange("刚刚那条再改到下午三点半。","2026-11-21",previous)).toEqual({taskIdOrTitle:previous.id,time:"15:30"});});
+
+it.each(["把刚才那条改到明天下午四点。","请把刚才那条的时间改成明天下午四点。","帮我把刚刚这项待办的时间改为明天下午四点。","将上一条任务调整到明天下午四点。","请把刚才那个任务改到明天下午四点。","不对，请把刚刚那条改到明天下午四点。"])("binds a plain recent-reference imperative without extra model lookup: %s",message=>{expect(explicitRecentTaskTimeChange(message,"2026-11-21",previous)).toEqual({taskIdOrTitle:previous.id,time:"16:00",date:"2026-11-22"});});
+it("treats tonight as an explicit current date instead of retaining a future task date",()=>{expect(explicitRecentTaskTimeChange("把刚才那条改到今晚八点","2026-11-21",previous)).toEqual({taskIdOrTitle:previous.id,time:"20:00",date:"2026-11-21"});});
+it.each(["请把刚才那两条改到下午四点","不要把上一条改到下午四点","引用：请把刚才那条改到下午四点","把刚才那条改到明天今晚八点"])("does not turn plural, rejected, quoted or contradictory requests into a write: %s",message=>{expect(explicitRecentTaskTimeChange(message,"2026-11-21",previous)).toBeUndefined();});
+
+it("does not force an interval or deadline task through a single-point correction",()=>{expect(explicitRecentTaskTimeChange("请把刚才那条改到下午四点","2026-11-21",{...previous,startTime:"15:00",endTime:"17:00"})).toBeUndefined();});
