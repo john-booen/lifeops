@@ -21,6 +21,14 @@ const task = { id: "synthetic", title: "见客户", date: "2026-11-13", time: "1
 const observed: EvalObservation = { reply: "已建好", tools: [], writes: { "tasks.created": 1 }, createdTasks: [task],
   tasks: [task], confirmations: 0, confirmationActions: [], receipts: 1, preludeCreatedTasks: 0 };
 
+it("requires actual active-memory readback to establish that an attributed quote is unavailable",()=>{
+  const memory:EvalQuestion={...question,checks:{notRemembered:["虚构引用规则"]}};
+  expect(scoreEvaluationCase(memory,{...observed,activeMemories:[]})).toEqual([]);
+  expect(scoreEvaluationCase(memory,{...observed,activeMemories:["其他有依据的本人规则"]})).toEqual([]);
+  expect(scoreEvaluationCase(memory,{...observed,reply:"我没有采纳",activeMemories:["虚构引用规则"]})).not.toEqual([]);
+  expect(scoreEvaluationCase(memory,{...observed,reply:"我没有采纳"})).not.toEqual([]);
+});
+
 it("recognizes equivalent slash dates only when the original criteria already allow a yearless date", () => {
   const date: EvalQuestion = { ...question, checks: { mustIncludeAny: [["2026-11-03", "11月3日", "11-03"]] } };
   for (const reply of ["11/3 21:15", "11/03 21:15", "2026/11/3 21:15"]) expect(scoreEvaluationCase(date, { ...observed, reply })).toEqual([]);

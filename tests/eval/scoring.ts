@@ -44,6 +44,7 @@ interface EvalChecks {
   checkin?: EvalCheckin;
   remembered?: (string | string[])[];
   rememberedKind?: string;
+  notRemembered?: string[];
   taskPlan?: { date: string; maxTasks: number };
   ideaPlan?: { titleIncludes: string; from: string; to: string; maxSteps: number };
   orderedIncludes?: string[];
@@ -59,7 +60,7 @@ export interface EvalQuestion {
   mode: "text" | "voice";
   input: string;
   history: { role: "user" | "assistant"; content: string }[];
-  fixture?: "without_quiz_cards" | "scheduled_compensation_after_prelude" | "automatic_memory_after_create" | "task_already_undone" | "one_overdue_task" | "device_sleep" | "cross_week_after_correction" | "eleven_task_plans" | "mixed_title_batch" | "sparse_legacy_summary" | "task_interval_meaning" | "source_relative_dates" | "summary_original_memory" | "task_lookup_prose" | "bound_memory_restatement" | "malformed_tool_protocol";
+  fixture?: "without_quiz_cards" | "scheduled_compensation_after_prelude" | "automatic_memory_after_create" | "task_already_undone" | "one_overdue_task" | "device_sleep" | "cross_week_after_correction" | "eleven_task_plans" | "mixed_title_batch" | "sparse_legacy_summary" | "task_interval_meaning" | "source_relative_dates" | "summary_original_memory" | "task_lookup_prose" | "bound_memory_restatement" | "malformed_tool_protocol" | "quoted_diary_memory";
   prelude?: string[];
   afterPreludeHistory?: { role: "user" | "assistant"; content: string }[];
   phoneCaptureDate?: string;
@@ -261,6 +262,10 @@ export function scoreEvaluationCase(question: EvalQuestion, observed: EvalObserv
   if (checks.rememberedKind && !observed.activeMemoryRecords?.some(record => record.kind === checks.rememberedKind
     && checks.remembered?.every(phrase => (typeof phrase === "string" ? [phrase] : phrase).some(word => record.content.includes(word))))) {
     issues.push("未在指定类别读回同一条有效记忆");
+  }
+  if (checks.notRemembered && (!Array.isArray(observed.activeMemories)
+    || checks.notRemembered.some(phrase => observed.activeMemories!.some(content => content.includes(phrase))))) {
+    issues.push("未证实指定内容已排除在可用个人记忆之外");
   }
   if (checks.taskPlan) {
     const proposed = observed.proposedTaskDates ?? [];

@@ -27,13 +27,24 @@ export async function nativeSummaryOriginalMemory(page, result) {
     const legacy = await p.store.upsertPersonalMemory({ kind: "user_rule", content: invented,
       sourceRefs: [{ sourceId: "summary:" + date, path: summary, capturedAt: now,
         contentHash: hash(invented), extractionVersion: "summary-v1" }] });
+    const quoted="我长期只用虚构琥珀双列纸板比较方案。";
+    const quotedPath=p.store.path(p.settings.folders.dailyRoot,"2026","01","2026-01-05晚.md");
+    const quotedRaw="# 虚构引用日记\n\n引用别人的规则：\n> "+quoted+"\n\n我没有采纳。\n";
+    const quotedSummary=p.store.path(p.settings.folders.aiReports,"摘要","日","2026-01-05.md"),quotedSummaryRaw="模型摘要："+quoted;
+    await p.store.writeFile(quotedPath,quotedRaw);
+    await p.store.writeFile(quotedSummary,quotedSummaryRaw);
+    const quotedMemory=await p.store.upsertPersonalMemory({kind:"user_rule",content:quoted,sourceRefs:[{
+      sourceId:"summary-journal:2026-01-05",path:quotedPath,capturedAt:now,observedDate:"2026-01-05",contentHash:hash(quotedRaw),
+      extractionVersion:"summary-original-v2",excerpt:quoted,excerptHash:hash(quoted)
+    },{sourceId:"summary:2026-01-05",path:quotedSummary,capturedAt:now,contentHash:hash(quotedSummaryRaw),extractionVersion:"summary-v1"}]});
     const policy = hash(JSON.stringify({ folders: p.settings.folders, privacy: p.settings.privacy, externalVaults: p.settings.externalVaults ?? [] }));
     const document = await p.store.readPersonalMemories();
-    document.records = document.records.map(row => row.id === grounded.id || row.id === legacy.id
-      ? { ...row, status: "active", summarySource: { settingsRevision: policy, ...(row.id === grounded.id ? { evidenceVersion: 2 } : {}) } } : row);
+    document.records = document.records.map(row => row.id === grounded.id || row.id === legacy.id || row.id===quotedMemory.id
+      ? { ...row, status: "active", summarySource: { settingsRevision: policy, ...(row.id !== legacy.id ? { evidenceVersion: 2 } : {}) } } : row);
     await p.store.writePersonalMemories(document);
     const memoryBytes = await p.store.readPath(p.store.personalMemoryPath());
     const context = await p.store.buildPersonalMemoryContext(original);
+    const quotedContext=await p.store.buildPersonalMemoryContext(quoted);
     await p.store.writeFile(summary, "虚构模型摘要重写，与原话无关。");
     const regenerated = await p.store.buildPersonalMemoryContext(original);
     await p.store.writeFile(path, raw + "\n用户后来更新原文。\n");
@@ -52,6 +63,7 @@ export async function nativeSummaryOriginalMemory(page, result) {
     const legacyRule = (await p.store.readPersonalMemories()).records.find(row => row.status === "active" && row.confirmationReceipt?.operationId === legacyCall.receipt?.operationId);
     const legacyUndo = legacyCall.receipt ? await p.createAgentRuntime().undoOperation(legacyCall.receipt.operationId) : false;
     return { original, invented, context, regenerated, changed, weekly, restated, restatedContext, undidRestatement, afterUndo, calendar,
+      quoted,quotedContext,quotedRetained:current.some(row=>row.id===quotedMemory.id&&row.content===quoted),
       legacyCategoryCompatible: legacyCall.success && legacyRule?.kind === "user_rule" && legacyUndo
         && !legacyCall.output.includes(".md") && legacyCall.output.includes("分类：管家规则"),
       independentRestatement: !!fresh && fresh.id !== grounded.id && !fresh.summarySource && fresh.sourceRefs.length === 1
@@ -74,6 +86,7 @@ export async function nativeSummaryOriginalMemory(page, result) {
   assert.deepEqual(observed.calendar?.yesterday, { date: "2025-12-31", weekday: "周三" });
   assert.deepEqual(observed.calendar?.today, { date: "2026-01-01", weekday: "周四" });
   assert(observed.calendar.basis.includes("原叙述时点"));
+  assert(observed.quotedRetained&&!observed.quotedContext.includes(observed.quoted));
   result.checks.journalWeekReadsMultipleDatedOriginalsAcrossTheYearBoundary = true;
   result.checks.legacyAutomaticSummaryIsRetainedWithoutBecomingUserFact = true;
   result.checks.automaticMemoryUsesOriginalVersionInsteadOfModelSummary = true;
@@ -81,4 +94,5 @@ export async function nativeSummaryOriginalMemory(page, result) {
   result.checks.memoryRestatementUndoRestoresPausedOldEvidence = true;
   result.checks.memoryCategorySupportsLegacyCallsWithoutInventedFiles = true;
   result.checks.originalCalendarReferencesKeepNarrationConditionalAcrossYears = true;
+  result.checks.quotedDiaryDoesNotBecomeUnconfirmedPersonalRule=true;
 }

@@ -6,7 +6,7 @@ import { memoryContentHash, personalMemorySourceAssessment,
 import type { StoreHost } from "./store/settingsSlice";
 import { isVaultPathExcluded } from "./privacy";
 import { createHash } from "node:crypto";
-import { SUMMARY_ORIGINAL_VERSION, isSummaryConversationOriginalRef, summaryOriginalRefCurrent, type SummaryOriginalReadCache } from "./features/memory/summaryOriginals";
+import { SUMMARY_ORIGINAL_VERSION, isSummaryConversationOriginalRef, summaryOriginalRefCurrent, journalNarrationForMemory, SUMMARY_QUOTATION_OMISSION, type SummaryOriginalReadCache } from "./features/memory/summaryOriginals";
 
 type Assessment = NonNullable<PersonalMemoryRecord[typeof personalMemorySourceAssessment]>;
 type LedgerSnapshot = { document: OperationLedgerDocument | null };
@@ -146,8 +146,17 @@ async function assessMemory(
   const valid = refs.filter(existingOriginal);
   if (record.summarySource) {
     if (record.summarySource.evidenceVersion !== 2) return unavailable("旧摘要提炼缺少原始陈述依据，原记忆保留，核对后再使用。");
-    return verifiedOriginals.length ? { usable: true, reason: "已逐字核对原始陈述及固定版本", verifiedSourceIds: [...new Set(verifiedOriginals.map(ref => ref.sourceId))],
-      contextSources: verifiedOriginals.map(ref => ({ ref, basis: "fixed_version" as const })) }
+    const narration: PersonalMemorySourceRef[] = [];
+    for (const ref of verifiedOriginals) {
+      if (ref.sourceId.startsWith("summary-journal:")) {
+        const raw = await readSource(ref.path);
+        if (raw === null || !ref.excerpt || ref.excerpt.includes(SUMMARY_QUOTATION_OMISSION)
+          || !journalNarrationForMemory(raw).includes(ref.excerpt)) continue;
+      }
+      narration.push(ref);
+    }
+    return narration.length ? { usable: true, reason: "已逐字核对原始陈述及固定版本", verifiedSourceIds: [...new Set(narration.map(ref => ref.sourceId))],
+      contextSources: narration.map(ref => ({ ref, basis: "fixed_version" as const })) }
       : unavailable("自动记忆的原始陈述无法核对，原记忆保留，暂不使用。");
   }
   return valid.length ? available("原始来源存在；内容含义仍以用户确认为准", valid.map(ref => ({ ref, basis: ref.contentHash !== undefined ? "fixed_version" : "legacy_existing" })))

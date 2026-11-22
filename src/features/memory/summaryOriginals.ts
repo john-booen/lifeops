@@ -8,11 +8,25 @@ import { journalOriginalText } from "../journal/entry";
 
 export const SUMMARY_ORIGINAL_VERSION = "summary-original-v2";
 export const SUMMARY_ORIGINAL_MAX_BYTES = 32 * 1024 * 1024;
+export const SUMMARY_QUOTATION_OMISSION = "（引用段未作为本人陈述提供。）";
 export interface SummaryOriginal {
   date: string; path: string; sourceId: string; revision: string; text: string;
 }
 export interface SummaryOriginalReadCache {
   conversationRaw?: string; conversationEntries?: ReturnType<typeof summaryConversationEntries>;
+}
+
+/** Markdown quotations remain readable in the diary, but do not establish
+ * the author's own automatic personal memory, including lazy continuations. */
+export function journalNarrationForMemory(raw: string): string {
+  let quoted = false;
+  return (journalOriginalText(raw).match(/[^\r\n]*(?:\r\n|\n|\r)|[^\r\n]+$/gu) ?? []).map(line => {
+    if (!line.trim()) quoted = false;
+    else if (/^ {0,3}>/u.test(line)) quoted = true;
+    else if (/^ {0,3}(?:#{1,6}(?:[ \t]|$)|(?:[-+*]|\d{1,9}[.)])[ \t]+|`{3,}|~{3,})/u.test(line)) quoted = false;
+    else if (/^ {0,3}(?:\*(?:[ \t]*\*){2,}|-(?:[ \t]*-){2,}|_(?:[ \t]*_){2,})[ \t]*(?:\r\n|\n|\r)?$/u.test(line)) quoted = false;
+    return quoted ? SUMMARY_QUOTATION_OMISSION + (/(?:\r\n|\n|\r)$/u.exec(line)?.[0] ?? "") : line;
+  }).join("");
 }
 export function isSummaryConversationOriginalRef(ref: PersonalMemorySourceRef, store: StoreHost): boolean {
   const date = ref.sourceId.match(/^summary-conversation:(\d{4}-\d{2}-\d{2}):[a-f0-9]{64}$/u)?.[1];

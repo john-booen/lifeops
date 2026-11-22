@@ -113,7 +113,8 @@ async function executeVaultQueryCore(store:StoreHost,input:VaultQuery,reader:Vau
     if (requestedPath) throw new Error("个人记忆不支持 path 文件读取；请用 query 查询已确认记忆。");
     // Existing authority and source-assessment rules remain in the memory store.
     const content = await store.buildPersonalMemoryContext(query);
-    const prepared=content.trim() ? `## Confirmed Personal Memory\n\n${truncate(content, maxChars)}` : "当前没有已确认的个人记忆。";
+    const prepared=content.trim() ? `## Confirmed Personal Memory\n\n${truncate(content, maxChars)}`
+      : "本次未找到可用于回答的个人记忆。这只说明当前可用范围，不能据此认定保留的旧记录已被删除或不存在。";
     await reader.contributeMemory(query,prepared);
     return prepared;
   }

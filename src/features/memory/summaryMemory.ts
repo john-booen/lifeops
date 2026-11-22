@@ -10,9 +10,8 @@ import { readSummary, readSummaryScope } from "../summaries/notes";
 import { summaryPeriod } from "../summaries/periods";
 import type { MemoryHost } from "./service";
 import { readScopedMarkdown } from "../../dataFoundation/markdownSources";
-import { journalOriginalText } from "../journal/entry";
 import { SUMMARY_ORIGINAL_MAX_BYTES, SUMMARY_ORIGINAL_VERSION, summaryConversationEntries, summaryConversationLogPath,
-  summaryJournalDate, summaryOriginalPathAllowed, type SummaryOriginal } from "./summaryOriginals";
+  summaryJournalDate, summaryOriginalPathAllowed, journalNarrationForMemory, SUMMARY_QUOTATION_OMISSION, type SummaryOriginal } from "./summaryOriginals";
 
 interface SummaryMemorySource { date: string; path: string; revision: string; text: string; originals: SummaryOriginal[] }
 const kinds = ["core_profile", "user_rule", "current_state"] as const;
@@ -39,7 +38,8 @@ function parseSummaryMemories(raw: string, sources: SummaryMemorySource[], now: 
   return result.items.flatMap(item => {
     const source = sources.find(candidate => candidate.date === item?.date);
     const quote = typeof item?.quote === "string" ? item.quote.trim() : "";
-    if (!source || !quote || quote.length > 150 || quote.includes(MEMORY_CONTEXT_OMISSION) || !kinds.includes(item.kind)) return [];
+    if (!source || !quote || quote.length > 150 || quote.includes(MEMORY_CONTEXT_OMISSION)
+      || quote.includes(SUMMARY_QUOTATION_OMISSION) || !kinds.includes(item.kind)) return [];
     const originals = source.originals.filter(original => original.text.includes(quote));
     if (!originals.length) return [];
     const input: PersonalMemoryInput = {
@@ -108,7 +108,7 @@ export async function extractWeeklyMemories(host: MemoryHost, store: StoreHost, 
       const originals: SummaryOriginal[] = [];
       for (const file of journalFiles().slice(-28).filter(file => summaryJournalDate(store, file.path) === date)) {
         if (file.stat.size > 32768) continue;
-        const raw = await readScopedMarkdown(store, file.path, 32768), text = protectOriginal(journalOriginalText(raw));
+        const raw = await readScopedMarkdown(store, file.path, 32768), text = protectOriginal(journalNarrationForMemory(raw));
         if (text.trim() && text !== MEMORY_CONTEXT_OMISSION) originals.push({ date, path: file.path, sourceId: "summary-journal:" + date, revision: fileRevision(raw), text });
       }
       const conversationPath = store.path(store.settings.folders.aiReports, "Conversations", date + ".md");

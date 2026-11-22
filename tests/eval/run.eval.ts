@@ -171,6 +171,9 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
   if (question.fixture === "bound_memory_restatement") {
     await (await import("./summaryMemoryFixture")).prepareBoundMemoryRestatementFixture(store as unknown as StoreHost);
   }
+  if (question.fixture === "quoted_diary_memory") {
+    await (await import("./summaryMemoryFixture")).prepareQuotedDiaryMemoryFixture(store as unknown as StoreHost);
+  }
   if (question.fixture === "device_sleep") {
     await store.appendHealthEntry({ date: "2026-11-10", sleepHours: 7.25 });
     await store.appendHealthEntry({ date: "2026-11-12", sleepHours: 8.25 });
@@ -318,7 +321,7 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
   }
   const totalMs = Math.round(performance.now() - started);
   const after = await snapshot(activeRoot);
-  const memory = question.checks.remembered ? await readPersonalMemoryWithSources(store as unknown as StoreHost) : undefined;
+  const memory = question.checks.remembered || question.checks.notRemembered ? await readPersonalMemoryWithSources(store as unknown as StoreHost) : undefined;
   const createdTasks = after.tasks.filter((task) => !before.tasks.some((old) => old.id === task.id));
   const createdTrades = after.trades.filter(trade => !before.trades.some(old => old.id === trade.id));
   const usage = await transport.usage();

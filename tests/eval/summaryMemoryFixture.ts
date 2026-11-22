@@ -5,6 +5,7 @@ import { memorySourcePolicy } from "../../src/personalMemorySources";
 import { fileRevision } from "../../src/operationIdentity";
 import { readSummaryScope, renderSummary, summaryPath } from "../../src/features/summaries/notes";
 import { summaryPeriod } from "../../src/features/summaries/periods";
+import { journalOriginalBlock } from "../../src/features/journal/entry";
 
 export const originalPreference = "我长期习惯用两列对照表比较虚构检索方案。";
 export const inventedPreference = "我长期习惯只听单一结论，不看方案对照。";
@@ -50,4 +51,22 @@ export async function prepareBoundMemoryRestatementFixture(store: StoreHost): Pr
   const document = await store.readPersonalMemories();
   await store.writePersonalMemories({ ...document, records: [record] });
   await store.writeFile(original.path, raw + "\n虚构旧原文后来补写过，旧记忆须暂停使用。\n");
+}
+
+/** A legacy automatic record matches bytes that were explicitly a quotation. */
+export async function prepareQuotedDiaryMemoryFixture(store:StoreHost):Promise<void>{
+  await prepareSummaryMemoryFixture(store);
+  const date="2026-11-03",now="2026-11-09T01:00:00.000Z";
+  const original=store.app.vault.getMarkdownFiles().find(file=>journalDateFromPath(file.path,store.settings.folders.dailyRoot)===date);
+  if(!original)throw Error("虚构引用日记缺失。");
+  const raw="# 虚构日记\n\n## 原话\n\n"+journalOriginalBlock("以下是引用别人的说法：\n> "+originalPreference+"\n\n我没有采纳这条规则。")+"\n";
+  await store.writeFile(original.path,raw);
+  const summary=summaryPath(store,summaryPeriod("day",date));
+  const record={...createPersonalMemory({kind:"user_rule",content:originalPreference,sourceRefs:[{
+    sourceId:"summary-journal:"+date,path:original.path,capturedAt:now,observedDate:date,contentHash:fileRevision(raw),
+    extractionVersion:"summary-original-v2",excerpt:originalPreference,excerptHash:fileRevision(originalPreference)
+  },{sourceId:"summary:"+date,path:summary,capturedAt:now,contentHash:fileRevision(await store.readPath(summary)),extractionVersion:"summary-v1"}]},now),
+    status:"active" as const,summarySource:{settingsRevision:memorySourcePolicy(store),evidenceVersion:2 as const}};
+  const document=await store.readPersonalMemories();
+  await store.writePersonalMemories({...document,records:[record],summaryMemoryWeek:"2026-W45",summaryMemoryEvidenceVersion:2});
 }

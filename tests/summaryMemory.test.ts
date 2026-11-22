@@ -117,6 +117,73 @@ it("extracts an original quote even when the model summary paraphrases it", asyn
   expect(selectPersonalMemories((await readPersonalMemoryWithSources(store)).records, "虚构检索", 8, monday)).toMatchObject([{ content: known }]);
 });
 
+it.each([
+  `以下是引用的别人的规则，不是我的偏好：\n> ${known}\n\n我自己的安排尚未确定。`,
+  `以下只是别人的说法：\n> 开始引用\n${known}\n\n我没有采纳这条规则。`
+])("does not activate a quoted diary statement as the author's personal rule",async original=>{
+  await seedSummary(original);await extractWeeklyMemories(host,store,monday);
+  expect(selectPersonalMemories((await readPersonalMemoryWithSources(store)).records,"虚构检索",8,monday)).toEqual([]);
+});
+
+it.each([
+  `${known}\n> 别人偏好只看单项结论。`,
+  `> 别人偏好只看单项结论。\n引用继续行。\n\n${known}`,
+  `> 别人偏好只看单项结论。\n## 本人的记录\n${known}`,
+  `> 别人偏好只看单项结论。\n***\n${known}`
+])("still saves the author's statement outside a diary quotation",async original=>{
+  await seedSummary(original);const before=await vault.bytes(originalPath());
+  await extractWeeklyMemories(host,store,monday);
+  expect(selectPersonalMemories((await readPersonalMemoryWithSources(store)).records,"虚构检索",8,monday)).toMatchObject([{content:known}]);
+  expect(await vault.bytes(originalPath())).toBe(before);
+  expect(ask.mock.calls[0][0][1].content).not.toContain("别人偏好只看单项结论");
+});
+
+it("preserves the literal line endings of an unquoted multiline statement",async()=>{
+  const own=known.replace("比较","比较\r\n");
+  const raw=`> 别人的虚构规则。\r\n\r\n${own}`;
+  await seedSummary(raw);ask.mockImplementationOnce(async(_messages,options)=>{
+    await options.beforeTextRequest?.();return JSON.stringify({items:[{date:summaryDate,kind:"user_rule",quote:own}]});
+  });
+  await extractWeeklyMemories(host,store,monday);
+  expect(selectPersonalMemories((await readPersonalMemoryWithSources(store)).records,"虚构检索",8,monday)).toMatchObject([{content:own.replace(/\s+/gu," ")}]);
+  expect(await vault.bytes(originalPath())).toBe(raw);
+});
+
+async function seedQuotedAutomaticMemory(){
+  const original=`引用的规则：\n> ${known}\n\n这不是我的偏好。`;
+  const summary=await seedSummary(original);
+  const record={...createPersonalMemory({kind:"user_rule",content:known,sourceRefs:[{
+    sourceId:"summary-journal:"+summaryDate,path:originalPath(),capturedAt:monday.toISOString(),observedDate:summaryDate,
+    contentHash:fileRevision(original),extractionVersion:"summary-original-v2",excerpt:known,excerptHash:fileRevision(known)
+  },{sourceId:"summary:"+summaryDate,path:summary.path,capturedAt:monday.toISOString(),
+    contentHash:fileRevision(summary.raw),extractionVersion:"summary-v1"}]},monday.toISOString()),status:"active" as const,summarySource:{settingsRevision:memorySourcePolicy(store),evidenceVersion:2 as const}};
+  await vault.seed(store.personalMemoryPath(),JSON.stringify({...emptyPersonalMemoryDocument(),records:[record]}));
+  return record;
+}
+
+it("retains a previously saved quoted automatic memory but pauses its unsupported personal attribution",async()=>{
+  const record=await seedQuotedAutomaticMemory();
+  const before=await vault.bytes(store.personalMemoryPath());
+  const assessed=await readPersonalMemoryWithSources(store);
+  expect(selectPersonalMemories(assessed.records,"虚构检索",8,monday)).toEqual([]);
+  expect(assessed.records[0].id).toBe(record.id);expect(assessed.records[0].content).toBe(known);
+  const queried=await runtime.executeAiToolCall({id:"quoted-query",name:"query_vault",arguments:{domain:"memory",operation:"search",query:"虚构检索"}},"kimi");
+  expect(queried.success,queried.output).toBe(true);expect(queried.output).not.toContain(known);
+  expect(await vault.bytes(store.personalMemoryPath())).toBe(before);
+});
+
+it("keeps a real confirmation of an adopted quoted rule usable without weakening original version checks",async()=>{
+  const record=await seedQuotedAutomaticMemory();
+  const before=await vault.bytes(originalPath());
+  const prepared=await runtime.executeAiToolCall({id:"adopt-quoted-rule",name:"review_personal_memory",arguments:{memoryId:record.id,decision:"confirm"}},"kimi");
+  expect(prepared.success,prepared.output).toBe(true);expect(prepared.actions).toHaveLength(1);
+  expect(await runConfirmedToolAction(prepared.actions[0],{store,refreshViews:async()=>{}})).toBe(true);
+  expect(selectPersonalMemories((await readPersonalMemoryWithSources(store)).records,"虚构检索",8,monday)).toMatchObject([{content:known}]);
+  expect(await vault.bytes(originalPath())).toBe(before);
+  await store.writeFile(originalPath(),before+"\n虚构来源后来更新。\n");
+  expect(selectPersonalMemories((await readPersonalMemoryWithSources(store)).records,"虚构检索",8,monday)).toEqual([]);
+});
+
 it.each([false, true])("lets the user explicitly restate a grounded automatic memory and undo it (old original changed: %s)", async changed => {
   await seedSummary(); await extractWeeklyMemories(host, store, monday);
   const old = (await store.readPersonalMemories()).records[0];
