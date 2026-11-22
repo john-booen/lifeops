@@ -65,6 +65,8 @@ it("replaces leaked tool protocol with one text-only answer using the originals 
   expect(result.toolCalls).toEqual([{ name: "query_vault", ok: true }]);
   expect(await store.readPath(store.taskDbPath())).toBe(before);
   expect(requests).toHaveLength(3); expect(catalogs.at(-1)).toEqual([]); expect(toolChoices.at(-1)).toBe("none");
+  expect(roles.at(-1)).toBe("deep");
+  expect(requests.at(-1)?.some(message => message.role === "tool" || message.tool_calls?.length)).toBe(false);
   expect(JSON.stringify(requests.at(-1))).toContain("虚构纸样整理原话");
   expect(JSON.stringify(requests.at(-1))).not.toContain("DSML");
 });

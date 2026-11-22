@@ -749,7 +749,7 @@ export class AgentLoop {
       this.host.assertReadOnlyReplyCurrent?.();
     };
     current();
-    const repaired = await this.callModel(input, state, role, toolProtocolRepairMessages(messages), [], true, false);
+    const repaired = await this.callModel(input, state, "deep", toolProtocolRepairMessages(messages), [], true, false);
     current();
     const answer = repaired.toolCalls.length ? unavailableToolProtocol(repaired) : repaired;
     emit(answer.content);

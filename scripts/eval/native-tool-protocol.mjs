@@ -28,6 +28,7 @@ export async function nativeToolProtocol(page, result) {
         return { content, toolCalls: [] };
       }
       if (calls !== 3) throw Error("Protocol repair exceeded one request");
+      if (_messages.some(message => message.role === "tool" || message.tool_calls?.length)) throw Error("Text-only reasoning repair retained incompatible native tool frames");
       repairTools = options?.tools?.length ?? 0; repairChoice = options?.toolChoice;
       return { content: "1月2日的原话是“虚构蓝纸尚未贴好”。这是未完成的记录。", toolCalls: [] };
     };
