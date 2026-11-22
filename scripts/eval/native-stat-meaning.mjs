@@ -10,6 +10,17 @@ export async function nativeStatMeaning(page, result) {
     try {
       await p.store.updateTask(task.id, row => ({ ...row, createdAt: "2026-01-06T08:00:00+08:00",
         status: "completed", completedAt: "2026-01-07T17:00:00+08:00" }));
+      // Native Vault events can outlive the seed write. Query the settled
+      // fixture; an in-flight source refresh must still reject unsafe reads.
+      await new Promise(resolve => setTimeout(resolve, 0));
+      const deadline = Date.now() + 15000;
+      while (true) {
+        const state = globalThis[Symbol.for("lifeops.fact-operation-state.v1")];
+        if (!p.sourceChangeTimers?.size && !p.dataFoundationBootstrap
+          && !state?.locks?.has(app.vault) && !state?.activeWrites?.has(app.vault)) break;
+        if (Date.now() >= deadline) throw Error("Native statistic fixture source refresh did not settle");
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
       const bytes = await p.store.readPath(p.store.taskDbPath()), runtime = p.createAgentRuntime();
       const stats = await runtime.executeAiToolCall({ id: "fictional-native-interval-stats", name: "get_stats",
         arguments: { domain: "tasks", range: { from: "2026-01-05", to: "2026-01-11" }, groupBy: "day" } }, "kimi");
