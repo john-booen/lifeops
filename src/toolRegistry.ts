@@ -103,7 +103,10 @@ export interface LifeOpsToolDefinition extends AiToolDefinition {
   ) => Promise<ToolExecutionResult>;
 }
 
-const memoryFileNames = ["个人画像.md", "当前状态.md", "长期目标.md", "管家规则.md", "交易纪律.md"];
+const memoryCategories: Record<string, string> = {
+  profile: "个人画像.md", state: "当前状态.md", goals: "长期目标.md", rules: "管家规则.md", trading_rules: "交易纪律.md"
+};
+const memoryFileNames = Object.values(memoryCategories);
 
 export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
   { ...TASK_BATCH_TOOL, safety: "direct-write",
@@ -128,13 +131,13 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
   PROJECT_WORK_PLAN_TOOL,
   {
     name: "append_memory_note",
-    description: "用户明确说记住时，用 content 保存原话，可撤销。时间相同、事项不同也要保存。稳定事实、计划或偏好可自动保存。引用、猜测、临时情绪或拒绝保存的内容不记。明确纠正用审查工具。",
+    description: "用户明确说记住时，用 content 保存原话，可撤销。保存到结构化个人记忆，可在「关于我」的个人记忆中查看；category 是分类，不创建同名文件。时间相同、事项不同也要保存。稳定事实、计划或偏好可自动保存。引用、猜测、临时情绪或拒绝保存的内容不记。明确纠正用审查工具。",
     safety: "direct-write",
     parameters: {
       type: "object", additionalProperties: false,
       properties: {
         content: { type: "string" },
-        fileName: { type: "string", enum: memoryFileNames, description: "可省略，默认当前状态.md。" },
+        category: { type: "string", enum: Object.keys(memoryCategories), description: "profile 个人画像；state 当前状态（默认）；goals 长期目标；rules 管家规则；trading_rules 交易纪律。" },
         explicit: { type: "boolean", description: "本轮用户直接要求记住才填 true，自动保存时省略。" }
       },
       required: ["content"]
@@ -143,8 +146,13 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
       if (args.explicit !== undefined && typeof args.explicit !== "boolean") return toolError("记忆参数无效，未保存。");
       const content = toolArgString(args, "content");
       if (!content) return toolError("记忆内容不能为空。");
-      const fileName = toolArgString(args, "fileName") || "当前状态.md";
-      if (!isAllowedMemoryFile(fileName)) return toolError("记忆文件名不支持。自动保存时可以只提供内容。");
+      if (args.category !== undefined && (typeof args.category !== "string" || !Object.hasOwn(memoryCategories, args.category))) return toolError("记忆分类无效，未保存。");
+      // Older conversations and first-party callers may still supply fileName.
+      // It remains a category key, never a destination file path.
+      if (args.fileName !== undefined && (typeof args.fileName !== "string" || !isAllowedMemoryFile(args.fileName))) return toolError("记忆分类无效，未保存。");
+      const categoryFile = typeof args.category === "string" ? memoryCategories[args.category] : undefined;
+      if (categoryFile && args.fileName !== undefined && categoryFile !== args.fileName) return toolError("新旧记忆分类不一致，未保存。");
+      const fileName = categoryFile || toolArgString(args, "fileName") || memoryCategories.state;
       return saveMemoryNote(content, fileName, request.operationId, context, true);
     }
   },

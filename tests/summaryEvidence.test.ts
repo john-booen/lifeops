@@ -113,6 +113,20 @@ it("keeps dated morning narration separate from event dates without changing tas
  expect(await store.readTaskDb()).toEqual(before);expect(await vault.bytes(journal("2026-11-11"))).toBe("虚构其他周原文。");
 });
 
+it.each([
+ {date:"2026-01-01",yesterday:{date:"2025-12-31",weekday:"周三"},today:{date:"2026-01-01",weekday:"周四"},tomorrow:{date:"2026-01-02",weekday:"周五"}},
+ {date:"2024-03-01",yesterday:{date:"2024-02-29",weekday:"周四"},today:{date:"2024-03-01",weekday:"周五"},tomorrow:{date:"2024-03-02",weekday:"周六"}}
+])("returns a conditional calendar reference for $date without assigning event dates or rewriting originals",async row=>{
+ const path=store.path(store.settings.folders.dailyRoot,row.date.slice(0,4),row.date.slice(5,7),row.date+"早.md");
+ const raw="虚构日记原话：昨晚整理纸样。引用旧话‘明天寄出’，尚未完成。";
+ await vault.seed(path,raw);const before=await store.readTaskDb();
+ const result=await query("fictional-calendar-reference",{level:"day",range:{from:row.date,to:row.date},includeOriginals:true});
+ expect(result.success,result.output).toBe(true);const evidence=JSON.parse(result.output).originalEvidence;
+ expect(evidence.notes[0]).toMatchObject({date:row.date,path,text:raw,calendar:{yesterday:row.yesterday,today:row.today,tomorrow:row.tomorrow}});
+ expect(evidence.notes[0].calendar.basis).toContain("原叙述时点"); expect(evidence.eventDates).toBe("未核对");
+ expect(await vault.bytes(path)).toBe(raw); expect(await store.readTaskDb()).toEqual(before);
+});
+
 it("provides calendar-day counts from actual morning and evening files without changing the originals",async()=>{
  for(let i=2;i<=15;i++)for(const suffix of ["早","晚"])await vault.seed(journal("2026-11-"+String(i).padStart(2,"0"),suffix),
    i===4||i===11?"虚构纸样归档：连续25分钟。":"虚构其他主题。");

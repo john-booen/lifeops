@@ -16,6 +16,9 @@ export async function nativeSummaryOriginalMemory(page, result) {
     await p.store.writeFile(earlierPath, "虚构跨年周的另一篇用户原话。");
     const weekly = await p.createAgentRuntime().executeAiToolCall({ id: "fictional-native-diary-week", name: "query_vault",
       arguments: { domain: "journal", operation: "get", range: "week", date: "2026-01-01" } }, "kimi");
+    const dated = await p.createAgentRuntime().executeAiToolCall({ id: "fictional-native-original-calendar", name: "get_summaries",
+      arguments: { level: "week", range: { from: "2026-01-01", to: "2026-01-04" }, includeOriginals: true } }, "kimi");
+    const calendar = dated.success ? JSON.parse(dated.output).originalEvidence?.notes.find(row => row.date === "2026-01-01")?.calendar : undefined;
     const grounded = await p.store.upsertPersonalMemory({ kind: "user_rule", content: original,
       sourceRefs: [{ sourceId: "summary-journal:" + date, path, capturedAt: now, observedDate: date,
         contentHash: hash(raw), extractionVersion: "summary-original-v2", excerpt: original, excerptHash: hash(original) },
@@ -37,14 +40,20 @@ export async function nativeSummaryOriginalMemory(page, result) {
     const changed = await p.store.buildPersonalMemoryContext(original);
     const current = await p.getStewardMemories();
     const restated = await p.createAgentRuntime().executeAiToolCall({ id: "fictional-native-restated-memory", name: "append_memory_note",
-      arguments: { content: original, fileName: "管家规则.md" } }, "kimi");
+      arguments: { content: original, category: "rules" } }, "kimi");
     const restatedContext = await p.store.buildPersonalMemoryContext(original);
     const restatedRecords = (await p.store.readPersonalMemories()).records;
     const fresh = restatedRecords.find(row => row.content === original && row.status === "active" && row.confirmationReceipt?.operationId === restated.receipt?.operationId);
     const archived = restatedRecords.find(row => row.id === grounded.id);
     const undidRestatement = restated.receipt ? await p.createAgentRuntime().undoOperation(restated.receipt.operationId) : false;
     const afterUndo = await p.store.buildPersonalMemoryContext(original);
-    return { original, invented, context, regenerated, changed, weekly, restated, restatedContext, undidRestatement, afterUndo,
+    const legacyCall = await p.createAgentRuntime().executeAiToolCall({ id: "fictional-native-legacy-memory-category", name: "append_memory_note",
+      arguments: { content: original, fileName: "管家规则.md" } }, "kimi");
+    const legacyRule = (await p.store.readPersonalMemories()).records.find(row => row.status === "active" && row.confirmationReceipt?.operationId === legacyCall.receipt?.operationId);
+    const legacyUndo = legacyCall.receipt ? await p.createAgentRuntime().undoOperation(legacyCall.receipt.operationId) : false;
+    return { original, invented, context, regenerated, changed, weekly, restated, restatedContext, undidRestatement, afterUndo, calendar,
+      legacyCategoryCompatible: legacyCall.success && legacyRule?.kind === "user_rule" && legacyUndo
+        && !legacyCall.output.includes(".md") && legacyCall.output.includes("分类：管家规则"),
       independentRestatement: !!fresh && fresh.id !== grounded.id && !fresh.summarySource && fresh.sourceRefs.length === 1
         && !!archived?.archivedAt && archived.status === "candidate",
       retained: current.some(row => row.id === legacy.id && row.content === invented),
@@ -61,9 +70,15 @@ export async function nativeSummaryOriginalMemory(page, result) {
   assert(observed.restated.output.includes("分类：管家规则"));
   assert(observed.independentRestatement && observed.restatedContext.includes(observed.original));
   assert(observed.undidRestatement && !observed.afterUndo.includes(observed.original));
+  assert(observed.legacyCategoryCompatible);
+  assert.deepEqual(observed.calendar?.yesterday, { date: "2025-12-31", weekday: "周三" });
+  assert.deepEqual(observed.calendar?.today, { date: "2026-01-01", weekday: "周四" });
+  assert(observed.calendar.basis.includes("原叙述时点"));
   result.checks.journalWeekReadsMultipleDatedOriginalsAcrossTheYearBoundary = true;
   result.checks.legacyAutomaticSummaryIsRetainedWithoutBecomingUserFact = true;
   result.checks.automaticMemoryUsesOriginalVersionInsteadOfModelSummary = true;
   result.checks.explicitMemoryRestatementUsesItsOwnVerifiedReceipt = true;
   result.checks.memoryRestatementUndoRestoresPausedOldEvidence = true;
+  result.checks.memoryCategorySupportsLegacyCallsWithoutInventedFiles = true;
+  result.checks.originalCalendarReferencesKeepNarrationConditionalAcrossYears = true;
 }

@@ -8,6 +8,7 @@ import { produceVaultQueryRead } from "../../vaultQueryRead";
 import { readSummary, readSummaryScope, summaryPath, summaryPathAllowed } from "./notes";
 import { resolveSummaryRange, summaryLevels, summaryPeriod, summaryPeriodsInRange, type SummaryLevel } from "./periods";
 import { evidenceCoverage } from "./evidenceCoverage";
+import { noteCalendar } from "./noteCalendar";
 import { RECORDED_DATA_SCOPE } from "../stats/definitions";
 
 /** Read historical evidence without regenerating summaries or confirming memory. */
@@ -62,7 +63,7 @@ export async function readSummaryQueryWithSources(store: StoreHost, args: Record
       const wantsDate = (date:string) => args.includeOriginals===true || query!==undefined || missingPeriods.includes(summaryPeriod(level,date).key);
       const files = journalFiles().filter(({date})=>wantsDate(date));
       const selected = files.slice(-28), limit = Math.min(1600,Math.floor(12000/Math.max(1,selected.length)));
-      const notes: Array<{date:string;path:string;text:string;truncated:boolean}> = [];
+      const notes: Array<{date:string;path:string;text:string;truncated:boolean;calendar:ReturnType<typeof noteCalendar>}> = [];
       const knownDates = new Set(files.map(row=>row.date));
       const unavailableDates = new Set<string>(), limitedDates = new Set(files.slice(0,Math.max(0,files.length-28)).map(row=>row.date));
       let unavailable = 0;
@@ -77,7 +78,7 @@ export async function readSummaryQueryWithSources(store: StoreHost, args: Record
         if (!terms.every(term=>searchable.includes(term))) continue;
         const match = terms.length ? searchable.indexOf(terms[0]) : 0;
         const start = Math.max(0,match-100);
-        const item = {date,path:file.path,text:protectedText.slice(start,start+limit),truncated:start>0||protectedText.length>limit};
+        const item = {date,path:file.path,text:protectedText.slice(start,start+limit),truncated:start>0||protectedText.length>limit,calendar:noteCalendar(date)};
         reader.contributed(file.path,JSON.stringify(item));notes.push(item);
       }
       const dated = new Set(notes.map(note=>note.date));

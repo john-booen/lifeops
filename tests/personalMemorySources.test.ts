@@ -170,6 +170,30 @@ describe("read-only personal memory source assessment", () => {
     await runtime.undoOperation(proposal.receipt!.operationId);
     expect((await readPersonalMemoryWithSources(store)).records).toEqual([]);
   });
+  it("saves a rule by category in structured personal memory and reports its actual location", async () => {
+    const runtime = new AgentRuntime({ store, refreshViews: async () => undefined });
+    const saved = await runtime.executeAiToolCall({ id: "category-rule", name: "append_memory_note",
+      arguments: { content, category: "rules", explicit: true } }, "kimi");
+    expect(saved.success, saved.output).toBe(true);
+    const record = (await readPersonalMemoryWithSources(store)).records[0];
+    expect(record.kind).toBe("user_rule"); expect(record.tags).toContain("管家规则");
+    expect(record.confirmationReceipt?.operationId).toBe(saved.receipt?.operationId);
+    expect(assessment(record).usable).toBe(true);
+    expect(saved.output).toContain("分类：管家规则"); expect(saved.output).toContain("「关于我」的个人记忆");
+    expect(saved.output).not.toContain(".md");
+    expect(vault.writes.some(write => write.path.endsWith("管家规则.md"))).toBe(false);
+    await runtime.undoOperation(saved.receipt!.operationId);
+    expect((await readPersonalMemoryWithSources(store)).records).toEqual([]);
+  });
+  it("rejects conflicting new and legacy categories without saving or reclassifying memory", async () => {
+    await seed(memory(true, true)); await seedLedger([operation(memory(true, true))]);
+    const before = await vault.bytes(store.personalMemoryPath());
+    const runtime = new AgentRuntime({ store, refreshViews: async () => undefined });
+    const saved = await runtime.executeAiToolCall({ id: "conflicting-category", name: "append_memory_note",
+      arguments: { content: "合成规则", category: "rules", fileName: "当前状态.md" } }, "kimi");
+    expect(saved.success).toBe(false); expect(saved.output).toContain("分类不一致");
+    expect(await vault.bytes(store.personalMemoryPath())).toBe(before);
+  });
   it("rolls back the receipt with the fact if final Ledger verification fails", async () => {
     const context = { store, refreshViews: async () => undefined }, runtime = new AgentRuntime(context);
     const write = store.writeJson.bind(store); let failed = false;
