@@ -93,7 +93,7 @@ function loadHost() {
   Object.assign(plugin.app.workspace, { on: vi.fn(), onLayoutReady: (callback: () => void) => layouts.push(callback) });
   Object.assign(plugin, {
     loadSettings: vi.fn(async () => {}), hardenPluginDataPermissions: vi.fn(async () => {}), injectStyles: vi.fn(async () => {}),
-    registerEvent: vi.fn(), registerView: vi.fn(), addRibbonIcon: vi.fn(), addCommand: vi.fn(), addSettingTab: vi.fn(),
+    register: vi.fn(), registerEvent: vi.fn(), registerView: vi.fn(), addRibbonIcon: vi.fn(), addCommand: vi.fn(), addSettingTab: vi.fn(),
     addStatusBarItem: vi.fn(() => ({ setText: vi.fn(), toggleClass: vi.fn() })), registerInterval: vi.fn()
   });
   return layouts;

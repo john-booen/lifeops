@@ -15,11 +15,11 @@ export async function nativeRecentUndo(page, result) {
           arguments: { title: "虚构送样品盒" + source, date: "2026-11-22", time: "15:15" } }, "kimi");
         if (!created.success) throw Error(created.output);
         const prior = (await p.store.readTaskDb()).tasks.find(task => !before.some(old => old.id === task.id));
-        const changed = await runtime.executeAiToolCall({ id: "fictional-undo-change-" + source, name: "reschedule_task",
-          arguments: { taskIdOrTitle: prior.id, time: "16:00" } }, "kimi");
-        if (!changed.success) throw Error(changed.output);
+        const changed = await p.submitAgentMessageStream("刚刚那条改成2026-11-22下午四点。", [{ role: "assistant", content: created.output, receipts: [created.receipt] }], () => {}, { source, selfTest: true });
+        if (changed.receipts.length !== 1 || (await p.store.readTaskDb()).tasks.find(t => t.id === prior.id)?.time !== "16:00") throw Error("Explicit native recent correction not committed");
         const reply = await p.submitAgentMessageStream("撤销刚才的修改。", [], () => {}, { source, selfTest: true });
-        answers.push({ source, reply: reply.reply, prior, after: (await p.store.readTaskDb()).tasks.find(task => task.id === prior.id) });
+        const repeated = await p.submitAgentMessageStream("撤销刚才的修改。", [], () => {}, { source, selfTest: true });
+        answers.push({ source, reply: reply.reply, repeated: repeated.reply, prior, after: (await p.store.readTaskDb()).tasks.find(task => task.id === prior.id) });
         await runtime.undoOperation(created.receipt.operationId);
       }
     } finally {
@@ -30,7 +30,8 @@ export async function nativeRecentUndo(page, result) {
   assert.equal(observed.calls, 0); assert.deepEqual(observed.after, observed.before);
   for (const answer of observed.answers) {
     assert(answer.reply.includes("已撤销") && answer.reply.includes(answer.prior.title), JSON.stringify(answer));
-    assert.deepEqual(answer.after, answer.prior);
+    assert.deepEqual(answer.after, answer.prior); assert(answer.repeated.includes("新建任务已保留"));
+    result.checks[answer.source === "voice" ? "nativeVoiceRecentClockAndRepeatedUndoProtectCreation" : "nativeTextRecentClockAndRepeatedUndoProtectCreation"] = true;
     result.checks[answer.source === "voice" ? "nativeVoiceRecentModificationUndoKeepsTaskAndNeedsNoModel"
       : "nativeTextRecentModificationUndoKeepsTaskAndNeedsNoModel"] = true;
   }

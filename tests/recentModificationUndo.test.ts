@@ -51,3 +51,25 @@ it.each(["不要撤销刚才的修改。", "撤销刚才的修改是什么意思
   const result = await new AgentLoop(host).run({ source: "text", message, history: [], now: new Date("2026-11-21T18:00:00+08:00") });
   expect(model).toHaveBeenCalled(); expect(result.toolCalls).toEqual([]); expect((await store.readTaskDb()).tasks).toEqual(before);
 });
+
+for (const source of ["text", "voice"] as const) {
+  it.each(["刚刚那条改成明天下午四点。", "不对，刚才那条改到下午四点。"])(`uses the attested task for an explicit correction then protects its creation on repeated undo in ${source}: %s`, async message => {
+    const made = await runtime.executeAiToolCall({ id: "local-original", name: "create_task", arguments: { title: "虚构蓝色样品盒", date: "2026-11-22", time: "15:15" } }, "kimi");
+    const prior = (await store.readTaskDb()).tasks[0];
+    const history = [{ role: "assistant" as const, content: made.output, receipts: [made.receipt!] }];
+    const loop = new AgentLoop(host), now = new Date("2026-11-21T18:00:00+08:00");
+    const change = await loop.run({ source, message, history, now });
+    expect(change.receipts).toHaveLength(1); expect(change.toolCalls).toEqual([{ name: "reschedule_task", ok: true }]);
+    expect((await store.readTaskDb()).tasks[0]).toMatchObject({ id: prior.id, title: prior.title, date: prior.date, time: "16:00" });
+    await loop.run({ source, message: "撤销刚才的修改。", history: [], now });
+    expect((await store.readTaskDb()).tasks).toEqual([prior]);
+    const repeat = await loop.run({ source, message: "撤销刚才的修改。", history: [], now });
+    expect(repeat.text).toContain("新建任务已保留"); expect((await store.readTaskDb()).tasks).toEqual([prior]);
+    expect(model).not.toHaveBeenCalled();
+  });
+}
+it("still permits an explicit plain undo of a creation", async () => {
+  await runtime.executeAiToolCall({ id: "ordinary-create", name: "create_task", arguments: { title: "虚构新建待办" } }, "kimi");
+  const result = await new AgentLoop(host).run({ source: "text", message: "撤销", history: [], now: new Date("2026-11-21T18:00:00+08:00") });
+  expect(result.text).toContain("已撤销"); expect((await store.readTaskDb()).tasks).toEqual([]);
+});

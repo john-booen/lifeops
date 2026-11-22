@@ -31,7 +31,7 @@ import { expandMixedTaskBatch } from "./mixedTaskBatch";
 import { requestedSummaryTopics } from "./summaryTopicQuery";
 import { requestedSummaryDates } from "./summaryDateRange";
 import { recurringScheduleAnswer } from "./recurringSchedule";
-import { previousSavedTask, unverifiedTaskTimeChanges, type SavedTaskReference } from "./taskTimeCorrection";
+import { explicitRecentTaskTimeChange, previousSavedTask, unverifiedTaskTimeChanges, type SavedTaskReference } from "./taskTimeCorrection";
 import { explicitRunningCheckin, explicitSingleTimedTask } from "./offlineFallback";
 import { memorySourcePolicy } from "../personalMemorySources";
 import { agentModelRole, settingsForAgentModel, type AgentModelRole } from "./models";
@@ -299,6 +299,13 @@ export class AgentLoop {
       if (fastVoice || !input.voiceBackground && input.source === "text") {
         state.previousTask = await previousSavedTask(this.host.store, input.history);
         assertPolicy();
+        const correction = explicitRecentTaskTimeChange(input.message, formatDate(input.now), state.previousTask);
+        if (correction) {
+          const calls = this.scopedCalls([{ name: "reschedule_task", arguments: correction }], state.id, 0);
+          const [result] = await this.executeRegular(input, state, calls);
+          assertProviderActive(input.signal); assertPolicy();
+          return this.localAnswer(input, state, result?.output || "这次改时未保存，原任务保留。");
+        }
       }
       const history = agentHistoryMessages(input.history, this.host.store, context.memories);
       const messages: ChatMessage[] = [

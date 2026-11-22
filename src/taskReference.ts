@@ -54,3 +54,7 @@ export function isCopiedTaskTitleReference(title: string, userMessage = ""): boo
     // Full noun phrases only: an activity such as "标注照片里的数字" must pass.
     || /^(?:(?:这|那)(?:个|句|段|条|份|张)?|(?:刚才|之前|上述|前述)(?:提到|说过|提供)?的?|(?:纯)?虚构|测试)?(?:口令|暗号|句子|语句|设定|对话|消息|文本|原文|笔记|便签|备注|表格|报表|照片)(?:里|中|内)(?:面)?的?(?:数字|编号|号码|名称|名字)$/u.test(title);
 }
+
+export function isRecentModificationUndo(message: string): boolean {
+  return /^撤销(?:刚才|刚刚)的修改[。！!]?$/u.test(message.trim());
+}

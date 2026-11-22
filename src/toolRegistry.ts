@@ -3,7 +3,7 @@ import { saveMemoryNote } from "./memoryNoteWrite";
 import { activityNotePath } from "./activityRecords";
 import { linkedNoteName } from "./linkedNoteSettings";
 import { journalDraftContent, journalOriginalBlock } from "./features/journal/entry";
-import { explicitReminderClock, explicitScheduledTaskTitle, isCopiedTaskTitleReference, isTaskIdentifierReference, taskNamedInRequest } from "./taskReference";
+import { isRecentModificationUndo, explicitReminderClock, explicitScheduledTaskTitle, isCopiedTaskTitleReference, isTaskIdentifierReference, taskNamedInRequest } from "./taskReference";
 import type { AiToolDefinition } from "./ai";
 import { assertSafeOperationId, fileRevision, MAX_CONFIRMATION_ACTION_ID_LENGTH, recordRevision } from "./operationIdentity";
 import { OperationLedger, type OperationUndoDescriptor, type OperationResultSnapshot, type OperationLedgerRecord } from "./dataFoundation/operationLedger";
@@ -741,7 +741,7 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
         requirePriorQuery: { type: "boolean", description: "仅本轮明确要求先查资料再撤销时传 true。单说撤销、撤销刚才那个一律省略。" }
       }
     },
-    execute: async (args, context) => {
+    execute: async (args, context, request) => {
       if ((args.taskTitle !== undefined && (typeof args.taskTitle !== "string" || !args.taskTitle.trim()))
         || (args.creationOnly !== undefined && typeof args.creationOnly !== "boolean")
         || (args.memoryOnly !== undefined && typeof args.memoryOnly !== "boolean")
@@ -752,6 +752,9 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
       if (!record) return toolError(args.memoryOnly === true ? "没有找到刚才保存的记忆。" : "没找到能确定的刚才那一项，请说具体要撤哪一条。");
       const execution = undoExecutions.get(context), title = execution?.taskTitle;
       const isTaskCreation = ["create_task", "local_createTask", "schedule_task_batch"].includes(record.toolName);
+      if (isTaskCreation && isRecentModificationUndo(request?.userMessage ?? "")) {
+        return toolError("最近没有可核对的任务修改；原来的新建任务已保留，没有撤销创建。");
+      }
       const task = typeof context.store.taskDbPath === "function"
         ? isTaskCreation ? createdTaskForUndo(record, context.store.taskDbPath()) : taskSavedByReceipt(record, context.store.taskDbPath()) : undefined;
       if ((title !== undefined || execution?.taskCreationOnly) && !isTaskCreation
