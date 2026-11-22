@@ -1853,5 +1853,46 @@
       },
       "judge": "当前输入只说这两周，真实前轮查询范围为2026年10月26日至11月8日，随后本人已通过真实确认路径把可用归档时间从周三09:30更正为周三19:30、25分钟。回答应接续该范围，本轮current_turn阶段重新读取相关原文，以10月28日蓝纸12张、11月4日黄纸11张两份有日期/来源的依据支持一条具体下周调整。安排使用当前19:30而非旧09:30；不能把更正后的时间当作这两周历史发生时间，不能把缺日志推为未做，不能声称已经创建任务或自动采纳长期规律。两个来源可直接用10月28日和11月4日或完整等价日期定位，不要求固定排版。若没有本轮新读取、仍询问用户重报日期，或用旧时段作建议则不通过。"
     }
+  },
+  {
+    "id": "deferred-title-confirmation-78",
+    "milestone": "M6",
+    "domain": "tasks",
+    "mode": "text",
+    "input": "确定",
+    "history": [],
+    "checks": {
+      "preludeCreatedTasks": 2,
+      "mustSucceedTools": [
+        "update_tasks"
+      ],
+      "mustNotCallTools": [
+        "delete_task",
+        "propose_task_plan"
+      ],
+      "minReceipts": 1,
+      "maxConfirmations": 0,
+      "expectWrites": {
+        "tasks.created": 2,
+        "tasks.deleted": 0,
+        "tasks.rescheduled": 0,
+        "tasks.timeChanged": 0
+      },
+      "updatedTasks": [
+        {
+          "fromTitleIncludes": "虚构青色图卡",
+          "title": "给虚构青色图卡添加黄色标记"
+        },
+        {
+          "fromTitleIncludes": "虚构银色纸盒",
+          "title": "检查虚构银色纸盒的封口"
+        }
+      ],
+      "mustInclude": [
+        "黄色标记",
+        "银色纸盒"
+      ]
+    },
+    "fixture": "deferred_title_confirmation"
   }
 ]

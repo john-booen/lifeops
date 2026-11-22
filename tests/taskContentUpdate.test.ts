@@ -227,9 +227,9 @@ async function run(calls: AiToolCall[], message: string, history: Parameters<Ins
   return { result, model };
 }
 
-async function pendingTitleHistory(proven = true, different = false): Promise<AgentConversationMessage[]> {
+async function pendingTitleHistory(proven = true, different = false, tail = "其他安排都保留。"): Promise<AgentConversationMessage[]> {
  const history: AgentConversationMessage[] = [
-  { role: "user", content: '把「虚构旧纸样0」改为「虚构新纸样甲」，把「虚构旧纸样1」改为「虚构新纸样乙」。其他安排都保留。' },
+  { role: "user", content: '把「虚构旧纸样0」改为「虚构新纸样甲」，把「虚构旧纸样1」改为「虚构新纸样乙」。' + tail },
   { role: "assistant", content: different ? "请确认其他事项。" : "虚构旧纸样0改为虚构新纸样甲，虚构旧纸样1改为虚构新纸样乙。请确认后我再改。" }
  ];
  if (proven) {
@@ -250,6 +250,35 @@ it("retains the adjacent proven two-name confirmation even if the model only loo
  for (const [i, row] of before.entries()) expect(after.find(task => task.id === row.id)).toMatchObject({
   title: i ? "虚构新纸样乙" : "虚构新纸样甲", date: row.date, startTime: row.startTime, endTime: row.endTime
  });
+});
+
+it.each(["先给我确认卡，等我确认。", "确认后再修改。", "先让我确认，再改这两条标题。"])("resumes the exact two title edits after a deferred request: %s", async tail => {
+ const before = await seed(), history = await pendingTitleHistory(true, false, tail);
+ expect(await explicitTitleEdits(store, history[0].content)).toBeUndefined();
+ expect((await store.readTaskDb()).tasks).toEqual(before);
+ const { result } = await run([{ name: "list_tasks", arguments: { date: "2066-01-09", query: "纸样", directReply: true } }], "确定", history);
+ expect(result.confirmations).toEqual([]);
+ expect(result.receipts.flatMap(receipt => receipt.taskEdits ?? [])).toHaveLength(2);
+ const after = (await store.readTaskDb()).tasks;
+ for (const [i, row] of before.entries()) expect(after.find(task => task.id === row.id)).toMatchObject({
+  title: i ? "虚构新纸样乙" : "虚构新纸样甲", date: row.date, startTime: row.startTime, endTime: row.endTime, note: row.note
+ });
+});
+
+it.each(["如果合适才改，等我确认。", "这只是举例，等我确认。", "请只讨论，不保存，等我确认。", "不要修改，等我确认。", "这句话英文怎么说？等我确认。"])("does not turn a later confirmation into authority for a non-action request: %s", async tail => {
+ const before = await seed(), history = await pendingTitleHistory(true, false, tail);
+ const { result } = await run([{ name: "list_tasks", arguments: { date: "2066-01-09", directReply: true } }], "确定", history);
+ expect(result.receipts).toEqual([]);
+ expect((await store.readTaskDb()).tasks).toEqual(before);
+});
+
+it.each(["unproven", "changed", "policy", "other-proposal"])("does not resume a deferred title request from a %s history pair", async kind => {
+ const before = await seed(), history = await pendingTitleHistory(kind !== "unproven", kind === "other-proposal", "先给我确认卡，等我确认。");
+ if (kind === "changed") history[1].content += "请确认。";
+ if (kind === "policy") store.settings.privacy!.excludedVaultPrefixes = ["虚构另一个排除目录"];
+ const { result } = await run([{ name: "list_tasks", arguments: { date: "2066-01-09", directReply: true } }], "确定", history);
+ expect(result.receipts).toEqual([]);
+ expect((await store.readTaskDb()).tasks).toEqual(before);
 });
 
 it.each(["unproven", "changed", "policy", "other-proposal"])("does not borrow a %s history pair as confirmation authority", async kind => {

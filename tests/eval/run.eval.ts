@@ -295,6 +295,9 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
     if (question.fixture === "historical_followup_correction") {
       history.push(...await (await import("./historicalFollowupFixture")).historicalFollowupFixture(plugin, store as unknown as StoreHost));
     }
+    if (question.fixture === "deferred_title_confirmation") {
+      history.push(...await (await import("./deferredTitleConfirmationFixture")).deferredTitleConfirmationFixture(plugin, store as unknown as StoreHost));
+    }
     for (const message of question.prelude ?? []) {
       const result = await plugin.submitAgentMessageStream(message, history, () => {}, { source: "text" });
       history.push({ role: "user", content: message }, { role: "assistant", content: result.reply, receipts: result.receipts });

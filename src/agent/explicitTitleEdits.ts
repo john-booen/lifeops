@@ -12,13 +12,17 @@ export async function confirmedTitleEdits(store: StoreHost, message: string, his
   if (!isLiteralTaskConfirmation(message)) return;
   const user = history.at(-2), assistant = history.at(-1);
   if (!isCurrentAgentHistoryPair(user, assistant, store, memories) || !assistant!.content.includes("确认")) return;
-  const edits = await explicitTitleEdits(store, user!.content);
+  const edits = await readTitleEdits(store, user!.content, true);
   if (!edits?.length || edits.length > 3 || !edits.every(edit => assistant!.content.includes(edit.before) && assistant!.content.includes(edit.title))) return;
   return edits;
 }
 /** Only a leading, explicit quoted old→new instruction supplies exact content.
  * Discussion, conditional requests, and ambiguous task names keep the normal route. */
 export async function explicitTitleEdits(store:StoreHost,message:string):Promise<TitleEdit[]|undefined> {
+  return readTitleEdits(store, message, false);
+}
+
+async function readTitleEdits(store:StoreHost,message:string,confirmed:boolean):Promise<TitleEdit[]|undefined> {
   const pair=/^(?:(?:请|帮我|请帮我)\s*)?把(?:刚才的|之前的|原来的|任务)?\s*[「“"]([^「」“”"\r\n]{1,1000})[」”"]\s*(?:的标题|的名称|标题|名称)?\s*(?:改为|改成|重命名为|更名为)\s*[「“"]([^「」“”"\r\n]{1,1000})[」”"]/u;
   const edits:Array<{before:string;title:string}>=[];
   let tail=message.trim(),outside="";
@@ -29,9 +33,10 @@ export async function explicitTitleEdits(store:StoreHost,message:string):Promise
     if(edits.length>20)return;
   }
   if(!edits.length)return;
-  // Do not interpret a hypothetical, a request to wait, or quoted examples as a save.
+  // A proven adjacent confirmation resolves only the wait; discussion and refusal still do not authorize a save.
   outside=tail.replace(/[「“"][^「」“”"]*[」”"]/gu,"");
-  if(/如果|假如|举例|例子|只讨论|不(?:要)?(?:执行|修改|改名|保存)|先别|暂不|等我确认|确认后|先.{0,4}确认|是否|会怎样|是什么|翻译|怎么说|什么意思|台词|[?？]/u.test(outside)
+  if(/如果|假如|举例|例子|只讨论|不(?:要)?(?:执行|修改|改名|保存)|先别|暂不|是否|会怎样|是什么|翻译|怎么说|什么意思|台词|[?？]/u.test(outside)
+    || (!confirmed && /等我确认|确认后|先.{0,4}确认/u.test(outside))
     || /把[\s\S]*?(?:改为|改成|重命名为|更名为)/u.test(outside))return;
   const data=await readContextTasks(store);if(!data.available)return;
   const result:TitleEdit[]=[],seen=new Set<string>();
