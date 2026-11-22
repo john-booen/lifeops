@@ -19,6 +19,7 @@ export async function nativeSummaryOriginalMemory(page, result) {
     const dated = await p.createAgentRuntime().executeAiToolCall({ id: "fictional-native-original-calendar", name: "get_summaries",
       arguments: { level: "week", range: { from: "2026-01-01", to: "2026-01-04" }, includeOriginals: true } }, "kimi");
     const calendar = dated.success ? JSON.parse(dated.output).originalEvidence?.notes.find(row => row.date === "2026-01-01")?.calendar : undefined;
+    if (!calendar) throw Error("Fictional calendar source unavailable: " + JSON.stringify({ success: dated.success, output: dated.output }));
     const grounded = await p.store.upsertPersonalMemory({ kind: "user_rule", content: original,
       sourceRefs: [{ sourceId: "summary-journal:" + date, path, capturedAt: now, observedDate: date,
         contentHash: hash(raw), extractionVersion: "summary-original-v2", excerpt: original, excerptHash: hash(original) },

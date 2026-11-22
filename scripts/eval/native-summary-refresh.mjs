@@ -54,6 +54,7 @@ export async function nativeSummaryRefresh(page, result) {
       if (ownModel) Object.defineProperty(p.ai, "agentTurnStream", ownModel); else delete p.ai.agentTurnStream;
       p.settings.privacy = privacy;
       for (const path of paths) { const file = p.store.getFile(path); if (file) await vault.delete(file); }
+      await settle();
     }
   });
   assert.deepEqual(observed.notes.map(note => note.date), observed.dates);
