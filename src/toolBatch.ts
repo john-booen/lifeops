@@ -6,6 +6,12 @@ import type { AgentActionSuggestion } from "./types";
 import { discardUnstatedTradePnl } from "./features/trading/inputs";
 
 const batchJournalOriginals = new WeakMap<AgentActionSuggestion, string>();
+const requestedPreviews = new WeakMap<AgentActionSuggestion, string>();
+
+/** Only a locally created requested preview can be sealed after its exact records are bound. */
+export function sealRequestedToolBatch(action: AgentActionSuggestion): void {
+  if (requestedPreviews.has(action)) requestedPreviews.set(action, recordRevision(action));
+}
 
 function countWrites(calls: AiToolCall[]): number {
   return calls.reduce((total, call) => total + (call.name === "update_tasks" && Array.isArray(call.arguments.updates)
@@ -13,10 +19,10 @@ function countWrites(calls: AiToolCall[]): number {
     ? Math.max(1, call.arguments.trades.length) : 1), 0);
 }
 
-export function prepareToolBatch(calls: AiToolCall[], previousWriteCount = 0, userMessage = ""): ToolCallResult | undefined {
+export function prepareToolBatch(calls: AiToolCall[], previousWriteCount = 0, userMessage = "", confirmationRequested = false): ToolCallResult | undefined {
   const writes = calls.filter(call => getLifeOpsTool(call.name)?.safety === "direct-write" && call.name !== "undo_latest_operation");
   const count = countWrites(writes), guarded = countWrites(writes.filter(call => call.name !== "create_task"));
-  if (!guarded || count + previousWriteCount <= 3) return;
+  if (!guarded || (count + previousWriteCount <= 3 && !confirmationRequested)) return;
   const total = count + previousWriteCount;
   const reviewed = writes.map(call => call.name === "record_trade" && Array.isArray(call.arguments.trades)
     ? { ...call, arguments: { ...call.arguments, trades: call.arguments.trades.map(row => discardUnstatedTradePnl(row, userMessage)) } } : call);
@@ -33,20 +39,23 @@ export function prepareToolBatch(calls: AiToolCall[], previousWriteCount = 0, us
     action.description = `本轮已保存 ${previousWriteCount} 项，剩余 ${count} 项需要确认。每项均可撤销。`;
   }
   if (journalOriginal) batchJournalOriginals.set(action, journalOriginal);
+  if (confirmationRequested) requestedPreviews.set(action, "");
   return { callId: id, success: true, output: `已准备：${count} 项修改，等待确认。`, actions: [action] };
 }
 
 export async function executeConfirmedToolBatch(action: AgentActionSuggestion, runtime: AgentRuntime, assertCurrent: () => void): Promise<string> {
+  const actionId = action.id;
   const calls = structuredClone(action.toolBatch ?? []);
   const count = countWrites(calls), total = action.batchWriteCount ?? count;
-  if (!calls.length || !Number.isSafeInteger(total) || total < count || total <= 3
+  const requested = requestedPreviews.get(action) === recordRevision(action);
+  if (!calls.length || !Number.isSafeInteger(total) || total < count || (total <= 3 && !requested)
     || calls.some(call => getLifeOpsTool(call.name)?.safety !== "direct-write" || call.name === "undo_latest_operation")) throw new Error("批量修改内容无效，请重新提出。");
   const outputs: string[] = [];
   const original = batchJournalOriginals.get(action);
   for (let i = 0; i < calls.length; i++) {
     assertCurrent();
     const result = await runtime.executeToolCall({ toolName: calls[i].name, arguments: calls[i].arguments,
-      source: "system", callId: `confirmed:${action.id}:${i}`, confirmedByUser: true,
+      source: "system", callId: `confirmed:${actionId}:${i}`, confirmedByUser: true,
       ...(calls[i].name === "append_journal_entry" ? { userMessage: original } : {}) }, { assertCurrent });
     if (!result.success) throw new Error(`已保存 ${outputs.length} 项，第 ${i + 1} 项未完成：${result.output}。已保存项可在最近操作中撤销。`);
     outputs.push(result.output);

@@ -1894,5 +1894,38 @@
       ]
     },
     "fixture": "deferred_title_confirmation"
+  },
+  {
+    "id": "requested-two-title-preview-79",
+    "milestone": "M6",
+    "domain": "tasks",
+    "mode": "text",
+    "fixture": "mixed_title_batch",
+    "input": "把「虚构混批旧纸样0」改为「虚构待确认新甲」，把「虚构混批旧纸样1」改为「虚构待确认新乙」。先给我确认卡，等我确认。",
+    "history": [],
+    "checks": {
+      "minConfirmations": 1,
+      "maxConfirmations": 1,
+      "expectWrites": {
+        "tasks.created": 0,
+        "tasks.deleted": 0,
+        "tasks.rescheduled": 0,
+        "tasks.timeChanged": 0
+      },
+      "mixedTaskOutcome": {
+        "edits": [
+          {
+            "from": "虚构混批旧纸样0",
+            "to": "虚构待确认新甲"
+          },
+          {
+            "from": "虚构混批旧纸样1",
+            "to": "虚构待确认新乙"
+          }
+        ],
+        "createdTitles": [],
+        "date": "2026-11-12"
+      }
+    }
   }
 ]

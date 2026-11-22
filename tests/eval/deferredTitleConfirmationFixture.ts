@@ -17,7 +17,10 @@ export async function deferredTitleConfirmationFixture(plugin: LifeOpsPlugin, st
   let reply;
   try { reply = await plugin.submitAgentMessageStream(question, [], () => {}, { source: "text" }); }
   finally { mock.mockRestore(); }
-  if (before !== await store.readPath(store.taskDbPath()) || reply.receipts?.length || reply.actions.length || reply.reply !== proposal) {
+  const card = reply.actions[0], updates = card?.toolBatch?.flatMap(call => Array.isArray(call.arguments.updates) ? call.arguments.updates : []) ?? [];
+  if (before !== await store.readPath(store.taskDbPath()) || reply.receipts?.length || reply.actions.length !== 1
+    || card.type !== "tool_batch" || updates.length !== 2 || !updates.every(row => typeof row.expectedRevision === "string")
+    || !reply.reply.includes("黄色标记") || !reply.reply.includes("封口") || !reply.reply.includes("尚未修改")) {
     throw Error("虚构待确认前轮发生写入或未保留完整提案。");
   }
   const history: AgentConversationMessage[] = [{ role: "user", content: question }, { role: "assistant", content: reply.reply }];

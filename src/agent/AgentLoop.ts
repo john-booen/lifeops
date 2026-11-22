@@ -22,11 +22,11 @@ import { assertProviderActive, awaitProviderActive, providerAbortCode, ProviderR
 import type { StoreHost } from "../store/settingsSlice";
 import { agentToolsForChat, getLifeOpsTool } from "../toolRegistry";
 import { taskMetricMeaning } from "../features/stats/taskMetricMeaning";
-import { prepareToolBatch } from "../toolBatch";
+import { prepareToolBatch, sealRequestedToolBatch } from "../toolBatch";
 import { bindTaskPlanConfirmation } from "../features/tasks/planConfirmation";
 import type { AgentActionSuggestion, AgentConversationMessage, AgentResponse, AgentWriteReceipt, LifeOpsSettings, ProviderRunResult } from "../types";
 import { agentHistoryMessages, buildResidentContext, clipBytes, type ResidentContext } from "./context";
-import { explicitTitleEdits,confirmedTitleEdits,completeTitleEditCalls,titleEditCall } from "./explicitTitleEdits";
+import { titleEditRequest,confirmedTitleEdits,completeTitleEditCalls,titleEditCall } from "./explicitTitleEdits";
 import { expandMixedTaskBatch } from "./mixedTaskBatch";
 import { requestedSummaryTopics } from "./summaryTopicQuery";
 import { requestedSummaryDates } from "./summaryDateRange";
@@ -106,6 +106,7 @@ interface TurnState {
   voiceUndoAllowed?: boolean;
   previousTask?: SavedTaskReference;
   taskContentCalls?: Set<string>;
+  requestedTaskConfirmation?: boolean;
   taskBatchNotes?: string[];
   statsReads?: Map<string, StatsRecoveryRead>;
   errorCode?: string;
@@ -362,7 +363,9 @@ export class AgentLoop {
         && /(?:交易系统|交易纪律)[^。！？!?]*提一条改进建议/u.test(input.message) && /(?:哪笔|哪一笔)[^。！？!?]*哪条规则/u.test(input.message);
       const asksMarketWinRates = !input.voiceBackground && /(?:各[^。！？!?]*市场|市场[^。！？!?]*分别)[^。！？!?]*胜率/u.test(input.message)
         && !/盈亏|回撤|收益率|最大亏损/u.test(input.message);
-      const exactTitleEdits=!input.voiceBackground?(await explicitTitleEdits(this.host.store,input.message)
+      const titleRequest = !input.voiceBackground ? await titleEditRequest(this.host.store, input.message) : undefined;
+      state.requestedTaskConfirmation = titleRequest?.confirmationRequested;
+      const exactTitleEdits=!input.voiceBackground?(titleRequest?.edits
         ?? await confirmedTitleEdits(this.host.store,input.message,input.history,context.memories??[])):undefined;
       let taskListAnswer: string | undefined;
       for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
@@ -439,6 +442,11 @@ export class AgentLoop {
           id: call.id!, type: "function", function: { name: call.name, arguments: JSON.stringify(call.arguments) }
         })) });
         const results = await this.executeTools(input, state, calls, context.text, availableTools);
+        const requestedPreview = state.requestedTaskConfirmation && results.find(result => result.success
+          && result.actions.some(action => action.type === "tool_batch"));
+        if (requestedPreview) return this.localAnswer(input, state, [requestedPreview.output,
+          ...requestedPreview.actions.map(action => action.content), ...results.filter(result => !result.success).map(result => result.output),
+          "确认后保存；原任务尚未修改。"].join("\n"));
         if (round === 0 && input.source === "text" && calls.length === 1
           && calls[0].name === "undo_latest_operation" && results[0]?.priorQueryUnverified
           && Object.keys(calls[0].arguments).length === 1
@@ -1035,9 +1043,10 @@ export class AgentLoop {
         : "没有核对到你要改时刻的是哪条待办。请用本轮指明的待办，或用上轮已核对回执中的任务 ID；仍不清楚就先问我。", actions: []
     }));
     for (const result of blocked) this.recordResult(input, state, calls.find(call => call.id === result.callId)!.name, result);
-    const batch = prepareToolBatch(allowed, state.writeCount, input.message);
+    const batch = prepareToolBatch(allowed, state.writeCount, input.message, state.requestedTaskConfirmation);
     if (batch) {
       await bindTaskPlanConfirmation(this.host.store, batch);
+      if (batch.success && batch.actions[0]) sealRequestedToolBatch(batch.actions[0]);
       this.recordResult(input, state, "tool_batch", batch);
       return [batch, ...blocked];
     }

@@ -4,13 +4,14 @@ import { tmpdir } from "node:os";
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import type { StoreHost } from "../src/store/settingsSlice";
 import type { AgentLoopHost } from "../src/agent/AgentLoop";
+import type { AgentHost } from "../src/agent/service";
 import type { AiToolCall } from "../src/ai";
 import { DEFAULT_SETTINGS } from "../src/defaults";
 import type { AgentConversationMessage } from "../src/types";
 import { personalMemoryContextRevision } from "../src/personalMemoryContext";
 import { attestAgentHistoryResponse, bindAgentHistoryResponse } from "../src/personalMemoryHistory";
 import { memorySourcePolicy, readPersonalMemoryWithSources } from "../src/personalMemorySources";
-vi.mock("obsidian", () => ({ App: class {}, TFile: class {}, TFolder: class {}, Notice: class {},
+vi.mock("obsidian", () => ({ App: class {}, TFile: class {}, TFolder: class {}, Notice: class {}, Modal: class {},
   normalizePath: (s: string) => s.replace(/\\/g, "/").replace(/\/{2,}/g, "/"), requestUrl: vi.fn(),
   parseYaml: JSON.parse, stringifyYaml: JSON.stringify }));
 const { createFsApp } = await import("./helpers/fsApp");
@@ -18,6 +19,7 @@ const { LifeOpsStore } = await import("../src/store");
 const { AgentRuntime } = await import("../src/agentRuntime");
 const { AgentLoop } = await import("../src/agent/AgentLoop");
 const { executeConfirmedToolBatch } = await import("../src/toolBatch");
+const { executeAgentAction } = await import("../src/agent/service");
 const { explicitTitleEdits } = await import("../src/agent/explicitTitleEdits");
 let root: string, store: StoreHost, runtime: InstanceType<typeof AgentRuntime>;
 const date = "2066-01-10";
@@ -226,6 +228,67 @@ async function run(calls: AiToolCall[], message: string, history: Parameters<Ins
   const result = await new AgentLoop(host).run({ message, history, source: "text", now: new Date(2066, 0, 10, 10) });
   return { result, model };
 }
+
+it.each(["both", "partial", "read-only-call", "prose", "blocked-extra"])("keeps both exact title edits unchanged until the requested preview is confirmed (%s)", async mode => {
+ const rows = await seed(), before = await store.readPath(store.taskDbPath());
+ const proposed = mode === "prose" ? [] : mode === "read-only-call" ? [{ name: "list_tasks", arguments: { date, directReply: true } }]
+  : [tool(rows.slice(mode === "partial" ? 1 : 0).map(row => edit(row.id, row.id === rows[0].id ? "虚构新纸样甲" : "虚构新纸样乙")))];
+ if (mode === "blocked-extra") proposed.push({ name: "reschedule_task", arguments: { taskIdOrTitle: "fictional-unknown-task", date, time: "20:00" } });
+ const { result, model } = await run(proposed,
+  '把「虚构旧纸样0」改为「虚构新纸样甲」，把「虚构旧纸样1」改为「虚构新纸样乙」。先给我确认卡，等我确认。');
+ expect(result.receipts).toEqual([]);
+ expect(result.confirmations).toHaveLength(1);
+ expect(model).toHaveBeenCalledOnce();
+ expect(result.text).toContain("尚未修改");
+ if (mode === "blocked-extra") expect(result.text).toContain("没有核对到");
+ expect(await store.readPath(store.taskDbPath())).toBe(before);
+ const receipt = await executeAgentAction.call({ unloaded: false, lifecycleGeneration: 0, createAgentRuntime: () => runtime } as unknown as AgentHost, result.confirmations[0]);
+ expect(receipt).toContain("实际更新2项");
+ expect((await store.readTaskDb()).tasks.map(row => row.title)).toEqual(["虚构新纸样甲", "虚构新纸样乙"]);
+});
+
+it.each(["copied", "changed"])("rejects a %s small requested preview before writing", async mode => {
+ await seed(); const before = await store.readPath(store.taskDbPath());
+ const { result } = await run([], '把「虚构旧纸样0」改为「虚构新纸样甲」，把「虚构旧纸样1」改为「虚构新纸样乙」。确认后再修改。');
+ const action = mode === "copied" ? structuredClone(result.confirmations[0]) : result.confirmations[0];
+ if (mode === "changed") (action.toolBatch![0].arguments.updates as Array<Record<string, unknown>>)[0].title = "虚构篡改标题";
+ await expect(executeConfirmedToolBatch(action, runtime, () => {})).rejects.toThrow("批量修改内容无效");
+ expect(await store.readPath(store.taskDbPath())).toBe(before);
+});
+
+it("rejects the whole small preview after either original task changes", async () => {
+ const rows = await seed();
+ const { result } = await run([], '把「虚构旧纸样0」改为「虚构新纸样甲」，把「虚构旧纸样1」改为「虚构新纸样乙」。先让我确认。');
+ await store.updateTask(rows[1].id, row => ({ ...row, note: "虚构并发备注" }));
+ const before = await store.readPath(store.taskDbPath());
+ await expect(executeConfirmedToolBatch(result.confirmations[0], runtime, () => {})).rejects.toThrow("过期");
+ expect(await store.readPath(store.taskDbPath())).toBe(before);
+});
+
+it("previews a mixed two-title correction and one new task together when requested", async () => {
+ await seed(); const before = await store.readPath(store.taskDbPath());
+ const { result } = await run([{ name: "schedule_task_batch", arguments: { date, tasks: [{ title: "虚构待确认新任务" }] } }],
+  '把「虚构旧纸样0」改为「虚构新纸样甲」，把「虚构旧纸样1」改为「虚构新纸样乙」。再安排虚构待确认新任务。先给我确认卡，等我确认。');
+ expect(result.confirmations).toHaveLength(1); expect(result.receipts).toEqual([]);
+ expect(await store.readPath(store.taskDbPath())).toBe(before);
+ await executeConfirmedToolBatch(result.confirmations[0], runtime, () => {});
+ expect((await store.readTaskDb()).tasks.map(row => row.title)).toEqual(["虚构新纸样甲", "虚构新纸样乙", "虚构待确认新任务"]);
+});
+
+it("snapshots a requested mixed card before its first asynchronous write", async () => {
+ await seed();
+ const { result } = await run([{ name: "schedule_task_batch", arguments: { date, tasks: [{ title: "虚构快照新增任务" }] } }],
+  '把「虚构旧纸样0」改为「虚构新纸样甲」，把「虚构旧纸样1」改为「虚构新纸样乙」。再安排虚构快照新增任务。先给我确认卡，等我确认。');
+ const action = result.confirmations[0], actionId = action.id, original = runtime.executeToolCall.bind(runtime), callIds: string[] = [];
+ vi.spyOn(runtime, "executeToolCall").mockImplementation(async (...args) => {
+  callIds.push(args[0].callId!);
+  if (callIds.length === 1) { action.id = "fictional-later-mutated-id"; action.toolBatch![1].arguments.title = "虚构迟到篡改标题"; }
+  return original(...args);
+ });
+ await executeAgentAction.call({ unloaded: false, lifecycleGeneration: 0, createAgentRuntime: () => runtime } as unknown as AgentHost, action);
+ expect(callIds).toEqual([`confirmed:${actionId}:0`, `confirmed:${actionId}:1`]);
+ expect((await store.readTaskDb()).tasks.map(row => row.title)).toEqual(["虚构新纸样甲", "虚构新纸样乙", "虚构快照新增任务"]);
+});
 
 async function pendingTitleHistory(proven = true, different = false, tail = "其他安排都保留。"): Promise<AgentConversationMessage[]> {
  const history: AgentConversationMessage[] = [

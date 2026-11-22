@@ -261,6 +261,10 @@ export function dismissAgentAction(this: AgentHost, action: AgentActionSuggestio
 
 export async function executeAgentAction(this: AgentHost, action: AgentActionSuggestion): Promise<string> {
     if(this.unloaded)throw new Error("插件已关闭，未继续执行确认操作。");const actionGeneration=this.lifecycleGeneration;
+    // The batch runner snapshots its calls before awaiting and retains the original preview's local authority.
+    if (action.type === "tool_batch") return executeConfirmedToolBatch(action, this.createAgentRuntime(), () => {
+      if (this.unloaded || this.lifecycleGeneration !== actionGeneration) throw new Error("本次批量保存已停止。");
+    });
     action = structuredClone(action);
     if (action.type === "idea_advance") {
       const { confirmIdeaAdvance } = await import("../features/ideas/advance");
@@ -270,9 +274,6 @@ export async function executeAgentAction(this: AgentHost, action: AgentActionSug
       await this.refreshViews().catch(() => undefined);
       return receipt;
     }
-    if (action.type === "tool_batch") return executeConfirmedToolBatch(action, this.createAgentRuntime(), () => {
-      if (this.unloaded || this.lifecycleGeneration !== actionGeneration) throw new Error("本次批量保存已停止。");
-    });
     if (action.type === "task_plan") {
       const request = new AbortController(), runner = this.getProjectJobRunner();
       const completion = this.getTaskPlanReviews().start(action as TaskPlanReviewAction, request.signal);
