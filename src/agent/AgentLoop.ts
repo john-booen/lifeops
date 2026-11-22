@@ -27,6 +27,7 @@ import { bindTaskPlanConfirmation } from "../features/tasks/planConfirmation";
 import type { AgentActionSuggestion, AgentConversationMessage, AgentResponse, AgentWriteReceipt, LifeOpsSettings, ProviderRunResult } from "../types";
 import { agentHistoryMessages, buildResidentContext, clipBytes, type ResidentContext } from "./context";
 import { titleEditRequest,confirmedTitleEdits,completeTitleEditCalls,titleEditCall } from "./explicitTitleEdits";
+import { formatConfirmedPersonalMemoryContext } from "../personalMemoryContext";
 import { expandMixedTaskBatch } from "./mixedTaskBatch";
 import { requestedSummaryTopics } from "./summaryTopicQuery";
 import { requestedSummaryDates } from "./summaryDateRange";
@@ -313,8 +314,10 @@ export class AgentLoop {
       }
       const history = agentHistoryMessages(input.history, this.host.store, context.memories);
       const queryContinuity = context.memories && !input.voiceBackground ? historicalQueryHistoryContext(input.history, this.host.store) : "";
+      const currentMemory = context.memories && !input.voiceBackground
+        ? formatConfirmedPersonalMemoryContext(context.memories, input.message, 4000, 8) : "";
       const messages: ChatMessage[] = [
-        { role: "system", content: [context.text, queryContinuity].filter(Boolean).join("\n\n") },
+        { role: "system", content: [context.text, currentMemory, queryContinuity].filter(Boolean).join("\n\n") },
         ...(fastVoice ? history.slice(-4).map(entry => ({ ...entry, content: clipBytes(entry.content, 450) })) : history),
         { role: "user", content: input.message }
       ];

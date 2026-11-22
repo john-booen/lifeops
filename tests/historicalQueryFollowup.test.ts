@@ -38,7 +38,14 @@ beforeEach(async () => {
 });
 afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); await rm(root, { recursive: true, force: true }); });
 
-it("continues the checked two-week query after a real memory correction without reviving the old answer", async () => {
+it.each([false, true])("continues the checked two-week query after a real memory correction without reviving the old answer (crowded:%s)", async crowded => {
+  if (crowded) for (let i = 0; i < 3; i++) {
+    const content = `虚构纸样归档资料${i}：` + "这是一段已核对的虚构背景说明。".repeat(12);
+    const path = store.path(store.settings.folders.ideas, `虚构背景${i}.md`); await vault.seed(path, content);
+    const record = await store.upsertPersonalMemory({ kind: "core_profile", content, sourceRefs: [{ sourceId: `fictional-crowded-${i}`, path,
+      capturedAt: new Date().toISOString(), contentHash: fileRevision(content), extractionVersion: "fictional-v1" }] });
+    await store.reviewPersonalMemory(record.id, { decision: "confirm" });
+  }
   const source = store.path(store.settings.folders.ideas, "虚构归档安排.md"); await vault.seed(source, original);
   const memory = await store.upsertPersonalMemory({ kind: "user_rule", content: original, sourceRefs: [{ sourceId: "fictional-followup-rule", path: source,
     capturedAt: new Date().toISOString(), contentHash: fileRevision(original), extractionVersion: "fictional-v1" }] });

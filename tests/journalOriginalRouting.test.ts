@@ -30,3 +30,14 @@ it("does not discard specific paths, topic filters, pagination or another domain
   }
   const other = { ...call, name: "list_tasks" }; expect(preferJournalOriginalReads([other], question, now)[0]).toBe(other);
 });
+it("retains the literal window and topic when an original-reading request is routed as a journal search", () => {
+  const search = { ...call, arguments: { domain: "journal", operation: "search", query: "纸样", limit: 10 } };
+  const before = JSON.stringify(search);
+  expect(preferJournalOriginalReads([search], "核对2026年10月26日至11月8日的纸样归档原始日记，给一条下周建议，不修改任务。", now))
+    .toEqual([{ ...search, name: "get_summaries", arguments: { level: "day", range: { from: "2026-10-26", to: "2026-11-08" }, includeOriginals: true, query: "纸样" } }]);
+  expect(JSON.stringify(search)).toBe(before);
+});
+it.each([{ query: "" }, { query: "x".repeat(121) }, { path: "selected.md" }, { offset: 8 }, { domain: "note" }, { range: "year" }])("preserves a constrained topic read %j", extra => {
+  const search = { ...call, arguments: { domain: "journal", operation: "search", query: "纸样", ...extra } };
+  expect(preferJournalOriginalReads([search], question, now)[0]).toBe(search);
+});

@@ -23,6 +23,9 @@ export async function nativeHistoricalFollowup(page, root, result) {
     let calls = 0, evidence;
     const mock = async (messages, onText, options) => {
       calls++;
+      if (!messages[0]?.content.includes("## Confirmed Personal Memory") || !messages[0].content.includes(prepared.corrected)) {
+        throw Error("Complete current confirmed memory missing from provider context");
+      }
       if (calls === 1) {
         const text = JSON.stringify(messages);
         if (!text.includes("2026-10-26") || !text.includes("2026-11-08") || !text.includes(prepared.corrected)
@@ -49,5 +52,6 @@ export async function nativeHistoricalFollowup(page, root, result) {
   await page.screenshot({ path: join(root, "historical-followup-corrected.png") });
   result.checks.historicalFollowupAfterMemoryCorrectionRetainsCheckedRange = true;
   result.checks.historicalFollowupReReadsOriginalsWithoutOldAnswerOrWrites = true;
+  result.checks.historicalFinalReceivesCompleteConfirmedMemoryBlock = true;
   result.historicalFollowup = { calls: 3, originalDates: observed.evidence.notes.map(note => note.date), tasksUnchanged: true, memoryUnchanged: true };
 }

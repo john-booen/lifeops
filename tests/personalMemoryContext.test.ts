@@ -71,6 +71,24 @@ describe("partial prepared personal-memory source audit", () => {
 });
 
 describe("confirmed memory availability in model context", () => {
+  it("omits an oversized record whole while retaining a complete smaller current fact", () => {
+    const large = createPersonalMemory({ kind: "core_profile", content: "Verified background. ".repeat(150), sourceRefs: [source] });
+    const small = record();
+    const confirmed = reviewPersonalMemoryRecord(reviewPersonalMemoryRecord([large, small], large.id, { decision: "confirm" }), small.id, { decision: "confirm" });
+    const context = formatConfirmedPersonalMemoryContext(confirmed, "", 900);
+    expect(context).toContain(oldText);
+    expect(context).toContain(small.id);
+    expect(context).not.toContain("Verified background.");
+    expect(context).not.toContain(large.id);
+    expect(context).toContain("另有1条相关记忆因本轮长度上限未放入");
+  });
+  it("distinguishes budget-omitted facts from no available confirmed memory", () => {
+    const original = record(), records = reviewPersonalMemoryRecord([original], original.id, { decision: "confirm" });
+    const context = formatConfirmedPersonalMemoryContext(records, "", 0);
+    expect(context).toContain("不能据此说记忆不存在");
+    expect(context).not.toContain("本轮没有可用的已确认个人记忆。");
+    expect(context).not.toContain(oldText);
+  });
   it("includes a current confirmed fact while excluding unrelated candidates", () => {
     const original = record();
     const confirmed = reviewPersonalMemoryRecord([original], original.id, { decision: "confirm" });

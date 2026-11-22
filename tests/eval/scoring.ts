@@ -1,6 +1,7 @@
 import { recordRevision } from "../../src/operationIdentity";
 import { normalizeJournalDate } from "../../src/date";
 import { hasEquivalentDateAlias } from "./dateAliases";
+import { hasJournalEvidence, type JournalEvidenceCheck, type JournalToolRead } from "./journalEvidence";
 
 export interface EvalTask {
   id: string;
@@ -20,6 +21,7 @@ interface EvalChecks {
   mustNotInclude?: string[];
   mustCallTools?: string[];
   mustSucceedTools?: string[];
+  journalEvidence?: JournalEvidenceCheck;
   mustSucceedAnyTool?: string[];
   mustNotCallTools?: string[];
   expectWrites?: Record<string, number>;
@@ -67,6 +69,7 @@ export interface EvalQuestion {
   checks: EvalChecks;
 }
 export interface EvalObservation {
+  journalToolReads?: JournalToolRead[];
   reply: string;
   voiceSpeech?: string;
   tools: { name: string; ok: boolean; detail?: string; facts?: unknown }[];
@@ -120,6 +123,7 @@ export function shouldRepeatLatencyMeasurement(question: EvalQuestion, observed:
 export function scoreEvaluationCase(question: EvalQuestion, observed: EvalObservation): string[] {
   const { checks } = question;
   const issues: string[] = [];
+  if (checks.journalEvidence && !hasJournalEvidence(observed.journalToolReads ?? [], checks.journalEvidence)) issues.push("缺少同范围原始日记依据");
   if (checks.mixedTaskOutcome) {
     const plan = checks.mixedTaskOutcome, calls = observed.proposedTaskChanges ?? [];
     const alreadySaved = observed.confirmations === 0 && observed.receipts >= 2

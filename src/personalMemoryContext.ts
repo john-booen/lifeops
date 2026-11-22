@@ -24,8 +24,19 @@ export function createPersonalMemorySourceFilter(records: PersonalMemoryRecord[]
 
 /** Always state availability: an omitted empty section lets models mistake
  * assistant defaults or withheld history for confirmed user preferences. */
-export function formatConfirmedPersonalMemoryContext(records: PersonalMemoryRecord[], query = ""): string {
-  const selected = selectPersonalMemories(records, query);
+export function formatConfirmedPersonalMemoryContext(records: PersonalMemoryRecord[], query = "", maxRecordBytes = Infinity, maxRecords = 12): string {
+  const candidates = selectPersonalMemories(records, query, maxRecords);
+  // Under a finite prompt budget, retain explicit scheduling/behavioral
+  // constraints before long profile background. Preserve relevance order
+  // within each group and never send a clipped fact as a complete rule.
+  if (Number.isFinite(maxRecordBytes)) candidates.sort((a, b) => Number(b.kind === "user_rule") - Number(a.kind === "user_rule"));
+  let used = 0;
+  const selected = candidates.filter(record => {
+    const bytes = Buffer.byteLength(personalMemoriesToMarkdown([record], "verified"), "utf8");
+    if (used + bytes > maxRecordBytes) return false;
+    used += bytes; return true;
+  });
+  const omitted = candidates.length - selected.length;
   const automatic = selected.filter(record => record.summarySource && !record.confirmedAt).length;
   return [
     "## Confirmed Personal Memory",
@@ -35,7 +46,10 @@ export function formatConfirmedPersonalMemoryContext(records: PersonalMemoryReco
     "区分原记录日期、来源采集或登记时间、确认时间和事件时间。内容中的今天、昨天、最近应以该内容对应的叙述时点理解，不能改以读取或确认日期为基准；补记及后来纠正不能只凭来源记录日期确定事件日，内容时点不清楚时应说明无法确定。未设置状态有效期不能证明状态一直持续，也不能自行给记忆设定失效日期。",
     selected.length
       ? personalMemoriesToMarkdown(selected, "verified")
-      : "本轮没有可用的已确认个人记忆。询问既有偏好时，应说明当前没有可确认的记录，不得声称记得或已确认某项偏好。",
+      : omitted ? "本轮没有完整放入相关记忆，不能据此说记忆不存在；可按主题查询当前记录。"
+        : "本轮没有可用的已确认个人记忆。询问既有偏好时，应说明当前没有可确认的记录，不得声称记得或已确认某项偏好。",
+    ...(omitted ? [`另有${omitted}条相关记忆因本轮长度上限未放入；没有截断其中的事实，需要时按主题查询。`] : []),
+    "只查既有记忆时按当前可用结果收尾，不把缺记录转成要求用户补充、重新确认或重新声明偏好。",
     "未提供的偏好不能推断。正常回复只表达事实、易懂的来源名称和必要的记录日期，不展示内部ID、置信度或技术时间戳；用户明确核查技术信息时除外。"
   ].join("\n\n");
 }

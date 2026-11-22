@@ -19,6 +19,7 @@ import { scoreEvaluationCase, shouldRepeatLatencyMeasurement, type EvalCheckin, 
 import { writeEvaluationReport, type EvalResult } from "./report";
 import { readJudgeDecision } from "./judgeDecision";
 import { JUDGE_INSTRUCTIONS } from "./judgeInstructions";
+import type { JournalToolRead } from "./journalEvidence";
 // @ts-expect-error The deterministic fixture generator shares the evaluation clock and marker.
 import { EVAL_MARKER, EVAL_NOW } from "../../scripts/make-eval-vault.mjs";
 
@@ -97,7 +98,7 @@ async function judgeAnswer(criterion: string, question: string, reply: string, t
   ai: InstanceType<typeof LifeOpsAi>, credentials: string[]): Promise<NonNullable<EvalObservation["judge"]>> {
   const messages: import("../../src/ai").ChatMessage[] = [
     { role: "system", content: JUDGE_INSTRUCTIONS },
-    { role: "user", content: JSON.stringify({ criterion, question, reply: redactSensitiveText(reply, credentials).slice(0, 4000), toolEvidence }) }
+    { role: "user", content: JSON.stringify({ evaluationClock: EVAL_NOW, criterion, question, reply: redactSensitiveText(reply, credentials).slice(0, 4000), toolEvidence }) }
   ];
   const decision = await readJudgeDecision(async attempt => {
     try {
@@ -233,6 +234,7 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
   const tools: EvalObservation["tools"] = [];
   const writeTrace: Array<{ name: string; callId: string; args: Record<string, unknown>; ok: boolean }> = [];
   const judgeEvidence: Array<{ phase: "fixture" | "prelude" | "current_turn"; name: string; output: string }> = [];
+  const journalToolReads: JournalToolRead[] = [];
   let judgePhase: "fixture" | "prelude" | "current_turn" = "fixture";
   const selectedUndoOperations = new Set<string>();
   const latestReversible = OperationLedger.prototype.latestReversible;
@@ -247,6 +249,9 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
   let automaticMemorySaved = false, runningPrelude = false;
   const spy = vi.spyOn(AgentRuntime.prototype, "executeToolCall").mockImplementation(async function (this: InstanceType<typeof AgentRuntime>, request, control) {
     const result = await execute.call(this, request, control);
+    if (question.checks.journalEvidence && ["query_vault", "get_summaries"].includes(request.toolName)) {
+      journalToolReads.push({name:request.toolName,phase:judgePhase,args:structuredClone(request.arguments),ok:result.success,output:redactSensitiveText(result.output,credentials)});
+    }
     if (question.checks.judge && result.success) {
       judgeEvidence.push({ phase: judgePhase, name: request.toolName, output: redactSensitiveText(result.output, credentials).slice(0, 5000) });
     }
@@ -338,6 +343,7 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
   const judge = question.checks.judge && !errorCode ? await judgeAnswer(question.checks.judge, question.input, reply.reply,
     JSON.stringify(judgeEvidence).slice(0, 16000), new LifeOpsAi(settingsForAgentModel(settings, "fast")), credentials) : undefined;
   const observed: EvalObservation = {
+    ...(question.checks.journalEvidence ? { journalToolReads } : {}),
     reply: reply.reply, voiceSpeech: reply.voiceSpeech, tools, createdTasks, tasks: after.tasks, preparedTasks, preludeCreatedTasks, checkins: after.checkins,
     createdTrades, judge, phoneInbox,
     activeMemories: memory ? selectPersonalMemories(memory.records, "", memory.records.length, fixedNow).map(record => record.content) : undefined,

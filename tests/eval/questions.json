@@ -546,9 +546,7 @@
           "没有明确"
         ]
       ],
-      "mustSucceedTools": [
-        "query_vault"
-      ],
+      "journalEvidence": {"from":"2026-11-06","to":"2026-11-12","includes":["感到焦虑","容易拖延"]},
       "expectWrites": {
         "tasks.created": 0,
         "tasks.deleted": 0,

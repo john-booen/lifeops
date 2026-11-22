@@ -30,6 +30,17 @@ export function preferJournalOriginalReads(calls: AiToolCall[], message: string,
   const allowed = new Set(["domain", "operation", "range", "date", "limit", "sort"]);
   return calls.map(call => {
     const a = call.arguments;
+    // A topic search inside an explicit original-reading window must retain
+    // that window too. The evidence reader supplies full matching originals
+    // and an owned date selection that a later "these two weeks" can resume.
+    if (call.name === "query_vault" && a.domain === "journal" && a.operation === "search"
+      && typeof a.query === "string" && a.query.trim() && a.query.length <= 120
+      && Object.keys(a).every(key => allowed.has(key) || key === "query")
+      && (a.range === undefined || ["today", "week", "month", "all"].includes(String(a.range)))
+      && (a.limit === undefined || Number.isInteger(a.limit) && Number(a.limit) >= 1 && Number(a.limit) <= 100)
+      && (a.sort === undefined || ["newest", "oldest"].includes(String(a.sort)))) {
+      return { ...call, name: "get_summaries", arguments: { level: "day", range, includeOriginals: true, query: a.query } };
+    }
     if (call.name !== "query_vault" || a.domain !== "journal" || a.operation !== "list"
       || Object.keys(a).some(key => !allowed.has(key))
       || a.range !== undefined && !["today", "week", "month", "all"].includes(String(a.range))
