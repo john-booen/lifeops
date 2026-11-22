@@ -1,4 +1,5 @@
-import { cp, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { cp, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
@@ -20,6 +21,7 @@ import { writeEvaluationReport, type EvalResult } from "./report";
 import { readJudgeDecision } from "./judgeDecision";
 import { JUDGE_INSTRUCTIONS } from "./judgeInstructions";
 import type { JournalToolRead } from "./journalEvidence";
+import { serializeJudgeEvidence } from "./judgeEvidence";
 // @ts-expect-error The deterministic fixture generator shares the evaluation clock and marker.
 import { EVAL_MARKER, EVAL_NOW } from "../../scripts/make-eval-vault.mjs";
 
@@ -253,7 +255,7 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
       journalToolReads.push({name:request.toolName,phase:judgePhase,args:structuredClone(request.arguments),ok:result.success,output:redactSensitiveText(result.output,credentials)});
     }
     if (question.checks.judge && result.success) {
-      judgeEvidence.push({ phase: judgePhase, name: request.toolName, output: redactSensitiveText(result.output, credentials).slice(0, 5000) });
+      judgeEvidence.push({ phase: judgePhase, name: request.toolName, output: redactSensitiveText(result.output, credentials) });
     }
     if (!result.success && request.toolName === "propose_task_plan" && process.env.LIFEOPS_EVAL_DIAGNOSTICS === "1") {
       process.stdout.write(`${question.id} 虚构草案参数 · ${redactSensitiveText(JSON.stringify(request.arguments), credentials).slice(0, 1200)}\n`);
@@ -345,7 +347,7 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
   const createdTrades = after.trades.filter(trade => !before.trades.some(old => old.id === trade.id));
   const usage = await transport.usage();
   const judge = question.checks.judge && !errorCode ? await judgeAnswer(question.checks.judge, question.input, reply.reply,
-    JSON.stringify(judgeEvidence).slice(0, 16000), new LifeOpsAi(settingsForAgentModel(settings, "fast")), credentials) : undefined;
+    serializeJudgeEvidence(judgeEvidence), new LifeOpsAi(settingsForAgentModel(settings, "fast")), credentials) : undefined;
   const observed: EvalObservation = {
     ...(question.checks.journalEvidence ? { journalToolReads } : {}),
     reply: reply.reply, voiceSpeech: reply.voiceSpeech, tools, createdTasks, tasks: after.tasks, preparedTasks, preludeCreatedTasks, checkins: after.checkins,
@@ -442,6 +444,26 @@ it("measures the production conversation entry point against fictional data", as
   vi.mocked(requestUrl).mockImplementation(transport.requestUrl);
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(fixedNow);
+  const reviewFile = process.env.LIFEOPS_EVAL_REVIEW_FILE, reviewOutput = process.env.LIFEOPS_EVAL_REVIEW_OUTPUT;
+  if (reviewFile) {
+    if (selected || process.env.LIFEOPS_EVAL_GATE || !reviewFile.startsWith("/") || !reviewOutput?.startsWith("/")) throw Error("Saved-answer review cannot replace a full product run");
+    const saved = JSON.parse(await readFile(reviewFile, "utf8"));
+    expect(all.find(row => row.id === saved.question.id)).toEqual(saved.question);
+    expect(saved.observed.judge.passed).toBe(false);
+    const originalMaterial = JSON.stringify(saved.judgeEvidence).slice(0, 16_000);
+    expect(originalMaterial).not.toContain('"phase":"current_turn"');
+    const material = serializeJudgeEvidence(saved.judgeEvidence);
+    expect(JSON.parse(material).evidence.some((row: {phase:string}) => row.phase === "current_turn")).toBe(true);
+    const judge = await judgeAnswer(saved.question.checks.judge, saved.question.input, saved.observed.reply, material,
+      new LifeOpsAi(settingsForAgentModel(settings, "fast")), configuredCredentials(settings));
+    const hash = (text: string) => createHash("sha256").update(text).digest("hex");
+    await writeFile(reviewOutput, JSON.stringify({ questionId: saved.question.id, questionSha256: hash(JSON.stringify(saved.question)),
+      replySha256: hash(saved.observed.reply), originalEvidenceSha256: hash(JSON.stringify(saved.judgeEvidence)),
+      originalJudge: saved.observed.judge, correctedJudge: judge, originalMaterialHadCurrentTurn: false,
+      correctedMaterialSha256: hash(material), productDialoguesRepeated: 0, measurementCorrectionOnly: true }, null, 2) + "\n", { flag: "wx" });
+    process.stdout.write(`原回答材料补核 ${saved.question.id} · ${judge.passed ? "通过" : "未通过"} · 产品对话重跑0次 · ${judge.reason}\n`);
+    expect(judge.passed).toBe(true);return;
+  }
   const results: EvalResult[] = [];
   for (const question of questions) {
     vi.setSystemTime(fixedNow);
