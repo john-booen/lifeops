@@ -3,6 +3,20 @@ import assert from "node:assert/strict";
 /** Only the guarded native runner's fictional vault; no provider request. */
 export async function nativeStatMeaning(page, result) {
   const observed = await page.evaluate(async () => {
+    /** Native file events may follow a completed fixture write or its query ledger. */
+    async function settle(p) {
+      const deadline = Date.now() + 15000; let previous, quietSince = Date.now();
+      while (Date.now() < deadline) {
+        const state = globalThis[Symbol.for("lifeops.fact-operation-state.v1")];
+        const busy = p.sourceChangeTimers?.size || p.dataFoundationBootstrap
+          || state?.locks?.has(app.vault) || state?.activeWrites?.has(app.vault);
+        const catalog = JSON.stringify(app.vault.getFiles().map(file => [file.path, { ...file.stat }]).sort((a, b) => a[0].localeCompare(b[0])));
+        if (busy || catalog !== previous) { previous = catalog; quietSince = Date.now(); }
+        else if (Date.now() - quietSince >= 250) return;
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      throw Error("Native statistic fixture catalog did not settle");
+    }
     const p = app.plugins.getPlugin("lifeops-assistant"), before = (await p.store.readTaskDb()).tasks;
     if (before.some(task => task.date >= "2026-01-05" && task.date <= "2026-01-11")) throw Error("Fictional interval week already occupied");
     const task = await p.store.createTask({ title: "虚构间隔纸样", date: "2026-01-06", estimateMin: 30,
@@ -10,20 +24,11 @@ export async function nativeStatMeaning(page, result) {
     try {
       await p.store.updateTask(task.id, row => ({ ...row, createdAt: "2026-01-06T08:00:00+08:00",
         status: "completed", completedAt: "2026-01-07T17:00:00+08:00" }));
-      // Native Vault events can outlive the seed write. Query the settled
-      // fixture; an in-flight source refresh must still reject unsafe reads.
-      await new Promise(resolve => setTimeout(resolve, 0));
-      const deadline = Date.now() + 15000;
-      while (true) {
-        const state = globalThis[Symbol.for("lifeops.fact-operation-state.v1")];
-        if (!p.sourceChangeTimers?.size && !p.dataFoundationBootstrap
-          && !state?.locks?.has(app.vault) && !state?.activeWrites?.has(app.vault)) break;
-        if (Date.now() >= deadline) throw Error("Native statistic fixture source refresh did not settle");
-        await new Promise(resolve => setTimeout(resolve, 50));
-      }
+      await settle(p);
       const bytes = await p.store.readPath(p.store.taskDbPath()), runtime = p.createAgentRuntime();
       const stats = await runtime.executeAiToolCall({ id: "fictional-native-interval-stats", name: "get_stats",
         arguments: { domain: "tasks", range: { from: "2026-01-05", to: "2026-01-11" }, groupBy: "day" } }, "kimi");
+      await settle(p);
       const summary = await runtime.executeAiToolCall({ id: "fictional-native-summary-meaning", name: "get_summaries",
         arguments: { level: "week", range: { from: "2026-01-05", to: "2026-01-11" } } }, "kimi");
       const invalidQueries = [];
