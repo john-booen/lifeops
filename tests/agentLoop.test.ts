@@ -215,6 +215,20 @@ function reply(content: string, toolCalls: AiToolCall[] = []): AiChatResult {
       status: "success", fallbackUsed: false, attempts: [], responseUsage: usage } };
 }
 
+it.each([false,true])("explains task metric meaning locally with a real sample present=%s",async present=>{
+  if(present){const task=await store.createTask({title:"虚构跨日样本",date:"2026-11-03"});
+    await store.updateTask(task.id,row=>({...row,status:"completed",createdAt:"2026-11-03T08:00:00+08:00",completedAt:"2026-11-04T17:00:00+08:00"}));}
+  const before=await store.readPath(store.taskDbPath());
+  responses.push(reply("",[tool("get_stats",{domain:"tasks",range:{from:"2026-11-02",to:"2026-11-08"},directReply:"task_meaning"}),
+    ...(present?[tool("get_stats",{domain:"tasks",range:{from:"2026-11-02",to:"2026-11-08"},groupBy:"day"},"daily-interval-read")]:[])]));
+  const result=await new AgentLoop(host).run(input({message:"说明这周计划完成率和平均完成间隔的含义，只查记录。"}));
+  expect(requests).toHaveLength(1);expect(result.text).toContain("不是实测工作工时");
+  expect(result.text).toContain("不能据此断言拖延或临时需求挤占");expect(result.text).toContain("隔天完成不等于周或月计划外");
+  expect(result.text).toContain(present?"1980 分钟":"没有有效登记到完成的间隔样本");
+  expect(result.text).toContain(present?"计划完成率 100%":"无法计算计划完成率");
+  expect(result.receipts).toEqual([]);expect(result.confirmations).toEqual([]);expect(await store.readPath(store.taskDbPath())).toBe(before);
+});
+
 it("keeps task interval numbers and their meaning before compact voice output is truncated",async()=>{
   const task=await store.createTask({title:"虚构跨日间隔",date:"2026-11-10",estimateMin:30,startTime:"09:00",endTime:"09:30"});
   await store.updateTask(task.id,row=>({...row,status:"completed",createdAt:"2026-11-10T08:00:00+08:00",completedAt:"2026-11-11T17:00:00+08:00"}));

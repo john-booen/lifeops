@@ -21,6 +21,7 @@ import { providerDisclosureRequired } from "../privacy";
 import { assertProviderActive, awaitProviderActive, providerAbortCode, ProviderRunFailure } from "../providerRun";
 import type { StoreHost } from "../store/settingsSlice";
 import { agentToolsForChat, getLifeOpsTool } from "../toolRegistry";
+import { taskMetricMeaning } from "../features/stats/taskMetricMeaning";
 import { prepareToolBatch } from "../toolBatch";
 import { bindTaskPlanConfirmation } from "../features/tasks/planConfirmation";
 import type { AgentActionSuggestion, AgentConversationMessage, AgentResponse, AgentWriteReceipt, LifeOpsSettings, ProviderRunResult } from "../types";
@@ -450,6 +451,14 @@ export class AgentLoop {
           assertPolicy();
           if (reply) return this.localAnswer(input, state, reply);
         }
+        const meaningCall = calls.find(call => call.name === "get_stats" && call.arguments.domain === "tasks" && call.arguments.directReply === "task_meaning");
+        const meaningResult = meaningCall && results.find(result => result.callId === meaningCall.id && result.success);
+        if (!input.voiceBackground && !state.receipts.size && !state.confirmations.size && meaningResult
+          && calls.every(call => getLifeOpsTool(call.name)?.safety === "safe")) {
+          const reply = taskMetricMeaning(meaningResult.output);
+          assertProviderActive(input.signal); assertPolicy();
+          if (reply) return this.localAnswer(input, state, reply);
+        }
         const [call] = calls;
         if (calls.length === 1 && call.name === TASK_BATCH_TOOL.name && results[0]) {
           assertPolicy();
@@ -641,6 +650,7 @@ export class AgentLoop {
       guidance.push("用户明确要测验或出题时，先调用 start_quiz，按用户指定的学科和题数出题。不要按日记状态更改题数。");
     }
     if (tools.some(tool => tool.name === "get_stats")) {
+      guidance.push("只问任务完成率、登记到完成间隔或估时等统计口径时，用get_stats(domain=tasks,directReply=task_meaning)直接读回定义；另要事件原因或建议时正常查证。");
       guidance.push("评价或批评这周表现，先用 get_stats(domain=habits,range=this_week) 查达标次数和漏做日期。");
       guidance.push("单问具体时段完成率、完成数或计划数，用get_stats查指标；比较多个日、周、月周期，先用get_summaries核对各期摘要及统计到哪天，再按需补get_stats。");
       guidance.push("设备睡眠时长、步数、体重等用 get_stats(domain=health)。只问某时段的设备睡眠时长可加 directReply=device_sleep。日记里的主观睡眠、情绪或精力用 get_stats(domain=journal)。只问睡得怎么样时先查同一时段的健康记录，按需要补充日记感受并标明来源。最近三天用 range=last_3d。要找情绪原因、原话或具体事件时，用query_vault查询并读取同一范围的日记正文，不能用数字或摘要代替核对。");

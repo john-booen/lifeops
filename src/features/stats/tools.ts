@@ -26,7 +26,7 @@ export const STATS_TOOL: LifeOpsToolDefinition = {
       range: rangeParameter(standardRanges),
       groupBy: { type: "string", enum: groups }, combineUsd: { type: "boolean", description: "用户明确要求把交易盈亏折成美元总额时才传 true。只问笔数或胜率时省略。" },
       rankByNetPnl: { type: "boolean", description: "问各币种净盈亏第一的模型时传 true，配合交易模型分组。" },
-      directReply: { type: "string", enum: ["device_sleep"], description: "只问一个时段的设备睡眠时长时用 device_sleep，直接返回本地读回数据。" }
+      directReply: { type: "string", enum: ["device_sleep", "task_meaning"], description: "只问设备睡眠或任务指标口径时选对应项，直接返回本地读回。" }
     }, required: ["domain", "range"]
   },
   execute: (args, context) => readStats(context.store, args, new Date())
@@ -41,6 +41,8 @@ export function backgroundStatsTool(tool: AiToolDefinition): AiToolDefinition {
 
 export async function readStats(store: StoreHost, args: Record<string, unknown>, now: Date): Promise<ToolExecutionResult> {
   const domain = args.domain as StatsDomain, groupBy = args.groupBy as StatsGroup | undefined;
+  if (args.directReply !== undefined && !(args.directReply === "device_sleep" && domain === "health"
+    || args.directReply === "task_meaning" && domain === "tasks")) return { success: false, output: "统计直答方式与领域不匹配。", actions: [] };
   if (!statsDomains.includes(domain) || groupBy !== undefined && !groups.includes(groupBy)) {
     return { success: false, output: "统计领域或分组无效。", actions: [] };
   }
