@@ -136,19 +136,17 @@ async function receiveAndCheck(page, root, vault, senderVault, captures, expecte
   // A scan deliberately defers while startup/background fact writes are live.
   // Exercise that normal retry path instead of assuming two immediate scans
   // must finish receipt processing before the delayed retry has run.
-  await page.waitForFunction(async () => {
+  const received = await page.waitForFunction(async () => {
     const p = app.plugins.getPlugin("lifeops-assistant");
     await p.deviceInbox.scan();
-    return (await p.deviceInbox.list()).length === 2;
-  }, null, { timeout: 30_000, polling: 500 });
-  const state = await page.evaluate(async expected => {
-    const p = app.plugins.getPlugin("lifeops-assistant");
-    await p.deviceInbox.scan(); await p.deviceInbox.scan();
     const rows = await p.deviceInbox.list(), tasks = (await p.store.readTaskDb()).tasks;
+    if (p.dataFoundationBootstrap || rows.length !== 2 || tasks.length !== 12
+      || rows.some(row => row.status !== "saved" || row.taskBatch?.created !== 5 || row.taskBatch?.existing !== 0)) return false;
     const heartbeat = await p.store.readJson(p.store.path(p.settings.folders.aiReports, "System", "heartbeat.json"), {});
     return { rows, tasks, heartbeat, id: p.devices.execution.deviceId, version: p.manifest.version,
       calls: globalThis.__nativeBatchCalls, canWrite: p.devices.execution.canWriteFacts };
-  }, expected);
+  }, null, { timeout: 30_000, polling: 500 });
+  const state = await received.jsonValue(); await received.dispose();
   assert.equal(state.tasks.length, 12,JSON.stringify({rows:state.rows,calls:state.calls,canWrite:state.canWrite})); assert.equal(state.rows.length, 2); assert.equal(state.calls, 2); assert.equal(state.canWrite, true);
   for (const row of state.rows) { assert.equal(row.status, "saved"); assert.deepEqual(row.taskBatch, { created: 5, existing: 0 }); }
   for (const row of preserved) assert.deepEqual(state.tasks.find(item => item.id === row.id), row);
