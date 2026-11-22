@@ -7450,3 +7450,13 @@ SOFTWARE.
     white-space: nowrap; overflow-wrap: normal;
   }
 }
+
+.lifeops-summary-evidence table { width: 100%; table-layout: fixed; }
+.lifeops-summary-evidence th,
+.lifeops-summary-evidence td { padding: 0.35em; vertical-align: top; text-align: left; overflow-wrap: anywhere; }
+.lifeops-summary-evidence th:first-child { width: 28%; }
+.lifeops-summary-evidence th:nth-child(2) { width: 20%; }
+.lifeops-summary-evidence .lifeops-summary-source-button {
+  display: block; width: auto; max-width: 100%; height: auto; min-height: var(--input-height);
+  margin: 0.25em 0; padding: 0.3em 0.5em; white-space: normal; overflow-wrap: anywhere; text-align: left;
+}

@@ -6,6 +6,7 @@ import * as agentService from "./agent/service";
 import * as reviewService from "./features/review/service";
 import { queueTaskOverload, startStewardReminders } from "./features/review/reminders";
 import * as summaryService from "./features/summaries/service";
+import { registerSummaryEvidenceUi, type SummaryEvidenceHost } from "./features/summaries/evidenceUi";
 import * as memoryService from "./features/memory/service";
 import { startMemoryMaintenance, tickMemoryMaintenance } from "./features/memory/summaryMemory";
 import type { AgentToolExecutionResult } from "./agent/service";
@@ -349,6 +350,7 @@ export default class LifeOpsPlugin extends Plugin {
     });
     this.addCommand({ id: "backfill-lifeops-summaries", name: "补齐最近八周摘要",
       callback: () => summaryService.openSummaryBackfill(this as unknown as summaryService.SummaryHost) });
+    registerSummaryEvidenceUi(this as unknown as SummaryEvidenceHost);
     this.addCommand({ id: "check-lifeops-understanding-updates", name: "查看原文理解的更新", callback: () => this.openUnderstandingUpdates() });
     this.addCommand({
       id: "generate-lifeops-proactive-candidates",

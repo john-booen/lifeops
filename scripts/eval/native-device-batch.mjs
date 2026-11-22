@@ -199,6 +199,7 @@ export async function exerciseNativeDeviceBatch({ getPage, root, vault, profile,
   await (await import("./native-tool-protocol.mjs")).nativeToolProtocol(page,result);
   await (await import("./native-text-route-cooldown.mjs")).nativeTextRouteCooldown(page,result);
   await (await import("./native-summary-journal-coverage.mjs")).nativeSummaryJournalCoverage(page,result);
+  await (await import("./native-summary-evidence.mjs")).nativeSummaryEvidence(page,root,result);
   const preserved = await phoneBatchUi(page, root);
   result.checks.firstRoleUiAndPhoneBatchUndo = true;
   await close();
