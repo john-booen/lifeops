@@ -59,16 +59,16 @@ beforeEach(async () => {
 });
 afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
-const originalPath = () => store.path(store.settings.folders.dailyRoot, "2026", "11", summaryDate + "晚.md");
-async function seedSummary(original: string | false = known, body = known + "\n\n下周一核对虚构任务。") {
-  const period = summaryPeriod("day", summaryDate);
+const originalPath = (date = summaryDate) => store.path(store.settings.folders.dailyRoot, "2026", "11", date + "晚.md");
+async function seedSummary(original: string | false = known, body = known + "\n\n下周一核对虚构任务。", date = summaryDate) {
+  const period = summaryPeriod("day", date);
   const { hash } = await readSummaryScope(store);
   const path = summaryPath(store, period);
-  const raw = renderSummary(period, summaryDate, hash,
+  const raw = renderSummary(period, date, hash,
     { taskCompletionPercent: 100, tasksCompleted: 3, energy: 4, tradePnlCny: null, tradePnlUsd: null },
     0, true, "model", body);
   await vault.seed(path, raw);
-  if (original !== false) await vault.seed(originalPath(), original);
+  if (original !== false) await vault.seed(originalPath(date), original);
   return { path, raw };
 }
 
@@ -152,6 +152,60 @@ it("upgrades evidence for the same old memory immediately even if the week was a
   expect(document.records).toHaveLength(1);
   expect(document.records[0]).toMatchObject({ id: record.id, content: record.content, tags: record.tags, summarySource: { evidenceVersion: 2 } });
   expect(selectPersonalMemories(document.records, "虚构检索", 8, monday)).toHaveLength(1);
+});
+
+it("rechecks a paused automatic memory against next week's new original without reviving its changed old source", async () => {
+  await seedSummary(); await extractWeeklyMemories(host, store, monday);
+  const originalRecord = (await store.readPersonalMemories()).records[0];
+  const changedOriginal = known + "\n虚构旧日记后来补上了整理纸盒的记录。";
+  await store.writeFile(originalPath(), changedOriginal);
+  expect(selectPersonalMemories((await readPersonalMemoryWithSources(store)).records, "虚构检索", 8, monday)).toEqual([]);
+  const nextDate = "2026-11-21", nextMonday = new Date(2026, 10, 23, 9);
+  await seedSummary(known, "虚构本周再次明确说过这项长期偏好。", nextDate);
+  ask.mockResolvedValueOnce(JSON.stringify({ items: [{ date: nextDate, kind: "user_rule", quote: known }] }));
+  await extractWeeklyMemories(host, store, nextMonday);
+  const document = await readPersonalMemoryWithSources(store);
+  expect(selectPersonalMemories(document.records, "虚构检索", 8, nextMonday)).toMatchObject([{ id: originalRecord.id, content: known }]);
+  expect(document.records).toHaveLength(1);
+  expect(verifiedPersonalMemoryContextSources(document.records[0])).toMatchObject([{ ref: { path: originalPath(nextDate), observedDate: nextDate } }]);
+  expect(document.records[0].sourceRefs.some(ref => ref.path === originalPath())).toBe(false);
+  expect(await vault.bytes(originalPath())).toBe(changedOriginal);
+  expect(await vault.bytes(originalPath(nextDate))).toBe(known);
+});
+
+it("does not refresh a paused memory when next week's original never states its old claim", async () => {
+  await seedSummary(); await extractWeeklyMemories(host, store, monday);
+  await store.writeFile(originalPath(), "虚构旧原文已重写，未保留那项偏好。");
+  const nextDate = "2026-11-21", nextMonday = new Date(2026, 10, 23, 9);
+  await seedSummary("这周只整理了虚构纸盒，没有陈述检索偏好。", "虚构新周整理记录。", nextDate);
+  ask.mockResolvedValueOnce(JSON.stringify({ items: [{ date: nextDate, kind: "user_rule", quote: known }] }));
+  const before = (await store.readPersonalMemories()).records;
+  await extractWeeklyMemories(host, store, nextMonday);
+  const after = (await readPersonalMemoryWithSources(store)).records;
+  expect(after.map(record => record.sourceRefs)).toEqual(before.map(record => record.sourceRefs));
+  expect(selectPersonalMemories(after, "虚构检索", 8, nextMonday)).toEqual([]);
+});
+
+it.each(["correct", "forget"] as const)("keeps an explicit %s decision while checking new weekly originals", async decision => {
+  await seedSummary(); await extractWeeklyMemories(host, store, monday);
+  const id = (await store.readPersonalMemories()).records[0].id;
+  const corrected = "用户长期偏好用三列对照表比较虚构检索方案。";
+  if (decision === "forget") await store.reviewPersonalMemory(id, { decision: "forget" });
+  else {
+    const prepared = await runtime.executeAiToolCall({ id: "new-week-correction", name: "review_personal_memory",
+      arguments: { memoryId: id, decision, correctedContent: corrected } }, "kimi");
+    expect(prepared.success, prepared.output).toBe(true);
+    expect(await runConfirmedToolAction(prepared.actions[0], { store, refreshViews: async () => {} })).toBe(true);
+  }
+  const before = await vault.bytes(store.personalMemoryPath());
+  const nextDate = "2026-11-21", nextMonday = new Date(2026, 10, 23, 9);
+  await seedSummary(known, "虚构新周仍有旧句，不代表撤销了本人决定。", nextDate);
+  ask.mockClear(); await extractWeeklyMemories(host, store, nextMonday);
+  const document = await readPersonalMemoryWithSources(store);
+  expect(document.records).toHaveLength(1);
+  expect(document.records[0]).toMatchObject(decision === "forget" ? { id, status: "forgotten" } : { id, content: corrected });
+  expect(await vault.bytes(store.personalMemoryPath())).toBe(before);
+  expect(ask).not.toHaveBeenCalled();
 });
 
 it("never revives a forgotten preference while rechecking legacy automatic memories", async () => {

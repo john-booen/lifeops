@@ -85,11 +85,11 @@ export async function extractWeeklyMemories(host: MemoryHost, store: StoreHost, 
   if (previous.summaryMemoryWeek === week.key && previous.summaryMemoryEvidenceVersion === 2) return;
   const settingsRevision = memorySourcePolicy(store);
   const scope = await readSummaryScope(store);
-  // An unsupported old automatic interpretation is withheld from ordinary
-  // context, but must not block checking the user's original statement anew.
+  // A paused automatic interpretation stays out of ordinary context, but must
+  // not suppress a fresh original that can replace its obsolete dependencies.
   // Corrections and forgotten-content suppression remain in this filter.
   const originalRecords = (await readPersonalMemoryWithSources(store)).records.map(record =>
-    record.summarySource && record.summarySource.evidenceVersion !== 2 && record.status === "active"
+    record.summarySource && record.status === "active"
       && !record.confirmedAt && !record.confirmationReceipt
       ? { ...record, [personalMemorySourceAssessment]: undefined } : record);
   const protectOriginal = createPersonalMemoryContextFilter(originalRecords);
