@@ -21,6 +21,17 @@ const task = { id: "synthetic", title: "见客户", date: "2026-11-13", time: "1
 const observed: EvalObservation = { reply: "已建好", tools: [], writes: { "tasks.created": 1 }, createdTasks: [task],
   tasks: [task], confirmations: 0, confirmationActions: [], receipts: 1, preludeCreatedTasks: 0 };
 
+it("recognizes equivalent slash dates only when the original criteria already allow a yearless date", () => {
+  const date: EvalQuestion = { ...question, checks: { mustIncludeAny: [["2026-11-03", "11月3日", "11-03"]] } };
+  for (const reply of ["11/3 21:15", "11/03 21:15", "2026/11/3 21:15"]) expect(scoreEvaluationCase(date, { ...observed, reply })).toEqual([]);
+  for (const reply of ["11/4 21:15", "11/30 21:15", "111/3 21:15", "2025/11/3 21:15"]) expect(scoreEvaluationCase(date, { ...observed, reply })).not.toEqual([]);
+});
+it("does not remove explicit-year or non-date requirements through date aliases", () => {
+  for (const alternatives of [["2026-11-03"], ["11月3日", "明天"], ["2026-11-03", "2026-11-04"]]) {
+    expect(scoreEvaluationCase({ ...question, checks: { mustIncludeAny: [alternatives] } }, { ...observed, reply: "11/3 21:15" })).not.toEqual([]);
+  }
+});
+
 it("requires the same remembered content in the requested active category, not another record or its reply", () => {
   const memory: EvalQuestion = { ...question, checks: { remembered: ["虚构规则"], rememberedKind: "user_rule" } };
   const valid = { ...observed, activeMemories: ["虚构规则"], activeMemoryRecords: [{ kind: "user_rule", content: "虚构规则" }] };

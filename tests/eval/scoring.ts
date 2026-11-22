@@ -1,5 +1,6 @@
 import { recordRevision } from "../../src/operationIdentity";
 import { normalizeJournalDate } from "../../src/date";
+import { hasEquivalentDateAlias } from "./dateAliases";
 
 export interface EvalTask {
   id: string;
@@ -187,7 +188,7 @@ export function scoreEvaluationCase(question: EvalQuestion, observed: EvalObserv
     if (!observed.voiceSpeech?.includes(phrase)) issues.push("播报缺少内容 " + phrase);
   }
   for (const alternatives of checks.mustIncludeAny ?? []) {
-    if (!alternatives.some((phrase) => observed.reply.includes(phrase))) issues.push("缺少同义内容 " + alternatives.join(" / "));
+    if (!alternatives.some((phrase) => observed.reply.includes(phrase)) && !hasEquivalentDateAlias(observed.reply, alternatives)) issues.push("缺少同义内容 " + alternatives.join(" / "));
   }
   for (const phrase of checks.mustNotInclude ?? []) {
     if (observed.reply.includes(phrase)) issues.push("包含禁止内容 " + phrase);
