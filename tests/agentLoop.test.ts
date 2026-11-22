@@ -196,7 +196,7 @@ it("reads dated originals when the model expands the user's topic with unrelated
   const paths = ["2026/10/2026-10-28晚.md", "2026/11/2026-11-04晚.md"].map(path => store.path(store.settings.folders.dailyRoot, path));
   for (const path of paths) await store.writeFile(path, "虚构纸样归档：一段连续25分钟完成纸样。" );
   responses.push(reply("", [tool("get_summaries", { level: "week", range: { from: "2025-10-26", to: "2025-11-08" },
-    includeOriginals: true, query: "纸样 归档 虚纸 裁剪 纸样归档" })]), reply("已核对两篇原始日记。"));
+    includeOriginals: true, query: "纸样 归档 虚纸 裁剪 纸样归档" })]), reply("尚未核对的虚构草稿。"), reply("已核对两篇原始日记。"));
   const execute = vi.spyOn(host, "executeTools");
   const result = await new AgentLoop(host).run(input({ message: "回顾10月26日到11月8日这两周的虚构纸样归档，读摘要与原始日记。",
     history: [{ role: "user", content: "先核对2026-11-02的虚构任务，接着再聊归档。" }] }));
@@ -206,6 +206,84 @@ it("reads dated originals when the model expands the user's topic with unrelated
   const evidence = JSON.stringify(requests.at(-1));
   for (const path of paths) { expect(evidence).toContain(path); expect(await store.readPath(path)).toContain("一段连续25分钟"); }
   expect(result.receipts).toEqual([]);
+});
+
+async function historicalFixture(): Promise<AiChatResult> {
+  await store.appendDaily("2026-11-03", "日记", "虚构紫纸已整理10张。没登记打卡，未写原因。<img src=x> [执行](fiction://no)", "晚");
+  return reply("", [tool("get_summaries", { level: "week", range: { from: "2026-11-02", to: "2026-11-08" }, includeOriginals: true })]);
+}
+
+it("finishes historical text with one tools-free reasoning answer, never streaming the discarded draft", async () => {
+  const answer = "11月3日记载整理10张；没登记，原因未知，其余日期也无法据此判断。";
+  const original = host.aiForRole, finalOptions: unknown[] = [];
+  host.aiForRole = role => ({ agentTurnStream: (messages, onText, options) => {
+    if (role === "deep") finalOptions.push(options);
+    return original(role).agentTurnStream(messages, onText, options);
+  } });
+  responses.push(await historicalFixture(), reply("虚构未核实草稿：记录方式出了问题。"), reply(answer));
+  const streamed: string[] = [], before = await store.readPath(store.taskDbPath());
+  const result = await new AgentLoop(host).run(input({ message: "核对11月2日到8日原文，没打卡是否一周都没做？不修改。", onText: value => streamed.push(value) }));
+  expect(result.text).toBe(answer); expect(streamed.join("")).toBe(answer);
+  expect(requests).toHaveLength(3); expect(roles.at(-1)).toBe("deep");
+  expect(catalogs.at(-1)).toEqual([]); expect(toolChoices.at(-1)).toBe("none");
+  expect(finalOptions).toEqual([expect.objectContaining({ reasoning: "enabled", timeoutMs: 45_000, toolChoice: "none" })]);
+  const final = requests.at(-1)!;
+  expect(final.some(message => message.role === "tool" || message.tool_calls?.length)).toBe(false);
+  expect(JSON.stringify(final)).toContain("虚构紫纸已整理10张");
+  expect(JSON.stringify(final)).not.toContain("虚构未核实草稿");
+  expect(result.receipts).toEqual([]); expect(result.confirmations).toEqual([]);
+  expect(await store.readPath(store.taskDbPath())).toBe(before);
+});
+
+it.each(["network", "empty", "native-call", "protocol"])("retains literal historical evidence when final analysis returns %s", async mode => {
+  responses.push(await historicalFixture(), reply("错误草稿：一周都没做。"), mode === "network" ? new Error("fictional network failure")
+    : mode === "native-call" ? reply("", [tool("create_task", { title: "虚构不应执行" })])
+    : reply(mode === "protocol" ? "<｜｜DSML｜｜ calls></｜｜DSML｜｜ calls>" : ""));
+  const streamed: string[] = [], before = await store.readPath(store.taskDbPath());
+  const result = await new AgentLoop(host).run(input({ message: "回顾11月2日到8日，核对原文，不修改。", onText: value => streamed.push(value) }));
+  expect(requests).toHaveLength(3); expect(result.text).toContain("历史分析未完成");
+  expect(result.text).toContain("虚构紫纸已整理10张"); expect(result.text).toContain("2026\\-11\\-03");
+  expect(result.text).toContain("&lt;img src\\=x&gt;"); expect(result.text).toContain("\\[执行\\]");
+  expect(result.text).not.toContain("错误草稿"); expect(result.text).not.toContain("DSML");
+  expect(streamed.join("")).toBe(result.text); expect(result.toolCalls).toEqual([{ name: "get_summaries", ok: true }]);
+  expect(result.receipts).toEqual([]); expect(await store.readPath(store.taskDbPath())).toBe(before);
+});
+
+it.each(["privacy", "cancel", "store", "source"])("discards final historical text and evidence after %s changes", async change => {
+  const controller = new AbortController(), original = host.aiForRole;
+  let stale = false;
+  host.assertReadOnlyReplyCurrent = () => { if (stale) throw new DOMException("fictional source changed", "AbortError"); };
+  host.aiForRole = role => ({ agentTurnStream: async (messages, onText, options) => {
+    const response = await original(role).agentTurnStream(messages, onText, options);
+    if (role === "deep") {
+      if (change === "privacy") store.settings.privacy!.excludedVaultPrefixes = ["虚构不再准读"];
+      if (change === "cancel") controller.abort();
+      if (change === "store") host.store = Object.create(store);
+      if (change === "source") stale = true;
+    }
+    return response;
+  } });
+  responses.push(await historicalFixture(), reply("未核对草稿"), reply("虚构过期资料，不应显示。"));
+  const streamed: string[] = [];
+  await expect(new AgentLoop(host).run(input({ message: "核对11月2日到8日原文，不修改。", signal: controller.signal,
+    onText: value => streamed.push(value) }))).rejects.toMatchObject({ name: "AbortError" });
+  expect(requests).toHaveLength(3); expect(streamed).toEqual([]);
+});
+
+it("uses the historical protocol repair as its only text-only final answer", async () => {
+  const answer = "只有11月3日的虚构记录，整周其他日期未知。";
+  responses.push(await historicalFixture(), reply("<｜｜DSML｜｜ calls></｜｜DSML｜｜ calls>"), reply(answer));
+  const streamed: string[] = [];
+  const result = await new AgentLoop(host).run(input({ message: "核对11月2日到8日的原文，不修改。", onText: value => streamed.push(value) }));
+  expect(result.text).toBe(answer); expect(streamed.join("")).toBe(answer);
+  expect(requests).toHaveLength(3); expect(roles.filter(role => role === "deep")).toHaveLength(1);
+});
+
+it("does not add read-only historical analysis after a requested write", async () => {
+  responses.push(await historicalFixture(), reply("", [tool("create_task", { title: "虚构复盘后续纸样" })]), reply("已保存虚构复盘后续纸样。"));
+  const result = await new AgentLoop(host).run(input({ message: "查看11月2日到8日，再创建虚构复盘后续纸样待办，不安排时间。" }));
+  expect(requests).toHaveLength(3); expect(roles).not.toContain("deep");
+  expect(result.receipts).toHaveLength(1); expect((await store.readTaskDb()).tasks.map(row => row.title)).toEqual(["虚构复盘后续纸样"]);
 });
 
 function reply(content: string, toolCalls: AiToolCall[] = []): AiChatResult {

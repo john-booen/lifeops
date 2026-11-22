@@ -43,7 +43,8 @@ import { explicitTaskCount, voiceTaskCountFollowup } from "../voice/taskCountFol
 import { planTaskBatch, TASK_BATCH_TOOL, taskBatchOutput } from "./taskBatch";
 import { recoverReadOnlyStats, type StatsRecoveryRead } from "./readOnlyStatsRecovery";
 import { resolvedTaskLookup, taskLookupResolution } from "./taskLookupResolution";
-import { holdToolProtocolPrefix, isLeakedToolProtocol, toolProtocolRepairMessages, unavailableToolProtocol } from "./toolProtocol";
+import { holdToolProtocolPrefix, isLeakedToolProtocol, toolProtocolRepairMessages, unavailableToolProtocol, TOOL_PROTOCOL_UNAVAILABLE } from "./toolProtocol";
+import { historicalAnswerMessages, historicalEvidenceFallback } from "./historicalAnswer";
 
 export type WriteReceipt = AgentWriteReceipt;
 export interface AgentTurnInput {
@@ -105,7 +106,7 @@ interface TurnState {
   taskBatchNotes?: string[];
   statsReads?: Map<string, StatsRecoveryRead>;
   errorCode?: string;
-  protocolRepairAttempted?: boolean;
+  textOnlyAnswerAttempted?: boolean;
 }
 
 const MAX_TOOL_ROUNDS = 4;
@@ -369,7 +370,8 @@ export class AgentLoop {
         const lookupResolution = !final && !requiredTool && !input.voiceBackground && !exactTitleEdits && !taskListAnswer
           && !state.receipts.size && !state.confirmations.size ? taskLookupResolution(messages, state.results, availableTools, formatDate(input.now)) : undefined;
         let response = await this.callModel(input, state, responseRole, messages, availableTools, final,
-          requiredTool !== "propose_task_plan" && !state.taskContentCalls?.size && !exactTitleEdits && !taskListAnswer && !lookupResolution, requiredTool);
+          requiredTool !== "propose_task_plan" && !state.taskContentCalls?.size && !exactTitleEdits && !taskListAnswer && !lookupResolution
+          && !this.needsHistoricalAnswer(input, state), requiredTool);
         assertPolicy();
         if (!response.toolCalls.length && lookupResolution) response = resolvedTaskLookup(await this.callModel(input, state, "main",
           lookupResolution.messages, [lookupResolution.tool], false, false, lookupResolution.tool.name), lookupResolution);
@@ -390,6 +392,11 @@ export class AgentLoop {
           break;
         }
         if (!response.toolCalls.length) {
+          if (this.needsHistoricalAnswer(input, state) && !state.textOnlyAnswerAttempted) {
+            await this.finishHistoricalAnswer(input, state, messages);
+          } else if (this.needsHistoricalAnswer(input, state)) {
+            input.onText?.(state.text);
+          }
           if (taskListAnswer && !state.receipts.size && !state.confirmations.size) {
             state.text = taskListAnswer; input.onText?.(state.text);
           }
@@ -743,7 +750,8 @@ export class AgentLoop {
       { signal: input.signal, tools, toolChoice: final ? "none" : requiredTool ? { type: "function", function: { name: requiredTool } } : "auto",
       preferFinite: shortTextFirst,
       reasoning: role === "deep" && (!input.voiceBackground || final && messages.length === 2) ? "enabled" : "disabled",
-      ...(input.voiceBackground && final && messages.length === 2 ? { timeoutMs: role === "deep" ? 45_000 : 12_000 } : {}),
+      ...(role === "deep" && final && !tools.length ? { timeoutMs: 45_000 }
+        : input.voiceBackground && final && messages.length === 2 ? { timeoutMs: 12_000 } : {}),
       maxTokens: role === "deep" || requiredTool === "resolve_task_lookup" ? 4096 : shortTextFirst || role === "fast" && input.source !== "text" ? 512 : 1536,
       ...(input.phoneInbox ? { beforeTextRequest: input.phoneInbox.assertLineCurrent, assertTextRequestCurrent: input.phoneInbox.assertCurrent } : {}),
       onProviderRun: run => { state.providerRuns.push(run); } });
@@ -751,8 +759,8 @@ export class AgentLoop {
     this.recordUsage(state, response);
     if (!isLeakedToolProtocol(response.content)) return response;
     if (response.toolCalls.length) return { ...response, content: "" };
-    if (state.protocolRepairAttempted) return unavailableToolProtocol(response);
-    state.protocolRepairAttempted = true;
+    if (state.textOnlyAnswerAttempted) return unavailableToolProtocol(response);
+    state.textOnlyAnswerAttempted = true;
     const current = () => {
       assertProviderActive(input.signal);
       if (sourcePolicy !== memorySourcePolicy(this.host.store)) throw new DOMException("资料权限已更改，请重新发送。", "AbortError");
@@ -764,6 +772,39 @@ export class AgentLoop {
     const answer = repaired.toolCalls.length ? unavailableToolProtocol(repaired) : repaired;
     emit(answer.content);
     return answer;
+  }
+
+  private needsHistoricalAnswer(input: AgentTurnInput, state: TurnState): boolean {
+    return input.source === "text" && !input.voiceBackground && !state.receipts.size && !state.confirmations.size
+      && state.toolCalls.some(call => call.ok && call.name === "get_summaries")
+      && state.toolCalls.every(call => call.ok && (isBackgroundReadTool(call.name) || [LOAD_TOOLS.name, DEEP_ANALYSIS.name].includes(call.name)));
+  }
+
+  private async finishHistoricalAnswer(input: AgentTurnInput, state: TurnState, messages: ChatMessage[]): Promise<void> {
+    const store = this.host.store, policy = memorySourcePolicy(store);
+    const current = () => {
+      assertProviderActive(input.signal);
+      if (this.host.store !== store || policy !== memorySourcePolicy(store)) throw new DOMException("资料权限已更改，请重新发送。", "AbortError");
+      this.host.assertReadOnlyReplyCurrent?.();
+    };
+    state.textOnlyAnswerAttempted = true;
+    try {
+      current();
+      const answer = await this.callModel(input, state, "deep", historicalAnswerMessages(messages), [], true, false);
+      current();
+      if (!answer.content.trim() || answer.toolCalls.length || answer.content === TOOL_PROTOCOL_UNAVAILABLE) {
+        state.errorCode = "response_incomplete";
+        state.text = historicalEvidenceFallback(messages);
+      } else state.text = answer.content;
+    } catch (error) {
+      current();
+      state.usageKnown = false;
+      state.errorCode = error instanceof ProviderRunFailure ? error.code : "operation_failed";
+      state.text = historicalEvidenceFallback(messages);
+    }
+    current();
+    state.firstTokenMs ??= performance.now() - state.started;
+    input.onText?.(state.text);
   }
 
   private async finishVoiceAnalysis(input: AgentTurnInput, state: TurnState, context: string, messages: ChatMessage[]): Promise<void> {

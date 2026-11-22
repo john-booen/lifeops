@@ -10,6 +10,10 @@ export const holdToolProtocolPrefix = (text: string): boolean => !!text.trimStar
 
 export function toolProtocolRepairMessages(messages: ChatMessage[]): ChatMessage[] {
   const instruction = "本次服务没有返回可显示的正文。只根据本轮用户要求、已读资料和实际保存回执直接回答；不要调用工具、不要输出内部协议，不声称执行了额外操作。资料不足时说明具体缺项，不编造。";
+  return textOnlyEvidenceMessages(messages, instruction);
+}
+
+export function textOnlyEvidenceMessages(messages: ChatMessage[], instruction: string): ChatMessage[] {
   // Recovery is a new text-only completion. Reusing native tool frames from a
   // non-thinking round can be rejected when reasoning is enabled (no recorded
   // reasoning_content). Keep their evidence as quoted data, never new calls.
