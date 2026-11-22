@@ -31,7 +31,8 @@ export async function nativeDeferredTitleConfirmation(page, root, result) {
     assert(first.noWrite); assert.deepEqual(first.receipts, []); assert.equal(first.pending, 1); assert.equal(first.calls, 1);
     assert.equal(first.cardType, "tool_batch"); assert.equal(first.updates.length, 2);
     assert(first.updates.every(row => typeof row.expectedRevision === "string")); assert(first.reply.includes("尚未修改"));
-    await page.getByRole("button", { name: "查看待确认动作", exact: true }).click();
+    const toggle = page.getByRole("button", { name: "查看待确认动作", exact: true });
+    if (await toggle.getAttribute("aria-expanded") !== "true") await toggle.click();
     const preview = page.getByRole("textbox", { name: "确认后执行的修改", exact: true });
     await preview.waitFor(); const content = await preview.inputValue();
     for (const word of ["虚构待确认旧甲", "虚构待确认旧乙", "虚构待确认新甲", "虚构待确认新乙"]) assert(content.includes(word));
