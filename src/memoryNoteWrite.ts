@@ -13,8 +13,18 @@ export async function saveMemoryNote(content: string, fileName: string, operatio
   const incoming = createPersonalMemory({ kind: kinds[fileName], content,
     tags: [fileName.replace(/\.md$/, ""), ...(conversation ? ["对话"] : [])], sourceRefs: [sourceRef] });
   const same = before.records.find(record => record.kind === incoming.kind && record.content === incoming.content);
-  if (same) incoming.id = same.id;
-  const observations = upsertPersonalMemoryRecord(before.records, incoming);
+  let observations = before.records;
+  if (same?.sourceBinding) {
+    // A version-bound observation keeps its original evidence and identity in
+    // the archive. This new user statement gets its own confirmation receipt.
+    observations = before.records.map(record => record.id === same.id
+      ? { ...record, status: "candidate" as const, archivedAt: new Date().toISOString(),
+        confirmedAt: undefined, confirmationReceipt: undefined } : record);
+    incoming.tags = Array.from(new Set([...same.tags, ...incoming.tags]));
+    incoming.sensitive ||= same.sensitive;
+    incoming.revisions = same.revisions;
+  } else if (same) incoming.id = same.id;
+  observations = upsertPersonalMemoryRecord(observations, incoming);
   const records = reviewPersonalMemoryRecord(observations, incoming.id, { decision: "confirm", sourceRef });
   await context.store.writePersonalMemories({ ...before, records });
   const verified = (await context.store.readPersonalMemories()).records.find(record => record.id === incoming.id);

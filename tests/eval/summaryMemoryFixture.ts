@@ -33,3 +33,21 @@ export async function prepareSummaryMemoryFixture(store: StoreHost): Promise<voi
   const document = await store.readPersonalMemories();
   await store.writePersonalMemories({ ...document, ...emptyPersonalMemoryDocument(now), records: [record], summaryMemoryWeek: "2026-W45" });
 }
+
+/** A paused automatic memory must not block a new, explicit user statement. */
+export async function prepareBoundMemoryRestatementFixture(store: StoreHost): Promise<void> {
+  await prepareSummaryMemoryFixture(store);
+  const date = "2026-11-03", now = "2026-11-09T01:00:00.000Z";
+  const original = store.app.vault.getMarkdownFiles().find(file => journalDateFromPath(file.path, store.settings.folders.dailyRoot) === date);
+  if (!original) throw Error("虚构原始记忆来源缺失。");
+  const raw = await store.readPath(original.path), summary = summaryPath(store, summaryPeriod("day", date));
+  const record = { ...createPersonalMemory({ kind: "user_rule", content: originalPreference,
+    sourceRefs: [{ sourceId: "summary-journal:" + date, path: original.path, capturedAt: now, observedDate: date,
+      contentHash: fileRevision(raw), extractionVersion: "summary-original-v2", excerpt: originalPreference, excerptHash: fileRevision(originalPreference) },
+    { sourceId: "summary:" + date, path: summary, capturedAt: now,
+      contentHash: fileRevision(await store.readPath(summary)), extractionVersion: "summary-v1" }] }, now),
+    status: "active" as const, summarySource: { settingsRevision: memorySourcePolicy(store), evidenceVersion: 2 as const } };
+  const document = await store.readPersonalMemories();
+  await store.writePersonalMemories({ ...document, records: [record] });
+  await store.writeFile(original.path, raw + "\n虚构旧原文后来补写过，旧记忆须暂停使用。\n");
+}

@@ -36,7 +36,17 @@ export async function nativeSummaryOriginalMemory(page, result) {
     await p.store.writeFile(path, raw + "\n用户后来更新原文。\n");
     const changed = await p.store.buildPersonalMemoryContext(original);
     const current = await p.getStewardMemories();
-    return { original, invented, context, regenerated, changed, weekly,
+    const restated = await p.createAgentRuntime().executeAiToolCall({ id: "fictional-native-restated-memory", name: "append_memory_note",
+      arguments: { content: original, fileName: "管家规则.md" } }, "kimi");
+    const restatedContext = await p.store.buildPersonalMemoryContext(original);
+    const restatedRecords = (await p.store.readPersonalMemories()).records;
+    const fresh = restatedRecords.find(row => row.content === original && row.status === "active" && row.confirmationReceipt?.operationId === restated.receipt?.operationId);
+    const archived = restatedRecords.find(row => row.id === grounded.id);
+    const undidRestatement = restated.receipt ? await p.createAgentRuntime().undoOperation(restated.receipt.operationId) : false;
+    const afterUndo = await p.store.buildPersonalMemoryContext(original);
+    return { original, invented, context, regenerated, changed, weekly, restated, restatedContext, undidRestatement, afterUndo,
+      independentRestatement: !!fresh && fresh.id !== grounded.id && !fresh.summarySource && fresh.sourceRefs.length === 1
+        && !!archived?.archivedAt && archived.status === "candidate",
       retained: current.some(row => row.id === legacy.id && row.content === invented),
       sameMemoryBytes: await p.store.readPath(p.store.personalMemoryPath()) === memoryBytes,
       sameTasks: await p.store.readPath(p.store.taskDbPath()) === before };
@@ -47,7 +57,12 @@ export async function nativeSummaryOriginalMemory(page, result) {
   assert(observed.weekly.success, observed.weekly.output);
   assert(observed.weekly.output.includes("2026-01-01晚.md") && observed.weekly.output.includes("2026-01-04晚.md"));
   assert(observed.weekly.output.includes("虚构跨年周的另一篇用户原话") && observed.weekly.output.includes(observed.original));
+  assert(observed.restated.success, observed.restated.output);
+  assert(observed.independentRestatement && observed.restatedContext.includes(observed.original));
+  assert(observed.undidRestatement && !observed.afterUndo.includes(observed.original));
   result.checks.journalWeekReadsMultipleDatedOriginalsAcrossTheYearBoundary = true;
   result.checks.legacyAutomaticSummaryIsRetainedWithoutBecomingUserFact = true;
   result.checks.automaticMemoryUsesOriginalVersionInsteadOfModelSummary = true;
+  result.checks.explicitMemoryRestatementUsesItsOwnVerifiedReceipt = true;
+  result.checks.memoryRestatementUndoRestoresPausedOldEvidence = true;
 }

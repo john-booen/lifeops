@@ -117,6 +117,28 @@ it("extracts an original quote even when the model summary paraphrases it", asyn
   expect(selectPersonalMemories((await readPersonalMemoryWithSources(store)).records, "虚构检索", 8, monday)).toMatchObject([{ content: known }]);
 });
 
+it.each([false, true])("lets the user explicitly restate a grounded automatic memory and undo it (old original changed: %s)", async changed => {
+  await seedSummary(); await extractWeeklyMemories(host, store, monday);
+  const old = (await store.readPersonalMemories()).records[0];
+  if (changed) await store.writeFile(originalPath(), "虚构旧原文已更新，旧依据不再适用。");
+  const before = await vault.bytes(store.personalMemoryPath());
+  const result = await runtime.executeAiToolCall({ id: "explicit-memory-restatement", name: "append_memory_note",
+    arguments: { fileName: "管家规则.md", content: known } }, "kimi");
+  expect(result.success, result.output).toBe(true);
+  const document = await readPersonalMemoryWithSources(store);
+  expect(document.records).toHaveLength(2);
+  const selected = selectPersonalMemories(document.records, "虚构检索", 8, monday);
+  expect(selected).toMatchObject([{ content: known }]);
+  expect(selected[0].id).not.toBe(old.id);
+  expect(selected[0].summarySource).toBeUndefined();
+  expect(selected[0].sourceRefs).toHaveLength(1);
+  expect(selected[0].confirmationReceipt?.operationId).toBe(result.receipt?.operationId);
+  expect(document.records.find(record => record.id === old.id)).toMatchObject({ status: "candidate", sourceRefs: old.sourceRefs });
+  expect(document.records.find(record => record.id === old.id)?.archivedAt).toBeDefined();
+  expect(await runtime.undoOperation(result.receipt!.operationId)).toBe(true);
+  expect(await vault.bytes(store.personalMemoryPath())).toBe(before);
+});
+
 it("does not promote the assistant's organized diary section into a user statement", async () => {
   const { appendEveningEntry } = await import("../src/features/journal/entry");
   const original = appendEveningEntry("# 虚构晚间日记\n", "日记", known, "我只说今天整理了虚构纸样，没有说任何长期偏好。");

@@ -1615,5 +1615,39 @@
         "date": "2026-11-12"
       }
     }
+  },
+  {
+    "id": "restated-bound-memory-72",
+    "milestone": "M6",
+    "domain": "memory",
+    "mode": "text",
+    "fixture": "bound_memory_restatement",
+    "input": "请把这句重新记入“管家规则.md”，原句不要改写：我长期习惯用两列对照表比较虚构检索方案。此前原文有修改也没关系，我现在再次明确告诉你这个长期偏好。记好后简单告诉我，不创建任务。",
+    "history": [],
+    "checks": {
+      "mustSucceedTools": [
+        "append_memory_note"
+      ],
+      "remembered": [
+        "我长期习惯用两列对照表比较虚构检索方案。"
+      ],
+      "mustIncludeAny": [
+        [
+          "记住",
+          "记下",
+          "保存",
+          "记入"
+        ]
+      ],
+      "maxConfirmations": 0,
+      "minReceipts": 1,
+      "expectWrites": {
+        "tasks.created": 0,
+        "tasks.deleted": 0,
+        "tasks.rescheduled": 0,
+        "habits.deleted": 0
+      },
+      "judge": "用户现在再次明确陈述同一长期偏好，应成功记入管家规则并给保存回执；不能因为旧原文的固定版本变化而拒绝，不能只口头说记住，也不要求再次确认或创建任务。"
+    }
   }
 ]
