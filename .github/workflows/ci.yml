@@ -123,7 +123,7 @@ jobs:
           echo "$ROLLBACK_SHA  $RUNNER_TEMP/rollback.zip" | shasum -a 256 --check
           unzip -q "$RUNNER_TEMP/rollback.zip" -d "$RUNNER_TEMP/rollback-package"
           if [ "$QA_SCENARIO" = devices ]; then
-            curl --fail --location --retry 2 "https://github.com/john-booen/lifeops/releases/download/0.5.119/lifeops-assistant-0.5.119.zip" --output "$RUNNER_TEMP/previous-daily.zip"
+            curl --fail --location --retry 2 "https://github.com/john-booen/lifeops/releases/download/0.5.120/lifeops-assistant-0.5.120.zip" --output "$RUNNER_TEMP/previous-daily.zip"
             echo "79ab0b33738711432c695d82ab767bec71f852a020f267059016ee024f67cd8c  $RUNNER_TEMP/previous-daily.zip" | shasum -a 256 --check
             unzip -q "$RUNNER_TEMP/previous-daily.zip" -d "$RUNNER_TEMP/previous-daily-package"
           fi
