@@ -1,8 +1,87 @@
 {
-  "source": "478cd808623787de63d3265bbcde77e95462084e",
+  "source": "61d20c5dc52df34c8fee18b0a64aed8819295975",
   "passed": 76,
   "total": 76,
+  "passRate": 1,
   "questionIds": [
+    "today-unfinished-01",
+    "today-priority-02",
+    "today-overload-03",
+    "today-journal-04",
+    "last-three-state-05",
+    "create-client-06",
+    "weekend-haircut-07",
+    "record-running-08",
+    "week-habits-09",
+    "running-penalty-10",
+    "remember-meeting-11",
+    "undo-last-12",
+    "undo-after-compensation-41",
+    "undo-after-automatic-memory-47",
+    "voice-bare-undo-49",
+    "voice-delete-after-undo-50",
+    "reschedule-report-13",
+    "delete-reading-14",
+    "greeting-15",
+    "today-completed-16",
+    "monthly-task-rate-17",
+    "weekly-accountability-18",
+    "recent-anxiety-19",
+    "tomorrow-plan-20",
+    "record-trade-21",
+    "record-trades-22",
+    "monthly-trade-pnl-23",
+    "market-win-rates-24",
+    "profitable-trade-model-25",
+    "weekly-trade-violations-26",
+    "trade-improvement-27",
+    "daily-trade-goal-28",
+    "active-ideas-29",
+    "stalled-manga-idea-30",
+    "advance-manga-idea-31",
+    "english-progress-32",
+    "quant-quiz-33",
+    "grade-quant-answer-34",
+    "related-reading-35",
+    "next-week-learning-36",
+    "previous-week-summary-37",
+    "month-comparison-38",
+    "remaining-task-reminder-39",
+    "remembered-personal-facts-40",
+    "recent-state-direct-42",
+    "recent-state-correction-43",
+    "short-acknowledgement-44",
+    "short-correction-45",
+    "finished-correction-46",
+    "voice-count-period-correction-48",
+    "voice-named-reminder-51",
+    "today-due-and-overdue-52",
+    "voice-planned-finish-53",
+    "text-planned-finish-54",
+    "device-sleep-55",
+    "voice-correct-task-time-56",
+    "batch-today-tasks-57",
+    "task-content-correction-58",
+    "task-content-confirmation-59",
+    "phone-task-batch-60",
+    "phone-delayed-batch-61",
+    "cross-week-corrected-evidence-62",
+    "task-interval-batch-63",
+    "mixed-task-title-batch-64",
+    "undo-recent-modification-65",
+    "original-evidence-day-counts-66",
+    "sparse-legacy-summary-67",
+    "task-interval-meaning-68",
+    "source-relative-dates-69",
+    "summary-original-memory-70",
+    "task-lookup-prose-recovery-71",
+    "restated-bound-memory-72",
+    "tool-protocol-recovery-73",
+    "quoted-diary-memory-74",
+    "named-task-across-dates-75",
+    "recent-edited-task-clock-76"
+  ],
+  "passedIds": [
     "today-unfinished-01",
     "today-priority-02",
     "today-overload-03",
@@ -84,12 +163,12 @@
     {
       "id": "today-unfinished-01",
       "passed": true,
-      "measurement": "today-unfinished-01 · 通过 · 首字 23ms / 总 38ms · 输入 0 · "
+      "measurement": "today-unfinished-01 · 通过 · 首字 24ms / 总 39ms · 输入 0 · "
     },
     {
       "id": "today-priority-02",
       "passed": true,
-      "measurement": "today-priority-02 · 通过 · 首字 13ms / 总 22ms · 输入 0 · "
+      "measurement": "today-priority-02 · 通过 · 首字 13ms / 总 23ms · 输入 0 · "
     },
     {
       "id": "today-overload-03",
@@ -99,32 +178,32 @@
     {
       "id": "today-journal-04",
       "passed": true,
-      "measurement": "today-journal-04 · 通过 · 首字 1501ms / 总 2799ms · 输入 未知 · "
+      "measurement": "today-journal-04 · 通过 · 首字 9051ms / 总 10719ms · 输入 未知 · "
     },
     {
       "id": "last-three-state-05",
       "passed": true,
-      "measurement": "last-three-state-05 · 通过 · 首字 2760ms / 总 5646ms · 输入 未知 · "
+      "measurement": "last-three-state-05 · 通过 · 首字 3429ms / 总 5773ms · 输入 未知 · "
     },
     {
       "id": "create-client-06",
       "passed": true,
-      "measurement": "create-client-06 · 通过 · 首字 56ms / 总 70ms · 输入 0 · "
+      "measurement": "create-client-06 · 通过 · 首字 60ms / 总 77ms · 输入 0 · "
     },
     {
       "id": "weekend-haircut-07",
       "passed": true,
-      "measurement": "weekend-haircut-07 · 通过 · 首字 5ms / 总 13ms · 输入 0 · "
+      "measurement": "weekend-haircut-07 · 通过 · 首字 8ms / 总 16ms · 输入 0 · "
     },
     {
       "id": "record-running-08",
       "passed": true,
-      "measurement": "record-running-08 · 通过 · 首字 29ms / 总 37ms · 输入 0 · "
+      "measurement": "record-running-08 · 通过 · 首字 32ms / 总 42ms · 输入 0 · "
     },
     {
       "id": "week-habits-09",
       "passed": true,
-      "measurement": "week-habits-09 · 通过 · 首字 7ms / 总 16ms · 输入 0 · "
+      "measurement": "week-habits-09 · 通过 · 首字 8ms / 总 17ms · 输入 0 · "
     },
     {
       "id": "running-penalty-10",
@@ -134,27 +213,27 @@
     {
       "id": "remember-meeting-11",
       "passed": true,
-      "measurement": "remember-meeting-11 · 通过 · 首字 5ms / 总 1687ms · 输入 10402 · "
+      "measurement": "remember-meeting-11 · 通过 · 首字 5ms / 总 1670ms · 输入 10402 · "
     },
     {
       "id": "undo-last-12",
       "passed": true,
-      "measurement": "undo-last-12 · 通过 · 首字 136ms / 总 210ms · 输入 0 · "
+      "measurement": "undo-last-12 · 通过 · 首字 134ms / 总 206ms · 输入 0 · "
     },
     {
       "id": "undo-after-compensation-41",
       "passed": true,
-      "measurement": "undo-after-compensation-41 · 通过 · 首字 221ms / 总 345ms · 输入 0 · "
+      "measurement": "undo-after-compensation-41 · 通过 · 首字 215ms / 总 337ms · 输入 0 · "
     },
     {
       "id": "undo-after-automatic-memory-47",
       "passed": true,
-      "measurement": "undo-after-automatic-memory-47 · 通过 · 首字 123ms / 总 207ms · 输入 0 · "
+      "measurement": "undo-after-automatic-memory-47 · 通过 · 首字 126ms / 总 214ms · 输入 0 · "
     },
     {
       "id": "voice-bare-undo-49",
       "passed": true,
-      "measurement": "voice-bare-undo-49 · 通过 · 首字 122ms / 总 187ms · 输入 0 · "
+      "measurement": "voice-bare-undo-49 · 通过 · 首字 126ms / 总 195ms · 输入 0 · "
     },
     {
       "id": "voice-delete-after-undo-50",
@@ -164,12 +243,12 @@
     {
       "id": "reschedule-report-13",
       "passed": true,
-      "measurement": "reschedule-report-13 · 通过 · 首字 2283ms / 总 2292ms · 输入 10463 · "
+      "measurement": "reschedule-report-13 · 通过 · 首字 1819ms / 总 1828ms · 输入 10462 · "
     },
     {
       "id": "delete-reading-14",
       "passed": true,
-      "measurement": "delete-reading-14 · 通过 · 首字 547ms / 总 556ms · 输入 5152 · "
+      "measurement": "delete-reading-14 · 通过 · 首字 1103ms / 总 1111ms · 输入 5152 · "
     },
     {
       "id": "greeting-15",
@@ -179,162 +258,162 @@
     {
       "id": "today-completed-16",
       "passed": true,
-      "measurement": "today-completed-16 · 通过 · 首字 7ms / 总 15ms · 输入 0 · "
+      "measurement": "today-completed-16 · 通过 · 首字 8ms / 总 17ms · 输入 0 · "
     },
     {
       "id": "monthly-task-rate-17",
       "passed": true,
-      "measurement": "monthly-task-rate-17 · 通过 · 首字 6ms / 总 14ms · 输入 0 · "
+      "measurement": "monthly-task-rate-17 · 通过 · 首字 7ms / 总 17ms · 输入 0 · "
     },
     {
       "id": "weekly-accountability-18",
       "passed": true,
-      "measurement": "weekly-accountability-18 · 通过 · 首字 1951ms / 总 5379ms · 输入 未知 · "
+      "measurement": "weekly-accountability-18 · 通过 · 首字 3663ms / 总 6117ms · 输入 未知 · "
     },
     {
       "id": "recent-anxiety-19",
       "passed": true,
-      "measurement": "recent-anxiety-19 · 通过 · 首字 2898ms / 总 4793ms · 输入 未知 · "
+      "measurement": "recent-anxiety-19 · 通过 · 首字 1743ms / 总 3614ms · 输入 未知 · "
     },
     {
       "id": "tomorrow-plan-20",
       "passed": true,
-      "measurement": "tomorrow-plan-20 · 通过 · 首字 2058ms / 总 2067ms · 输入 未知 · "
+      "measurement": "tomorrow-plan-20 · 通过 · 首字 2137ms / 总 2147ms · 输入 未知 · "
     },
     {
       "id": "record-trade-21",
       "passed": true,
-      "measurement": "record-trade-21 · 通过 · 首字 1450ms / 总 2621ms · 输入 未知 · "
+      "measurement": "record-trade-21 · 通过 · 首字 1745ms / 总 2399ms · 输入 未知 · "
     },
     {
       "id": "record-trades-22",
       "passed": true,
-      "measurement": "record-trades-22 · 通过 · 首字 919ms / 总 4059ms · 输入 未知 · "
+      "measurement": "record-trades-22 · 通过 · 首字 1912ms / 总 2742ms · 输入 未知 · "
     },
     {
       "id": "monthly-trade-pnl-23",
       "passed": true,
-      "measurement": "monthly-trade-pnl-23 · 通过 · 首字 747ms / 总 2650ms · 输入 未知 · "
+      "measurement": "monthly-trade-pnl-23 · 通过 · 首字 1392ms / 总 2748ms · 输入 未知 · "
     },
     {
       "id": "market-win-rates-24",
       "passed": true,
-      "measurement": "market-win-rates-24 · 通过 · 首字 865ms / 总 874ms · 输入 未知 · "
+      "measurement": "market-win-rates-24 · 通过 · 首字 534ms / 总 898ms · 输入 未知 · "
     },
     {
       "id": "profitable-trade-model-25",
       "passed": true,
-      "measurement": "profitable-trade-model-25 · 通过 · 首字 1082ms / 总 1091ms · 输入 未知 · "
+      "measurement": "profitable-trade-model-25 · 通过 · 首字 1851ms / 总 3350ms · 输入 未知 · "
     },
     {
       "id": "weekly-trade-violations-26",
       "passed": true,
-      "measurement": "weekly-trade-violations-26 · 通过 · 首字 482ms / 总 2502ms · 输入 未知 · "
+      "measurement": "weekly-trade-violations-26 · 通过 · 首字 699ms / 总 3106ms · 输入 未知 · "
     },
     {
       "id": "trade-improvement-27",
       "passed": true,
-      "measurement": "trade-improvement-27 · 通过 · 首字 721ms / 总 1154ms · 输入 未知 · "
+      "measurement": "trade-improvement-27 · 通过 · 首字 678ms / 总 1003ms · 输入 未知 · "
     },
     {
       "id": "daily-trade-goal-28",
       "passed": true,
-      "measurement": "daily-trade-goal-28 · 通过 · 首字 1178ms / 总 1930ms · 输入 未知 · "
+      "measurement": "daily-trade-goal-28 · 通过 · 首字 1127ms / 总 2021ms · 输入 未知 · "
     },
     {
       "id": "active-ideas-29",
       "passed": true,
-      "measurement": "active-ideas-29 · 通过 · 首字 727ms / 总 3019ms · 输入 未知 · "
+      "measurement": "active-ideas-29 · 通过 · 首字 1202ms / 总 3178ms · 输入 未知 · "
     },
     {
       "id": "stalled-manga-idea-30",
       "passed": true,
-      "measurement": "stalled-manga-idea-30 · 通过 · 首字 10ms / 总 18ms · 输入 0 · "
+      "measurement": "stalled-manga-idea-30 · 通过 · 首字 10ms / 总 19ms · 输入 0 · "
     },
     {
       "id": "advance-manga-idea-31",
       "passed": true,
-      "measurement": "advance-manga-idea-31 · 通过 · 首字 659ms / 总 8373ms · 输入 未知 · "
+      "measurement": "advance-manga-idea-31 · 通过 · 首字 693ms / 总 6565ms · 输入 未知 · "
     },
     {
       "id": "english-progress-32",
       "passed": true,
-      "measurement": "english-progress-32 · 通过 · 首字 1375ms / 总 2322ms · 输入 未知 · "
+      "measurement": "english-progress-32 · 通过 · 首字 4968ms / 总 5836ms · 输入 未知 · "
     },
     {
       "id": "quant-quiz-33",
       "passed": true,
-      "measurement": "quant-quiz-33 · 通过 · 首字 4098ms / 总 4110ms · 输入 未知 · "
+      "measurement": "quant-quiz-33 · 通过 · 首字 2947ms / 总 2956ms · 输入 未知 · "
     },
     {
       "id": "grade-quant-answer-34",
       "passed": true,
-      "measurement": "grade-quant-answer-34 · 通过 · 首字 634ms / 总 3815ms · 输入 未知 · "
+      "measurement": "grade-quant-answer-34 · 通过 · 首字 3279ms / 总 3765ms · 输入 未知 · "
     },
     {
       "id": "related-reading-35",
       "passed": true,
-      "measurement": "related-reading-35 · 通过 · 首字 1428ms / 总 2006ms · 输入 未知 · "
+      "measurement": "related-reading-35 · 通过 · 首字 1259ms / 总 2023ms · 输入 未知 · "
     },
     {
       "id": "next-week-learning-36",
       "passed": true,
-      "measurement": "next-week-learning-36 · 通过 · 首字 1746ms / 总 2545ms · 输入 未知 · "
+      "measurement": "next-week-learning-36 · 通过 · 首字 1595ms / 总 2782ms · 输入 未知 · "
     },
     {
       "id": "previous-week-summary-37",
       "passed": true,
-      "measurement": "previous-week-summary-37 · 通过 · 首字 798ms / 总 7309ms · 输入 未知 · "
+      "measurement": "previous-week-summary-37 · 通过 · 首字 409ms / 总 8151ms · 输入 未知 · "
     },
     {
       "id": "month-comparison-38",
       "passed": true,
-      "measurement": "month-comparison-38 · 通过 · 首字 1294ms / 总 9533ms · 输入 未知 · "
+      "measurement": "month-comparison-38 · 通过 · 首字 740ms / 总 11403ms · 输入 未知 · "
     },
     {
       "id": "remaining-task-reminder-39",
       "passed": true,
-      "measurement": "remaining-task-reminder-39 · 通过 · 首字 3156ms / 总 3175ms · 输入 未知 · "
+      "measurement": "remaining-task-reminder-39 · 通过 · 首字 2800ms / 总 2814ms · 输入 未知 · "
     },
     {
       "id": "remembered-personal-facts-40",
       "passed": true,
-      "measurement": "remembered-personal-facts-40 · 通过 · 首字 1804ms / 总 2277ms · 输入 未知 · "
+      "measurement": "remembered-personal-facts-40 · 通过 · 首字 1244ms / 总 1618ms · 输入 未知 · "
     },
     {
       "id": "recent-state-direct-42",
       "passed": true,
-      "measurement": "recent-state-direct-42 · 通过 · 首字 13ms / 总 22ms · 输入 0 · "
+      "measurement": "recent-state-direct-42 · 通过 · 首字 15ms / 总 24ms · 输入 0 · "
     },
     {
       "id": "recent-state-correction-43",
       "passed": true,
-      "measurement": "recent-state-correction-43 · 通过 · 首字 16ms / 总 24ms · 输入 0 · "
+      "measurement": "recent-state-correction-43 · 通过 · 首字 17ms / 总 25ms · 输入 0 · "
     },
     {
       "id": "short-acknowledgement-44",
       "passed": true,
-      "measurement": "short-acknowledgement-44 · 通过 · 首字 15ms / 总 24ms · 输入 0 · "
+      "measurement": "short-acknowledgement-44 · 通过 · 首字 18ms / 总 26ms · 输入 0 · "
     },
     {
       "id": "short-correction-45",
       "passed": true,
-      "measurement": "short-correction-45 · 通过 · 首字 14ms / 总 22ms · 输入 0 · "
+      "measurement": "short-correction-45 · 通过 · 首字 16ms / 总 25ms · 输入 0 · "
     },
     {
       "id": "finished-correction-46",
       "passed": true,
-      "measurement": "finished-correction-46 · 通过 · 首字 1483ms / 总 2417ms · 输入 未知 · "
+      "measurement": "finished-correction-46 · 通过 · 首字 1757ms / 总 2668ms · 输入 未知 · "
     },
     {
       "id": "voice-count-period-correction-48",
       "passed": true,
-      "measurement": "voice-count-period-correction-48 · 通过 · 首字 10ms / 总 19ms · 输入 0 · "
+      "measurement": "voice-count-period-correction-48 · 通过 · 首字 10ms / 总 18ms · 输入 0 · "
     },
     {
       "id": "voice-named-reminder-51",
       "passed": true,
-      "measurement": "voice-named-reminder-51 · 通过 · 首字 52ms / 总 60ms · 输入 0 · "
+      "measurement": "voice-named-reminder-51 · 通过 · 首字 54ms / 总 63ms · 输入 0 · "
     },
     {
       "id": "today-due-and-overdue-52",
@@ -344,202 +423,130 @@
     {
       "id": "voice-planned-finish-53",
       "passed": true,
-      "measurement": "voice-planned-finish-53 · 通过 · 首字 1604ms / 总 1798ms · 输入 10507 · "
+      "measurement": "voice-planned-finish-53 · 通过 · 首字 1287ms / 总 1673ms · 输入 10507 · "
     },
     {
       "id": "text-planned-finish-54",
       "passed": true,
-      "measurement": "text-planned-finish-54 · 通过 · 首字 2642ms / 总 2874ms · 输入 未知 · "
+      "measurement": "text-planned-finish-54 · 通过 · 首字 2023ms / 总 2278ms · 输入 未知 · "
     },
     {
       "id": "device-sleep-55",
       "passed": true,
-      "measurement": "device-sleep-55 · 通过 · 首字 8ms / 总 17ms · 输入 0 · "
+      "measurement": "device-sleep-55 · 通过 · 首字 10ms / 总 18ms · 输入 0 · "
     },
     {
       "id": "voice-correct-task-time-56",
       "passed": true,
-      "measurement": "voice-correct-task-time-56 · 通过 · 首字 74ms / 总 141ms · 输入 0 · "
+      "measurement": "voice-correct-task-time-56 · 通过 · 首字 78ms / 总 148ms · 输入 0 · "
     },
     {
       "id": "batch-today-tasks-57",
       "passed": true,
-      "measurement": "batch-today-tasks-57 · 通过 · 首字 745ms / 总 2371ms · 输入 未知 · "
+      "measurement": "batch-today-tasks-57 · 通过 · 首字 1751ms / 总 1760ms · 输入 未知 · "
     },
     {
       "id": "task-content-correction-58",
       "passed": true,
-      "measurement": "task-content-correction-58 · 通过 · 首字 3181ms / 总 3298ms · 输入 未知 · "
+      "measurement": "task-content-correction-58 · 通过 · 首字 3247ms / 总 3364ms · 输入 未知 · "
     },
     {
       "id": "task-content-confirmation-59",
       "passed": true,
-      "measurement": "task-content-confirmation-59 · 通过 · 首字 2405ms / 总 2525ms · 输入 9942 · "
+      "measurement": "task-content-confirmation-59 · 通过 · 首字 2003ms / 总 2126ms · 输入 9946 · "
     },
     {
       "id": "phone-task-batch-60",
       "passed": true,
-      "measurement": "phone-task-batch-60 · 通过 · 首字 1543ms / 总 1551ms · 输入 未知 · "
+      "measurement": "phone-task-batch-60 · 通过 · 首字 1275ms / 总 1282ms · 输入 未知 · "
     },
     {
       "id": "phone-delayed-batch-61",
       "passed": true,
-      "measurement": "phone-delayed-batch-61 · 通过 · 首字 1460ms / 总 1467ms · 输入 未知 · "
+      "measurement": "phone-delayed-batch-61 · 通过 · 首字 1718ms / 总 1725ms · 输入 未知 · "
     },
     {
       "id": "cross-week-corrected-evidence-62",
       "passed": true,
-      "measurement": "cross-week-corrected-evidence-62 · 通过 · 首字 526ms / 总 15708ms · 输入 未知 · "
+      "measurement": "cross-week-corrected-evidence-62 · 通过 · 首字 448ms / 总 14143ms · 输入 未知 · "
     },
     {
       "id": "task-interval-batch-63",
       "passed": true,
-      "measurement": "task-interval-batch-63 · 通过 · 首字 1101ms / 总 6750ms · 输入 未知 · "
+      "measurement": "task-interval-batch-63 · 通过 · 首字 1444ms / 总 6022ms · 输入 未知 · "
     },
     {
       "id": "mixed-task-title-batch-64",
       "passed": true,
-      "measurement": "mixed-task-title-batch-64 · 通过 · 首字 3067ms / 总 3076ms · 输入 未知 · "
+      "measurement": "mixed-task-title-batch-64 · 通过 · 首字 3114ms / 总 3124ms · 输入 未知 · "
     },
     {
       "id": "undo-recent-modification-65",
       "passed": true,
-      "measurement": "undo-recent-modification-65 · 通过 · 首字 205ms / 总 349ms · 输入 0 · "
+      "measurement": "undo-recent-modification-65 · 通过 · 首字 215ms / 总 360ms · 输入 0 · "
     },
     {
       "id": "original-evidence-day-counts-66",
       "passed": true,
-      "measurement": "original-evidence-day-counts-66 · 通过 · 首字 454ms / 总 15226ms · 输入 未知 · "
+      "measurement": "original-evidence-day-counts-66 · 通过 · 首字 17973ms / 总 17990ms · 输入 未知 · "
     },
     {
       "id": "sparse-legacy-summary-67",
       "passed": true,
-      "measurement": "sparse-legacy-summary-67 · 通过 · 首字 554ms / 总 12303ms · 输入 未知 · "
+      "measurement": "sparse-legacy-summary-67 · 通过 · 首字 10857ms / 总 33739ms · 输入 未知 · "
     },
     {
       "id": "task-interval-meaning-68",
       "passed": true,
-      "measurement": "task-interval-meaning-68 · 通过 · 首字 1370ms / 总 2203ms · 输入 未知 · "
+      "measurement": "task-interval-meaning-68 · 通过 · 首字 953ms / 总 1613ms · 输入 未知 · "
     },
     {
       "id": "source-relative-dates-69",
       "passed": true,
-      "measurement": "source-relative-dates-69 · 通过 · 首字 782ms / 总 16387ms · 输入 未知 · "
+      "measurement": "source-relative-dates-69 · 通过 · 首字 823ms / 总 13860ms · 输入 未知 · "
     },
     {
       "id": "summary-original-memory-70",
       "passed": true,
-      "measurement": "summary-original-memory-70 · 通过 · 首字 478ms / 总 6580ms · 输入 未知 · "
+      "measurement": "summary-original-memory-70 · 通过 · 首字 353ms / 总 5692ms · 输入 未知 · "
     },
     {
       "id": "task-lookup-prose-recovery-71",
       "passed": true,
-      "measurement": "task-lookup-prose-recovery-71 · 通过 · 首字 3047ms / 总 5057ms · 输入 未知 · "
+      "measurement": "task-lookup-prose-recovery-71 · 通过 · 首字 2666ms / 总 4255ms · 输入 未知 · "
     },
     {
       "id": "restated-bound-memory-72",
       "passed": true,
-      "measurement": "restated-bound-memory-72 · 通过 · 首字 619ms / 总 1611ms · 输入 未知 · "
+      "measurement": "restated-bound-memory-72 · 通过 · 首字 1735ms / 总 2095ms · 输入 未知 · "
     },
     {
       "id": "tool-protocol-recovery-73",
       "passed": true,
-      "measurement": "tool-protocol-recovery-73 · 通过 · 首字 4559ms / 总 4571ms · 输入 未知 · "
+      "measurement": "tool-protocol-recovery-73 · 通过 · 首字 14114ms / 总 14146ms · 输入 未知 · "
     },
     {
       "id": "quoted-diary-memory-74",
       "passed": true,
-      "measurement": "quoted-diary-memory-74 · 通过 · 首字 711ms / 总 2048ms · 输入 未知 · "
+      "measurement": "quoted-diary-memory-74 · 通过 · 首字 8673ms / 总 9166ms · 输入 未知 · "
     },
     {
       "id": "named-task-across-dates-75",
       "passed": true,
-      "measurement": "named-task-across-dates-75 · 通过 · 首字 1495ms / 总 1631ms · 输入 未知 · "
+      "measurement": "named-task-across-dates-75 · 通过 · 首字 1512ms / 总 1640ms · 输入 未知 · "
     },
     {
       "id": "recent-edited-task-clock-76",
       "passed": true,
-      "measurement": "recent-edited-task-clock-76 · 通过 · 首字 84ms / 总 2044ms · 输入 未知 · "
+      "measurement": "recent-edited-task-clock-76 · 通过 · 首字 98ms / 总 1898ms · 输入 未知 · "
     }
   ],
-  "passRate": 1,
-  "candidateSource": "478cd808623787de63d3265bbcde77e95462084e",
-  "passedIds": [
-    "today-unfinished-01",
-    "today-priority-02",
-    "today-overload-03",
-    "today-journal-04",
-    "last-three-state-05",
-    "create-client-06",
-    "weekend-haircut-07",
-    "record-running-08",
-    "week-habits-09",
-    "running-penalty-10",
-    "remember-meeting-11",
-    "undo-last-12",
-    "undo-after-compensation-41",
-    "undo-after-automatic-memory-47",
-    "voice-bare-undo-49",
-    "voice-delete-after-undo-50",
-    "reschedule-report-13",
-    "delete-reading-14",
-    "greeting-15",
-    "today-completed-16",
-    "monthly-task-rate-17",
-    "weekly-accountability-18",
-    "recent-anxiety-19",
-    "tomorrow-plan-20",
-    "record-trade-21",
-    "record-trades-22",
-    "monthly-trade-pnl-23",
-    "market-win-rates-24",
-    "profitable-trade-model-25",
-    "weekly-trade-violations-26",
-    "trade-improvement-27",
-    "daily-trade-goal-28",
-    "active-ideas-29",
-    "stalled-manga-idea-30",
-    "advance-manga-idea-31",
-    "english-progress-32",
-    "quant-quiz-33",
-    "grade-quant-answer-34",
-    "related-reading-35",
-    "next-week-learning-36",
-    "previous-week-summary-37",
-    "month-comparison-38",
-    "remaining-task-reminder-39",
-    "remembered-personal-facts-40",
-    "recent-state-direct-42",
-    "recent-state-correction-43",
-    "short-acknowledgement-44",
-    "short-correction-45",
-    "finished-correction-46",
-    "voice-count-period-correction-48",
-    "voice-named-reminder-51",
-    "today-due-and-overdue-52",
-    "voice-planned-finish-53",
-    "text-planned-finish-54",
-    "device-sleep-55",
-    "voice-correct-task-time-56",
-    "batch-today-tasks-57",
-    "task-content-correction-58",
-    "task-content-confirmation-59",
-    "phone-task-batch-60",
-    "phone-delayed-batch-61",
-    "cross-week-corrected-evidence-62",
-    "task-interval-batch-63",
-    "mixed-task-title-batch-64",
-    "undo-recent-modification-65",
-    "original-evidence-day-counts-66",
-    "sparse-legacy-summary-67",
-    "task-interval-meaning-68",
-    "source-relative-dates-69",
-    "summary-original-memory-70",
-    "task-lookup-prose-recovery-71",
-    "restated-bound-memory-72",
-    "tool-protocol-recovery-73",
-    "quoted-diary-memory-74",
-    "named-task-across-dates-75",
-    "recent-edited-task-clock-76"
-  ]
+  "originalQuestionsUnchanged": true,
+  "initialCandidate": {
+    "source": "05dd282ea483c0525cfcce51507cb30e69d36d4a",
+    "passed": 75,
+    "total": 76,
+    "notRelabelled": true
+  },
+  "candidateSource": "61d20c5dc52df34c8fee18b0a64aed8819295975"
 }
