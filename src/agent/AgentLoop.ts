@@ -658,6 +658,7 @@ export class AgentLoop {
       }
     }
     if (tools.some(tool => tool.name === "list_tasks")) {
+      guidance.push("只按名字查找任务而未限定日期时，用query并省略date，查全部日期；用户指定今天或某日时传对应date。逐条使用返回的date/endDate和准确ID，不把跨日期结果当作今天清单；同名对象不明确先核对，不自行选一条改。");
       guidance.push("要求把逾期和今天到期的未完成任务分开时，用 list_tasks 的 dueStatus=overdue_and_today。如另要建议，设 directReply=false。问今天还剩几项和最要紧的 N 项（含今晚未完成提醒）时，用 list_tasks 的 order=priority、limit=N、directReply=true，省略 dueStatus，不用 plan_today。只问今天该先做什么、想知道排序理由或精力影响，用 plan_today，不用 list_tasks。");
     }
     if (input.source === "voice" && tools.some(tool => tool.name === "start_quiz")) {
