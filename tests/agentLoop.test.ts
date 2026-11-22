@@ -54,7 +54,8 @@ it("turns a model's unsupported eleven-task card claim into one real confirmatio
   responses.push(reply("", [tool("list_tasks", { date: "2026-11-12", query: "虚构补卡纸样" })]),
     reply("确认卡已经生成，请确认下面11项；这些只是模型写出的表格。"),
     reply("", [tool("resolve_task_lookup", { kind: "prepare_updates", coversAllRequested: true, updates: tasks.map((task, i) => ({
-      taskIdOrTitle: task.id, startTime: String(i + 9).padStart(2, "0") + ":00", endTime: String(i + 9).padStart(2, "0") + ":30"
+      taskIdOrTitle: task.id, title: task.title, note: task.note, date: task.date,
+      startTime: String(i + 9).padStart(2, "0") + ":00", endTime: String(i + 9).padStart(2, "0") + ":30"
     })) })]), reply("请核对实际生成的修改确认卡。"));
   const streamed: string[] = [];
   const result = await new AgentLoop(host).run(input({ message: "请把虚构补卡纸样十一条统一改为从09:00起每小时一条、每条30分钟，先生成一份确认卡，等我确认再保存。", onText: text => streamed.push(text) }));
@@ -62,6 +63,9 @@ it("turns a model's unsupported eleven-task card claim into one real confirmatio
   expect(result.confirmations[0].toolBatch).toHaveLength(1);
   expect(result.confirmations[0].toolBatch![0].name).toBe("update_tasks");
   expect((result.confirmations[0].toolBatch![0].arguments.updates as unknown[])).toHaveLength(11);
+  for (const row of result.confirmations[0].toolBatch![0].arguments.updates as Array<Record<string, unknown>>) {
+    expect(Object.keys(row).sort()).toEqual(["taskIdOrTitle", "date", "startTime", "endTime", "expectedRevision"].sort());
+  }
   expect(await store.readPath(store.taskDbPath())).toBe(before); expect(result.receipts).toEqual([]);
   expect(streamed.join("")).not.toContain("这些只是模型写出的表格");
   expect(toolChoices).toContainEqual({ type: "function", function: { name: "resolve_task_lookup" } });

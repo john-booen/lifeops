@@ -226,6 +226,14 @@ export async function exerciseNativeDeviceBatch({ getPage, root, vault, profile,
   for (const row of old.tasks) assert.deepEqual(row, received.tasks.find(item => item.id === row.id));
   result.checks.rollbackWholeBatchUndoPreservesOtherTasks = true;
   await close(); await packageFiles(candidate); await launch(); page = getPage();
+  // Reopened Obsidian can expose the plugin before its copied ledger and
+  // writer bootstrap are readable. Retain the actual undone-receipt gate.
+  await page.waitForFunction(async operationId => {
+    const p = app.plugins.getPlugin("lifeops-assistant");
+    if (!p?.deviceInbox || p.dataFoundationBootstrap) return false;
+    await p.deviceInbox.scan();
+    return (await p.deviceInbox.list()).some(row => row.operationId === operationId && row.undone);
+  }, received.offlineOperationId, { timeout: 15000 });
   const restored = await page.evaluate(async () => {
     const p = app.plugins.getPlugin("lifeops-assistant"); await p.deviceInbox.scan();
     return { tasks: (await p.store.readTaskDb()).tasks, version: p.manifest.version, id: p.devices.execution.deviceId,

@@ -22,7 +22,11 @@ export async function bindTaskPlanConfirmation(store: StoreHost, batch: ToolCall
         if (!row || typeof row !== "object" || Array.isArray(row)) throw Error("计划修改格式需要核对。");
         const matches = tasks.filter(task => task.id === row.taskIdOrTitle || task.title === row.taskIdOrTitle);
         if (matches.length !== 1) throw Error("计划中有任务无法唯一定位，请先核对标题；原安排保留。");
-        const before = matches[0], next = { ...before, ...taskPlanUpdate(before, row) };
+        const before = matches[0];
+        // A repeated old title/note is preservation, not a requested edit.
+        for (const key of ["title", "note"] as const) if (Object.prototype.hasOwnProperty.call(row, key)
+          && Object.is(before[key], row[key])) delete row[key];
+        const next = { ...before, ...taskPlanUpdate(before, row) };
         row.taskIdOrTitle = before.id; row.expectedRevision = recordRevision(before);
         const oldPlan = [before.date, taskScheduleLabel(before)].filter(Boolean).join(" ") || "未排时间";
         const newPlan = [next.date, taskScheduleLabel(next)].filter(Boolean).join(" ") || "未排时间";
