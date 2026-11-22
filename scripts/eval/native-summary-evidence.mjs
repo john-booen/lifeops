@@ -63,7 +63,7 @@ export async function nativeSummaryEvidence(page, root, result) {
     const stayed = await page.evaluate(() => { const saved = globalThis.__nativeSummaryEvidence; saved.oldButton.click(); return app.workspace.getActiveFile()?.path === saved.report; });
     assert(stayed);
     await page.evaluate(() => { const p = app.plugins.getPlugin("lifeops-assistant"); p.settings.privacy = globalThis.__nativeSummaryEvidence.privacy; });
-    await page.getByRole("button", { name: "刷新依据", exact: true }).click(); await sourceButton.waitFor(); await sourceButton.click();
+    await page.getByRole("button", { name: "刷新摘要依据", exact: true }).click(); await sourceButton.waitFor(); await sourceButton.click();
     await page.waitForFunction(path => app.workspace.getActiveFile()?.path === path, prepared.sources[0]);
     assert.equal(await page.locator(".lifeops-summary-evidence").count(), 0);
     const final = await page.evaluate(async () => {
