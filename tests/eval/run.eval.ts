@@ -297,8 +297,12 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
     }
     runningPrelude = true;
     judgePhase = "prelude";
-    if (question.fixture === "historical_followup_correction") {
-      history.push(...await (await import("./historicalFollowupFixture")).historicalFollowupFixture(plugin, store as unknown as StoreHost));
+    if (question.fixture === "historical_followup_correction" || question.fixture === "crowded_historical_followup") {
+      history.push(...await (await import("./historicalFollowupFixture")).historicalFollowupFixture(plugin, store as unknown as StoreHost,
+        question.fixture === "crowded_historical_followup" ? 12 : 0));
+    }
+    if (question.fixture === "crowded_named_memory") {
+      await (await import("./historicalFollowupFixture")).crowdedMemoryFixture(store as unknown as StoreHost, 13, true, question.input);
     }
     if (question.fixture === "deferred_title_confirmation") {
       history.push(...await (await import("./deferredTitleConfirmationFixture")).deferredTitleConfirmationFixture(plugin, store as unknown as StoreHost));

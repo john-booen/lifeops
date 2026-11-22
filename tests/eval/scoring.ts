@@ -62,7 +62,7 @@ export interface EvalQuestion {
   mode: "text" | "voice";
   input: string;
   history: { role: "user" | "assistant"; content: string }[];
-  fixture?: "without_quiz_cards" | "scheduled_compensation_after_prelude" | "automatic_memory_after_create" | "task_already_undone" | "one_overdue_task" | "device_sleep" | "cross_week_after_correction" | "eleven_task_plans" | "mixed_title_batch" | "sparse_legacy_summary" | "task_interval_meaning" | "source_relative_dates" | "summary_original_memory" | "task_lookup_prose" | "bound_memory_restatement" | "malformed_tool_protocol" | "quoted_diary_memory" | "historical_followup_correction" | "deferred_title_confirmation";
+  fixture?: "without_quiz_cards" | "scheduled_compensation_after_prelude" | "automatic_memory_after_create" | "task_already_undone" | "one_overdue_task" | "device_sleep" | "cross_week_after_correction" | "eleven_task_plans" | "mixed_title_batch" | "sparse_legacy_summary" | "task_interval_meaning" | "source_relative_dates" | "summary_original_memory" | "task_lookup_prose" | "bound_memory_restatement" | "malformed_tool_protocol" | "quoted_diary_memory" | "historical_followup_correction" | "deferred_title_confirmation" | "crowded_historical_followup" | "crowded_named_memory";
   prelude?: string[];
   afterPreludeHistory?: { role: "user" | "assistant"; content: string }[];
   phoneCaptureDate?: string;

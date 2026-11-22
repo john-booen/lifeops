@@ -280,7 +280,9 @@ export function selectPersonalMemories(
     .map((record) => ({
       record,
       score: baseScore(record) + recencyScore(lastUsed?.get(record.id), now) + terms.reduce(
-        (score, term) => score + (searchableMemory(record).includes(term) ? 0.18 : 0),
+        // A matching confirmed episode must outrank an unrelated profile;
+        // otherwise a named memory can be unreachable behind the count limit.
+        (score, term) => score + (searchableMemory(record).includes(term) ? 1 : 0),
         0
       )
     }))

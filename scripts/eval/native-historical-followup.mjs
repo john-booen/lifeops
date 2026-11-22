@@ -11,7 +11,15 @@ export async function nativeHistoricalFollowup(page, root, result) {
     const oldReply = view.agentReply, cards = await p.prepareStewardMemoryReview(memory, { decision: "correct", content: corrected });
     if (cards.length !== 1) throw Error("Fictional follow-up correction card unavailable");
     await p.executeAgentAction(cards[0]);
-    return { old, corrected, oldReply };
+    const originalRecords = JSON.stringify((await p.store.readPersonalMemories()).records), background = [];
+    for (let index = 0; index < 12; index++) {
+      const text = `虚构纸样归档容量背景${index}：` + "这是一段已核对的虚构背景说明。".repeat(80);
+      const path = p.store.path(p.settings.folders.ideas, `虚构容量背景${index}.md`);await p.store.writeFile(path, text);
+      const record = await p.store.upsertPersonalMemory({kind:"core_profile",content:text,sourceRefs:[{sourceId:`fictional-native-capacity-${index}`,path,
+        capturedAt:new Date().toISOString(),contentHash:require("node:crypto").createHash("sha256").update(text).digest("hex"),extractionVersion:"fictional-v1"}]});
+      await p.store.reviewPersonalMemory(record.id,{decision:"confirm"});background.push({id:record.id,path,text});
+    }
+    return { old, corrected, oldReply, originalRecords, background };
   });
   await page.waitForFunction(() => {
     const p = app.plugins.getPlugin("lifeops-assistant"), state = globalThis[Symbol.for("lifeops.fact-operation-state.v1")];
@@ -20,6 +28,10 @@ export async function nativeHistoricalFollowup(page, root, result) {
   const observed = await page.evaluate(async prepared => {
     const p = app.plugins.getPlugin("lifeops-assistant"), view = app.workspace.getLeavesOfType("lifeops-assistant-view")[0].view;
     const tasks = await p.store.readPath(p.store.taskDbPath()), memory = await p.store.readPath(p.store.personalMemoryPath());
+    const memoryRead = await p.createAgentRuntime().executeAiToolCall({id:"fictional-native-whole-memory",name:"query_vault",
+      arguments:{domain:"memory",operation:"search",query:"20:15",maxChars:1000}},"kimi");
+    if(!memoryRead.success||memoryRead.output.length>1000||!memoryRead.output.includes(prepared.corrected)
+      ||memoryRead.output.includes("虚构纸样归档容量背景"))throw Error("Memory tool clipped a fact/source block or lost the current rule");
     let calls = 0, evidence;
     const mock = async (messages, onText, options) => {
       calls++;
@@ -30,9 +42,10 @@ export async function nativeHistoricalFollowup(page, root, result) {
         const text = JSON.stringify(messages);
         if (!text.includes("2026-10-26") || !text.includes("2026-11-08") || !text.includes(prepared.corrected)
           || text.includes(prepared.old) || messages.some(message => message.content.includes(prepared.oldReply))) throw Error("Checked dates or current memory missing; old prose reused");
-        return { content: "", toolCalls: [{ id: "fictional-native-followup-reread", name: "get_summaries", arguments: { level: "week", range: { from: "2026-10-26", to: "2026-11-08" }, includeOriginals: true, query: "纸样 归档" } }] };
+        return { content: "虚构读取前猜测：历史两次都在20:15，不可发布为事实。", toolCalls: [{ id: "fictional-native-followup-reread", name: "get_summaries", arguments: { level: "week", range: { from: "2026-10-26", to: "2026-11-08" }, includeOriginals: true, query: "纸样 归档" } }] };
       }
       const final = options?.toolChoice === "none";
+      if(final&&JSON.stringify(messages).includes("虚构读取前猜测"))throw Error("Unverified intermediate assistant prose reached final historical interpretation");
       const outputs = final ? messages.filter(message => message.role === "user" && message.content.startsWith("已核对的工具读回资料"))
         .map(message => JSON.parse(message.content.slice(message.content.indexOf("\n") + 1)).result) : messages.filter(message => message.role === "tool").map(message => message.content);
       evidence = outputs.map(text => { try { return JSON.parse(text).originalEvidence; } catch { return; } }).find(Boolean);
@@ -53,5 +66,17 @@ export async function nativeHistoricalFollowup(page, root, result) {
   result.checks.historicalFollowupAfterMemoryCorrectionRetainsCheckedRange = true;
   result.checks.historicalFollowupReReadsOriginalsWithoutOldAnswerOrWrites = true;
   result.checks.historicalFinalReceivesCompleteConfirmedMemoryBlock = true;
-  result.historicalFollowup = { calls: 3, originalDates: observed.evidence.notes.map(note => note.date), tasksUnchanged: true, memoryUnchanged: true };
+  result.checks.currentRuleSurvivesTwelveLongBackgroundMemories = true;
+  result.checks.memoryToolReturnsWholeRecordsWithinCharacterBudget = true;
+  result.checks.historicalFinalDropsUnverifiedIntermediateAssistantProse = true;
+  const cleaned = await page.evaluate(async prepared => {
+    const p=app.plugins.getPlugin("lifeops-assistant"),document=await p.store.readPersonalMemories(),ids=new Set(prepared.background.map(row=>row.id));
+    document.records=document.records.filter(row=>!ids.has(row.id));await p.store.writePersonalMemories(document);
+    if(JSON.stringify((await p.store.readPersonalMemories()).records)!==prepared.originalRecords)throw Error("Capacity fixture changed pre-existing memory records");
+    for(const row of prepared.background){const file=p.store.getFile(row.path);if(!file||await p.store.readPath(row.path)!==row.text)throw Error("Capacity fixture source changed");await app.vault.delete(file);}
+    return true;
+  },prepared);
+  assert(cleaned);
+  result.historicalFollowup = { calls: 3, originalDates: observed.evidence.notes.map(note => note.date), tasksUnchanged: true, memoryUnchanged: true,
+    backgroundMemories:12,memoryToolMaxChars:1000,backgroundFixtureRemoved:true };
 }

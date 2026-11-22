@@ -36,7 +36,7 @@ import {
   type PersonalMemoryRecord,
   type PersonalMemoryReview
 } from "../personalMemory";
-import { createPersonalMemoryContextFilter, createPersonalMemorySourceFilter, MEMORY_CONTEXT_OMISSION } from "../personalMemoryContext";
+import { createPersonalMemoryContextFilter, createPersonalMemorySourceFilter, formatPersonalMemoryExcerpt, MEMORY_CONTEXT_OMISSION } from "../personalMemoryContext";
 import { readPersonalMemoryWithSources } from "../personalMemorySources";
 import { serializeQualityLogEntry } from "../qualityLog";
 import { serializeVoiceMetricEntry } from "../voiceMetrics";
@@ -170,7 +170,7 @@ export interface AgentSliceApi {
   buildRetrievalContext(query: string, limit?: number, record?: ContextSourceRecorder): Promise<string>;
   buildSemanticContext(queryEmbedding: number[], limit?: number, record?: ContextSourceRecorder): Promise<string>;
   buildKnowledgeContext(query: string, record?: ContextSourceRecorder): Promise<string>;
-  buildPersonalMemoryContext(query?: string): Promise<string>;
+  buildPersonalMemoryContext(query?: string, options?: { maxChars: number }): Promise<string>;
   buildMemoryContext(query?: string): Promise<string>;
   hasMemoryCoverage(query: string): Promise<boolean>;
   rebuildVaultIndex(): Promise<{ path: string; totalMarkdownFiles: number; indexedFiles: number }>;
@@ -1051,8 +1051,10 @@ async ensureAgentPersonaRules(this: StoreHost): Promise<void> {
     await this.ensureFile(this.memoryFilePath(template.name), template.content);
   },
 
-async buildPersonalMemoryContext(this: StoreHost, query: string = ""): Promise<string> {
-    const personal = selectPersonalMemories((await readPersonalMemoryWithSources(this)).records, query, 12);
+async buildPersonalMemoryContext(this: StoreHost, query: string = "", options?: { maxChars: number }): Promise<string> {
+    const records = (await readPersonalMemoryWithSources(this)).records;
+    if (options) return formatPersonalMemoryExcerpt(records, query, options.maxChars);
+    const personal = selectPersonalMemories(records, query, 12);
     return personalMemoriesToMarkdown(personal, "verified");
   },
 

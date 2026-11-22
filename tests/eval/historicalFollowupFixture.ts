@@ -5,9 +5,13 @@ import { bindAgentHistoryResponse, historicalQueryHistoryContext } from "../../s
 import type { StoreHost } from "../../src/store/settingsSlice";
 import { runConfirmedToolAction } from "../../src/toolRegistry";
 import type { AgentConversationMessage } from "../../src/types";
+import { buildResidentContext } from "../../src/agent/context";
+import { formatConfirmedPersonalMemoryContext } from "../../src/personalMemoryContext";
+import { readPersonalMemoryWithSources } from "../../src/personalMemorySources";
 
 /** The real preceding conversation and correction, not a fabricated history receipt. */
-export async function historicalFollowupFixture(plugin: LifeOpsPlugin, store: StoreHost): Promise<AgentConversationMessage[]> {
+export async function historicalFollowupFixture(plugin: LifeOpsPlugin, store: StoreHost, backgroundCount = 0): Promise<AgentConversationMessage[]> {
+  await crowdedMemoryFixture(store, backgroundCount);
   const original = "虚构纸样归档只在周三上午09:30可安排25分钟。";
   const corrected = "虚构纸样归档只在周三晚上19:30可安排25分钟。";
   const path = store.path(store.settings.folders.ideas, "虚构连续回顾安排.md"); await store.writeFile(path, original);
@@ -29,4 +33,25 @@ export async function historicalFollowupFixture(plugin: LifeOpsPlugin, store: St
     throw Error("虚构当前时段没有完成真实更正确认。");
   }
   return history;
+}
+
+export async function crowdedMemoryFixture(store: StoreHost, count: number, namedEpisode = false, residentQuery = ""): Promise<void> {
+  for (let index = 0; index < count; index++) {
+    const content = namedEpisode ? `虚构背景画像${index}：偏好按颜色收纳。`
+      : `虚构纸样归档背景${index}：` + "这是一段已核对的虚构背景说明。".repeat(80);
+    const path = store.path(store.settings.folders.ideas, `虚构容量背景${index}.md`);await store.writeFile(path, content);
+    const record = await store.upsertPersonalMemory({ kind: "core_profile", content, sourceRefs: [{ sourceId: `fictional-memory-capacity-${index}`, path,
+      capturedAt: new Date().toISOString(), contentHash: fileRevision(content), extractionVersion: "fictional-v1" }] });
+    await store.reviewPersonalMemory(record.id, { decision: "confirm" });
+  }
+  if (namedEpisode) {
+    const content = "虚构海盐索引在2026年10月28日完成六张索引卡。";
+    const path = store.path(store.settings.folders.ideas, "虚构海盐索引.md");await store.writeFile(path, content);
+    const record = await store.upsertPersonalMemory({ kind: "episode", content, sourceRefs: [{ sourceId: "fictional-named-episode", path,
+      capturedAt: new Date().toISOString(), observedDate: "2026-10-28", contentHash: fileRevision(content), extractionVersion: "fictional-v1" }] });
+    await store.reviewPersonalMemory(record.id, { decision: "confirm" });
+    const context = await buildResidentContext(store, residentQuery, new Date());
+    const canonical = formatConfirmedPersonalMemoryContext((await readPersonalMemoryWithSources(store)).records, residentQuery, 4000, 8);
+    if (context.text.includes("海盐索引") || canonical.includes("海盐索引")) throw Error("Named-memory fixture must require retrieval beyond the initial context.");
+  }
 }

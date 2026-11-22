@@ -359,7 +359,7 @@ export interface StoreHost extends ProjectSliceApi, TradingSliceApi {
   buildLatestJournalContext(maxChars?: number): Promise<string>;
   ensureMemoryFiles(): Promise<void>;
   ensureAgentPersonaRules(): Promise<void>;
-  buildPersonalMemoryContext(query?: string): Promise<string>;
+  buildPersonalMemoryContext(query?: string, options?: { maxChars: number }): Promise<string>;
   buildMemoryContext(query?: string): Promise<string>;
   hasMemoryCoverage(query: string): Promise<boolean>;
 

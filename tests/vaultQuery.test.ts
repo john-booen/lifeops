@@ -35,7 +35,7 @@ describe("generic Vault query", () => {
     const host = store();
     host.buildPersonalMemoryContext = vi.fn().mockResolvedValue("### 核心画像\n- 用户偏好简洁直接的沟通。");
     const output = await executeVaultQuery(host, { domain: "memory", operation: "get", query: "你记得我什么" });
-    expect(host.buildPersonalMemoryContext).toHaveBeenCalledWith("你记得我什么");
+    expect(host.buildPersonalMemoryContext).toHaveBeenCalledWith("你记得我什么", { maxChars: 5000 });
     expect(host.searchKnowledge).not.toHaveBeenCalled();
     expect(output).toContain("偏好简洁直接");
   });

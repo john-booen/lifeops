@@ -38,8 +38,8 @@ beforeEach(async () => {
 });
 afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); await rm(root, { recursive: true, force: true }); });
 
-it.each([false, true])("continues the checked two-week query after a real memory correction without reviving the old answer (crowded:%s)", async crowded => {
-  if (crowded) for (let i = 0; i < 3; i++) {
+it.each([0, 3, 12])("continues the checked two-week query after a real memory correction without reviving the old answer (background records:%s)", async backgroundCount => {
+  for (let i = 0; i < backgroundCount; i++) {
     const content = `虚构纸样归档资料${i}：` + "这是一段已核对的虚构背景说明。".repeat(12);
     const path = store.path(store.settings.folders.ideas, `虚构背景${i}.md`); await vault.seed(path, content);
     const record = await store.upsertPersonalMemory({ kind: "core_profile", content, sourceRefs: [{ sourceId: `fictional-crowded-${i}`, path,

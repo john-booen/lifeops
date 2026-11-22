@@ -25,16 +25,16 @@ export function createPersonalMemorySourceFilter(records: PersonalMemoryRecord[]
 /** Always state availability: an omitted empty section lets models mistake
  * assistant defaults or withheld history for confirmed user preferences. */
 export function formatConfirmedPersonalMemoryContext(records: PersonalMemoryRecord[], query = "", maxRecordBytes = Infinity, maxRecords = 12): string {
-  const candidates = selectPersonalMemories(records, query, maxRecords);
+  const candidates = selectPersonalMemories(records, query, records.length);
   // Under a finite prompt budget, retain explicit scheduling/behavioral
   // constraints before long profile background. Preserve relevance order
   // within each group and never send a clipped fact as a complete rule.
   if (Number.isFinite(maxRecordBytes)) candidates.sort((a, b) => Number(b.kind === "user_rule") - Number(a.kind === "user_rule"));
-  let used = 0;
+  let used = 0, count = 0;
   const selected = candidates.filter(record => {
     const bytes = Buffer.byteLength(personalMemoriesToMarkdown([record], "verified"), "utf8");
-    if (used + bytes > maxRecordBytes) return false;
-    used += bytes; return true;
+    if (count >= maxRecords || used + bytes > maxRecordBytes) return false;
+    used += bytes; count++; return true;
   });
   const omitted = candidates.length - selected.length;
   const automatic = selected.filter(record => record.summarySource && !record.confirmedAt).length;
@@ -48,10 +48,29 @@ export function formatConfirmedPersonalMemoryContext(records: PersonalMemoryReco
       ? personalMemoriesToMarkdown(selected, "verified")
       : omitted ? "本轮没有完整放入相关记忆，不能据此说记忆不存在；可按主题查询当前记录。"
         : "本轮没有可用的已确认个人记忆。询问既有偏好时，应说明当前没有可确认的记录，不得声称记得或已确认某项偏好。",
-    ...(omitted ? [`另有${omitted}条相关记忆因本轮长度上限未放入；没有截断其中的事实，需要时按主题查询。`] : []),
+    ...(omitted ? [`另有${omitted}条可用记忆因本轮长度或条数上限未放入；没有截断其中的事实，需要时按主题查询。`] : []),
     "只查既有记忆时按当前可用结果收尾，不把缺记录转成要求用户补充、重新确认或重新声明偏好。",
     "未提供的偏好不能推断。正常回复只表达事实、易懂的来源名称和必要的记录日期，不展示内部ID、置信度或技术时间戳；用户明确核查技术信息时除外。"
   ].join("\n\n");
+}
+
+/** Tool reads obey their full response budget and keep fact/source blocks whole.
+ * Missing space is an explicit omission, never a partial confirmed statement. */
+export function formatPersonalMemoryExcerpt(records: PersonalMemoryRecord[], query: string, maxChars: number, maxRecords = 12): string {
+  const candidates = selectPersonalMemories(records, query, records.length);
+  if (!candidates.length) return "";
+  const render = (selected: PersonalMemoryRecord[]) => [
+    "## Confirmed Personal Memory",
+    `本轮完整显示${selected.length}条可用记忆。`,
+    selected.length ? personalMemoriesToMarkdown(selected, "verified") : "本轮长度内未能放入完整记录；这不代表记忆不存在。",
+    ...(selected.length < candidates.length ? [`另有${candidates.length - selected.length}条可用记忆未放入；可缩小关键词或提高读取长度，不能把本次结果当成完整记忆清单。`] : [])
+  ].join("\n\n");
+  const selected: PersonalMemoryRecord[] = [];
+  for (const record of candidates) {
+    if (selected.length >= maxRecords) break;
+    if (render([...selected, record]).length <= maxChars) selected.push(record);
+  }
+  return render(selected);
 }
 
 /** Partial prepared-context diagnostics only. Do not feed these Ledger/source
@@ -61,7 +80,7 @@ export function confirmedMemoryContextSourcePaths(
   records: PersonalMemoryRecord[], query: string, context: string, excludedPrefixes: string[] = []
 ): string[] {
   const paths = new Set<string>();
-  for (const record of selectPersonalMemories(records, query)) {
+  for (const record of selectPersonalMemories(records, query, records.length)) {
     const assessment = record[personalMemorySourceAssessment];
     if (assessment?.usable !== true) continue;
     const rendered = personalMemoriesToMarkdown([record], "verified");

@@ -10,6 +10,7 @@ import { createMemoryCandidate, promoteMemory } from "../src/memoryIndex";
 import { AgentRuntime } from "../src/agentRuntime";
 import { runConfirmedToolAction } from "../src/toolRegistry";
 import { recordConversationMemory } from "../src/memorySystem";
+import { executeVaultQuery } from "../src/vaultQuery";
 import type { InjectedContext } from "../src/contextInjection";
 vi.mock("obsidian", () => ({ App: class {}, Notice: class {}, TFile: class {}, TFolder: class {}, normalizePath: (p: string) => p.replace(/\\/g, "/").replace(/\/{2,}/g, "/") }));
 const { LifeOpsStore } = await import("../src/store");
@@ -27,6 +28,37 @@ async function seedConfirmed() {
 beforeEach(async () => { root = await mkdtemp(join(tmpdir(), "lifeops-memory-authority-")); vault = new DiskVault(root); store = new LifeOpsStore({ vault } as unknown as App, structuredClone(DEFAULT_SETTINGS)) as unknown as StoreHost; await vault.seed(source.path, input.content); });
 afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 describe("one personal memory authority on actual files", () => {
+  it("finds a named confirmed episode beyond twelve unrelated profile records", async () => {
+    const records = [];
+    for (let index = 0; index < 14; index++) {
+      const last = index === 13, text = last ? "虚构海盐索引在周五完成六张卡片。" : `虚构背景画像${index}：偏好按颜色收纳。`;
+      const path = `Notes/fictional-memory-${index}.md`; await vault.seed(path, text);
+      const memory = createPersonalMemory({ kind: last ? "episode" : "core_profile", content: text, sourceRefs: [{ ...source, sourceId: `fictional-memory-${index}`, path }] });
+      records.push(reviewPersonalMemoryRecord([memory], memory.id, { decision: "confirm" })[0]);
+    }
+    await vault.seed(store.personalMemoryPath(), JSON.stringify({ ...emptyPersonalMemoryDocument(), records }));
+    const before = await vault.bytes(store.personalMemoryPath());
+    const output = await executeVaultQuery(store, { domain: "memory", operation: "search", query: "海盐索引", maxChars: 18000 });
+    expect(output).toContain("虚构海盐索引在周五完成六张卡片。");
+    expect(output).toContain("Notes/fictional-memory-13.md");
+    expect(await vault.bytes(store.personalMemoryPath())).toBe(before);
+  });
+  it("reads whole confirmed memory records within the query budget instead of clipping a long fact and losing a shorter rule", async () => {
+    const largeText = "虚构长背景开始：" + "这是一段经过核对的背景资料。".repeat(180) + "虚构长背景结尾。";
+    const ruleText = "虚构纸样归档只在周三19:30安排25分钟。";
+    const large = createPersonalMemory({ kind: "core_profile", content: largeText, sourceRefs: [{ ...source, sourceId: "fictional-large", path: "Notes/long.md" }] });
+    const rule = createPersonalMemory({ kind: "user_rule", content: ruleText, sourceRefs: [{ ...source, sourceId: "fictional-rule", path: "Notes/rule.md" }] });
+    const records = reviewPersonalMemoryRecord(reviewPersonalMemoryRecord([large, rule], large.id, { decision: "confirm" }), rule.id, { decision: "confirm" });
+    await vault.seed("Notes/long.md", largeText); await vault.seed("Notes/rule.md", ruleText);
+    await vault.seed(store.personalMemoryPath(), JSON.stringify({ ...emptyPersonalMemoryDocument(), records }));
+    const before = await vault.bytes(store.personalMemoryPath());
+    const output = await executeVaultQuery(store, { domain: "memory", operation: "get", maxChars: 1000 });
+    expect(output.length).toBeLessThanOrEqual(1000);
+    expect(output).toContain(ruleText);
+    expect(output).not.toContain("虚构长背景开始");
+    expect(output).toContain("未放入");
+    expect(await vault.bytes(store.personalMemoryPath())).toBe(before);
+  });
   it("keeps automatic explicit observations pending until a review", async () => {
     const candidate = await store.upsertPersonalMemory(input);
     expect(candidate.status).toBe("candidate");

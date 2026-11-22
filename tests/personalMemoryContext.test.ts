@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 vi.mock("obsidian", () => ({ normalizePath: (path: string) => path.replace(/\\/g, "/").replace(/\/{2,}/g, "/") }));
 import { createPersonalMemory, personalMemorySourceAssessment, reviewPersonalMemoryRecord } from "../src/personalMemory";
-import { confirmedMemoryContextSourcePaths, createPersonalMemoryContextFilter, formatConfirmedPersonalMemoryContext, MEMORY_CONTEXT_OMISSION, personalMemoryContextRevision } from "../src/personalMemoryContext";
+import { confirmedMemoryContextSourcePaths, createPersonalMemoryContextFilter, formatConfirmedPersonalMemoryContext, formatPersonalMemoryExcerpt, MEMORY_CONTEXT_OMISSION, personalMemoryContextRevision } from "../src/personalMemoryContext";
+import { personalMemoriesToMarkdown } from "../src/personalMemory";
 
 const oldText = "I prefer concise replies";
 const source = { sourceId: "source:one", path: "source.md", capturedAt: "2026-09-16T10:00:00Z" };
@@ -13,6 +14,15 @@ describe("partial prepared personal-memory source audit", () => {
     records[0][personalMemorySourceAssessment] = { usable: true, reason: "synthetic verified source", verifiedSourceIds: [source.sourceId], contextSources: [{ ref: source, basis: "legacy_existing" }] };
     return records;
   }
+  it("audits a whole current rule retained beyond twelve higher-ranked background records", () => {
+    const backgrounds = Array.from({length:13},(_,index)=>createPersonalMemory({kind:"core_profile",content:`Verified background ${index}.`,sourceRefs:[source]}));
+    const rule = createPersonalMemory({kind:"user_rule",content:"Confirmed scheduling constraint: Wednesday 19:30.",sourceRefs:[{...source,sourceId:"rule-source",path:"Rules/current.md"}]});
+    const originals=[...backgrounds,rule],records=originals.reduce((rows,memory)=>reviewPersonalMemoryRecord(rows,memory.id,{decision:"confirm"}),originals);
+    for(const record of records) record[personalMemorySourceAssessment]={usable:true,reason:"synthetic verified source",verifiedSourceIds:record.sourceRefs.map(ref=>ref.sourceId),contextSources:record.sourceRefs.map(ref=>({ref,basis:"legacy_existing"}))};
+    const text=formatConfirmedPersonalMemoryContext(records,"",1000,1);
+    expect(text).toContain(rule.content);expect(text).toContain("另有13条可用记忆");
+    expect(confirmedMemoryContextSourcePaths(records,"",text)).toEqual(["Rules/current.md"]);
+  });
   it("takes paths only, from an intact current verified block, without mutating records", () => {
     const records = assessed(), before = JSON.stringify(records), context = formatConfirmedPersonalMemoryContext(records);
     expect(confirmedMemoryContextSourcePaths(records, "", context)).toEqual([source.path]);
@@ -71,6 +81,34 @@ describe("partial prepared personal-memory source audit", () => {
 });
 
 describe("confirmed memory availability in model context", () => {
+  it.each([500, 1000, 5000])("returns only whole fact/source blocks under a %s-character tool budget", maxChars => {
+    const originals = ["Small verified fact.", "Large verified fact. ".repeat(180), "Another complete verified fact."]
+      .map(content => createPersonalMemory({ kind: "core_profile", content, sourceRefs: [source] }));
+    const records = originals.reduce((rows, memory) => reviewPersonalMemoryRecord(rows, memory.id, { decision: "confirm" }), originals);
+    const before = JSON.stringify(records), text = formatPersonalMemoryExcerpt(records, "", maxChars);
+    expect(text.length).toBeLessThanOrEqual(maxChars);
+    for (const memory of records) {
+      const rendered = personalMemoriesToMarkdown([memory], "verified"), block = rendered.slice(rendered.indexOf("\n") + 1);
+      if (text.includes(memory.content)) expect(text).toContain(block);
+      else expect(text).not.toContain(memory.content.slice(0, 15));
+    }
+    expect(JSON.stringify(records)).toBe(before);
+  });
+  it("reports the full omitted count after a record limit, without counting candidates or forgotten facts", () => {
+    const originals = Array.from({ length: 4 }, (_, index) => createPersonalMemory({ kind: "core_profile", content: `Verified fact ${index}.`, sourceRefs: [source] }));
+    let records = originals.slice(0, 3).reduce((rows, memory) => reviewPersonalMemoryRecord(rows, memory.id, { decision: "confirm" }), originals);
+    records = reviewPersonalMemoryRecord(records, originals[2].id, { decision: "forget" });
+    const text = formatPersonalMemoryExcerpt(records, "", 5000, 1);
+    expect(text).toContain("本轮完整显示1条");expect(text).toContain("另有1条可用记忆未放入");
+    expect(text).not.toContain(originals[2].content);expect(text).not.toContain(originals[3].content);
+  });
+  it("distinguishes oversized available memory from an empty confirmed store", () => {
+    const memory = createPersonalMemory({ kind: "core_profile", content: "Oversized verified fact. ".repeat(200), sourceRefs: [source] });
+    const records = reviewPersonalMemoryRecord([memory], memory.id, { decision: "confirm" });
+    const text = formatPersonalMemoryExcerpt(records, "", 500);
+    expect(text).toContain("这不代表记忆不存在");expect(text).not.toContain("Oversized verified fact");
+    expect(formatPersonalMemoryExcerpt([], "", 500)).toBe("");
+  });
   it("omits an oversized record whole while retaining a complete smaller current fact", () => {
     const large = createPersonalMemory({ kind: "core_profile", content: "Verified background. ".repeat(150), sourceRefs: [source] });
     const small = record();
@@ -80,7 +118,7 @@ describe("confirmed memory availability in model context", () => {
     expect(context).toContain(small.id);
     expect(context).not.toContain("Verified background.");
     expect(context).not.toContain(large.id);
-    expect(context).toContain("另有1条相关记忆因本轮长度上限未放入");
+    expect(context).toContain("另有1条可用记忆因本轮长度或条数上限未放入");
   });
   it("distinguishes budget-omitted facts from no available confirmed memory", () => {
     const original = record(), records = reviewPersonalMemoryRecord([original], original.id, { decision: "confirm" });
