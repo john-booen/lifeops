@@ -48,7 +48,7 @@ export function selectExternalJournalExcerpt(preview: ExternalJournalPreview, ex
   return { ...source, excerpt, excerptHash };
 }
 
-async function assertSelection(store: StoreHost, selected: ExternalJournalSelection, now: Date, current: () => void) {
+export async function assertSelection(store: StoreHost, selected: ExternalJournalSelection, now: Date, current: () => void) {
   current();
   if (externalVaultScope(store) !== selected.scope || !validSelectedJournalExcerpt({ text: selected.excerpt, sha256: selected.excerptHash })) throw Error("选段或外部库范围已变化，请重新预览。");
   const source = resolveExternalSource(store, selected.reference);

@@ -13,6 +13,8 @@ const { externalSourcePath } = await import("../src/features/externalVault/catal
 const { previewExternalJournal, selectExternalJournalExcerpt, extractSelectedExternalJournalSignals, listSelectableExternalJournals } = await import("../src/features/externalVault/selectedJournals");
 const { readExternalJournalSignals } = await import("../src/features/externalVault/journals");
 const { validSignalDocument, signalContextLine } = await import("../src/features/journal/signals");
+const { readSelectedJournalResults, readSavedJournalResults, assertSelectedJournalResultsCurrent } = await import("../src/features/externalVault/selectedJournalResults");
+const { documentPath } = await import("../src/features/externalVault/journals");
 let home: string, original: string, store: StoreHost;
 const now = new Date("2026-11-22T12:00:00+08:00"), first = "LifeOps/Journal/2026/11/2026-11-04晚.md", second = "LifeOps/Journal/2026/11/2026-11-05晚.md";
 const quote = "试做一个虚构蓝纸分类索引。", another = "精力四分。";
@@ -124,4 +126,55 @@ it("bounds format repair and rejects a malformed stored selected-excerpt pin", a
   await execute([await select()], async () => answer()); const rows = await readExternalJournalSignals(store, "2026-11-04");
   expect(validSignalDocument({ version: 1, date: "2026-11-04", 晨: [], 晚: rows }, "2026-11-04")).toBe(true);
   rows[0].sources[0].selectedExcerpt!.text += "伪造"; expect(validSignalDocument({ version: 1, date: "2026-11-04", 晨: [], 晚: rows }, "2026-11-04")).toBe(false);
+});
+
+const savedPath = () => join(home, "daily", documentPath(store, "虚构资料", "2026-11-04"));
+it("reads exact saved receipts across dates without a new request, task write or original edit", async () => {
+  const chosen = [await select(), await select(second, "准备做一个虚构绿纸索引。")], request = vi.fn(async (messages: any) => messages[1].content.includes("11-04") ? answer() : answer("2026-11-05", [{ text: "虚构绿纸索引", quote: chosen[1].excerpt }]));
+  await execute(chosen, request); const before = await readFile(savedPath()), tasks = await store.readPath(store.taskDbPath()), raw = await readFile(join(original, first));
+  const receipt = await readSelectedJournalResults(store, chosen, () => {}, now);
+  expect(receipt.saved).toBe(2); expect(receipt.text).toContain(quote); expect(receipt.text).toContain("2026-11-05"); expect(receipt.text).not.toContain("未选择的虚构旧段"); expect(receipt.text).toContain("尚未创建任务");
+  await assertSelectedJournalResultsCurrent(store, receipt, () => {}); expect(request).toHaveBeenCalledTimes(2);
+  expect(await readFile(savedPath())).toEqual(before); expect(await store.readPath(store.taskDbPath())).toBe(tasks); expect(await readFile(join(original, first))).toEqual(raw);
+});
+it("reopens all stored excerpts of the chosen current file, including more than one submission", async () => {
+  await execute([await select()], async () => answer()); await execute([await select(first, another)], async () => answer());
+  const receipt = await readSavedJournalResults(store, await previewExternalJournal(store, ref(first), now), () => {}, now);
+  expect(receipt.saved).toBe(2); expect(receipt.text).toContain("精力：4/5"); expect(receipt.text).toContain("精力四分"); expect(receipt.text).toContain(quote);
+  expect(receipt.selections.map(item => item.excerpt)).toEqual([quote, another]);
+});
+it("labels unsaved excerpts after a partial save and does not infer an empty week", async () => {
+  const chosen = [await select(), await select(second, "准备做一个虚构绿纸索引。")]; await execute([chosen[0]], async () => answer());
+  const receipt = await readSelectedJournalResults(store, chosen, () => {}, now); expect(receipt.saved).toBe(1); expect(receipt.text).toContain("尚无已保存"); expect(receipt.text).toContain("不代表整篇或整周");
+  const empty = await readSavedJournalResults(store, await previewExternalJournal(store, ref(second), now), () => {}, now); expect(empty.saved).toBe(0);
+});
+it.each(["source", "scope", "derived", "missing"])("refuses a saved receipt before copy after %s changes", async change => {
+  const chosen = await select(); await execute([chosen], async () => answer()); const receipt = await readSelectedJournalResults(store, [chosen], () => {}, now);
+  if (change === "source") await writeOriginal(first, quote + "改过");
+  if (change === "scope") store.settings.externalVaults = [];
+  if (change === "derived") { const doc = JSON.parse(await readFile(savedPath(), "utf8")); doc.晚[0].ideas[0].text = "篡改后的虚构解释"; await writeFile(savedPath(), JSON.stringify(doc)); }
+  if (change === "missing") await rm(savedPath());
+  await expect(assertSelectedJournalResultsCurrent(store, receipt, () => {})).rejects.toThrow();
+});
+it("rechecks derived quotes and shows literal idea evidence instead of an arbitrary paraphrase", async () => {
+  await execute([await select()], async () => answer()); const doc = JSON.parse(await readFile(savedPath(), "utf8"));
+  doc.晚[0].plans = [{ text: "源段没有的虚构计划", when: "明天" }]; doc.晚[0].energy = 5; doc.晚[0].quotes = [{ field: "energy", text: another }];
+  doc.晚[0].ideas[0].text = "不可信的额外解释"; await writeFile(savedPath(), JSON.stringify(doc));
+  const receipt = await readSavedJournalResults(store, await previewExternalJournal(store, ref(first), now), () => {}, now);
+  expect(receipt.text).toContain(quote); expect(receipt.text).not.toContain("不可信的额外解释"); expect(receipt.text).not.toContain("源段没有"); expect(receipt.text).not.toContain("精力：");
+});
+it("does not reopen a stale preview or malformed stored evidence", async () => {
+  await execute([await select()], async () => answer()); const preview = await previewExternalJournal(store, ref(first), now);
+  await writeOriginal(first, quote + "新内容"); await expect(readSavedJournalResults(store, preview, () => {}, now)).rejects.toThrow("重新预览");
+  await writeOriginal(first, preview.text); const doc = JSON.parse(await readFile(savedPath(), "utf8")); doc.晚[0].sources[0].selectedExcerpt.text += "改过"; await writeFile(savedPath(), JSON.stringify(doc));
+  await expect(readSavedJournalResults(store, preview, () => {}, now)).rejects.toThrow();
+});
+it("does not reveal old bulk-extraction records in the selected-excerpt viewer", async () => {
+  await execute([await select()], async () => answer()); const doc = JSON.parse(await readFile(savedPath(), "utf8")); delete doc.晚[0].sources[0].selectedExcerpt;
+  await writeFile(savedPath(), JSON.stringify(doc)); const receipt = await readSavedJournalResults(store, await previewExternalJournal(store, ref(first), now), () => {}, now); expect(receipt.saved).toBe(0);
+});
+it("honors cancellation and changes detected while reading a receipt", async () => {
+  await execute([await select()], async () => answer()); const chosen = await select(); let calls = 0;
+  await expect(readSelectedJournalResults(store, [chosen], () => { if (++calls === 3) store.settings.externalVaults = []; }, now)).rejects.toThrow();
+  await expect(readSelectedJournalResults(store, [], () => { throw Error("cancelled"); }, now)).rejects.toThrow("cancelled");
 });

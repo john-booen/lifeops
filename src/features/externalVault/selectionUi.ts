@@ -1,6 +1,7 @@
 import { Modal } from "obsidian";
 import type { ExternalVaultHost } from "./ui";
 import { externalVaultScope } from "./catalog";
+import { SelectionResultsView } from "./selectionResultsUi";
 import { extractSelectedExternalJournalSignals, listSelectableExternalJournals, previewExternalJournal, selectExternalJournalExcerpt,
   SELECTED_JOURNAL_MAX_ITEMS, type ExternalJournalPreview, type ExternalJournalSelection } from "./selectedJournals";
 
@@ -23,10 +24,12 @@ export class ExternalJournalSelectionModal extends Modal {
     const picker = this.contentEl.createEl("select", { attr: { "aria-label": "选择日记日期和文件" } });
     const load = this.contentEl.createEl("button", { text: "本机预览原文" });
     const original = this.contentEl.createEl("textarea", { attr: { rows: "8", "aria-label": "日记原文，仅本机预览" } }); original.readOnly = true;
+    const saved = this.contentEl.createEl("button", { text: "查看已整理要点" });
     const excerpt = this.contentEl.createEl("textarea", { attr: { rows: "3", "aria-label": "准备发送的连续原文片段", placeholder: "在上方选中文字，或在这里粘贴同一段原文；每段最多2000字。" } });
     const add = this.contentEl.createEl("button", { text: "加入待发送片段" });
     const queue = this.contentEl.createDiv({ cls: "lifeops-external-journal-queue" });
     const start = this.contentEl.createEl("button", { text: "整理所选片段", cls: "mod-cta" });
+    const results = new SelectionResultsView(this.contentEl.createDiv({ cls: "lifeops-selected-journal-results" }), this.base, this.current);
     let preview: ExternalJournalPreview | undefined, chosen: ExternalJournalSelection[] = [], busy = false, generation = 0;
     const render = () => {
       queue.empty(); queue.createEl("p", { text: `待发送${chosen.length}段，每次最多${SELECTED_JOURNAL_MAX_ITEMS}段。未加入的原文不会发送。` });
@@ -34,15 +37,16 @@ export class ExternalJournalSelectionModal extends Modal {
         const row = queue.createDiv(); row.createEl("p", { text: `${item.date} · ${item.reference.split("/").at(-1)}` });
         row.createEl("pre", { text: item.excerpt });
         const remove = row.createEl("button", { text: "移除这段" }); remove.disabled = busy;
-        remove.onclick = () => { if (busy) return; try { this.current(); chosen = chosen.filter(selected => selected !== item); render(); } catch { this.invalidate(); } };
+        remove.onclick = () => { if (busy) return; try { this.current(); chosen = chosen.filter(selected => selected !== item); results.clear(); render(); } catch { this.invalidate(); } };
       }
       start.disabled = busy || !chosen.length; load.disabled = busy || !picker.value; picker.disabled = busy;
       original.disabled = busy; excerpt.disabled = busy; add.disabled = busy || !preview || chosen.length >= SELECTED_JOURNAL_MAX_ITEMS;
+      saved.disabled = busy || !preview;
     };
-    picker.onchange = () => { if (busy) return; generation++; preview = undefined; original.value = ""; excerpt.value = ""; render(); };
+    picker.onchange = () => { if (busy) return; generation++; preview = undefined; original.value = ""; excerpt.value = ""; results.clear(); render(); };
     load.onclick = async () => {
       if (busy) return;
-      const key = ++generation; busy = true; preview = undefined; original.value = ""; excerpt.value = ""; render();
+      const key = ++generation; busy = true; preview = undefined; original.value = ""; excerpt.value = ""; results.clear(); render();
       try {
         this.current(); const loaded = await previewExternalJournal(this.base, picker.value); this.current();
         if (key !== generation) return;
@@ -53,12 +57,13 @@ export class ExternalJournalSelectionModal extends Modal {
       } catch { if (!this.controller.signal.aborted) status.setText("原文暂时读不到或范围已变化，请重新选择。"); }
       finally { if (!this.controller.signal.aborted && key === generation) { busy = false; render(); } }
     };
+    saved.onclick = async () => { if (busy || !preview) return; busy = true; render(); try { this.current(); await results.showSaved(preview); } catch { this.invalidate(); } finally { if (!this.controller.signal.aborted) { busy = false; render(); } } };
     add.onclick = () => {
       try {
         this.current(); if (!preview || busy || chosen.length >= SELECTED_JOURNAL_MAX_ITEMS) return;
         const selected = selectExternalJournalExcerpt(preview, excerpt.value || original.value.slice(original.selectionStart, original.selectionEnd));
         if (chosen.some(item => item.reference === selected.reference && item.sourceHash === selected.sourceHash && item.excerptHash === selected.excerptHash)) throw Error("这段已经加入，无需重复。");
-        chosen.push(selected); excerpt.value = ""; status.setText("已加入待发送清单，尚未发送。"); render();
+        chosen.push(selected); excerpt.value = ""; results.clear(); status.setText("已加入待发送清单，尚未发送。"); render();
       } catch (error) { if (!this.controller.signal.aborted) status.setText(error instanceof Error ? error.message : "请重新选择原文。"); }
     };
     start.onclick = async () => {
@@ -68,7 +73,7 @@ export class ExternalJournalSelectionModal extends Modal {
         status.setText("请先在设置中配置文字模型，并确认资料使用范围。当前预览和选段尚未发送。"); return;
       }
       const selected = chosen.map(item => ({ ...item }));
-      busy = true; render();
+      busy = true; results.clear(); render();
       try {
         this.current(); status.setText("正在整理所选片段，关闭窗口可停止。");
         const result = await this.host.observeProvider("daily_review", "text", (request, _store, ai, current) => {
@@ -77,8 +82,9 @@ export class ExternalJournalSelectionModal extends Modal {
             request.signal ?? this.controller.signal, check);
         }, this.controller.signal);
         this.current(); status.setText(`已保存${result.saved}段，${result.existing}段已有结果。只整理了所选片段，不能据此判断整篇或整周没有其他计划。`);
+        await results.showSelected(selected); this.current();
         await this.host.refreshViews().catch(() => undefined);
-      } catch { if (!this.controller.signal.aborted) status.setText("整理中断或原文有更新。已保存片段保留，重新预览后可继续；重复提交会跳过已保存片段。"); }
+      } catch { if (!this.controller.signal.aborted) { status.setText("整理中断或原文有更新。已保存片段保留，重新预览后可继续；重复提交会跳过已保存片段。"); await results.showSelected(selected); } }
       finally { if (!this.controller.signal.aborted) { busy = false; render(); } }
     };
     render(); status.setText("正在读取可选日期，不发送原文。");

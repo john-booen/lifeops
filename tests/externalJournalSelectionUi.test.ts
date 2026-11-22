@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-const fake = vi.hoisted(() => ({ fields: [] as any[], list: vi.fn(), preview: vi.fn(), select: vi.fn(), extract: vi.fn(), scope: "fictional-scope" }));
+const fake = vi.hoisted(() => ({ fields: [] as any[], list: vi.fn(), preview: vi.fn(), select: vi.fn(), extract: vi.fn(), readResults: vi.fn(), readSaved: vi.fn(), assertResults: vi.fn(), copy: vi.fn(), scope: "fictional-scope" }));
 vi.mock("obsidian", () => {
   const element = (tag = "div", info: any = {}): any => {
     const node = { tag, info, children: [] as any[], text: info.text ?? "", value: info.value ?? "", disabled: false, selectionStart: 0, selectionEnd: 0, readOnly: false,
@@ -12,6 +12,7 @@ vi.mock("obsidian", () => {
 vi.mock("../src/features/externalVault/catalog", () => ({ externalVaultScope: () => fake.scope }));
 vi.mock("../src/features/externalVault/selectedJournals", () => ({ SELECTED_JOURNAL_MAX_ITEMS: 3, listSelectableExternalJournals: fake.list, previewExternalJournal: fake.preview,
   selectExternalJournalExcerpt: fake.select, extractSelectedExternalJournalSignals: fake.extract }));
+vi.mock("../src/features/externalVault/selectedJournalResults", () => ({ readSelectedJournalResults: fake.readResults, readSavedJournalResults: fake.readSaved, assertSelectedJournalResultsCurrent: fake.assertResults }));
 const { ExternalJournalSelectionModal } = await import("../src/features/externalVault/selectionUi");
 let host: any, modal: InstanceType<typeof ExternalJournalSelectionModal>;
 const first = "external-vault/虚构资料/2026-11-04晚.md", second = "external-vault/虚构资料/2026-11-05晚.md";
@@ -29,11 +30,13 @@ beforeEach(async () => {
   fake.preview.mockImplementation(async (_store, reference) => data(reference));
   fake.select.mockImplementation((preview, excerpt) => { if (!excerpt || !preview.text.includes(excerpt)) throw Error("请选择连续原文"); const { text, ...source } = preview; return { ...source, excerpt, excerptHash: "b".repeat(64) }; });
   fake.extract.mockResolvedValue({ saved: 1, existing: 0 });
+  fake.readResults.mockReset().mockResolvedValue({ text: "虚构已保存要点", saved: 0 }); fake.readSaved.mockReset().mockResolvedValue({ text: "虚构已保存要点", saved: 0 });
+  fake.assertResults.mockReset().mockResolvedValue(undefined); fake.copy.mockReset().mockResolvedValue(undefined); vi.stubGlobal("navigator", { clipboard: { writeText: fake.copy } });
   host = { app: {}, store: { settings: { ai: { provider: "custom", endpoint: "https://fixture.invalid", model: "fictional", dataDisclosureAccepted: true } } },
     refreshViews: vi.fn(async () => {}), observeProvider: vi.fn(async (_stage, _channel, callback, signal) => callback({ signal }, host.store, { extractJournalSignals: vi.fn() }, () => {})) };
   modal = new ExternalJournalSelectionModal(host); modal.onOpen(); await flush();
 });
-afterEach(() => { modal.close(); vi.useRealTimers(); vi.restoreAllMocks(); });
+afterEach(() => { modal.close(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 it("lists and previews only on the local side, with no provider request until explicitly submitted", async () => {
   expect(field("button", "整理所选片段").disabled).toBe(true); await add();
@@ -84,4 +87,46 @@ it("does not display a late preview or result after closing and releases its tim
   let release!: (value: any) => void; fake.preview.mockReturnValue(new Promise(done => { release = done; }));
   const pending = field("button", "本机预览原文").onclick(); modal.close(); release(data()); await pending;
   expect(modal.contentEl.children).toEqual([]); expect(host.observeProvider).not.toHaveBeenCalled(); expect(vi.getTimerCount()).toBe(0);
+});
+
+it("shows a saved receipt immediately, copies its immutable text after revalidation, and reopens without sending", async () => {
+  const snapshot = { text: "<script>虚构原话</script>\n计划原话：虚构整理", saved: 1, revision: "fixture" };
+  fake.readResults.mockResolvedValue(snapshot); fake.readSaved.mockResolvedValue(snapshot); await add();
+  await field("button", "整理所选片段").onclick(); const area = field("textarea", "已整理的选段要点");
+  expect(area.readOnly).toBe(true); expect(area.value).toBe(snapshot.text); expect(live().some(node => node.tag === "script")).toBe(false);
+  area.value = "被本机修改的显示内容"; await field("button", "复制整理要点").onclick();
+  expect(fake.assertResults.mock.calls[0][1]).toBe(snapshot); expect(fake.copy).toHaveBeenCalledWith(snapshot.text);
+  await field("button", "查看已整理要点").onclick(); expect(fake.readSaved.mock.calls[0][1].reference).toBe(first); expect(host.observeProvider).toHaveBeenCalledTimes(1);
+});
+it("allows reopening while the model is off, and keeps selectable text when clipboard permission fails", async () => {
+  host.store.settings.ai.provider = "off"; fake.readSaved.mockResolvedValue({ text: "虚构要点", saved: 1 }); fake.copy.mockRejectedValue(Error("denied"));
+  expect(field("button", "查看已整理要点").disabled).toBe(true); await field("button", "本机预览原文").onclick();
+  await field("button", "查看已整理要点").onclick(); await field("button", "复制整理要点").onclick();
+  expect(field("textarea", "已整理的选段要点").value).toBe("虚构要点"); expect(live().some(node => node.text.includes("Cmd+C"))).toBe(true); expect(host.observeProvider).not.toHaveBeenCalled();
+});
+it("clears stale saved facts and never writes the clipboard when their source or stored version changed", async () => {
+  fake.readSaved.mockResolvedValue({ text: "旧虚构要点", saved: 1 }); await add(); await field("button", "查看已整理要点").onclick();
+  fake.assertResults.mockRejectedValue(Error("changed")); await field("button", "复制整理要点").onclick();
+  expect(fake.copy).not.toHaveBeenCalled(); expect(field("textarea", "已整理的选段要点")).toBeUndefined(); expect(live().some(node => node.text.includes("请重新查看"))).toBe(true);
+});
+it("discards a late saved-result read after close or a changed selection", async () => {
+  await add(); let release!: (value: any) => void; fake.readSaved.mockReturnValue(new Promise(done => { release = done; }));
+  const pending = field("button", "查看已整理要点").onclick(); modal.close(); release({ text: "不应显示的旧要点", saved: 1 }); await pending;
+  expect(modal.contentEl.children).toEqual([]); expect(fake.copy).not.toHaveBeenCalled();
+});
+it("shows the saved subset after interrupted extraction and clears it on a new selection", async () => {
+  fake.extract.mockRejectedValue(Error("interrupted")); fake.readResults.mockResolvedValue({ text: "已保存的虚构第一段", saved: 1 }); await add();
+  await field("button", "整理所选片段").onclick(); expect(field("textarea", "已整理的选段要点").value).toContain("第一段");
+  const picker = field("select"); picker.value = second; picker.onchange(); expect(field("textarea", "已整理的选段要点")).toBeUndefined();
+});
+it("rechecks scope immediately before copying, even before the invalidation timer fires", async () => {
+  fake.readSaved.mockResolvedValue({ text: "虚构已保存原话", saved: 1 }); await add(); await field("button", "查看已整理要点").onclick();
+  fake.scope = "changed"; await field("button", "复制整理要点").onclick(); expect(fake.copy).not.toHaveBeenCalled();
+  expect(field("textarea", "已整理的选段要点")).toBeUndefined();
+});
+it("does not copy after closing during version validation, or repeat a pending clipboard write", async () => {
+  fake.readSaved.mockResolvedValue({ text: "虚构已保存原话", saved: 1 }); await add(); await field("button", "查看已整理要点").onclick();
+  let release!: () => void; fake.assertResults.mockReturnValue(new Promise<void>(done => { release = done; }));
+  const button = field("button", "复制整理要点"), pending = button.onclick(); await button.onclick(); expect(fake.assertResults).toHaveBeenCalledTimes(1);
+  modal.close(); release(); await pending; expect(fake.copy).not.toHaveBeenCalled();
 });

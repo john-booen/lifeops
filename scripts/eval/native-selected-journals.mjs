@@ -44,6 +44,14 @@ export async function nativeSelectedJournals(page, root, result) {
     await page.screenshot({ path: join(root, "selected-journal-before-send.png") });
     const submit = page.getByRole("button", { name: "整理所选片段", exact: true }); await submit.click();
     await page.getByText(/已保存2段，0段已有结果/).waitFor();
+    const results = page.getByRole("textbox", { name: "已整理的选段要点", exact: true }); await results.waitFor();
+    const receipt = await results.inputValue(); assert(quotes.every(quote => receipt.includes(quote)) && receipt.includes("精力：4/5"));
+    assert(!receipt.includes("未选择的虚构前文") && !receipt.includes("想法原话：虚构分类索引"));
+    assert.equal(await results.evaluate(el => el.readOnly), true);
+    await page.getByRole("button", { name: "复制整理要点", exact: true }).click();
+    await page.getByRole("button", { name: "已复制整理要点", exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => require("electron").clipboard.readText()), receipt);
+    await page.screenshot({ path: join(root, "selected-journal-results.png") });
     await submit.click(); await page.getByText(/已保存0段，2段已有结果/).waitFor();
     const saved = await page.evaluate(async () => {
       const p = app.plugins.getPlugin("lifeops-assistant"), state = globalThis.__nativeSelectedJournals;
@@ -55,7 +63,21 @@ export async function nativeSelectedJournals(page, root, result) {
       assert.equal(saved.documents[i].晚.length, 1); assert.equal(saved.documents[i].晚[0].sources[0].selectedExcerpt.text, quotes[i]);
       assert(saved.calls[i].endsWith(quotes[i])); assert.equal(await readFile(join(original, files[i]), "utf8"), raws[i]);
     }
+    await page.keyboard.press("Escape");
+    await page.evaluate(() => { const p = app.plugins.getPlugin("lifeops-assistant"); p.settings.ai.provider = "off"; app.commands.executeCommandById("lifeops-assistant:select-external-journal-excerpts"); });
+    await page.locator(".modal-title").filter({ hasText: "从外部日记选段整理" }).waitFor();
+    await picker.selectOption("external-vault/虚构选段/" + files[0]);
+    await page.getByRole("button", { name: "本机预览原文", exact: true }).click();
+    await page.getByRole("button", { name: "查看已整理要点", exact: true }).click(); await results.waitFor();
+    const reopened = await results.inputValue(); assert(reopened.includes(quotes[0]) && !reopened.includes(quotes[1]));
+    assert.equal(await page.evaluate(() => globalThis.__nativeSelectedJournals.calls.length), 2);
     await writeFile(join(original, files[0]), raws[0] + "\n虚构后续修订。");
+    await page.getByRole("button", { name: "复制整理要点", exact: true }).click();
+    await page.getByText("原文、资料范围或保存结果已变化，请重新查看。", { exact: true }).waitFor();
+    assert.equal(await results.count(), 0); assert.equal(await page.evaluate(() => require("electron").clipboard.readText()), receipt);
+    await page.getByRole("textbox", { name: "准备发送的连续原文片段", exact: true }).fill(quotes[0]);
+    await page.getByRole("button", { name: "加入待发送片段", exact: true }).click();
+    await page.evaluate(() => { app.plugins.getPlugin("lifeops-assistant").settings.ai.provider = "custom"; });
     await submit.click(); await page.getByText(/整理中断或原文有更新/).waitFor();
     assert.equal(await page.evaluate(() => globalThis.__nativeSelectedJournals.calls.length), 2);
     await page.evaluate(() => {
@@ -69,6 +91,9 @@ export async function nativeSelectedJournals(page, root, result) {
     result.checks.nativeSelectedJournalSendsOnlyTwoExactExcerptsAndKeepsOriginals = true;
     result.checks.nativeSelectedJournalRetrySkipsSavedAndRejectsChangedSources = true;
     result.checks.nativeSelectedJournalScopeChangeClearsOriginalsAndPreservesTasks = true;
+    result.checks.nativeSelectedJournalResultsShownAndCopiedExactly = true;
+    result.checks.nativeSelectedJournalResultsReopenedWithoutProviderTraffic = true;
+    result.checks.nativeSelectedJournalStaleResultCopyBlocked = true;
   } finally {
     await page.keyboard.press("Escape");
     await page.evaluate(async () => {
