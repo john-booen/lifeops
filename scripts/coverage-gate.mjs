@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const COVERAGE_TARGETS = {
@@ -37,7 +37,8 @@ export async function writeCoverageProvenance({ root, report, before }) {
   return metadata;
 }
 
-export async function readCoverageMetrics({ root, report }) {
+export async function readCoverageMetrics({ root, report, reportedRoot = root }) {
+  ensure(isAbsolute(reportedRoot) && resolve(reportedRoot) === reportedRoot, "Coverage report root must be an absolute normalized path");
   const bytes = await readFile(report);
   const provenance = JSON.parse(await readFile(join(dirname(report), "coverage-provenance.json"), "utf8"));
   ensure(provenance.schemaVersion === 1 && provenance.status === "coverage_completed" && provenance.reportSha256 === hash(bytes), "Missing or mismatched coverage provenance");
@@ -47,7 +48,8 @@ export async function readCoverageMetrics({ root, report }) {
   const summary = JSON.parse(bytes.toString("utf8")); const files = {};
   for (const [absolutePath, metrics] of Object.entries(summary)) {
     if (absolutePath === "total") continue;
-    const name = relative(root, absolutePath).split("\\").join("/");
+    ensure(isAbsolute(absolutePath) && resolve(absolutePath) === absolutePath, "Coverage file path must be absolute and normalized");
+    const name = relative(reportedRoot, absolutePath).split("\\").join("/");
     ensure(Object.hasOwn(COVERAGE_TARGETS, name) && !files[name], "Coverage scope changed or contains an unexpected file");
     files[name] = { group: COVERAGE_TARGETS[name] };
     for (const metric of ["lines", "branches"]) {
@@ -69,8 +71,8 @@ export async function recordCoverageBaseline({ root = rootDir, report, baseline 
   return baselineData;
 }
 
-export async function verifyCoverageBaseline({ root = rootDir, report, baseline = join(root, "scripts/coverage-baseline.json") }) {
-  const measured = await readCoverageMetrics({ root, report });
+export async function verifyCoverageBaseline({ root = rootDir, report, baseline = join(root, "scripts/coverage-baseline.json"), reportedRoot = root }) {
+  const measured = await readCoverageMetrics({ root, report, reportedRoot });
   let saved;
   try { saved = JSON.parse(await readFile(baseline, "utf8")); }
   catch (error) { if (error.code === "ENOENT") throw new Error("Coverage baseline is not registered; collect a real report and explicitly record it first"); throw error; }

@@ -26,14 +26,37 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
-  group: lifeops-ci-${{ github.workflow }}-${{ github.ref }}
+  group: lifeops-ci-${{ github.workflow }}-${{ github.ref }}-${{ inputs.native_task_content && 'native' || 'verify' }}
   cancel-in-progress: true
 
 jobs:
-  verify:
+  source-plan:
     if: github.event_name != 'workflow_dispatch' || !inputs.native_task_content
+    runs-on: macos-15-intel
+    timeout-minutes: 5
+    outputs:
+      reuse: ${{ steps.plan.outputs.reuse }}
+      run_id: ${{ steps.plan.outputs.run_id }}
+      run_attempt: ${{ steps.plan.outputs.run_attempt }}
+      artifact_id: ${{ steps.plan.outputs.artifact_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25.9.0
+      - id: plan
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/source-ci-reuse.mjs
+
+  verify:
+    needs: source-plan
+    if: needs.source-plan.outputs.reuse != 'true'
     # Keep the full instrumented suite on its reviewed native ARM64 timing baseline.
     # The lightweight audit uses Intel, avoiding a second ARM64 queue.
     runs-on: macos-15
@@ -52,10 +75,17 @@ jobs:
         run: npm run verify:privacy -- --history
       - run: npm ci --ignore-scripts --no-audit
       - name: Tests, measured coverage gate and isolated production package
-        run: node scripts/verify-ci-local.mjs --run
+        run: node scripts/verify-source-ci.mjs --output "$RUNNER_TEMP/source-ci-evidence"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-ci-evidence-${{ github.sha }}
+          path: ${{ runner.temp }}/source-ci-evidence
+          if-no-files-found: error
+          retention-days: 30
 
   dependency-audit:
-    if: github.event_name != 'workflow_dispatch' || !inputs.native_task_content
+    needs: source-plan
+    if: needs.source-plan.outputs.reuse != 'true'
     # The hosted arm64 queue also cancelled audits before allocating a runner.
     runs-on: macos-15-intel
     timeout-minutes: 15
@@ -70,6 +100,31 @@ jobs:
         run: node scripts/offline-osv-audit.mjs --prepare "$RUNNER_TEMP/lifeops-osv-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
       - name: Block high and critical advisories with inventory isolated from network
         run: node scripts/offline-osv-audit.mjs --scan "$RUNNER_TEMP/lifeops-osv-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKSPACE/package-lock.json"
+
+  reuse-evidence:
+    needs: source-plan
+    if: needs.source-plan.outputs.reuse == 'true'
+    runs-on: macos-15-intel
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25.9.0
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.source-plan.outputs.artifact_id }}
+          run-id: ${{ needs.source-plan.outputs.run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/source-ci-evidence
+          merge-multiple: true
+      - name: Verify original reports, coverage provenance and package without rerunning tests
+        env:
+          SOURCE_CI_RUN_ID: ${{ needs.source-plan.outputs.run_id }}
+          SOURCE_CI_RUN_ATTEMPT: ${{ needs.source-plan.outputs.run_attempt }}
+        run: node scripts/ci-evidence.mjs --reuse "$RUNNER_TEMP/source-ci-evidence" "$GITHUB_SHA"
 
   native-task-content:
     if: github.event_name == 'workflow_dispatch' && inputs.native_task_content

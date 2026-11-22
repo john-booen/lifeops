@@ -130,7 +130,11 @@ describe("safe local CI planning and orchestration", () => {
     expect(text).toContain("offline-osv-audit.mjs --prepare"); expect(text).toContain("offline-osv-audit.mjs --scan");
     expect(text).not.toContain("npm audit");
     expect(text).not.toMatch(/secrets\.|continue-on-error|deploy|schedule:/);
-    for (const name of ["verify", "dependency-audit"]) expect(workflowJob(text, name)).not.toContain("upload-artifact");
+    expect(workflowJob(text, "dependency-audit")).not.toContain("upload-artifact");
+    const sourceArtifacts = workflowJob(text, "verify").split("uses: actions/upload-artifact@v4")[1];
+    expect(sourceArtifacts).toContain("source-ci-evidence-${{ github.sha }}");
+    expect(sourceArtifacts).toContain("${{ runner.temp }}/source-ci-evidence");
+    expect(sourceArtifacts).not.toMatch(/vault|profile|data\.json|secrets/u);
     const native = workflowJob(text, "native-task-content");
     expect(native).toContain("github.event_name == 'workflow_dispatch' && inputs.native_task_content");
     const artifacts = native.split("uses: actions/upload-artifact@v4")[1];
