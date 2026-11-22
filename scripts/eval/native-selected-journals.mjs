@@ -31,7 +31,7 @@ export async function nativeSelectedJournals(page, root, result) {
     return { reports: p.settings.folders.aiReports };
   }, { original });
   try {
-    await page.getByRole("heading", { name: "从外部日记选段整理", exact: true }).waitFor();
+    await page.locator(".modal-title").filter({ hasText: "从外部日记选段整理" }).waitFor();
     const picker = page.getByRole("combobox", { name: "选择日记日期和文件", exact: true });
     for (let i = 0; i < files.length; i++) {
       await picker.selectOption("external-vault/虚构选段/" + files[i]);
