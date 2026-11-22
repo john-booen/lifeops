@@ -4,7 +4,7 @@ import type { StoreHost } from "../../store/settingsSlice";
 import type { LifeOpsSettings } from "../../types";
 import type { LocalOperationHost } from "../serviceHost";
 import { defaultExternalFolders, externalVaultReader, externalVaultScope, externalVaultSettings, indexedExternalVault } from "./catalog";
-import { extractExternalJournalSignals } from "./journals";
+import { openSelectedExternalJournalScan } from "./selectionUi";
 import { normalizeExternalVault, type ExternalVaultSettings } from "./readOnly";
 
 export interface ExternalVaultHost extends LocalOperationHost {
@@ -53,9 +53,9 @@ export function renderExternalVaultSettings(container: HTMLElement, host: Extern
         refresh();
       }));
   }
-  if (configs.length) new Setting(container).setName("提取外部日记信号")
-    .setDesc("由你开始扫描，使用已配置的模型。关闭窗口可以停止，已保存的信号可继续使用。")
-    .addButton(button => button.setButtonText("查看扫描范围").onClick(() => openExternalJournalScan(host)));
+  if (configs.length) new Setting(container).setName("从外部日记选段整理")
+    .setDesc("先按日期在本机预览，只发送你选定的原文片段。")
+    .addButton(button => button.setButtonText("选日期和原文").onClick(() => openExternalJournalScan(host)));
 }
 
 class ExternalVaultSettingsModal extends Modal {
@@ -100,42 +100,5 @@ class ExternalVaultSettingsModal extends Modal {
 }
 
 export function openExternalJournalScan(host: ExternalVaultHost): void {
-  const modal = new ExternalJournalScanModal(host);
-  host.register(() => modal.close());
-  modal.open();
-}
-
-class ExternalJournalScanModal extends Modal {
-  private readonly controller = new AbortController();
-  constructor(private readonly host: ExternalVaultHost) { super(host.app); }
-
-  onOpen(): void {
-    this.titleEl.setText("提取外部日记信号");
-    const { contentEl } = this, settings = this.host.store.settings.ai;
-    const names = externalVaultSettings(this.host.store.settings).map(config => config.name).join("、");
-    if (!names || settings.provider === "off" || !settings.dataDisclosureAccepted || !settings.endpoint || !settings.model) {
-      contentEl.createEl("p", { text: "请先设置外部库、模型及资料使用权限。" });
-      return;
-    }
-    contentEl.createEl("p", { text: "会把「" + names + "」已选日记中的每篇最多 6000 字发送给 " + settings.model
-      + (settings.fallbackProvider !== "off" && settings.fallbackModel ? "，必要时回退到 " + settings.fallbackModel : "")
-      + "。信号保存到日用库。关闭即可停止。" });
-    const status = contentEl.createEl("p", { attr: { role: "status" } });
-    const start = contentEl.createEl("button", { text: "确认扫描外部日记", cls: "mod-cta" });
-    start.onclick = async () => {
-      start.disabled = true;
-      try {
-        const result = await this.host.observeProvider("daily_review", "text", (request, _store, ai, current) =>
-          extractExternalJournalSignals(this.host.store, (messages, options) => ai.extractJournalSignals(messages, { ...request, ...options }),
-            request.signal ?? this.controller.signal, current, new Date(),
-            (done, total) => status.setText("已检查 " + done + " / " + total + " 篇。")), this.controller.signal);
-        status.setText("已检查 " + result.examined + " 篇，新保存 " + result.saved + " 篇，暂不可用 " + result.unavailable + " 篇。");
-        await this.host.refreshViews().catch(() => undefined);
-      } catch {
-        if (!this.controller.signal.aborted) status.setText("扫描暂时中断，已有信号可保留并续跑。");
-      } finally { start.disabled = false; }
-    };
-  }
-
-  onClose(): void { this.controller.abort(); this.contentEl.empty(); }
+  openSelectedExternalJournalScan(host);
 }

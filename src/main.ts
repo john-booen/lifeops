@@ -83,6 +83,8 @@ import * as todayService from "./features/today/service";
 import { openIdeaCandidates, type IdeaUiHost } from "./features/ideas/candidateReview";
 import { mountIdeaPanel } from "./features/ideas/panel";
 import { mountLearningPanel, openLearningPlan, registerLearningCommands, type LearningUiHost } from "./features/learning/panel";
+import { openSelectedExternalJournalScan } from "./features/externalVault/selectionUi";
+import type { ExternalVaultHost } from "./features/externalVault/ui";
 import { subscribeLearningNotes } from "./features/learning/capture";
 import { subscribeReadingNotes } from "./features/reading/capture";
 import { PHONE_INBOX_PATH } from "./features/phoneInbox/model";
@@ -291,6 +293,7 @@ export default class LifeOpsPlugin extends Plugin {
   }
 
   private registerLifeOpsCommands(): void {
+    this.addCommand({ id: "select-external-journal-excerpts", name: "从外部日记选段整理", callback: () => openSelectedExternalJournalScan(this as unknown as ExternalVaultHost) });
     this.addCommand({
       id: "open-lifeops-dashboard",
       name: "打开 LifeOps 面板",

@@ -5,12 +5,12 @@ import { fileRevision } from "../../operationIdentity";
 import { isVaultPathExcluded } from "../../privacy";
 import type { StoreHost } from "../../store/settingsSlice";
 import type { SignalRequest } from "../journal/signalStore";
-import { emptySignalDocument, journalSignalMessages, parseJournalSignal, validSignalDocument, type JournalSignal, type SignalDocument, type SignalSource } from "../journal/signals";
+import { emptySignalDocument, journalSignalMessages, parseJournalSignal, validSelectedJournalExcerpt, validSignalDocument, type JournalSignal, type SignalDocument, type SignalSource } from "../journal/signals";
 import { externalCategory, externalFilesForCategory, externalJournalRoot, externalVaultScope, externalVaultSettings, resolveExternalSource } from "./catalog";
 
-const documentPath = (store: StoreHost, name: string, date: string) => store.path(store.settings.folders.aiReports, "Signals", "External", name, date + ".json");
+export const documentPath = (store: StoreHost, name: string, date: string) => store.path(store.settings.folders.aiReports, "Signals", "External", name, date + ".json");
 
-async function readDocument(store: StoreHost, name: string, date: string): Promise<SignalDocument> {
+export async function readDocument(store: StoreHost, name: string, date: string): Promise<SignalDocument> {
   const path = documentPath(store, name, date);
   const fallback = emptySignalDocument(date);
   if (isVaultPathExcluded(path, store.settings.privacy?.excludedVaultPrefixes)) return fallback;
@@ -24,7 +24,8 @@ export async function externalJournalSignalSourceCurrent(store: StoreHost, date:
   if (!external || externalCategory(store.settings, external.path) !== "journal"
     || journalDateFromPath(external.path, externalJournalRoot(store.settings, external.path), date.slice(0, 4)) !== date) return false;
   const raw = await external.reader.read(external.path).catch(() => undefined);
-  return raw !== undefined && externalVaultScope(store) === scope && fileRevision(raw) === source.sha256;
+  return raw !== undefined && externalVaultScope(store) === scope && fileRevision(raw) === source.sha256
+    && (source.selectedExcerpt === undefined || validSelectedJournalExcerpt(source.selectedExcerpt) && raw.includes(source.selectedExcerpt.text));
 }
 
 export async function readExternalJournalSignals(store: StoreHost, date: string): Promise<JournalSignal[]> {

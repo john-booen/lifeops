@@ -7460,3 +7460,8 @@ SOFTWARE.
   display: block; width: auto; max-width: 100%; height: auto; min-height: var(--input-height);
   margin: 0.25em 0; padding: 0.3em 0.5em; white-space: normal; overflow-wrap: anywhere; text-align: left;
 }
+.lifeops-external-journal-picker select,
+.lifeops-external-journal-picker textarea { width: 100%; margin: 6px 0; }
+.lifeops-external-journal-picker textarea,
+.lifeops-external-journal-queue pre { user-select: text; -webkit-user-select: text; caret-color: var(--text-normal); }
+.lifeops-external-journal-queue pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto; }

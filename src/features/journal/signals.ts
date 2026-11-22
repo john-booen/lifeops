@@ -1,11 +1,18 @@
 import type { ChatMessage } from "../../ai";
 import { isContextSourcePath } from "../../sourceReferences";
+import { fileRevision } from "../../operationIdentity";
 
 export const JOURNAL_SIGNAL_FIELDS = ["energy", "mood", "stress", "sleepHours", "sleepQuality"] as const;
 export type SignalField = typeof JOURNAL_SIGNAL_FIELDS[number];
 export type SignalValues = Record<SignalField, number | null>;
 export type SignalPeriod = "晨" | "晚";
-export interface SignalSource { path: string; sha256: string }
+export interface SignalSource { path: string; sha256: string; selectedExcerpt?: { text: string; sha256: string } }
+export const SELECTED_JOURNAL_MAX_CHARACTERS = 2000;
+export function validSelectedJournalExcerpt(value: unknown): value is NonNullable<SignalSource["selectedExcerpt"]> {
+  const excerpt = value as SignalSource["selectedExcerpt"];
+  return !!excerpt && typeof excerpt.text === "string" && !!excerpt.text.trim()
+    && [...excerpt.text].length <= SELECTED_JOURNAL_MAX_CHARACTERS && excerpt.sha256 === fileRevision(excerpt.text);
+}
 export interface JournalSignal extends SignalValues {
   date: string;
   period: SignalPeriod;
@@ -91,6 +98,7 @@ export function validSignalDocument(value: unknown, date: string): boolean {
       const source = object(signal.sources[0]);
       const strings = (value: unknown) => Array.isArray(value) && value.every(item => typeof item === "string");
       return !!source && isContextSourcePath(source.path as string) && typeof source.sha256 === "string" && /^[a-f0-9]{64}$/.test(source.sha256)
+        && (source.selectedExcerpt === undefined || validSelectedJournalExcerpt(source.selectedExcerpt))
         && JOURNAL_SIGNAL_FIELDS.every(field => signal[field] === null || signalNumber(signal[field], field) !== null)
         && strings(signal.keyEvents) && strings(signal.worries)
         && Array.isArray(signal.plans) && signal.plans.every(item => object(item) && typeof item.text === "string"
@@ -111,5 +119,5 @@ export function signalContextLine(signals: readonly JournalSignal[]): string {
   const values = currentSignalValues(signals);
   const labels = { energy: "精力", mood: "情绪", stress: "压力", sleepHours: "睡眠小时", sleepQuality: "睡眠质量" };
   const known = JOURNAL_SIGNAL_FIELDS.flatMap(field => values[field] === null ? [] : [`${labels[field]} ${values[field]}`]);
-  return known.length ? `今日日记信号（据日记）：${known.join("，")}` : "今日日记信号暂无，原文可按需查询。";
+  return known.length ? `今日日记信号（据${signals.some(signal => signal.sources[0].selectedExcerpt) ? "已选日记片段" : "日记"}）：${known.join("，")}` : "今日日记信号暂无，原文可按需查询。";
 }
