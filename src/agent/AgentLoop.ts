@@ -42,6 +42,7 @@ import { explicitTaskCount, voiceTaskCountFollowup } from "../voice/taskCountFol
 import { planTaskBatch, TASK_BATCH_TOOL, taskBatchOutput } from "./taskBatch";
 import { recoverReadOnlyStats, type StatsRecoveryRead } from "./readOnlyStatsRecovery";
 import { resolvedTaskLookup, taskLookupResolution } from "./taskLookupResolution";
+import { holdToolProtocolPrefix, isLeakedToolProtocol, toolProtocolRepairMessages, unavailableToolProtocol } from "./toolProtocol";
 
 export type WriteReceipt = AgentWriteReceipt;
 export interface AgentTurnInput {
@@ -103,6 +104,7 @@ interface TurnState {
   taskBatchNotes?: string[];
   statsReads?: Map<string, StatsRecoveryRead>;
   errorCode?: string;
+  protocolRepairAttempted?: boolean;
 }
 
 const MAX_TOOL_ROUNDS = 4;
@@ -616,6 +618,7 @@ export class AgentLoop {
     messages: ChatMessage[], tools: AiToolDefinition[], final: boolean, streamOutput = true, requiredTool?: string): Promise<AiChatResult> {
     assertProviderActive(input.signal);
     let previous = "";
+    const sourcePolicy = memorySourcePolicy(this.host.store);
     const before = state.providerRuns.length;
     const shortTextFirst = input.source === "text" && role === "fast" && messages.at(-1)?.role === "user";
     const system = messages[0];
@@ -716,7 +719,8 @@ export class AgentLoop {
     }
     const requestMessages = system?.role === "system" && guidance.length
       ? [{ ...system, content: [system.content, ...guidance].join("\n") }, ...messages.slice(1)] : messages;
-    const response = await this.host.aiForRole(role).agentTurnStream(requestMessages, content => {
+    const emit = (content: string) => {
+      if (holdToolProtocolPrefix(content)) return;
       const delta = content.startsWith(previous) ? content.slice(previous.length) : content;
       previous = content;
       if (streamOutput && delta) {
@@ -724,7 +728,9 @@ export class AgentLoop {
         input.onText?.(delta);
         if (final && !state.receipts.size && !state.spokenWrites.size && !state.confirmations.size) input.onVoiceText?.(delta);
       }
-    }, { signal: input.signal, tools, toolChoice: final ? "none" : requiredTool ? { type: "function", function: { name: requiredTool } } : "auto",
+    };
+    const response = await this.host.aiForRole(role).agentTurnStream(requestMessages, emit,
+      { signal: input.signal, tools, toolChoice: final ? "none" : requiredTool ? { type: "function", function: { name: requiredTool } } : "auto",
       preferFinite: shortTextFirst,
       reasoning: role === "deep" && (!input.voiceBackground || final && messages.length === 2) ? "enabled" : "disabled",
       ...(input.voiceBackground && final && messages.length === 2 ? { timeoutMs: role === "deep" ? 45_000 : 12_000 } : {}),
@@ -733,7 +739,21 @@ export class AgentLoop {
       onProviderRun: run => { state.providerRuns.push(run); } });
     if (response.providerRun && state.providerRuns.length === before) state.providerRuns.push(response.providerRun);
     this.recordUsage(state, response);
-    return response;
+    if (!isLeakedToolProtocol(response.content)) return response;
+    if (response.toolCalls.length) return { ...response, content: "" };
+    if (state.protocolRepairAttempted) return unavailableToolProtocol(response);
+    state.protocolRepairAttempted = true;
+    const current = () => {
+      assertProviderActive(input.signal);
+      if (sourcePolicy !== memorySourcePolicy(this.host.store)) throw new DOMException("资料权限已更改，请重新发送。", "AbortError");
+      this.host.assertReadOnlyReplyCurrent?.();
+    };
+    current();
+    const repaired = await this.callModel(input, state, role, toolProtocolRepairMessages(messages), [], true, false);
+    current();
+    const answer = repaired.toolCalls.length ? unavailableToolProtocol(repaired) : repaired;
+    emit(answer.content);
+    return answer;
   }
 
   private async finishVoiceAnalysis(input: AgentTurnInput, state: TurnState, context: string, messages: ChatMessage[]): Promise<void> {

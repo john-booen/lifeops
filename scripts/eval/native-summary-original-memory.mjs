@@ -58,6 +58,7 @@ export async function nativeSummaryOriginalMemory(page, result) {
   assert(observed.weekly.output.includes("2026-01-01晚.md") && observed.weekly.output.includes("2026-01-04晚.md"));
   assert(observed.weekly.output.includes("虚构跨年周的另一篇用户原话") && observed.weekly.output.includes(observed.original));
   assert(observed.restated.success, observed.restated.output);
+  assert(observed.restated.output.includes("分类：管家规则"));
   assert(observed.independentRestatement && observed.restatedContext.includes(observed.original));
   assert(observed.undidRestatement && !observed.afterUndo.includes(observed.original));
   result.checks.journalWeekReadsMultipleDatedOriginalsAcrossTheYearBoundary = true;

@@ -159,7 +159,7 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
   if (question.fixture === "task_interval_meaning") {
     await (await import("./taskIntervalFixture")).prepareTaskIntervalFixture(store as unknown as StoreHost);
   }
-  if (question.fixture === "source_relative_dates") {
+  if (question.fixture === "source_relative_dates" || question.fixture === "malformed_tool_protocol") {
     await (await import("./sourceDateFixture")).prepareSourceDateFixture(store as unknown as StoreHost);
   }
   if (question.fixture === "summary_original_memory") {
@@ -196,6 +196,14 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
     if (injectedTurns++ === 0) return { content: "", toolCalls: [{ name: "list_tasks", arguments: { query: "虚构区间纸样", date: formatDate(fixedNow) } }] };
     if (injectedTurns === 2) { onText("虚构口头确认卡已经生成。"); return { content: "虚构口头确认卡已经生成。", toolCalls: [] }; }
     if (typeof options?.toolChoice === "object" && options.toolChoice.function.name === "resolve_task_lookup") lookupResolutionRequested = true;
+    return actualTurn.call(this, messages, onText, options);
+  }) : undefined;
+  const malformedProtocol = question.fixture === "malformed_tool_protocol" ? vi.spyOn(LifeOpsAi.prototype, "agentTurnStream").mockImplementation(async function (this: InstanceType<typeof LifeOpsAi>, messages, onText, options) {
+    if (injectedTurns++ === 0) return { content: "", toolCalls: [{ name: "get_summaries", arguments: { level: "day", range: { from: "2026-11-02", to: "2026-11-08" }, includeOriginals: true } }] };
+    if (injectedTurns === 2) {
+      const content = '<｜｜DSML｜｜ calls><｜｜DSML｜｜ invoke name="query_vault"></｜｜DSML｜｜ invoke></｜｜DSML｜｜ calls>';
+      onText(content); return { content, toolCalls: [] };
+    }
     return actualTurn.call(this, messages, onText, options);
   }) : undefined;
   if (question.fixture === "task_already_undone") {
@@ -317,6 +325,7 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
     reply: reply.reply, voiceSpeech: reply.voiceSpeech, tools, createdTasks, tasks: after.tasks, preparedTasks, preludeCreatedTasks, checkins: after.checkins,
     createdTrades, judge, phoneInbox,
     activeMemories: memory ? selectPersonalMemories(memory.records, "", memory.records.length, fixedNow).map(record => record.content) : undefined,
+    activeMemoryRecords: memory ? selectPersonalMemories(memory.records, "", memory.records.length, fixedNow).map(({ kind, content }) => ({ kind, content })) : undefined,
     proposedTaskDates: reply.actions.filter(action => action.type === "task_plan").flatMap(action =>
       [...action.content.matchAll(/^日期：(\d{4}-\d{2}-\d{2})$/gm)].map(match => match[1])),
     proposedTaskChanges: reply.actions.filter(action => action.type === "tool_batch").flatMap(action => action.toolBatch ?? []),
@@ -384,6 +393,7 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
     process.stdout.write(`${question.id} 传输 · ${redactSensitiveText(JSON.stringify(runs), credentials)}\n`);
   }
   lookupProse?.mockRestore();
+  malformedProtocol?.mockRestore();
   await rm(activeRoot, { recursive: true, force: true });
   activeRoot = "";
   return { id: question.id, passed: issues.length === 0, issues, inputTokens: usage.inputTokens,

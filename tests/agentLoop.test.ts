@@ -47,6 +47,74 @@ let root: string, store: StoreHost, host: AgentLoopHost, runtime: InstanceType<t
 let responses: Array<AiChatResult | Error>, requests: ChatMessage[][], roles: AgentModelRole[];
 let catalogs: string[][], toolChoices: unknown[];
 
+it("replaces leaked tool protocol with one text-only answer using the originals already read", async () => {
+  await store.appendDaily("2026-11-03", "日记", "虚构纸样整理原话。", "早", "虚构纸样整理原话。");
+  const leaked = '<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name="create_task">\n</｜｜DSML｜｜ invoke>\n</｜｜DSML｜｜ calls>';
+  const answer = "11月3日的原话是“虚构纸样整理原话”。这不是已完成记录。";
+  const fake = host.aiForRole;
+  host.aiForRole = role => ({ agentTurnStream: (messages, onText, options) => fake(role).agentTurnStream(messages, text => {
+    for (const length of [1, 4, 12, text.length]) onText(text.slice(0, length));
+  }, options) });
+  responses.push(reply("", [tool("query_vault", { domain: "journal", operation: "get", date: "2026-11-03", period: "早" })]),
+    reply(leaked), reply(answer));
+  const streamed: string[] = [], before = await store.readPath(store.taskDbPath());
+  const result = await new AgentLoop(host).run(input({ message: "请按原话解释11月3日的虚构纸样记录，不修改。", onText: text => streamed.push(text) }));
+  expect(result.text).toBe(answer);
+  expect(streamed.join("")).toBe(answer);
+  expect(result.receipts).toEqual([]);
+  expect(result.toolCalls).toEqual([{ name: "query_vault", ok: true }]);
+  expect(await store.readPath(store.taskDbPath())).toBe(before);
+  expect(requests).toHaveLength(3); expect(catalogs.at(-1)).toEqual([]); expect(toolChoices.at(-1)).toBe("none");
+  expect(JSON.stringify(requests.at(-1))).toContain("虚构纸样整理原话");
+  expect(JSON.stringify(requests.at(-1))).not.toContain("DSML");
+});
+
+it.each(["text", "native-call", "repeat"])("never executes leaked writes or retries indefinitely when repair returns %s", async mode => {
+  const leaked = '<｜｜DSML｜｜ calls><｜｜DSML｜｜ invoke name="create_task"></｜｜DSML｜｜ invoke></｜｜DSML｜｜ calls>';
+  responses.push(reply(leaked), mode === "repeat" ? reply(leaked) : mode === "native-call"
+    ? reply("", [tool("create_task", { title: "虚构泄漏任务" })]) : reply("已读请求，本次没有保存任何任务。"));
+  const before = await store.readPath(store.taskDbPath()), streamed: string[] = [];
+  const result = await new AgentLoop(host).run(input({ message: "请解释虚构纸样归档的原则，只讨论，不保存。", onText: value => streamed.push(value) }));
+  expect(result.toolCalls).toEqual([]); expect(result.receipts).toEqual([]);
+  expect(await store.readPath(store.taskDbPath())).toBe(before);
+  expect(requests).toHaveLength(2); expect(catalogs[1]).toEqual([]); expect(toolChoices[1]).toBe("none");
+  expect(result.text).not.toContain("DSML"); expect(streamed.join("")).not.toContain("DSML");
+});
+
+it.each(["privacy", "cancel"])("does not send a protocol repair after %s changed", async change => {
+  const controller = new AbortController(), fake = host.aiForRole;
+  host.aiForRole = role => ({ agentTurnStream: async (messages, onText, options) => {
+    const response = await fake(role).agentTurnStream(messages, onText, options);
+    if (change === "privacy") store.settings.privacy!.excludedVaultPrefixes = ["虚构不再准读"];
+    else controller.abort();
+    return response;
+  } });
+  responses.push(reply("<｜｜DSML｜｜ calls></｜｜DSML｜｜ calls>"));
+  const streamed: string[] = [];
+  await expect(new AgentLoop(host).run(input({ message: "解释虚构纸样记录，不修改。", signal: controller.signal,
+    onText: value => streamed.push(value) }))).rejects.toMatchObject({ name: "AbortError" });
+  expect(requests).toHaveLength(1); expect(streamed.join("")).not.toContain("DSML");
+});
+
+it("keeps a successful write receipt without replaying it after protocol leakage", async () => {
+  responses.push(reply("", [tool("create_task", { title: "虚构已保存紫纸" })]),
+    reply("<｜｜DSML｜｜ calls></｜｜DSML｜｜ calls>"), reply("虚构已保存紫纸已经保存，没有执行额外操作。"));
+  const result = await new AgentLoop(host).run(input({ message: "帮我保存一项待办，名称虚构已保存紫纸，不安排时间，再简单说明。" }));
+  expect((await store.readTaskDb()).tasks.map(task => task.title)).toEqual(["虚构已保存紫纸"]);
+  expect(result.receipts).toHaveLength(1); expect(result.toolCalls).toEqual([{ name: "create_task", ok: true }]);
+  expect(requests).toHaveLength(3); expect(catalogs.at(-1)).toEqual([]);
+});
+
+it("keeps ordinary text starting with a less-than sign without invoking protocol recovery", async () => {
+  const text = "<虚构纸样>只是普通文本。", fake = host.aiForRole;
+  host.aiForRole = role => ({ agentTurnStream: (messages, onText, options) => fake(role).agentTurnStream(messages, value => {
+    for (const length of [1, 2, value.length]) onText(value.slice(0, length));
+  }, options) });
+  responses.push(reply(text)); const streamed: string[] = [];
+  const result = await new AgentLoop(host).run(input({ message: "给一行虚构占位符说明，不执行操作。", onText: value => streamed.push(value) }));
+  expect(result.text).toBe(text); expect(streamed.join("")).toBe(text); expect(requests).toHaveLength(1);
+});
+
 it("turns a model's unsupported eleven-task card claim into one real confirmation before any save", async () => {
   const tasks = [];
   for (let i = 0; i < 11; i++) tasks.push(await store.createTask({ title: "虚构补卡纸样" + i, date: "2026-11-12", startTime: "20:00", endTime: "20:30" }));

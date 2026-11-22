@@ -21,6 +21,14 @@ const task = { id: "synthetic", title: "见客户", date: "2026-11-13", time: "1
 const observed: EvalObservation = { reply: "已建好", tools: [], writes: { "tasks.created": 1 }, createdTasks: [task],
   tasks: [task], confirmations: 0, confirmationActions: [], receipts: 1, preludeCreatedTasks: 0 };
 
+it("requires the same remembered content in the requested active category, not another record or its reply", () => {
+  const memory: EvalQuestion = { ...question, checks: { remembered: ["虚构规则"], rememberedKind: "user_rule" } };
+  const valid = { ...observed, activeMemories: ["虚构规则"], activeMemoryRecords: [{ kind: "user_rule", content: "虚构规则" }] };
+  expect(scoreEvaluationCase(memory, valid)).toEqual([]);
+  expect(scoreEvaluationCase(memory, { ...valid, activeMemoryRecords: [{ kind: "core_profile", content: "虚构规则" }] })).not.toEqual([]);
+  expect(scoreEvaluationCase(memory, { ...valid, activeMemoryRecords: [{ kind: "user_rule", content: "别的规则" }] })).not.toEqual([]);
+});
+
 it("requires all original identities, frozen versions and new titles in one mixed task plan", () => {
   const plan: EvalQuestion = { ...question, checks: { mixedTaskOutcome: { edits: [{ from: task.title, to: "虚构新名称" }],
     createdTitles: ["虚构新纸袋"], date: task.date } } };

@@ -125,6 +125,7 @@ it.each([false, true])("lets the user explicitly restate a grounded automatic me
   const result = await runtime.executeAiToolCall({ id: "explicit-memory-restatement", name: "append_memory_note",
     arguments: { fileName: "管家规则.md", content: known } }, "kimi");
   expect(result.success, result.output).toBe(true);
+  expect(result.output).toContain("分类：管家规则");
   const document = await readPersonalMemoryWithSources(store);
   expect(document.records).toHaveLength(2);
   const selected = selectPersonalMemories(document.records, "虚构检索", 8, monday);

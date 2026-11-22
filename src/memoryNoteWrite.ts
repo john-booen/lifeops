@@ -31,6 +31,6 @@ export async function saveMemoryNote(content: string, fileName: string, operatio
   if (!verified || verified.content !== incoming.content || verified.status !== "active"
     || !verified.sourceRefs.some(ref => ref.sourceId === operationId)) throw new Error("个人记忆写入后读回校验失败");
   await context.refreshViews();
-  return { success: true, output: `已记住：${verified.content}`, actions: [],
+  return { success: true, output: `已记住：${verified.content}\n分类：${fileName.replace(/\.md$/, "")}；可在「关于我」的个人记忆中查看。`, actions: [],
     undo: { kind: "restore_personal_memory_document", document: structuredClone(before) as unknown as Record<string, unknown> } };
 }

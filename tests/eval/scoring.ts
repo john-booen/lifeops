@@ -42,6 +42,7 @@ interface EvalChecks {
   changedTask?: { id: string; date: string };
   checkin?: EvalCheckin;
   remembered?: (string | string[])[];
+  rememberedKind?: string;
   taskPlan?: { date: string; maxTasks: number };
   ideaPlan?: { titleIncludes: string; from: string; to: string; maxSteps: number };
   orderedIncludes?: string[];
@@ -57,7 +58,7 @@ export interface EvalQuestion {
   mode: "text" | "voice";
   input: string;
   history: { role: "user" | "assistant"; content: string }[];
-  fixture?: "without_quiz_cards" | "scheduled_compensation_after_prelude" | "automatic_memory_after_create" | "task_already_undone" | "one_overdue_task" | "device_sleep" | "cross_week_after_correction" | "eleven_task_plans" | "mixed_title_batch" | "sparse_legacy_summary" | "task_interval_meaning" | "source_relative_dates" | "summary_original_memory" | "task_lookup_prose" | "bound_memory_restatement";
+  fixture?: "without_quiz_cards" | "scheduled_compensation_after_prelude" | "automatic_memory_after_create" | "task_already_undone" | "one_overdue_task" | "device_sleep" | "cross_week_after_correction" | "eleven_task_plans" | "mixed_title_batch" | "sparse_legacy_summary" | "task_interval_meaning" | "source_relative_dates" | "summary_original_memory" | "task_lookup_prose" | "bound_memory_restatement" | "malformed_tool_protocol";
   prelude?: string[];
   afterPreludeHistory?: { role: "user" | "assistant"; content: string }[];
   phoneCaptureDate?: string;
@@ -80,6 +81,7 @@ export interface EvalObservation {
   errorCode?: string;
   checkins?: EvalCheckin[];
   activeMemories?: string[];
+  activeMemoryRecords?: { kind: string; content: string }[];
   proposedTaskDates?: string[];
   proposedTaskChanges?: Array<{ name: string; arguments: Record<string, unknown> }>;
   proposedIdeaPlans?: { title: string; steps: { date: string; minutes: number }[] }[];
@@ -254,6 +256,10 @@ export function scoreEvaluationCase(question: EvalQuestion, observed: EvalObserv
   if (checks.remembered && !observed.activeMemories?.some(content => checks.remembered!.every(phrase =>
     (typeof phrase === "string" ? [phrase] : phrase).some(word => content.includes(word))))) {
     issues.push("未读回有效的个人记忆");
+  }
+  if (checks.rememberedKind && !observed.activeMemoryRecords?.some(record => record.kind === checks.rememberedKind
+    && checks.remembered?.every(phrase => (typeof phrase === "string" ? [phrase] : phrase).some(word => record.content.includes(word))))) {
+    issues.push("未在指定类别读回同一条有效记忆");
   }
   if (checks.taskPlan) {
     const proposed = observed.proposedTaskDates ?? [];
