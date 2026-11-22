@@ -5,7 +5,7 @@ export async function nativeTaskLookup(page, result) {
   const state = await page.evaluate(async () => {
     const p = app.plugins.getPlugin("lifeops-assistant"), before = (await p.store.readTaskDb()).tasks;
     const date = new Date().toLocaleDateString("sv-SE"), added = [], targets = [];
-    let first, second, filtered, crossDate, readable, queryTasksUnchanged, modelCalls = 0;
+    let first, second, filtered, crossDate, readable, queryTasksUnchanged, directReadable, directUnchanged, firstModelCalls, modelCalls = 0;
     try {
       for (let i = 0; i < 35; i++) {
         const task = await p.store.createTask({ title: i < 24 ? "虚构查找纸袋" + i : "虚构区间纸样" + i, date });
@@ -31,9 +31,13 @@ export async function nativeTaskLookup(page, result) {
         view.agentMode = "text"; view.agentMessages = []; view.pendingAgentActions = []; await view.navigateSteward("chat");
         view.setAgentInput("请查找虚构跨日期查找蓝盒相关的所有日期任务。"); await view.sendAgentMessage();
         readable = view.agentReply; queryTasksUnchanged = bytes === await p.store.readPath(p.store.taskDbPath());
+        firstModelCalls = modelCalls; modelCalls = 0;
+        view.agentMessages = []; view.pendingAgentActions = [];
+        view.setAgentInput("请查找虚构跨日期查找蓝盒相关的所有日期任务，先不要修改。"); await view.sendAgentMessage();
+        directReadable = view.agentReply; directUnchanged = bytes === await p.store.readPath(p.store.taskDbPath());
       } finally { p.ai.agentTurnStream = instance; Object.getPrototypeOf(p.ai).agentTurnStream = prototype; }
     } finally { for (const id of added) await p.store.deleteTask(id); }
-    return { before, after: (await p.store.readTaskDb()).tasks, targets, first, second, filtered, crossDate, readable, queryTasksUnchanged, modelCalls };
+    return { before, after: (await p.store.readTaskDb()).tasks, targets, first, second, filtered, crossDate, readable, queryTasksUnchanged, firstModelCalls, directReadable, directUnchanged, modelCalls };
   });
   assert.equal(state.first.nextOffset, 20);
   assert.equal(new Set([...state.first.tasks, ...state.second.tasks].map(row => row.id)).size, state.first.count);
@@ -44,9 +48,14 @@ export async function nativeTaskLookup(page, result) {
   assert.equal(state.crossDate.date, null); assert.equal(state.crossDate.dateScope, "all"); assert.equal(state.crossDate.count, 2);
   assert.deepEqual(state.crossDate.tasks.map(task => task.date), ["2001-02-03", "2099-02-04"]);
   assert(state.readable.includes("所有日期") && state.readable.includes("2001-02-03") && state.readable.includes("2099-02-04"), JSON.stringify({ readable: state.readable, modelCalls: state.modelCalls }));
-  assert(state.queryTasksUnchanged && state.modelCalls === 2);
+  assert(state.queryTasksUnchanged && state.firstModelCalls === 1);
+  assert(state.directUnchanged && state.modelCalls === 1);
+  for (const value of ["所有日期", "2001-02-03", "2099-02-04", "15:15"]) assert(state.directReadable.includes(value));
+  assert(!/[？?]/u.test(state.directReadable));
   const visible = await page.locator(".lifeops-agent-message.assistant .lifeops-agent-message-text").last().textContent();
   assert(visible.includes("2001-02-03") && visible.includes("2099-02-04"));
   result.checks.nativeNamedTaskLookupFindsPastAndFutureDates = true;
   result.checks.nativeNamedTaskLookupShowsPerTaskDatesWithoutChangingRecords = true;
+  result.checks.nativeExplicitReadOnlyLookupUsesOneModelAndNoFollowup = true;
+  result.checks.nativeExplicitReadOnlyLookupPreservesTasksAndDates = true;
 }

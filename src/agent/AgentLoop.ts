@@ -45,6 +45,7 @@ import { recoverReadOnlyStats, type StatsRecoveryRead } from "./readOnlyStatsRec
 import { resolvedTaskLookup, taskLookupResolution } from "./taskLookupResolution";
 import { holdToolProtocolPrefix, isLeakedToolProtocol, toolProtocolRepairMessages, unavailableToolProtocol, TOOL_PROTOCOL_UNAVAILABLE } from "./toolProtocol";
 import { historicalAnswerMessages, historicalEvidenceFallback } from "./historicalAnswer";
+import { simpleReadOnlyTaskLookup } from "./readOnlyTaskLookup";
 
 export type WriteReceipt = AgentWriteReceipt;
 export interface AgentTurnInput {
@@ -483,6 +484,17 @@ export class AgentLoop {
           && call.arguments.directReply !== false && (call.arguments.directReply === true
             || call.arguments.dueStatus === "overdue_and_today" || call.arguments.order === "priority" && Number.isInteger(call.arguments.limit))
           ? formatTaskListReply(single.output, formatDate(input.now)) : undefined;
+        if (input.source === "text" && !input.voiceBackground && single && call.name === "list_tasks"
+          && call.arguments.category === undefined && call.arguments.directReply !== false
+          && !state.receipts.size && !state.confirmations.size && !state.errorCode
+          && state.toolCalls.every(tool => tool.ok && tool.name === "list_tasks") && simpleReadOnlyTaskLookup(input.message)) {
+          const reply = formatTaskListReply(single.output, formatDate(input.now));
+          if (reply) {
+            assertPolicy(); this.host.assertReadOnlyReplyCurrent?.();
+            state.text = reply; state.firstTokenMs ??= performance.now() - state.started;
+            input.onText?.(reply); break;
+          }
+        }
         if (single) {
           let reply: string | undefined;
           if (call.name === TASK_BATCH_TOOL.name) reply = single.output;

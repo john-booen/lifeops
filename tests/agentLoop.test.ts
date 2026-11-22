@@ -213,6 +213,40 @@ async function historicalFixture(): Promise<AiChatResult> {
   return reply("", [tool("get_summaries", { level: "week", range: { from: "2026-11-02", to: "2026-11-08" }, includeOriginals: true })]);
 }
 
+it.each(["查一下虚构蓝盒相关未完成任务，不限定日期，先不要修改。", "查一下虚构蓝盒相关未完成任务，不限定日期。"])("finishes a simple named task lookup with verified dates and no second model request (%s)", async message => {
+  await store.createTask({ title: "虚构蓝盒贴标签", date: "2026-11-13", time: "15:15" });
+  await store.createTask({ title: "虚构蓝盒核对编号", date: "2026-11-14", time: "16:00" });
+  responses.push(reply("", [tool("list_tasks", { query: "虚构蓝盒" })]), new Error("Must not ask another model to restate an already verified list"));
+  const before = await store.readPath(store.taskDbPath()), streamed: string[] = [];
+  const result = await new AgentLoop(host).run(input({ message, onText: text => streamed.push(text) }));
+  expect(requests).toHaveLength(1); expect(result.text).toContain("所有日期");
+  for (const text of ["2026-11-13", "15:15", "2026-11-14", "16:00", "贴标签", "核对编号"]) expect(result.text).toContain(text);
+  expect(result.text).not.toMatch(/[？?]/u); expect(streamed.join("")).toBe(result.text);
+  expect(result.receipts).toEqual([]); expect(result.confirmations).toEqual([]);
+  expect(await store.readPath(store.taskDbPath())).toBe(before); expect(result.usage.model).toBe("synthetic-model");
+});
+
+it("retains the normal model continuation for an explicit task explanation or directReply false", async () => {
+  await store.createTask({ title: "虚构蓝盒说明", date: "2026-11-13" });
+  for (const [message, args] of [["查虚构蓝盒任务，解释日期差异，不修改。", { query: "虚构蓝盒" }],
+    ["查虚构蓝盒任务，不修改。", { query: "虚构蓝盒", directReply: false }]] as const) {
+    responses.push(reply("", [tool("list_tasks", args)]), reply("虚构解释正文，保留用户明确要求。"));
+    const before = requests.length, result = await new AgentLoop(host).run(input({ message }));
+    expect(requests.length - before).toBe(2); expect(result.text).toContain("虚构解释正文");
+  }
+});
+
+it("discards the direct read-only task answer if the source changes after its tool read", async () => {
+  await store.createTask({ title: "虚构蓝盒旧来源", date: "2026-11-13" });
+  const execute = host.executeTools; let stale = false;
+  host.assertReadOnlyReplyCurrent = () => { if (stale) throw new DOMException("fictional source changed", "AbortError"); };
+  host.executeTools = async (...args) => { const rows = await execute(...args); stale = true; return rows; };
+  responses.push(reply("", [tool("list_tasks", { query: "虚构蓝盒" })]));
+  const streamed: string[] = [];
+  await expect(new AgentLoop(host).run(input({ message: "查虚构蓝盒任务，不修改。", onText: text => streamed.push(text) }))).rejects.toMatchObject({ name: "AbortError" });
+  expect(requests).toHaveLength(1); expect(streamed.join("")).toBe("");
+});
+
 it("finishes historical text with one tools-free reasoning answer, never streaming the discarded draft", async () => {
   const answer = "11月3日记载整理10张；没登记，原因未知，其余日期也无法据此判断。";
   const original = host.aiForRole, finalOptions: unknown[] = [];
