@@ -6,16 +6,17 @@ import { tradingDocumentPath } from "./tradingResearch";
 import { isVaultPathExcluded } from "./privacy";
 
 export type StoredQueryName = "query_projects" | "query_trading_research" | "list_personal_memory_candidates" | "get_summaries";
-const owners = new WeakMap<VaultQueryRead, StoreHost>();
-export function isOwnedStoredQueryRead(store: StoreHost, read: VaultQueryRead): boolean {
-  return owners.get(read) === store;
+const owners = new WeakMap<VaultQueryRead, { store: StoreHost; name: StoredQueryName }>();
+export function isOwnedStoredQueryRead(store: StoreHost, read: VaultQueryRead, name?: StoredQueryName): boolean {
+  const owner = owners.get(read);
+  return owner?.store === store && (name === undefined || owner.name === name);
 }
 
 export async function readStoredQueryWithSources(store: StoreHost, name: StoredQueryName, args: Record<string, unknown>): Promise<VaultQueryRead> {
   const fixed = structuredClone(args);
   if (name === "get_summaries") {
     const read = await (await import("./features/summaries/read")).readSummaryQueryWithSources(store, fixed);
-    owners.set(read, store);
+    owners.set(read, { store, name });
     return read;
   }
   const path = name === "query_projects" ? store.path(store.settings.folders.goals, projectFileName())
@@ -29,7 +30,7 @@ export async function readStoredQueryWithSources(store: StoreHost, name: StoredQ
     if (name === "query_trading_research") return (await import("./tradingTools")).queryTradingText(store, fixed, reader.contributed);
     return (await import("./toolRegistry")).personalMemoryCandidatesText(fixed, { store, refreshViews: async () => {} }, reader.contributed);
   }, name !== "list_personal_memory_candidates");
-  owners.set(read, store);
+  owners.set(read, { store, name });
   return read;
 }
 

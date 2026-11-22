@@ -45,6 +45,7 @@ import { recoverReadOnlyStats, type StatsRecoveryRead } from "./readOnlyStatsRec
 import { resolvedTaskLookup, taskLookupResolution } from "./taskLookupResolution";
 import { holdToolProtocolPrefix, isLeakedToolProtocol, toolProtocolRepairMessages, unavailableToolProtocol, TOOL_PROTOCOL_UNAVAILABLE } from "./toolProtocol";
 import { historicalAnswerMessages, historicalEvidenceFallback } from "./historicalAnswer";
+import { historicalQueryHistoryContext } from "../personalMemoryHistory";
 import { simpleReadOnlyTaskLookup } from "./readOnlyTaskLookup";
 import { preferJournalOriginalReads } from "./journalOriginalRouting";
 
@@ -310,8 +311,9 @@ export class AgentLoop {
         }
       }
       const history = agentHistoryMessages(input.history, this.host.store, context.memories);
+      const queryContinuity = context.memories && !input.voiceBackground ? historicalQueryHistoryContext(input.history, this.host.store) : "";
       const messages: ChatMessage[] = [
-        { role: "system", content: context.text },
+        { role: "system", content: [context.text, queryContinuity].filter(Boolean).join("\n\n") },
         ...(fastVoice ? history.slice(-4).map(entry => ({ ...entry, content: clipBytes(entry.content, 450) })) : history),
         { role: "user", content: input.message }
       ];

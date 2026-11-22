@@ -1,0 +1,128 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import type { App } from "obsidian";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { DEFAULT_SETTINGS } from "../src/defaults";
+import type { StoreHost } from "../src/store/settingsSlice";
+import type { AgentConversationMessage } from "../src/types";
+import { AgentRuntime } from "../src/agentRuntime";
+import { attestAgentHistoryResponse, bindAgentHistoryResponse, historicalQueryHistoryContext } from "../src/personalMemoryHistory";
+import { captureSummaryQueryScope } from "../src/agent/summaryQueryScope";
+import { readStoredQueryWithSources } from "../src/storedQueryRead";
+import { readPersonalMemoryWithSources, memorySourcePolicy } from "../src/personalMemorySources";
+import { personalMemoryContextRevision } from "../src/personalMemoryContext";
+import { runConfirmedToolAction } from "../src/toolRegistry";
+import { fileRevision } from "../src/operationIdentity";
+vi.mock("obsidian", () => ({ App: class {}, Notice: class {}, TFile: class {}, TFolder: class {}, Modal: class {}, Plugin: class {},
+  WorkspaceLeaf: class {}, ItemView: class {}, PluginSettingTab: class {}, Setting: class {}, Platform: { isDesktopApp: true }, setIcon: vi.fn(),
+  normalizePath: (path: string) => path.replace(/\\/g, "/"), parseYaml: JSON.parse, stringifyYaml: JSON.stringify,
+  requestUrl: () => { throw Error("No provider transport in the fictional follow-up fixture"); } }));
+const { LifeOpsStore } = await import("../src/store");
+const { DiskVault } = await import("./helpers/diskVault");
+const { LifeOpsAi } = await import("../src/ai");
+const { default: Plugin } = await import("../src/main");
+let root: string, store: StoreHost, vault: InstanceType<typeof DiskVault>, plugin: InstanceType<typeof Plugin>;
+const original = "虚构纸样归档只在周三上午09:30可安排25分钟。", corrected = "虚构纸样归档只在周三晚上19:30可安排25分钟。";
+const range = { from: "2026-10-26", to: "2026-11-08" };
+beforeEach(async () => {
+  vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-11-23T03:00:00+08:00"));
+  vi.stubGlobal("window", globalThis); root = await mkdtemp(join(tmpdir(), "lifeops-historical-followup-")); vault = new DiskVault(root);
+  store = new LifeOpsStore({ vault, workspace: { getLeavesOfType: () => [] } } as unknown as App, structuredClone(DEFAULT_SETTINGS)) as unknown as StoreHost;
+  await store.initializeVault();
+  store.settings.ai = { ...store.settings.ai, provider: "custom", endpoint: "https://fiction.invalid/chat", model: "synthetic", apiKey: "fictional-key", dataDisclosureAccepted: true };
+  store.settings.privacy!.plaintextCredentialStorageAccepted = true;
+  plugin = Object.assign(Object.create(Plugin.prototype), { app: store.app, store, settings: store.settings, lifecycleGeneration: 1, unloaded: false,
+    ai: new LifeOpsAi(store.settings), updateStatusBar: async () => {}, refreshViews: async () => {}, lifeOpsEvents: { publish: () => {} }, buildSemanticContext: async () => "" });
+  for (const date of ["2026-10-28", "2026-11-04"]) await store.appendDaily(date, "日记", "虚构纸样归档连续25分钟完成12张。", "晚", "虚构纸样归档连续25分钟完成12张。");
+});
+afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); await rm(root, { recursive: true, force: true }); });
+
+it("continues the checked two-week query after a real memory correction without reviving the old answer", async () => {
+  const source = store.path(store.settings.folders.ideas, "虚构归档安排.md"); await vault.seed(source, original);
+  const memory = await store.upsertPersonalMemory({ kind: "user_rule", content: original, sourceRefs: [{ sourceId: "fictional-followup-rule", path: source,
+    capturedAt: new Date().toISOString(), contentHash: fileRevision(original), extractionVersion: "fictional-v1" }] });
+  await store.reviewPersonalMemory(memory.id, { decision: "confirm" });
+  let turns = 0;
+  const firstQuestion = "回顾2026年10月26日至11月8日的虚构纸样归档原文，给下周一条安排建议，不修改任务。";
+  const oldReply = "虚构旧答复按上午09:30安排纸样，旧模型结论不能在更正后当作新事实。";
+  vi.spyOn(LifeOpsAi.prototype, "agentTurnStream").mockImplementation(async (_messages, onText) => {
+    if (++turns === 1) return { content: "", toolCalls: [{ id: "fictional-first-week-read", name: "get_summaries", arguments: { level: "week", range, includeOriginals: true } }] };
+    const answer = turns === 2 ? "虚构未发布草稿" : oldReply; onText(answer); return { content: answer, toolCalls: [] };
+  });
+  const first = await plugin.submitAgentMessageStream(firstQuestion, [], () => {}, { source: "text", selfTest: true });
+  const user: AgentConversationMessage = { role: "user", content: firstQuestion }, assistant: AgentConversationMessage = { role: "assistant", content: first.reply };
+  bindAgentHistoryResponse(first, user, assistant);
+  const runtime = new AgentRuntime({ store, refreshViews: async () => {} });
+  const proposal = await runtime.executeAiToolCall({ id: "fictional-followup-correct", name: "review_personal_memory", arguments: { memoryId: memory.id, decision: "correct", correctedContent: corrected } }, "kimi");
+  expect(proposal.success, proposal.output).toBe(true); expect(await runConfirmedToolAction(proposal.actions[0], { store, refreshViews: async () => {} })).toBe(true);
+  const tasks = await vault.bytes(store.taskDbPath()), memories = await vault.bytes(store.personalMemoryPath()); let followupTurns = 0;
+  vi.mocked(LifeOpsAi.prototype.agentTurnStream).mockImplementation(async (messages, onText) => {
+    const sent = JSON.stringify(messages);
+    if (++followupTurns === 1) {
+      expect(sent).toContain(range.from); expect(sent).toContain(range.to);
+      expect(sent).toContain("19:30"); expect(sent).not.toContain(oldReply); expect(sent).not.toContain("09:30");
+      return { content: "", toolCalls: [{ id: "fictional-reread-corrected-week", name: "get_summaries", arguments: { level: "week", range, includeOriginals: true } }] };
+    }
+    expect(sent).toContain("2026-10-28"); expect(sent).toContain("2026-11-04"); expect(sent).toContain("19:30");
+    const answer = followupTurns === 2 ? "虚构未发布新草稿" : "10月28日与11月4日均记录连续25分钟归档。下一步（建议）：按当前已更正记忆，周三19:30留25分钟；未创建任务。";
+    onText(answer); return { content: answer, toolCalls: [] };
+  });
+  const result = await plugin.submitAgentMessageStream("按刚更正的时间，接着这两周给一条下周建议，不创建任务。", [user, assistant], () => {}, { source: "text", selfTest: true });
+  expect(result.reply).toContain("19:30"); expect(result.reply).not.toContain("09:30"); expect(result.actions).toEqual([]); expect(result.receipts).toEqual([]);
+  expect(followupTurns).toBe(3); expect(await vault.bytes(store.taskDbPath())).toBe(tasks); expect(await vault.bytes(store.personalMemoryPath())).toBe(memories);
+});
+
+async function checkedPair(ranges = [range]) {
+  const scopes = [];
+  for (const selection of ranges) {
+    const read = await readStoredQueryWithSources(store, "get_summaries", { level: "week", range: selection, includeOriginals: true });
+    try { scopes.push(captureSummaryQueryScope(store, read)!); } finally { read.dispose(); }
+  }
+  const records = (await readPersonalMemoryWithSources(store)).records;
+  const user: AgentConversationMessage = { role: "user", content: "虚构原问题，包含不应继续提供的旧事实。" };
+  const assistant: AgentConversationMessage = { role: "assistant", content: "虚构旧模型推断，不能重用为当前结论。" };
+  const response = attestAgentHistoryResponse({ reply: assistant.content, actions: [] }, store, personalMemoryContextRevision(records), memorySourcePolicy(store), user.content, scopes);
+  bindAgentHistoryResponse(response, user, assistant); return { history: [user, assistant], user, assistant, response, scopes };
+}
+
+it("retains both sides of a prior comparison as dates only, after its read handles are disposed", async () => {
+  const other = { from: "2026-10-12", to: "2026-10-25" }, { history } = await checkedPair([other, range]);
+  const before = JSON.stringify(history), context = historicalQueryHistoryContext(history, store);
+  for (const value of [other.from, other.to, range.from, range.to]) expect(context).toContain(value);
+  for (const value of [history[0].content, history[1].content, "完成12张", "2026-10-28晚.md"]) expect(context).not.toContain(value);
+  expect(JSON.stringify(history)).toBe(before); expect(context).toContain("本轮必须按当前权限重新读取");
+});
+it.each(["privacy", "folders", "external", "vault"])("does not continue dates across a changed %s boundary", async change => {
+  const { history } = await checkedPair();
+  if (change === "privacy") store.settings.privacy!.excludedVaultPrefixes = [store.settings.folders.dailyRoot];
+  if (change === "folders") store.settings.folders.dailyRoot = "虚构另一个日记目录";
+  if (change === "external") store.settings.externalVaults = [{ id: "fictional-other", enabled: true } as never];
+  if (change === "vault") store = { ...store, app: { ...store.app, vault: {} } } as StoreHost;
+  expect(historicalQueryHistoryContext(history, store)).toBe("");
+});
+it.each(["user", "assistant", "json", "missing", "newer-unproven"])("rejects %s history rather than falling back to a possibly wrong old range", async change => {
+  const { history } = await checkedPair();
+  if (change === "user") history[0] = { ...history[0], content: history[0].content + "外部修改" };
+  if (change === "assistant") history[1] = { ...history[1], content: history[1].content + "外部修改" };
+  if (change === "json") history.splice(0, history.length, ...JSON.parse(JSON.stringify(history)));
+  if (change === "missing") history.shift();
+  if (change === "newer-unproven") history.push({ role: "user", content: "虚构后来查过另一个月。" }, { role: "assistant", content: "虚构未经核对回复。" });
+  expect(historicalQueryHistoryContext(history, store)).toBe("");
+});
+it("accepts original checked objects through an ordinary UI spread, but never public-shaped date proof", async () => {
+  const { history, user, assistant } = await checkedPair();
+  expect(historicalQueryHistoryContext(history.map(row => ({ ...row })), { ...store } as StoreHost)).toContain(range.from);
+  const response = attestAgentHistoryResponse({ reply: assistant.content, actions: [] }, store, personalMemoryContextRevision([]), memorySourcePolicy(store), user.content,
+    [{ level: "week", range }]);
+  const copied = history.map(({ role, content }) => ({ role, content })); bindAgentHistoryResponse(response, copied[0], copied[1]);
+  expect(historicalQueryHistoryContext(copied, store)).toBe("");
+});
+it("does not mistake a copied summary or an unrelated owned query for an original summary selection", async () => {
+  const read = await readStoredQueryWithSources(store, "get_summaries", { level: "week", range });
+  try { expect(captureSummaryQueryScope(store, { ...read })).toBeUndefined(); }
+  finally { read.dispose(); }
+  expect(captureSummaryQueryScope(store, read)).toBeUndefined();
+  const other = await readStoredQueryWithSources(store, "query_projects", {});
+  try { expect(captureSummaryQueryScope(store, other)).toBeUndefined(); } finally { other.dispose(); }
+});

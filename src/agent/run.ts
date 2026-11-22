@@ -13,6 +13,7 @@ import type { AgentConversationMessage, AgentResponse, AgentSubmissionOptions } 
 import { AgentLoop } from "./AgentLoop";
 import { settingsForAgentModel } from "./models";
 import { assertProviderActive } from "../providerRun";
+import { captureSummaryQueryScope, type SummaryQueryScope } from "./summaryQueryScope";
 
 export interface AgentTurnHost {
   activeProviderRequests: LifeOpsPlugin["activeProviderRequests"];
@@ -38,6 +39,7 @@ export async function runAgentTurn(this: AgentTurnHost, message: string, history
   const historyPolicy = memorySourcePolicy(store);
   let historyRevision: string | undefined;
   let lastQuery: VaultQueryRead | undefined;
+  const queryScopes: SummaryQueryScope[] = [];
   const loop = new AgentLoop({
     settings, store,
     assertReadOnlyReplyCurrent: () => {
@@ -51,7 +53,13 @@ export async function runAgentTurn(this: AgentTurnHost, message: string, history
       return selected === settings ? ai : new LifeOpsAi(selected);
     },
     executeTools: (calls, userMessage, signal, onResult) => this.executeToolCalls(calls, userMessage, signal, inbox?.assertLineCurrent,
-      async (call, result) => { onResult(call, result); }, [], undefined, (_result, read) => {
+      async (call, result) => {
+        onResult(call, result);
+        if (call.name === "get_summaries" && result.success && lastQuery?.text === result.output) {
+          const scope = captureSummaryQueryScope(store, lastQuery);
+          if (scope) queryScopes.push(scope);
+        }
+      }, [], undefined, (_result, read) => {
         lastQuery?.dispose();
         lastQuery = read;
       }, lastQuery, inbox?.assertCurrent).then(execution => execution.results),
@@ -67,7 +75,7 @@ export async function runAgentTurn(this: AgentTurnHost, message: string, history
       ...(result.voiceSpeech ? { voiceSpeech: result.voiceSpeech } : {}),
       ...(inbox ? { toolCalls: result.toolCalls } : {}) };
     if (historyRevision !== undefined && !request.signal.aborted && !this.unloaded) {
-      attestAgentHistoryResponse(response, store, historyRevision, historyPolicy, message);
+      attestAgentHistoryResponse(response, store, historyRevision, historyPolicy, message, queryScopes);
     }
     const conversationPath = store.path(settings.folders.aiReports, "Conversations", `${todayString()}.md`);
     if (!inbox && !options.selfTest && !(options.source === "voice" && options.deferConversation) && !request.signal.aborted && !this.unloaded && result.text.trim()

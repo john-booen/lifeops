@@ -292,6 +292,9 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
     }
     runningPrelude = true;
     judgePhase = "prelude";
+    if (question.fixture === "historical_followup_correction") {
+      history.push(...await (await import("./historicalFollowupFixture")).historicalFollowupFixture(plugin, store as unknown as StoreHost));
+    }
     for (const message of question.prelude ?? []) {
       const result = await plugin.submitAgentMessageStream(message, history, () => {}, { source: "text" });
       history.push({ role: "user", content: message }, { role: "assistant", content: result.reply, receipts: result.receipts });

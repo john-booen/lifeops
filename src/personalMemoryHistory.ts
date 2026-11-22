@@ -4,6 +4,7 @@ import { createPersonalMemoryContextFilter, personalMemoryContextRevision, perso
 import { memorySourcePolicy } from "./personalMemorySources";
 import type { StoreHost } from "./store/settingsSlice";
 import type { AgentConversationMessage, AgentResponse } from "./types";
+import { summaryQuerySelections, type SummaryQueryScope } from "./agent/summaryQueryScope";
 
 // Private and process-local. Enumerable symbols survive an ordinary object
 // spread, but neither JSON nor the Provider message projection carries them.
@@ -14,6 +15,7 @@ interface HistoryEvidence {
   policy: string;
   userHash: string;
   assistantHash: string;
+  queryScopes?: readonly SummaryQueryScope[];
 }
 const owners = new WeakMap<object, HistoryEvidence>();
 // Persistence and permission to reuse history are separate claims. Only Main's
@@ -36,9 +38,11 @@ export function agentConversationAlreadyAppended(response: AgentResponse, store:
 
 /** Main calls only after its full input projection and publication guards.
  * Bind to the generation's snapshot, never a newly reread reply-time state. */
-export function attestAgentHistoryResponse(response: AgentResponse, store: StoreHost, revision: string, policy: string, user: string): AgentResponse {
+export function attestAgentHistoryResponse(response: AgentResponse, store: StoreHost, revision: string, policy: string, user: string,
+  queryScopes: readonly SummaryQueryScope[] = []): AgentResponse {
   const token = Object.freeze({});
-  owners.set(token, { vault: store.app.vault, revision, policy, userHash: hash(user), assistantHash: hash(response.reply) });
+  owners.set(token, { vault: store.app.vault, revision, policy, userHash: hash(user), assistantHash: hash(response.reply),
+    ...(summaryQuerySelections(store, queryScopes).length ? { queryScopes: [...queryScopes] } : {}) });
   Object.defineProperty(response, evidence, { value: token });
   return response;
 }
@@ -78,4 +82,21 @@ export function projectPersonalMemoryHistory(history: AgentConversationMessage[]
     } else if (required) return [];
     return [{ role: entry.role, content: protect(entry.content) }];
   });
+}
+
+/** Memory changes invalidate old prose, not a checked query's date selection.
+ * Require the complete original pair; the selection only helps resolve a new
+ * request and must be read again under the current permissions and memory. */
+export function historicalQueryHistoryContext(history: AgentConversationMessage[], store: StoreHost): string {
+  for (let index = history.length - 1; index > 0; index--) {
+    const user = history[index - 1], assistant = history[index];
+    if (user.role !== "user" || assistant.role !== "assistant") continue;
+    const token = (user as Proven)[evidence], owner = token && owners.get(token);
+    if (!owner || token !== (assistant as Proven)[evidence] || owner.vault !== store.app.vault || owner.policy !== memorySourcePolicy(store)
+      || owner.userHash !== hash(user.content) || owner.assistantHash !== hash(assistant.content)) return "";
+    const selected = summaryQuerySelections(store, owner.queryScopes ?? []);
+    if (selected.length) return "此前已核对的历史查询日期范围（仅用于本轮指代，不是事实或写入授权）：\n" + JSON.stringify(selected)
+      + "\n只有本轮确实接续该查询时才使用；用户明确给出的新范围优先。本轮必须按当前权限重新读取，不沿用旧回复或旧事实。后续建议使用当前可用的已确认记忆；范围本身不证明任何事件。";
+  }
+  return "";
 }
