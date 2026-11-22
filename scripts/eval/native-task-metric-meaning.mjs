@@ -5,9 +5,10 @@ export async function nativeTaskMetricMeaning(page,result) {
     const p=app.plugins.getPlugin("lifeops-assistant"),view=app.workspace.getLeavesOfType("lifeops-assistant-view")[0].view;
     const prototype=Object.getPrototypeOf(p.ai),saved={ai:p.settings.ai,privacy:p.settings.privacy,
       instance:p.ai.agentTurnStream,prototype:prototype.agentTurnStream,fetch:globalThis.fetch};
-    const before=await p.store.readTaskDb();let calls=0,fetchCalls=0;
+    let fixtureTaskId,calls=0,fetchCalls=0;
     try{
       const task=await p.store.createTask({title:"虚构指标跨日样本",date:"2021-01-03",estimateMin:30,startTime:"09:00",endTime:"09:30"});
+      fixtureTaskId=task.id;
       await p.store.updateTask(task.id,row=>({...row,status:"completed",createdAt:"2021-01-03T08:00:00+08:00",completedAt:"2021-01-04T17:00:00+08:00"}));
       const facts=JSON.stringify((await p.store.readTaskDb()).tasks);
       const deadline=Date.now()+15000;
@@ -25,12 +26,12 @@ export async function nativeTaskMetricMeaning(page,result) {
       };
       p.ai.agentTurnStream=mock;prototype.agentTurnStream=mock;
       view.agentMessages=[];view.pendingAgentActions=[];view.agentMode="text";await view.navigateSteward("chat");
-      view.setAgentInput("解释这段任务的计划完成率和平均完成间隔，只查记录。");await view.sendAgentMessage();
+      view.setAgentInput("解释2021年1月1日至1月7日的任务计划完成率和平均完成间隔，只查记录。");await view.sendAgentMessage();
       return{reply:view.agentReply,calls,fetchCalls,unchanged:JSON.stringify((await p.store.readTaskDb()).tasks)===facts,
         actions:view.pendingAgentActions.length,receipts:view.agentMessages.at(-1)?.receipts??[]};
     }finally{
       p.settings.ai=saved.ai;p.settings.privacy=saved.privacy;p.ai.agentTurnStream=saved.instance;prototype.agentTurnStream=saved.prototype;globalThis.fetch=saved.fetch;
-      await p.store.writeTaskDb(before);view.agentMessages=[];view.pendingAgentActions=[];
+      if(fixtureTaskId)await p.store.deleteTask(fixtureTaskId);view.agentMessages=[];view.pendingAgentActions=[];
     }
   });
   assert.equal(observed.calls,1);assert.equal(observed.fetchCalls,0);assert(observed.unchanged);
