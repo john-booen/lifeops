@@ -81,6 +81,17 @@ it("recovers a metadata-only refresh without changing original bytes", async () 
   const result = await summary(); expect(result.success, result.output).toBe(true); expect(execute).toHaveBeenCalledTimes(2);
   expect(JSON.parse(result.output).originalEvidence.notes[0].text).toBe(original); expect(await vault.bytes(path)).toBe(original);
 });
+it("keeps both requested weeks when only one original changes during a cross-week read", async () => {
+  const other = "LifeOps/Journal/2026/11/2026-11-11晚.md", otherText = "虚构第二周：绿纸已归档3张。";
+  await vault.seed(other, otherText); const tasks = await vault.bytes(store.taskDbPath());
+  refreshOnDirectRead(async (_raw, count) => { if (count === 1) await vault.seed(path, latest); });
+  const result = await summary(undefined, { level: "week", range: { from: "2026-11-02", to: "2026-11-15" }, includeOriginals: true });
+  expect(result.success, result.output).toBe(true);
+  const notes = JSON.parse(result.output).originalEvidence.notes;
+  expect(notes.map((note: { date: string }) => note.date)).toEqual(["2026-11-04", "2026-11-11"]);
+  expect(notes.map((note: { text: string }) => note.text)).toEqual([latest, otherText]);
+  expect(await vault.bytes(other)).toBe(otherText); expect(await vault.bytes(store.taskDbPath())).toBe(tasks);
+});
 it("stops after the second changing original without publishing either obsolete body or claiming a write", async () => {
   const execute = vi.spyOn(getLifeOpsTool("get_summaries")!, "execute");
   const reads = refreshOnDirectRead(async (_raw, count) => { await vault.seed(path, latest + "\n虚构变更" + count); });

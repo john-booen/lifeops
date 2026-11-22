@@ -212,6 +212,7 @@ export async function exerciseNativeDeviceBatch({ getPage, root, vault, profile,
   await (await import("./native-task-follow-through.mjs")).nativeTaskFollowThrough(page,root,result);
   await (await import("./native-report-speech.mjs")).nativeReportSpeech(page,result);
   await (await import("./native-stat-meaning.mjs")).nativeStatMeaning(page,result);
+  await (await import("./native-summary-refresh.mjs")).nativeSummaryRefresh(page,result);
   await (await import("./native-summary-original-memory.mjs")).nativeSummaryOriginalMemory(page,result);
   await (await import("./native-task-metric-meaning.mjs")).nativeTaskMetricMeaning(page,result);
   await (await import("./native-read-only-recovery.mjs")).nativeReadOnlyRecovery(page,result);
