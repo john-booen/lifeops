@@ -15,15 +15,21 @@ async function prepare(page) {
       model: "synthetic", fallbackProvider: "off", dataDisclosureAccepted: true };
     p.settings.privacy = { ...p.settings.privacy, plaintextCredentialStorageAccepted: true };
     globalThis.__nativePlanCalls = 0;
+    globalThis.__nativePlanRecoveries = 0;
     let turn = -1, stage = 0;
-    const mock = async messages => {
+    const mock = async (messages, onText, options) => {
       globalThis.__nativePlanCalls++;
       const userCount = messages.filter(message => message.role === "user").length;
       if (turn !== userCount) { turn = userCount; stage = 0; }
-      if (stage++ === 0) return { content: "", toolCalls: [{ id: "fictional-plan-lookup", name: "list_tasks", arguments: { directReply: true } }] };
-      if (stage === 2) return { content: "", toolCalls: [{ id: "fictional-full-interval-plan", name: "update_tasks",
-        arguments: { updates: globalThis.__nativePlanRows.map((row, i) => ({ taskIdOrTitle: row.id,
+      if (stage++ === 0) return { content: "", toolCalls: [{ id: "fictional-plan-lookup", name: "list_tasks", arguments: { query: "虚构整批区间", date: new Date().toLocaleDateString("sv-SE") } }] };
+      if (stage === 2) { onText?.("虚构口头确认卡已经生成，但没有可执行操作。"); return { content: "虚构口头确认卡已经生成，但没有可执行操作。", toolCalls: [] }; }
+      if (stage === 3) {
+        if (options?.toolChoice?.function?.name !== "resolve_task_lookup") throw Error("未要求结构化核对任务修改");
+        globalThis.__nativePlanRecoveries++;
+        return { content: "", toolCalls: [{ id: "fictional-full-interval-plan", name: "resolve_task_lookup",
+        arguments: { kind: "prepare_updates", coversAllRequested: true, updates: globalThis.__nativePlanRows.map((row, i) => ({ taskIdOrTitle: row.id,
           startTime: String(9 + i).padStart(2, "0") + ":00", endTime: String(9 + i).padStart(2, "0") + ":30" })) } }] };
+      }
       return { content: "完整调整已准备，确认前没有修改原安排。", toolCalls: [] };
     };
     p.ai.agentTurnStream = mock; Object.getPrototypeOf(p.ai).agentTurnStream = mock;
@@ -44,7 +50,8 @@ async function proposal(page) {
   return page.evaluate(() => {
     const v = app.workspace.getLeavesOfType("lifeops-assistant-view")[0].view;
     const a = v.pendingAgentActions[0];
-    return { preview: a.content, updates: a.toolBatch[0].arguments.updates, calls: globalThis.__nativePlanCalls };
+    return { preview: a.content, updates: a.toolBatch[0].arguments.updates, calls: globalThis.__nativePlanCalls,
+      recoveries: globalThis.__nativePlanRecoveries, reply: v.agentReply };
   });
 }
 
@@ -106,6 +113,10 @@ export async function taskPlanChangesUi(page, root, result) {
   for (const row of original.planned) assert(prepared.preview.includes(row.title));
   assert.deepEqual(await page.evaluate(async () => (await app.plugins.getPlugin("lifeops-assistant").store.readTaskDb()).tasks), [...original.before, ...original.planned]);
   result.checks.fullIntervalPreviewBindsAllElevenOriginals = true;
+  assert.equal(prepared.recoveries, 1); assert.equal(prepared.calls, 4);
+  assert(!prepared.reply.includes("虚构口头确认卡已经生成"));
+  result.checks.nativeUnbackedTaskCardClaimProducesExecutableConfirmation = true;
+  result.checks.nativeTaskCardRecoveryDoesNotPresentModelProseAsAction = true;
   const saved = await confirm(page); assert.equal(saved.pending, 0); assert.equal(saved.calls, prepared.calls);
   assert(saved.reply.includes("实际更新11项"));
   for (const [i, row] of original.planned.entries()) {

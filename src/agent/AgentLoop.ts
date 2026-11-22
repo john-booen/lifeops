@@ -41,6 +41,7 @@ import { formatVoiceStats, voiceStatsTool } from "../voice/quickStats";
 import { explicitTaskCount, voiceTaskCountFollowup } from "../voice/taskCountFollowup";
 import { planTaskBatch, TASK_BATCH_TOOL, taskBatchOutput } from "./taskBatch";
 import { recoverReadOnlyStats, type StatsRecoveryRead } from "./readOnlyStatsRecovery";
+import { resolvedTaskLookup, taskLookupResolution } from "./taskLookupResolution";
 
 export type WriteReceipt = AgentWriteReceipt;
 export interface AgentTurnInput {
@@ -362,8 +363,13 @@ export class AgentLoop {
           state.taskContentCalls?.has(result.callId) && result.success && result.receipt);
         const remainingTools = titlesSaved ? palette.filter(tool => tool.name !== "list_tasks" && tool.name !== "update_tasks") : palette;
         const availableTools = final ? [] : requiredTool === "propose_task_plan" ? tools.filter(tool => tool.name === requiredTool) : remainingTools;
+        const lookupResolution = !final && !requiredTool && !input.voiceBackground && !exactTitleEdits && !taskListAnswer
+          && !state.receipts.size && !state.confirmations.size ? taskLookupResolution(messages, state.results, availableTools, formatDate(input.now)) : undefined;
         let response = await this.callModel(input, state, responseRole, messages, availableTools, final,
-          requiredTool !== "propose_task_plan" && !state.taskContentCalls?.size && !exactTitleEdits && !taskListAnswer, requiredTool);
+          requiredTool !== "propose_task_plan" && !state.taskContentCalls?.size && !exactTitleEdits && !taskListAnswer && !lookupResolution, requiredTool);
+        assertPolicy();
+        if (!response.toolCalls.length && lookupResolution) response = resolvedTaskLookup(await this.callModel(input, state, "main",
+          lookupResolution.messages, [lookupResolution.tool], false, false, lookupResolution.tool.name), lookupResolution);
         assertPolicy();
         if(!requiredTool&&!final&&exactTitleEdits&&!state.taskContentCalls?.size){
           const proposed=!response.toolCalls.length&&!state.receipts.size&&!state.confirmations.size?[titleEditCall(exactTitleEdits)]:response.toolCalls;
@@ -722,7 +728,7 @@ export class AgentLoop {
       preferFinite: shortTextFirst,
       reasoning: role === "deep" && (!input.voiceBackground || final && messages.length === 2) ? "enabled" : "disabled",
       ...(input.voiceBackground && final && messages.length === 2 ? { timeoutMs: role === "deep" ? 45_000 : 12_000 } : {}),
-      maxTokens: role === "deep" ? 4096 : shortTextFirst || role === "fast" && input.source !== "text" ? 512 : 1536,
+      maxTokens: role === "deep" || requiredTool === "resolve_task_lookup" ? 4096 : shortTextFirst || role === "fast" && input.source !== "text" ? 512 : 1536,
       ...(input.phoneInbox ? { beforeTextRequest: input.phoneInbox.assertLineCurrent, assertTextRequestCurrent: input.phoneInbox.assertCurrent } : {}),
       onProviderRun: run => { state.providerRuns.push(run); } });
     if (response.providerRun && state.providerRuns.length === before) state.providerRuns.push(response.providerRun);

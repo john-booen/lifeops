@@ -141,7 +141,7 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
   const app = createFsApp(activeRoot);
   const store = new LifeOpsStore(app, structuredClone(settings));
   await store.initializeVault();
-  if (question.fixture === "eleven_task_plans") {
+  if (question.fixture === "eleven_task_plans" || question.fixture === "task_lookup_prose") {
     for (let index = 0; index < 11; index++) await store.createTask({ title: "虚构区间纸样" + String(index + 1).padStart(2, "0"),
       date: formatDate(fixedNow), startTime: String(12 + index).padStart(2, "0") + ":00", endTime: String(12 + index).padStart(2, "0") + ":30",
       note: "虚构原备注" + index });
@@ -186,6 +186,15 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
     lifeOpsEvents: { publish: () => {} }, buildSemanticContext: async () => ""
   });
   const before = await snapshot(activeRoot);
+  let lookupResolutionRequested = false;
+  const actualTurn = LifeOpsAi.prototype.agentTurnStream;
+  let injectedTurns = 0;
+  const lookupProse = question.fixture === "task_lookup_prose" ? vi.spyOn(LifeOpsAi.prototype, "agentTurnStream").mockImplementation(async function (this: InstanceType<typeof LifeOpsAi>, messages, onText, options) {
+    if (injectedTurns++ === 0) return { content: "", toolCalls: [{ name: "list_tasks", arguments: { query: "虚构区间纸样", date: formatDate(fixedNow) } }] };
+    if (injectedTurns === 2) { onText("虚构口头确认卡已经生成。"); return { content: "虚构口头确认卡已经生成。", toolCalls: [] }; }
+    if (typeof options?.toolChoice === "object" && options.toolChoice.function.name === "resolve_task_lookup") lookupResolutionRequested = true;
+    return actualTurn.call(this, messages, onText, options);
+  }) : undefined;
   if (question.fixture === "task_already_undone") {
     const host = store as unknown as StoreHost;
     const runtime = new AgentRuntime({ store: host, refreshViews: async () => {} });
@@ -335,6 +344,7 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
     inputTokens: usage.inputTokens, firstTokenMs, errorCode
   };
   const issues = scoreEvaluationCase(question, observed);
+  if (lookupProse && !lookupResolutionRequested) issues.push("故障注入后没有实际请求结构化任务核对");
   if (question.checks.plannedTaskChanges && process.env.LIFEOPS_EVAL_DIAGNOSTICS === "1") {
     process.stdout.write(`${question.id} 虚构计划字段诊断 · ${redactSensitiveText(JSON.stringify({ proposed: observed.proposedTaskChanges, prepared: preparedTasks }), credentials)}\n`);
   }
@@ -370,6 +380,7 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
     }).map(run => ({ model: run.actualModel, status: run.status, attempts: run.attempts }));
     process.stdout.write(`${question.id} 传输 · ${redactSensitiveText(JSON.stringify(runs), credentials)}\n`);
   }
+  lookupProse?.mockRestore();
   await rm(activeRoot, { recursive: true, force: true });
   activeRoot = "";
   return { id: question.id, passed: issues.length === 0, issues, inputTokens: usage.inputTokens,

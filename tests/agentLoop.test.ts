@@ -47,6 +47,44 @@ let root: string, store: StoreHost, host: AgentLoopHost, runtime: InstanceType<t
 let responses: Array<AiChatResult | Error>, requests: ChatMessage[][], roles: AgentModelRole[];
 let catalogs: string[][], toolChoices: unknown[];
 
+it("turns a model's unsupported eleven-task card claim into one real confirmation before any save", async () => {
+  const tasks = [];
+  for (let i = 0; i < 11; i++) tasks.push(await store.createTask({ title: "虚构补卡纸样" + i, date: "2026-11-12", startTime: "20:00", endTime: "20:30" }));
+  const before = await store.readPath(store.taskDbPath());
+  responses.push(reply("", [tool("list_tasks", { date: "2026-11-12", query: "虚构补卡纸样" })]),
+    reply("确认卡已经生成，请确认下面11项；这些只是模型写出的表格。"),
+    reply("", [tool("resolve_task_lookup", { kind: "prepare_updates", coversAllRequested: true, updates: tasks.map((task, i) => ({
+      taskIdOrTitle: task.id, startTime: String(i + 9).padStart(2, "0") + ":00", endTime: String(i + 9).padStart(2, "0") + ":30"
+    })) })]), reply("请核对实际生成的修改确认卡。"));
+  const streamed: string[] = [];
+  const result = await new AgentLoop(host).run(input({ message: "请把虚构补卡纸样十一条统一改为从09:00起每小时一条、每条30分钟，先生成一份确认卡，等我确认再保存。", onText: text => streamed.push(text) }));
+  expect(result.confirmations).toHaveLength(1); expect(result.confirmations[0].type).toBe("tool_batch");
+  expect(result.confirmations[0].toolBatch).toHaveLength(1);
+  expect(result.confirmations[0].toolBatch![0].name).toBe("update_tasks");
+  expect((result.confirmations[0].toolBatch![0].arguments.updates as unknown[])).toHaveLength(11);
+  expect(await store.readPath(store.taskDbPath())).toBe(before); expect(result.receipts).toEqual([]);
+  expect(streamed.join("")).not.toContain("这些只是模型写出的表格");
+  expect(toolChoices).toContainEqual({ type: "function", function: { name: "resolve_task_lookup" } });
+});
+
+it.each(["unknown-target", "duplicate-target", "not-complete", "plain-prose", "read-only"])("keeps lookup recovery read-only for %s", async mode => {
+  const tasks = [];
+  for (let i = 0; i < 4; i++) tasks.push(await store.createTask({ title: "虚构保护清单" + i, date: "2026-11-12", startTime: "20:00", endTime: "20:30" }));
+  const before = await store.readPath(store.taskDbPath());
+  const updates = tasks.map(task => ({ taskIdOrTitle: task.id, startTime: "13:00", endTime: "13:30" }));
+  if (mode === "unknown-target") updates[0].taskIdOrTitle = "fictional-unread-task";
+  if (mode === "duplicate-target") updates[1].taskIdOrTitle = updates[0].taskIdOrTitle;
+  const recovered = mode === "plain-prose" ? reply("我又说了一遍确认卡已生成。") : reply("", [tool("resolve_task_lookup",
+    mode === "read-only" ? { kind: "read_only", reply: "共有4条允许读取的任务。" }
+      : { kind: "prepare_updates", coversAllRequested: mode !== "not-complete", updates })]);
+  responses.push(reply("", [tool("list_tasks", { date: "2026-11-12", query: "虚构保护清单" })]), reply("确认卡已经生成。"), recovered);
+  const result = await new AgentLoop(host).run(input({ message: mode === "read-only" ? "请解释虚构保护清单的安排，只讨论，不修改。" : "请把虚构保护清单四项都改到13点至13点半，先给完整确认卡。" }));
+  expect(result.confirmations).toEqual([]); expect(result.receipts).toEqual([]);
+  expect(await store.readPath(store.taskDbPath())).toBe(before);
+  expect(result.text).toContain(mode === "read-only" ? "共有4条" : "尚未生成可执行的调整卡");
+  expect(result.text).not.toContain("确认卡已经生成");
+});
+
 it("keeps the remaining creation tools after exact titles have been saved, without relisting the completed edits", async () => {
   await store.createTask({ title: "虚构旧标题甲", date: "2026-11-13", time: "15:00" });
   await store.createTask({ title: "虚构旧标题乙", date: "2026-11-13", time: "16:00" });

@@ -1583,5 +1583,37 @@
       },
       "judge": "必须依据用户原话给出长期习惯是用两列对照表比较虚构检索方案；不把相反的模型摘要或旧自动记忆当作真实偏好，不索要重新确认，不创建任务。"
     }
+  },
+  {
+    "id": "task-lookup-prose-recovery-71",
+    "milestone": "M6",
+    "domain": "tasks",
+    "mode": "text",
+    "fixture": "task_lookup_prose",
+    "history": [],
+    "input": "今天2026-11-12已有11条“虚构区间纸样01”至“虚构区间纸样11”，它们都有开始和结束时刻。请只调整这些原任务的完整时段：01为09:00–09:30，02为10:00–10:30，03为11:00–11:30，04为12:00–12:30，05为13:00–13:30，06为14:00–14:30，07为15:00–15:30，08为16:00–16:30，09为17:00–17:30，10为18:00–18:30，11为19:00–19:30。编号、标题、备注和日期保留，不新建也不删除。请一次给出完整的统一确认卡，等我确认后再保存，不要逐条追问，也不要只口头说改好了。",
+    "checks": {
+      "minConfirmations": 1,
+      "maxConfirmations": 1,
+      "maxReplyChars": 2200,
+      "mustNotCallTools": [
+        "create_task",
+        "delete_task",
+        "reschedule_task",
+        "propose_task_plan"
+      ],
+      "expectWrites": {
+        "tasks.created": 0,
+        "tasks.deleted": 0,
+        "tasks.rescheduled": 0,
+        "tasks.timeChanged": 0
+      },
+      "plannedTaskChanges": {
+        "titlePrefix": "虚构区间纸样",
+        "count": 11,
+        "fromHour": 9,
+        "date": "2026-11-12"
+      }
+    }
   }
 ]
