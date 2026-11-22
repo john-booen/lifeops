@@ -47,6 +47,8 @@ interface ChatRequestOptions extends ProviderRequestOptions {
   suppressToolText?: boolean;
   preferFinite?: boolean;
   reasoning?: "enabled" | "disabled";
+  /** Applied only to supported DeepSeek thinking requests. */
+  reasoningEffort?: "low";
   /** Only the host's read-only analysis branch may supply these receipts. */
   sourceReadTurns?: SourceReadTurn[];
 }
@@ -887,6 +889,7 @@ export function buildChatRequestBody(model: string, messages: ChatMessage[], opt
       temperature: 0.2
     }),
     ...(options.maxTokens ? { max_tokens: options.maxTokens } : {}),
+    ...(deepSeek && options.reasoning === "enabled" && options.reasoningEffort === "low" ? { reasoning_effort: "low" } : {}),
     ...(options.tools?.length ? {
       tools: options.tools.map(toolDefinitionToOpenAi),
       tool_choice: options.toolChoice ?? "auto"

@@ -114,6 +114,21 @@ describe("AI tool calling", () => {
     expect(body.tools).toHaveLength(6);
   });
 
+  it.each(["deepseek-flash", "deepseek-v4-flash", "deepseek-v4-pro"])("bounds requested historical reasoning effort for %s", model => {
+    const body = buildChatRequestBody(model, [{ role: "user", content: "只根据已读原文核对历史。" }],
+      { reasoning: "enabled", reasoningEffort: "low", maxTokens: 4096 });
+    expect(body.thinking).toEqual({ type: "enabled" });
+    expect(body.reasoning_effort).toBe("low"); expect(body.max_tokens).toBe(4096);
+    expect(body).not.toHaveProperty("tools");
+  });
+
+  it("keeps effort off other models, non-thinking and unrequested DeepSeek requests", () => {
+    for (const model of ["kimi-k2.6", "model-a"]) expect(buildChatRequestBody(model, [],
+      { reasoning: "enabled", reasoningEffort: "low" })).not.toHaveProperty("reasoning_effort");
+    expect(buildChatRequestBody("deepseek-v4-flash", [], { reasoning: "disabled", reasoningEffort: "low" })).not.toHaveProperty("reasoning_effort");
+    expect(buildChatRequestBody("deepseek-v4-flash", [], { reasoning: "enabled" })).not.toHaveProperty("reasoning_effort");
+  });
+
   it("keeps standard embedding input as a plain string", () => {
     const body = buildEmbeddingRequestBody("text-embedding-v4", "hello");
 

@@ -34,6 +34,17 @@ it("recognizes equivalent slash dates only when the original criteria already al
   for (const reply of ["11/3 21:15", "11/03 21:15", "2026/11/3 21:15"]) expect(scoreEvaluationCase(date, { ...observed, reply })).toEqual([]);
   for (const reply of ["11/4 21:15", "11/30 21:15", "111/3 21:15", "2025/11/3 21:15"]) expect(scoreEvaluationCase(date, { ...observed, reply })).not.toEqual([]);
 });
+it("accepts spaced Chinese dates without changing the allowed day or year", () => {
+  const date: EvalQuestion = { ...question, checks: { mustIncludeAny: [["2026-11-03", "11月3日", "11-03"]] } };
+  for (const reply of ["11 月 3 日 21:15", "2026 年 11 月 03 日 21:15", "11\u00a0月\u00a03\u00a0日"]) expect(scoreEvaluationCase(date, { ...observed, reply })).toEqual([]);
+  for (const reply of ["11 月 4 日", "11 月 30 日", "2025 年 11 月 3 日", "111 月 3 日", "11 月 3 日4"]) expect(scoreEvaluationCase(date, { ...observed, reply })).not.toEqual([]);
+});
+it("does not add spaced aliases to explicit-year-only or mixed requirements", () => {
+  for (const group of [["2026-11-03"], ["2026-11-03", "11月3日", "周三"], ["2026-02-30", "2月30日"]]) {
+    const date: EvalQuestion = { ...question, checks: { mustIncludeAny: [group] } };
+    expect(scoreEvaluationCase(date, { ...observed, reply: "2026 年 11 月 3 日；2 月 30 日" })).not.toEqual([]);
+  }
+});
 it("does not remove explicit-year or non-date requirements through date aliases", () => {
   for (const alternatives of [["2026-11-03"], ["11月3日", "明天"], ["2026-11-03", "2026-11-04"]]) {
     expect(scoreEvaluationCase({ ...question, checks: { mustIncludeAny: [alternatives] } }, { ...observed, reply: "11/3 21:15" })).not.toEqual([]);

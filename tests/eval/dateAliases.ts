@@ -14,5 +14,8 @@ export function hasEquivalentDateAlias(reply: string, alternatives: string[]): b
     || first.day > new Date(Number(years[0] ?? 2024), first.month, 0).getDate()) return false;
   const number = (value: number) => value < 10 ? "0?" + value : String(value);
   const monthDay = number(first.month) + "/" + number(first.day);
-  return new RegExp("(?<![\\d/])(?:" + (years.length ? years[0] + "/" + monthDay + "|" : "") + monthDay + ")(?![\\d/])", "u").test(reply);
+  if (new RegExp("(?<![\\d/])(?:" + (years.length ? years[0] + "/" + monthDay + "|" : "") + monthDay + ")(?![\\d/])", "u").test(reply)) return true;
+  return [...reply.matchAll(/(?<![\d年月])(?:(\d{4})\s*年\s*)?(\d{1,2})\s*月\s*(\d{1,2})\s*日(?!\d)/gu)]
+    .some(match => Number(match[2]) === first.month && Number(match[3]) === first.day
+      && (!match[1] || !years.length || match[1] === years[0]));
 }

@@ -226,7 +226,7 @@ it("finishes historical text with one tools-free reasoning answer, never streami
   expect(result.text).toBe(answer); expect(streamed.join("")).toBe(answer);
   expect(requests).toHaveLength(3); expect(roles.at(-1)).toBe("deep");
   expect(catalogs.at(-1)).toEqual([]); expect(toolChoices.at(-1)).toBe("none");
-  expect(finalOptions).toEqual([expect.objectContaining({ reasoning: "enabled", timeoutMs: 45_000, toolChoice: "none" })]);
+  expect(finalOptions).toEqual([expect.objectContaining({ reasoning: "enabled", reasoningEffort: "low", timeoutMs: 45_000, toolChoice: "none" })]);
   const final = requests.at(-1)!;
   expect(final.some(message => message.role === "tool" || message.tool_calls?.length)).toBe(false);
   expect(JSON.stringify(final)).toContain("虚构紫纸已整理10张");

@@ -631,7 +631,7 @@ export class AgentLoop {
   }
 
   private async callModel(input: AgentTurnInput, state: TurnState, role: AgentModelRole,
-    messages: ChatMessage[], tools: AiToolDefinition[], final: boolean, streamOutput = true, requiredTool?: string): Promise<AiChatResult> {
+    messages: ChatMessage[], tools: AiToolDefinition[], final: boolean, streamOutput = true, requiredTool?: string, reasoningEffort?: "low"): Promise<AiChatResult> {
     assertProviderActive(input.signal);
     let previous = "";
     const sourcePolicy = memorySourcePolicy(this.host.store);
@@ -750,6 +750,7 @@ export class AgentLoop {
       { signal: input.signal, tools, toolChoice: final ? "none" : requiredTool ? { type: "function", function: { name: requiredTool } } : "auto",
       preferFinite: shortTextFirst,
       reasoning: role === "deep" && (!input.voiceBackground || final && messages.length === 2) ? "enabled" : "disabled",
+      ...(reasoningEffort ? { reasoningEffort } : {}),
       ...(role === "deep" && final && !tools.length ? { timeoutMs: 45_000 }
         : input.voiceBackground && final && messages.length === 2 ? { timeoutMs: 12_000 } : {}),
       maxTokens: role === "deep" || requiredTool === "resolve_task_lookup" ? 4096 : shortTextFirst || role === "fast" && input.source !== "text" ? 512 : 1536,
@@ -790,7 +791,7 @@ export class AgentLoop {
     state.textOnlyAnswerAttempted = true;
     try {
       current();
-      const answer = await this.callModel(input, state, "deep", historicalAnswerMessages(messages), [], true, false);
+      const answer = await this.callModel(input, state, "deep", historicalAnswerMessages(messages), [], true, false, undefined, "low");
       current();
       if (!answer.content.trim() || answer.toolCalls.length || answer.content === TOOL_PROTOCOL_UNAVAILABLE) {
         state.errorCode = "response_incomplete";

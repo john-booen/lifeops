@@ -40,7 +40,7 @@ export async function crossWeekUi(page,root,result) {
       evidence=output.originalEvidence;
       if(!messages[0].content.includes(corrected))throw Error("Corrected availability missing from live context");
       if(!textOnly){const content="虚构未核对草稿：没打卡意味着记录方式有问题。";onText?.(content);return{content,toolCalls:[]};}
-      if(options?.tools?.length||messages.some(message=>message.content.includes("虚构未核对草稿")))throw Error("Unverified draft entered final historical answer");
+      if(options?.tools?.length||options?.reasoningEffort!=="low"||messages.some(message=>message.content.includes("虚构未核对草稿")))throw Error("Unverified draft or unbounded reasoning entered final historical answer");
       return{content:evidence.notes.map(note=>note.date+" · "+note.path+"\n"+note.text).join("\n\n")+"\n"+evidence.coverageSummary+"\n下一步：按当前记忆周三19:30连续25分钟。仅两次样本，未创建任务；未命中不代表没有日记。",toolCalls:[]};
     };
     p.ai.agentTurnStream=mock;Object.getPrototypeOf(p.ai).agentTurnStream=mock;
