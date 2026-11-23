@@ -68,9 +68,10 @@ async function captureProfileUi(page, root, sourceVault) {
   const copied = (await readdir(sourceVault, { recursive: true }))
     .filter(path => path.endsWith(".json") && !path.split("/").some(part => part.startsWith(".")));
   await page.waitForFunction(paths => paths.every(path => app.vault.getAbstractFileByPath(path)), copied);
-  const settings = JSON.parse(await readFile(join(sourceVault, ".obsidian/plugins/lifeops-assistant/data.json"), "utf8"));
+  const reports = await page.evaluate(() => app.plugins.getPlugin("lifeops-assistant").settings.folders.aiReports);
+  assert.equal(typeof reports, "string", "Use the plugin's normalized report folder, not the partial stored settings");
   const prerequisites = await Promise.all(["输入/设备协作.json", ...["operation-ledger.json", "write-recovery.json"]
-    .map(name => settings.folders.aiReports + "/Operations/" + name)].map(async path => ({ path,
+    .map(name => reports + "/Operations/" + name)].map(async path => ({ path,
       hash: await readFile(join(sourceVault, path)).then(bytes => createHash("sha256").update(bytes).digest("hex")).catch(error => { if (error.code === "ENOENT") return null; throw error; }) })));
   const readyDeadline = Date.now() + 30000; let ready = false;
   do {
