@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { cp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+import { randomBytes, createHash } from "node:crypto";
 
 async function syntheticModel(page) {
   await page.evaluate(() => {
@@ -68,6 +68,32 @@ async function captureProfileUi(page, root, sourceVault) {
   const copied = (await readdir(sourceVault, { recursive: true }))
     .filter(path => path.endsWith(".json") && !path.split("/").some(part => part.startsWith(".")));
   await page.waitForFunction(paths => paths.every(path => app.vault.getAbstractFileByPath(path)), copied);
+  const settings = JSON.parse(await readFile(join(sourceVault, ".obsidian/plugins/lifeops-assistant/data.json"), "utf8"));
+  const prerequisites = await Promise.all(["输入/设备协作.json", ...["operation-ledger.json", "write-recovery.json"]
+    .map(name => settings.folders.aiReports + "/Operations/" + name)].map(async path => ({ path,
+      hash: await readFile(join(sourceVault, path)).then(bytes => createHash("sha256").update(bytes).digest("hex")).catch(error => { if (error.code === "ENOENT") return null; throw error; }) })));
+  const readyDeadline = Date.now() + 30000; let ready = false;
+  do {
+    ready = await page.evaluate(async expected => {
+      const p = app.plugins.getPlugin("lifeops-assistant"), state = globalThis[Symbol.for("lifeops.fact-operation-state.v1")];
+      if (!p || p.dataFoundationBootstrap || p.activeProviderRequests.size || state?.locks?.has(app.vault) || state?.activeWrites?.has(app.vault) || p.sourceChangeTimers?.size) return false;
+      for (const row of expected) {
+        const file = p.store.getFile(row.path), raw = file ? await p.store.readPath(row.path) : null;
+        const hash = raw === null ? null : require("crypto").createHash("sha256").update(raw).digest("hex");
+        if (hash !== row.hash) return false;
+      }
+      return true;
+    }, prerequisites);
+    if (!ready) await new Promise(resolve => setTimeout(resolve, 100));
+  } while (!ready && Date.now() < readyDeadline);
+  assert(ready, "Copied role metadata did not become readable and idle within 30000ms");
+  await page.evaluate(() => {
+    globalThis.__nativeCaptureRoleNotices = [];
+    globalThis.__nativeCaptureRoleNoticeObserver = new MutationObserver(() => {
+      for (const node of document.querySelectorAll(".notice")) if (node.textContent && !globalThis.__nativeCaptureRoleNotices.includes(node.textContent)) globalThis.__nativeCaptureRoleNotices.push(node.textContent);
+    });
+    globalThis.__nativeCaptureRoleNoticeObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
+  });
   // First launch already opens the role dialog; opening another would cover the real dialog.
   await page.getByRole("button", { name: "这台只记录并同步", exact: true }).waitFor();
   await page.getByRole("button", { name: "这台只记录并同步", exact: true }).click();
@@ -81,9 +107,11 @@ async function captureProfileUi(page, root, sourceVault) {
     const state = await page.evaluate(() => {
       const p = app.plugins.getPlugin("lifeops-assistant");
       return { role: p.devices.execution.role, problem: p.devices.execution.problemMessage,
-        booting: !!p.dataFoundationBootstrap, notices: [...document.querySelectorAll(".notice")].map(node => node.textContent) };
+        booting: !!p.dataFoundationBootstrap, notices: globalThis.__nativeCaptureRoleNotices };
     });
     throw Error(error.message + " Role selection state: " + JSON.stringify(state));
+  } finally {
+    await page.evaluate(() => { globalThis.__nativeCaptureRoleNoticeObserver?.disconnect(); delete globalThis.__nativeCaptureRoleNoticeObserver; });
   }
   const state = await page.evaluate(async () => {
     const p = app.plugins.getPlugin("lifeops-assistant"), before = await p.store.readPath(p.store.taskDbPath());
