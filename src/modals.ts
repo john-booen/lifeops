@@ -6,6 +6,7 @@ import { isHealthHabitSource } from "./features/health/habitSources";
 import { Modal, Notice, Setting } from "obsidian";
 import { addDays, endOfWeek, todayString, weekDates } from "./date";
 import { taskScheduleLabel, validateTaskSchedule } from "./taskSchedule";
+import { renderTaskScheduleForm } from "./taskScheduleForm";
 import type {
   HabitCheckinStatus,
   HabitDashboardItem,
@@ -430,29 +431,7 @@ export class TaskModal extends Modal {
       });
     });
 
-    contentEl.createEl("p", { cls: "lifeops-muted", text: "只想几点前完成，填写计划结束即可。要安排工作区间，再填写开始时刻。这里都是计划，完成任务后才记录实际完成时间。" });
-    taskDateTimeSetting(contentEl, "安排日期", "哪天做；时刻可留空。清空日期会同时清空本次计划时刻。", this.value.date, "date", value => {
-      this.value.date = value;
-      if (!value) {
-        this.value.endDate = ""; this.value.startTime = ""; this.value.endTime = ""; this.value.time = "";
-        this.onOpen();
-      }
-    });
-    taskDateTimeSetting(contentEl, "计划开始", "可选，明确几点开始；不填写就不占用工作区间。", this.value.startTime, "time", value => { this.value.startTime = value; });
-    taskDateTimeSetting(contentEl, "计划结束／希望完成", "例如12:00；只填这一项表示希望12点前完成，不推测开始时间。", this.value.endTime, "time", value => { this.value.endTime = value; });
-
-    const moreTime = contentEl.createEl("details", { cls: "lifeops-task-time-details" });
-    moreTime.open = Boolean(this.value.endDate || this.value.dueDate || this.value.dueTime || this.value.time);
-    moreTime.createEl("summary", { text: "跨天、必须截止与原有时刻（可选）" });
-    taskDateTimeSetting(moreTime, "计划结束日期", "跨天时填写；同一天不必重复填。", this.value.endDate, "date", value => { this.value.endDate = value; });
-    taskDateTimeSetting(moreTime, "必须截止日期", "另有交付或约定的硬期限才填写，和计划安排独立；不会复制计划结束。", this.value.dueDate, "date", value => {
-      this.value.dueDate = value;
-      if (!value) { this.value.dueTime = ""; this.onOpen(); }
-    });
-    taskDateTimeSetting(moreTime, "必须截止时刻", "可选，须同时有截止日期。", this.value.dueTime, "time", value => { this.value.dueTime = value; });
-    if (this.value.time) {
-      taskDateTimeSetting(moreTime, "原安排时刻", "保留旧记录的单个时刻；含义尚未确认，不自动变成开始或结束。可清除后重新安排区间。", this.value.time, "time", value => { this.value.time = value; });
-    }
+    renderTaskScheduleForm(contentEl, this.value, () => this.onOpen());
 
     new Setting(contentEl).setName("优先级").addDropdown((dropdown) => {
       dropdown
@@ -1119,22 +1098,6 @@ function habitStatusLabel(status: HabitCheckinStatus | "pending"): string {
     case "pending":
       return "待打卡";
   }
-}
-
-function taskDateTimeSetting(parent: HTMLElement, label: string, description: string, value: string | undefined, kind: "date" | "time", onChange: (value: string) => void): void {
-  const setting = new Setting(parent).setName(label).setDesc(description);
-  let field: import("obsidian").TextComponent;
-  setting.addText(text => {
-    field = text;
-    if (kind === "date") setupDateInput(text.inputEl); else setupTimeInput(text.inputEl);
-    text.inputEl.setAttribute("aria-label", label);
-    text.setValue(value ?? "").onChange(next => onChange(next.trim()));
-  }).addButton(button => {
-    button.setButtonText("清除").setTooltip(`清除${label}`).onClick(() => {
-      field.setValue(""); onChange("");
-    });
-    button.buttonEl.setAttribute("aria-label", `清除${label}`);
-  });
 }
 
 function setupDateInput(input: HTMLInputElement): void {

@@ -94,7 +94,7 @@ function parseTaskMirror(original: string | null) {
       if (!task) conflict();
       // Keep indented legacy completion remarks and extension lines verbatim.
       const retained = block.slice(1).filter(line => line.trim() && !/^\s*-\s*(?:状态=|优先级=|象限=|备注[:：])/.test(line));
-      const known = new Set(["状态","优先级","象限","分类","估计分钟","想法ID","学习轨道","项目","日期","时间","计划开始","计划结束","截止","重复","完成","ID","来源"]);
+      const known = new Set(["状态","优先级","象限","分类","估计分钟","想法ID","学习轨道","项目","日期","时间","计划开始","计划结束","安排方式","截止","重复","完成","ID","来源"]);
       const meta = block.find(line => /状态=|优先级=|象限=/.test(line));
       if (meta) {
         const seen = new Set<string>();

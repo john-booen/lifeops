@@ -95,6 +95,7 @@ const AGENT_BUSY_TIMEOUT_MS = 45_000;
 
 type LifeOpsMode = "tasks" | "matrix" | "habits" | "calendar";
 type TaskFilter =
+  | "period"
   | "today"
   | "overdue"
   | "deadline"
@@ -837,6 +838,8 @@ function filterLabel(filter: TaskFilter): string {
       return "重复任务";
     case "tomorrow":
       return "明日任务";
+    case "period":
+      return "期间任务";
     case "next-seven":
       return "未来七天";
     case "no-date":

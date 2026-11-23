@@ -2,7 +2,7 @@ import { normalizeJournalDate } from "../../date";
 import { timeMinutes, validateTaskSchedule } from "../../taskSchedule";
 import type { LifeOpsTask } from "../../types";
 
-export const TASK_PLAN_FIELDS = ["date", "endDate", "time", "startTime", "endTime"] as const;
+export const TASK_PLAN_FIELDS = ["date", "endDate", "time", "startTime", "endTime", "scheduleMode"] as const;
 
 /** Apply only supplied plan fields; task identity, completion and deadline remain untouched. */
 export function taskPlanUpdate(before: LifeOpsTask, row: Record<string, unknown>): Partial<LifeOpsTask> {
@@ -14,7 +14,10 @@ export function taskPlanUpdate(before: LifeOpsTask, row: Record<string, unknown>
     const value = row[key];
     if (typeof value !== "string") throw Error("计划日期和时刻须为文字，本次整批未修改。");
     const text = value.trim();
-    if (key === "date" || key === "endDate") {
+    if (key === "scheduleMode") {
+      if (text !== "fixed" && text !== "window") throw Error("任务安排方式须为fixed或window，本次整批未修改。");
+      patch.scheduleMode = text;
+    } else if (key === "date" || key === "endDate") {
       const date = text ? normalizeJournalDate(text) : "";
       if (text && !date || key === "date" && !date) throw Error("请提供有效的计划日期，本次整批未修改。");
       patch[key] = date;

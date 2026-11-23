@@ -1491,6 +1491,7 @@ export function taskMarkdownLine(task: LifeOpsTask): string {
     task.time ? `时间=${task.time}` : "",
     task.startTime !== undefined ? `计划开始=${task.startTime}` : "",
     task.endTime !== undefined ? `计划结束=${task.endTime}` : "",
+    task.scheduleMode !== undefined ? `安排方式=${task.scheduleMode}` : "",
     task.dueDate ? `截止=${task.dueTime ? `${task.dueDate} ${task.dueTime}` : task.dueDate}` : "",
     task.repeatUnit && task.repeatUnit !== "none" ? `重复=${repeatLabel(task)}` : "",
     task.completedAt ? `完成=${task.completedAt}` : ""

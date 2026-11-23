@@ -75,11 +75,11 @@ describe("capacity and task priority", () => {
     expect(result[1].reasons).toContain("精力偏低，长任务后排");
   });
 
-  it("keeps a multi-day plan in today's load without making it overdue early", () => {
+  it("keeps period work separate from daily load without making it overdue early", () => {
     const yesterday = addDays(today, -1);
     const spanning = task("虚构跨日任务", { date: yesterday, endDate: addDays(today, 1) });
     const hardDeadline = task("虚构必须截止", { ...spanning, id: "hard", dueDate: yesterday });
-    expect(taskCapacity([spanning, hardDeadline], now).plannedCount).toBe(2);
+    expect(taskCapacity([spanning, hardDeadline], now)).toMatchObject({ plannedCount: 0, periodCount: 2 });
     expect(prioritizeTasks([spanning], now)[0].reasons).not.toContain("已逾期");
     expect(prioritizeTasks([hardDeadline], now)[0].reasons).toContain("已逾期");
     expect(prioritizeTasks([spanning], new Date(addDays(today, 2) + "T12:00:00"))[0].reasons).toContain("已逾期");

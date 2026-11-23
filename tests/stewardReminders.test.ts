@@ -130,6 +130,15 @@ it("uses the same readable device sleep as the today card when sorting the morni
   expect(withoutTasks).not.toContain("虚构长任务");
 });
 
+it("keeps not-yet-due period work out of the evening unfinished list", async () => {
+  const point = now(23, 21); vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(point);
+  await store.createTask({ title: "虚构周内蓝纸", date: "2026-11-21", endDate: "2026-11-27", estimateMin: 600 });
+  await store.createTask({ title: "虚构今晚收尾", date: "2026-11-21", endDate: "2026-11-23" });
+  const candidates = await collectStewardCandidates(store, emptyProactivePolicyState(), point, undefined);
+  const reason = candidates.find(item => item.kind === "evening_review")?.reason;
+  expect(reason).toContain("还有 1 项今日或逾期任务"); expect(reason).toContain("虚构今晚收尾"); expect(reason).not.toContain("虚构周内蓝纸");
+});
+
 it("reports unavailable evening sources and distinguishes missing device readings from a measured zero", async () => {
   const point = now(16, 21), date = formatDate(point);
   vi.useFakeTimers({ toFake: ["Date"] });

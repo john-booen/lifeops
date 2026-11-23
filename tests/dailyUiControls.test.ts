@@ -111,7 +111,7 @@ describe("today card interaction", () => {
     const data: TodayCardData = {
       date: plan.journalDate, status: [{ label: "精力", value: "2/5", quote: "今天精力 2 分" }],
       completed: 3, total: 12, capacity: { overloaded: true, plannedCount: 9, typicalCount: 6, plannedMin: 270,
-        typicalMin: 180, suggestDefer: [] },
+        typicalMin: 180, suggestDefer: [], periodCount: 0 },
       priorities: [{ id: "one", title: "见客户", reasons: ["今天到期"] }],
       habits: [], penalties: [], compensationSummary: "", plans: [{ plan, added: false }]
     };
@@ -141,7 +141,7 @@ describe("today card interaction", () => {
     const host = cardHost();
     const data: TodayCardData = {
       date: "2026-11-19", status: [], completed: 0, total: 0,
-      capacity: { overloaded: false, plannedCount: 0, typicalCount: null, plannedMin: 0, typicalMin: null, suggestDefer: [] },
+      capacity: { overloaded: false, plannedCount: 0, typicalCount: null, plannedMin: 0, typicalMin: null, suggestDefer: [], periodCount: 0 },
       priorities: [], plans: [], compensationSummary: "",
       habits: Array.from({ length: 6 }, (_, index) => ({
         id: String(index), title: `虚构习惯 ${index + 1}`, period: "今日", unit: "次", done: 0, target: 1, unavailable: false
@@ -456,14 +456,25 @@ describe("daily suggestion controls", () => {
 });
 
 describe("daily affairs controls", () => {
+  it("offers a visible period view and labels the same existing task without rewriting it", () => {
+    const host = view(), root = new Element(); host.taskFilter = "period";
+    const row = { id: "fictional-window", title: "虚构期间归档", date: "2026-09-21", endDate: "2026-09-27", startTime: "16:15", endTime: "16:45", status: "active", project: "虚构", category: "work", repeatUnit: "none" };
+    const original = structuredClone(row), periodBoard = { ...board, allActive: [row], tasks: [row] };
+    host.renderTasks(root, periodBoard);
+    expect(root.text()).toContain("期间任务"); expect(root.text()).toContain("分次推进");
+    expect(host.renderTaskList.mock.calls.at(-1)[1]).toEqual([row]);
+    expect(host.defaultsForFilter(periodBoard)).toEqual({ date: board.date, scheduleMode: "window" });
+    expect(row).toEqual(original);
+  });
   it("preserves every filter while grouping less frequent choices", async () => {
     const host = view(), root = new Element();
     host.renderTasks(root, board);
     const more = root.querySelector(".lifeops-task-filters-more");
     expect(more.open).toBe(false);
-    expect(root.querySelector(".lifeops-task-filters-common").querySelectorAll("button")).toHaveLength(5);
+    expect(root.querySelector(".lifeops-task-filters-common").querySelectorAll("button")).toHaveLength(6);
     const filters = root.querySelectorAll("[data-lifeops-task-filter]");
-    expect(filters).toHaveLength(13);
+    expect(filters).toHaveLength(14);
+    expect(root.querySelector(".lifeops-task-filters-common").contains(root.querySelector('[data-lifeops-task-filter="period"]'))).toBe(true);
     const byDate = root.querySelector('[data-lifeops-task-filter="by-date"]');
     expect(more.contains(byDate)).toBe(true);
     await byDate.click();

@@ -243,6 +243,7 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
         startTime: { type: "string", description: "明确计划开始的 HH:mm，未提开始则省略。" },
         endTime: { type: "string", description: "结束或做完的 HH:mm，如三点前交稿填 15:00。" },
         endDate: { type: "string", description: "跨天计划结束日期；同一天可省略。支持明确的相对日期，不推测。" },
+        scheduleMode: { type: "string", enum: ["fixed", "window"], description: "一周内、跨月期间分次完成填window，并给开始日期date与计划完成日期endDate。fixed仅表示明确固定的工作区间，不能把一周任务排成每天连续工作。" },
         category: { type: "string", description: "任务分类，可省略。" },
         learningTrackId: { type: "string", enum: Object.keys(LEARNING_TRACKS), description: "英语 english；交易 trading；量化 quant；AI ai" },
         estimateMin: { type: "number", exclusiveMinimum: 0, description: "用户提供的估计分钟数。" }
@@ -257,7 +258,11 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
       const suppliedDate = toolArgString(args, "date");
       const date = suppliedDate ? normalizeJournalDate(suppliedDate) : "";
       if (suppliedDate && !date) return toolError("任务日期无法识别或不存在，请明确有效日期；这次没有创建任务，也没有改成未定日期。");
-      const plan: { startTime?: string; endTime?: string; endDate?: string } = {};
+      const plan: { startTime?: string; endTime?: string; endDate?: string; scheduleMode?: "fixed" | "window" } = {};
+      if (args.scheduleMode !== undefined) {
+        if (args.scheduleMode !== "fixed" && args.scheduleMode !== "window") return toolError("任务安排方式无效，没有创建任务。");
+        plan.scheduleMode = args.scheduleMode;
+      }
       for (const key of ["startTime", "endTime", "endDate"] as const) {
         if (args[key] === undefined) continue;
         if (typeof args[key] !== "string") return toolError("计划日期与时刻须为文字，没有创建任务。");

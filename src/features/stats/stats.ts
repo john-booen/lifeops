@@ -1,5 +1,5 @@
 import { addDays, datesBetween, formatDate, normalizeJournalDate, startOfWeek } from "../../date";
-import { isTaskOnDate, isTaskOverdue, taskCompletionPoint } from "../../taskSchedule";
+import { isTaskScheduledForDay, taskPlannedDate, isTaskOverdue, taskCompletionPoint } from "../../taskSchedule";
 import type { HabitCheckin, HabitDefinition, LifeOpsTask } from "../../types";
 import { JOURNAL_SIGNAL_FIELDS, type SignalValues } from "../journal/signals";
 import { habitMeasurementUnit, habitRecordedAmount, isHabitRequiredOn, numericHabitGoalProgress } from "../habits/targets";
@@ -156,7 +156,7 @@ export function taskCompletionEvents(tasks: readonly LifeOpsTask[], range: DayRa
 
 export function todayTaskCounts(tasks: readonly LifeOpsTask[], date: string, now: Date) {
   const completed = new Set(taskCompletionEvents(tasks, { from: date, to: date }, now).map(event => event.task.id));
-  const planned = tasks.filter(task => task.status !== "abandoned" && (isTaskOnDate(task, date) || task.dueDate === date)).map(task => task.id);
+  const planned = tasks.filter(task => task.status !== "abandoned" && isTaskScheduledForDay(task, date)).map(task => task.id);
   return { completed: completed.size, scheduled: new Set(planned).size, total: new Set([...completed, ...planned]).size };
 }
 
@@ -175,15 +175,15 @@ function taskTotals(planned: readonly LifeOpsTask[], completed: readonly Complet
 
 function taskStats(tasks: readonly LifeOpsTask[], range: DayRange, now: Date, group?: DateGrouping) {
   const today = formatDate(now);
-  const planned = tasks.filter(task => inRange(task.date || task.dueDate, range));
+  const planned = tasks.filter(task => inRange(taskPlannedDate(task), range));
   const completed = taskCompletionEvents(tasks, range, now);
   const categories = new Set([...planned, ...completed.map(event => event.task)].map(task => task.category || "未分类"));
   const byCategory = Object.fromEntries([...categories].sort().map(category => [category,
     taskTotals(planned.filter(task => (task.category || "未分类") === category),
       completed.filter(event => (event.task.category || "未分类") === category), today)]));
-  const groups = group ? [...new Set([...planned.map(task => dateKey(task.date || task.dueDate, group)),
+  const groups = group ? [...new Set([...planned.map(task => dateKey(taskPlannedDate(task), group)),
     ...completed.map(event => dateKey(event.date, group))])].sort().map(date => ({
-      date, ...taskTotals(planned.filter(task => dateKey(task.date || task.dueDate, group) === date),
+      date, ...taskTotals(planned.filter(task => dateKey(taskPlannedDate(task), group) === date),
         completed.filter(event => dateKey(event.date, group) === date), today)
     })) : undefined;
   return { ...taskTotals(planned, completed, today), byCategory, groups };

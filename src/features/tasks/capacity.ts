@@ -1,5 +1,5 @@
 import { addDays, formatDate } from "../../date";
-import { isTaskOnDate, taskDeadlineDate } from "../../taskSchedule";
+import { isTaskOnDate, taskDeadlineDate, isTaskWindow } from "../../taskSchedule";
 import type { LifeOpsTask } from "../../types";
 import { taskCompletionEvents } from "../stats/stats";
 
@@ -24,7 +24,7 @@ export function taskEstimates(tasks: readonly LifeOpsTask[]): Estimate {
   const byCategory = new Map<string, number[]>();
   for (const task of tasks) {
     const minutes = task.estimateMin;
-    if (task.status !== "completed" || minutes === undefined || !Number.isFinite(minutes) || minutes <= 0) continue;
+    if (task.status !== "completed" || isTaskWindow(task) || minutes === undefined || !Number.isFinite(minutes) || minutes <= 0) continue;
     const category = taskCategory(task);
     const history = byCategory.get(category);
     if (history) history.push(minutes);
@@ -54,16 +54,20 @@ export function taskCapacity(tasks: readonly LifeOpsTask[], now: Date, estimate:
   const range = { from: addDays(today, -28), to: addDays(today, -1) };
   const history = new Map<string, { count: number; minutes: number }>();
   for (const task of tasks) {
+    if (isTaskWindow(task)) continue;
     const date = task.date || task.dueDate;
     if (date >= range.from && date <= range.to && !history.has(date)) history.set(date, { count: 0, minutes: 0 });
   }
   for (const event of taskCompletionEvents(tasks, range, now)) {
+    if (isTaskWindow(event.task)) continue;
     const day = history.get(event.date) ?? { count: 0, minutes: 0 };
     day.count++;
     day.minutes += estimate(event.task);
     history.set(event.date, day);
   }
-  const planned = tasksForDay(tasks, planDate ?? today, planDate === undefined || planDate === today);
+  const relevant = tasksForDay(tasks, planDate ?? today, planDate === undefined || planDate === today);
+  const periods = relevant.filter(isTaskWindow);
+  const planned = relevant.filter(task => !isTaskWindow(task));
   const plannedCount = planned.length, plannedMin = planned.reduce((sum, task) => sum + estimate(task), 0);
   const counts = [...history.values()].map(day => day.count), minutes = [...history.values()].map(day => day.minutes);
   const typicalCount = counts.length ? quantile(counts, 0.5) : null;
@@ -85,7 +89,7 @@ export function taskCapacity(tasks: readonly LifeOpsTask[], now: Date, estimate:
       remainingMin -= estimate(task);
     }
   }
-  return { overloaded, plannedCount, typicalCount, plannedMin, typicalMin, suggestDefer };
+  return { overloaded, plannedCount, typicalCount, plannedMin, typicalMin, suggestDefer, periodCount: periods.length };
 }
 
 export function taskOverloadReason(capacity: ReturnType<typeof taskCapacity>): string {
@@ -100,6 +104,6 @@ export function taskOverloadNotice(before: readonly LifeOpsTask[], after: readon
 
 export function taskDraftRoom(tasks: readonly LifeOpsTask[], date: string, typicalCount: number | null) {
   const limit = Math.max(1, Math.floor(typicalCount ?? 3));
-  const existing = tasks.filter(task => task.status === "active" && (isTaskOnDate(task, date) || task.dueDate === date));
+  const existing = tasks.filter(task => task.status === "active" && !isTaskWindow(task) && (isTaskOnDate(task, date) || task.dueDate === date));
   return { existing, remaining: Math.max(0, limit - existing.length) };
 }

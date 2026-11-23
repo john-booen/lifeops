@@ -148,6 +148,10 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
   const app = createFsApp(activeRoot);
   const store = new LifeOpsStore(app, structuredClone(settings));
   await store.initializeVault();
+  if (question.fixture === "period_completion_window") {
+    await store.writeTaskDb({ ...await store.readTaskDb(), tasks: [] });
+    await store.createTask({ title: "虚构水杉卡片归档", date: "2026-11-06", endDate: "2026-11-12", startTime: "16:15", endTime: "16:45", estimateMin: 600 });
+  }
   if (question.fixture === "eleven_task_plans" || question.fixture === "task_lookup_prose") {
     for (let index = 0; index < 11; index++) await store.createTask({ title: "虚构区间纸样" + String(index + 1).padStart(2, "0"),
       date: formatDate(fixedNow), startTime: String(12 + index).padStart(2, "0") + ":00", endTime: String(12 + index).padStart(2, "0") + ":30",
@@ -364,7 +368,7 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
       "tasks.deleted": before.tasks.filter((task) => !after.tasks.some((now) => now.id === task.id)).length,
       "tasks.rescheduled": after.tasks.filter(task => {
         const old = before.tasks.find(beforeTask => beforeTask.id === task.id);
-        return old && (old.date !== task.date || old.dueDate !== task.dueDate);
+        return old && (["date", "endDate", "dueDate", "scheduleMode"] as const).some(field => (old[field] ?? "") !== (task[field] ?? ""));
       }).length,
       "tasks.timeChanged": after.tasks.filter(task => {
         const old = before.tasks.find(beforeTask => beforeTask.id === task.id);

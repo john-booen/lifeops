@@ -44,7 +44,7 @@ describe("explicit task plan intervals", () => {
     expect(taskTimeGroup(task, "2026-10-09")).toBe("unscheduled");
   });
   it("clips a cross-day plan without dropping midnight or the final morning", () => {
-    const task = schedule("20:00", "09:00", "2026-10-10");
+    const task = { ...schedule("20:00", "09:00", "2026-10-10"), scheduleMode: "fixed" as const };
     expect(taskDayInterval(task, day)).toEqual({ start: 1200, end: 1440 });
     expect(taskTimeGroup(task, day)).toBe("evening");
     expect(taskDayInterval(task, "2026-10-09")).toEqual({ start: 0, end: 1440 });

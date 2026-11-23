@@ -1,8 +1,30 @@
 import { addDays, formatDate, normalizeJournalDate, todayString } from "./date";
 import type { LifeOpsTask } from "./types";
 
-type Schedule = Pick<LifeOpsTask, "date" | "endDate" | "time" | "startTime" | "endTime" | "estimateMin">;
-export type TaskTimeGroup = "morning" | "afternoon" | "evening" | "spanning" | "boundary" | "unscheduled";
+type Schedule = Pick<LifeOpsTask, "date" | "endDate" | "time" | "startTime" | "endTime" | "estimateMin" | "scheduleMode">;
+export type TaskTimeGroup = "morning" | "afternoon" | "evening" | "spanning" | "boundary" | "unscheduled" | "window";
+
+/** Older multi-day tasks are availability windows, not days of continuous work.
+ * Preserve the unambiguous legacy evening-to-next-morning appointment. No files
+ * are migrated or rewritten to derive this presentation. */
+export function taskScheduleMode(task: Pick<LifeOpsTask, "date" | "endDate" | "startTime" | "endTime" | "scheduleMode">): "fixed" | "window" {
+  if (task.scheduleMode) return task.scheduleMode;
+  if (!task.date || !task.endDate || task.endDate <= task.date) return "fixed";
+  const start = timeMinutes(task.startTime), end = timeMinutes(task.endTime);
+  return task.endDate === addDays(task.date, 1) && start !== undefined && end !== undefined && end <= start ? "fixed" : "window";
+}
+
+export const isTaskWindow = (task: Pick<LifeOpsTask, "date" | "endDate" | "startTime" | "endTime" | "scheduleMode">) => taskScheduleMode(task) === "window";
+
+/** Daily obligations and completion metrics use the window's target once,
+ * while calendar availability still spans every date in the window. */
+export function taskPlannedDate(task: LifeOpsTask): string {
+  return isTaskWindow(task) ? task.endDate || task.date || task.dueDate : task.date || task.dueDate;
+}
+
+export function isTaskScheduledForDay(task: LifeOpsTask, date: string): boolean {
+  return isTaskWindow(task) ? taskPlannedDate(task) === date || task.dueDate === date : isTaskOnDate(task, date) || task.dueDate === date;
+}
 
 export function isTaskOnDate(task: Pick<LifeOpsTask, "date" | "endDate">, date: string): boolean {
   return Boolean(task.date && task.date <= date && date <= (task.endDate || task.date));
@@ -44,6 +66,7 @@ export function timeMinutes(value: string | undefined): number | undefined {
 
 /** Validate new plans; never interpret or convert a historical `time` field. */
 export function validateTaskSchedule(task: Schedule): void {
+  if (task.scheduleMode !== undefined && task.scheduleMode !== "fixed" && task.scheduleMode !== "window") throw new Error("请选择有效的任务安排方式。");
   if (task.estimateMin !== undefined && (!Number.isFinite(task.estimateMin) || task.estimateMin <= 0)) {
     throw new Error("估计时长须为大于零的分钟数，也可以留空。");
   }
@@ -52,7 +75,7 @@ export function validateTaskSchedule(task: Schedule): void {
       throw new Error("计划时刻须为有效的 HH:mm，也可以清空。");
     }
   }
-  if (!task.startTime && !task.endTime) return;
+  if (!task.startTime && !task.endTime && !task.endDate && task.scheduleMode !== "window") return;
   if (normalizeJournalDate(task.date) !== task.date || !task.date
     || (task.endDate && normalizeJournalDate(task.endDate) !== task.endDate)) {
     throw new Error("请先选择有效的安排日期，再填写计划时刻。");
@@ -66,6 +89,7 @@ export function validateTaskSchedule(task: Schedule): void {
 
 /** Half-open occupied interval on a specific day. A target alone occupies no time. */
 export function taskDayInterval(task: Schedule, date: string): { start: number; end: number } | undefined {
+  if (isTaskWindow(task)) return undefined;
   const start = timeMinutes(task.startTime), end = timeMinutes(task.endTime);
   if (start === undefined || end === undefined || !task.date || normalizeJournalDate(task.date) !== task.date) return undefined;
   const endDate = task.endDate || task.date;
@@ -76,6 +100,7 @@ export function taskDayInterval(task: Schedule, date: string): { start: number; 
 }
 
 export function taskTimeGroup(task: Schedule, date: string): TaskTimeGroup {
+  if (isTaskWindow(task)) return "window";
   if (task.startTime && timeMinutes(task.startTime) !== undefined && task.endTime === "00:00"
     && task.endDate === date && task.date < date) return "boundary";
   const interval = taskDayInterval(task, date);
@@ -94,6 +119,7 @@ export function taskTimeGroup(task: Schedule, date: string): TaskTimeGroup {
 }
 
 export function taskScheduleLabel(task: Schedule): string {
+  if (isTaskWindow(task)) return `期间完成 ${task.date}${task.startTime ? ` ${task.startTime}` : ""} → ${task.endDate || task.date}${task.endTime ? ` ${task.endTime}` : ""} · 分次推进，未排工作区间`;
   if (task.startTime && task.endTime) {
     return task.endDate && task.endDate !== task.date
       ? `计划 ${task.date} ${task.startTime} → ${task.endDate} ${task.endTime}`
@@ -106,6 +132,7 @@ export function taskScheduleLabel(task: Schedule): string {
 
 /** Timeline position is derived only from a real planned interval or explicit start. */
 export function taskTimelineStart(task: Schedule, date: string): number | undefined {
+  if (isTaskWindow(task)) return undefined;
   const interval = taskDayInterval(task, date);
   if (interval) return interval.start;
   return !task.endTime && date === task.date ? timeMinutes(task.startTime) : undefined;

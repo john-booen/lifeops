@@ -3,7 +3,7 @@ import { formatDate, normalizeJournalDate } from "../date";
 import { readContextTasks } from "../contextData";
 import { taskCapacity, taskEstimates } from "../features/tasks/capacity";
 import type { StoreHost } from "../store/settingsSlice";
-import { isTaskOnDate, taskDayInterval, taskScheduleLabel, timeMinutes } from "../taskSchedule";
+import { isTaskOnDate, isTaskWindow, taskDayInterval, taskScheduleLabel, timeMinutes } from "../taskSchedule";
 
 export { TASK_BATCH_TOOL } from "../features/tasks/batchDefinition";
 
@@ -52,7 +52,7 @@ export async function planTaskBatch(store: StoreHost, call: AiToolCall, now: Dat
   const data = await readContextTasks(store);
   if (!data.available) throw Error("任务记录暂不可用，未开始批量保存。");
   const estimate = taskEstimates(data.tasks);
-  const occupied = data.tasks.filter(t => t.status === "active" && isTaskOnDate(t, date)).flatMap(t => {
+  const occupied = data.tasks.filter(t => t.status === "active" && !isTaskWindow(t) && isTaskOnDate(t, date)).flatMap(t => {
     const interval = taskDayInterval(t, date);
     if (interval) return [interval];
     const start = timeMinutes(t.startTime || t.time);

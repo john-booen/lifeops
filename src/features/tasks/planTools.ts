@@ -1,7 +1,7 @@
 import { addDays, formatDate, normalizeJournalDate, todayString } from "../../date";
 import type { AiToolCall, AiToolDefinition } from "../../ai";
 import { isVaultPathExcluded } from "../../privacy";
-import { isTaskOnDate, isTaskOverdue, taskScheduleLabel } from "../../taskSchedule";
+import { isTaskOnDate, isTaskOverdue, taskScheduleLabel, taskScheduleMode } from "../../taskSchedule";
 import type { LifeOpsToolDefinition, ToolExecutionContext } from "../../toolRegistry";
 import { currentSignalValues } from "../journal/signals";
 import { todayTaskCounts, type StatsRange } from "../stats/stats";
@@ -103,7 +103,7 @@ export const TASK_PLANNING_TOOLS: LifeOpsToolDefinition[] = [
         ...(items.length > offset + limit ? { nextOffset: offset + limit } : {}),
         ...(ordered ? { order: "priority" } : {}),
         ...(selectedHabit ? { compensationEnabled: enabled } : {}),
-        tasks: selected.slice(offset, offset + limit).map(task => ({ id: task.id, title: protect(task.title), date: task.date, endDate: task.endDate, time: taskScheduleLabel(task),
+        tasks: selected.slice(offset, offset + limit).map(task => ({ id: task.id, title: protect(task.title), date: task.date, endDate: task.endDate, time: taskScheduleLabel(task), scheduleMode: taskScheduleMode(task), dueDate: task.dueDate, dueTime: task.dueTime,
           quadrant: task.quadrant, category: protect(taskCategory(task)), status: task.status, estimateMin: estimate(task),
           ...(task.habitPunishment?.evidence ? { evidence: protect(task.habitPunishment.evidence), dueDate: task.dueDate,
             ...(penalties ? { compensationDue: compensationDueLabel(task.habitPunishment) } : {}) } : {}) })) }), actions: [] };
@@ -134,7 +134,7 @@ export const TASK_PLANNING_TOOLS: LifeOpsToolDefinition[] = [
       const { capacity, priorities } = todayTaskPlan(tasks, now, signalEnergy, health?.sleepHours);
       const today = todayTaskCounts(tasks, date, now);
       const normal = capacity.typicalCount === null ? "缺少常态完成量" : `平时约完成 ${Math.round(capacity.typicalCount)} 个`;
-      const workloadSummary = `今天原排 ${today.scheduled} 个，已完成 ${today.completed} 个。含逾期的未完成负荷 ${capacity.plannedCount} 个，${normal}。`;
+      const workloadSummary = `今天原排 ${today.scheduled} 个，已完成 ${today.completed} 个。含逾期的单日未完成负荷 ${capacity.plannedCount} 个，${normal}。${capacity.periodCount ? `另有 ${capacity.periodCount} 项期间任务可推进，未把全部估时计入今天，也不代表今天必须做完。` : ""}`;
       const tomorrow = addDays(date, 1);
       const room = args.draftTomorrow === true ? taskDraftRoom(tasks, tomorrow, capacity.typicalCount) : undefined;
       const draft = room ? { date: tomorrow, maxNewTasks: 8, suggestedNewTasks: room.remaining,

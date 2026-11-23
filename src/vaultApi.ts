@@ -346,6 +346,7 @@ export function formatVaultTaskBlock(task: LifeOpsTask): string {
     `时间=${task.time || ""}`,
     task.startTime !== undefined ? `计划开始=${task.startTime}` : "",
     task.endTime !== undefined ? `计划结束=${task.endTime}` : "",
+    task.scheduleMode !== undefined ? `安排方式=${task.scheduleMode}` : "",
     `截止=${due}`,
     task.repeatUnit && task.repeatUnit !== "none" ? `重复=${formatRepeat(task)}` : "",
     task.completedAt ? `完成=${task.completedAt}` : "",
@@ -405,7 +406,7 @@ export function buildTaskFromInput(input: LifeOpsTaskInput, now: Date, idFactory
   if (!title) {
     throw new VaultApiError("任务标题不能为空");
   }
-  if (input.startTime || input.endTime) {
+  if (input.startTime || input.endTime || input.endDate || input.scheduleMode === "window") {
     for (const value of [input.date, input.endDate]) {
       if (value && normalizeJournalDate(value.trim()) !== value.trim()) throw new VaultApiError("计划日期须为有效的年-月-日，不会改成同日安排。");
     }
@@ -429,6 +430,7 @@ export function buildTaskFromInput(input: LifeOpsTaskInput, now: Date, idFactory
     project: input.project?.trim() || "默认",
     date,
     endDate,
+    ...(input.scheduleMode === undefined ? {} : { scheduleMode: input.scheduleMode }),
     time: normalizeTime(input.time) || "",
     ...(input.startTime === undefined ? {} : { startTime: input.startTime.trim() }),
     ...(input.endTime === undefined ? {} : { endTime: input.endTime.trim() }),
@@ -534,7 +536,7 @@ function parseTaskBlock(block: string[], fallbackStatus: LifeOpsTaskStatus, occu
   const meta = parseMetaFields(metaLine);
   const status = parseStatus(meta.get("状态")) ?? (taskLine.includes("[x]") ? "completed" : fallbackStatus);
   const dateRange = meta.get("日期") ?? "";
-  if (meta.get("计划开始") || meta.get("计划结束")) {
+  if (meta.get("计划开始") || meta.get("计划结束") || dateRange.includes("->")) {
     const parts = dateRange.split(/\s*->\s*/);
     if (parts.length > 2 || parts.some(value => !value || normalizeJournalDate(value) !== value)) {
       throw new VaultApiError("任务看板的计划日期无法核对，原有内容已保留。");
@@ -562,6 +564,7 @@ function parseTaskBlock(block: string[], fallbackStatus: LifeOpsTaskStatus, occu
     project: meta.get("项目") ?? "默认",
     date,
     endDate,
+    ...(meta.has("安排方式") ? { scheduleMode: meta.get("安排方式") as LifeOpsTask["scheduleMode"] } : {}),
     time: meta.get("时间") ?? "",
     ...(meta.has("计划开始") ? { startTime: meta.get("计划开始")! } : {}),
     ...(meta.has("计划结束") ? { endTime: meta.get("计划结束")! } : {}),

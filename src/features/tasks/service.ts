@@ -163,6 +163,7 @@ function taskToInput(task: LifeOpsTask): LifeOpsTaskInput {
     project: task.project,
     date: task.date,
     endDate: task.endDate,
+    scheduleMode: task.scheduleMode,
     time: task.time,
     startTime: task.startTime,
     endTime: task.endTime,

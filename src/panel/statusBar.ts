@@ -7,7 +7,7 @@ import { addDays, formatLocalTime, todayString, weekDates } from "../date";
 import { automaticHabitDayDisplay, healthHabitReadingDays, isHabitRequiredOn as isHabitRequiredOnDate, numericHabitWindow } from "../features/habits/targets";
 import { isHealthHabitSource } from "../features/health/habitSources";
 import { compensationDueLabel, formatCompensationMoney, summarizeCompensationDebt } from "../features/habits/compensationDebt";
-import { isTaskOverdue, taskCompletionDay, taskDayInterval, taskScheduleLabel, taskTimeGroup, taskTimelineStart, type TaskTimeGroup } from "../taskSchedule";
+import { isTaskOverdue, isTaskWindow, taskCompletionDay, taskDayInterval, taskScheduleLabel, taskTimeGroup, taskTimelineStart, type TaskTimeGroup } from "../taskSchedule";
 import {
   addEchoText,
   clearEchoMemories,
@@ -74,6 +74,7 @@ const AGENT_BUSY_TIMEOUT_MS = 45_000;
 
 type LifeOpsMode = "tasks" | "matrix" | "habits" | "calendar";
 type TaskFilter =
+  | "period"
   | "today"
   | "overdue"
   | "deadline"
@@ -528,6 +529,7 @@ const statusBarPanel = {
         ["deadline", "截止任务", board.allActive.filter((task) => task.dueDate).length, "alarm-clock"],
         ["recurring", "重复任务", board.allActive.filter((task) => task.repeatUnit !== "none").length, "repeat-2"],
         ["tomorrow", "明日任务", board.tomorrow.length, "calendar-plus"],
+        ["period", "期间任务", board.allActive.filter(isTaskWindow).length, "calendar-range"],
         ["next-seven", "未来七天", board.nextSevenDays.length, "calendar-days"],
         ["no-date", "无日期任务", board.noDate.length, "circle-dashed"],
         ["completed", "今日已完成", board.completedToday.length, "check-check"],
@@ -538,7 +540,7 @@ const statusBarPanel = {
         ["by-date", "日期视图", uniqueCount(board.allActive, (task) => task.date || "无日期"), "calendar-range"]
       ];
 
-      const commonFilters = new Set<TaskFilter>(["today", "overdue", "tomorrow", "next-seven", "all"]);
+      const commonFilters = new Set<TaskFilter>(["today", "overdue", "tomorrow", "period", "next-seven", "all"]);
       const common = sidebar.createDiv({ cls: "lifeops-task-filters-common" });
       const more = sidebar.createEl("details", { cls: "lifeops-task-filters-more" });
       more.open = !commonFilters.has(this.taskFilter);
@@ -561,6 +563,7 @@ const statusBarPanel = {
       const main = shell.createDiv({ cls: "lifeops-task-main" });
       const taskHeader = main.createDiv({ cls: "lifeops-content-header" });
       taskHeader.createEl("h3", { text: filterLabel(this.taskFilter) });
+      if (this.taskFilter === "period") main.createDiv({ cls: "lifeops-muted", text: "在开始日至计划完成日之间分次推进；不代表每天必须完成或全天连续占用。必须截止日另行显示。" });
       const headerActions = taskHeader.createDiv({ cls: "lifeops-inline-actions" });
       const tasks = this.filteredTasks(this.tasksForFilter(board));
       headerActions.createEl("input", {
@@ -611,10 +614,14 @@ const statusBarPanel = {
         return;
       }
       if (this.taskFilter === "by-date") {
+        const groups = groupTasks(this.filteredTasks(board.allActive), (task) => isTaskWindow(task) ? `${task.date} → ${task.endDate || task.date}（期间）` : task.date || "无日期");
         this.renderGroupedTaskView(
           main,
-          groupTasks(this.filteredTasks(board.allActive), (task) => task.date || "无日期"),
-          (date) => ({ date: date === "无日期" ? "" : date }),
+          groups,
+          label => {
+            const row = groups.find(([key]) => key === label)?.[1][0];
+            return row && isTaskWindow(row) ? { date: row.date, endDate: row.endDate, scheduleMode: "window" } : { date: row?.date || "" };
+          },
           "当前没有日期任务。"
         );
         return;
@@ -1013,6 +1020,7 @@ const statusBarPanel = {
         ["晚上", "evening", { date: board.date, startTime: "20:00" }],
         ["跨时段", "spanning", { date: board.date }],
         ["跨天结束（今日无占用）", "boundary", { date: board.date }],
+        ["期间可推进（不占全天）", "window", { date: board.date, scheduleMode: "window" }],
         ["未排区间／仅完成目标", "unscheduled", { date: board.date }]
       ];
 
@@ -1122,6 +1130,8 @@ const statusBarPanel = {
           return board.allActive.filter((task) => task.repeatUnit !== "none");
         case "tomorrow":
           return board.tomorrow;
+        case "period":
+          return board.allActive.filter(isTaskWindow);
         case "next-seven":
           return board.nextSevenDays;
         case "no-date":
@@ -1296,6 +1306,8 @@ const statusBarPanel = {
           return { date: board.date };
         case "tomorrow":
           return { date: addDays(board.date, 1) };
+        case "period":
+          return { date: board.date, scheduleMode: "window" };
         case "next-seven":
           return { date: addDays(board.date, 7) };
         case "deadline":
@@ -1658,6 +1670,8 @@ function filterLabel(filter: TaskFilter): string {
       return "重复任务";
     case "tomorrow":
       return "明日任务";
+    case "period":
+      return "期间任务";
     case "next-seven":
       return "未来七天";
     case "no-date":

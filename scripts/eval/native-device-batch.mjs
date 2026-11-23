@@ -221,6 +221,8 @@ export async function exerciseNativeDeviceBatch({ getPage, root, vault, profile,
   await (await import("./native-summary-journal-coverage.mjs")).nativeSummaryJournalCoverage(page,result);
   await (await import("./native-summary-evidence.mjs")).nativeSummaryEvidence(page,root,result);
   await (await import("./native-selected-journals.mjs")).nativeSelectedJournals(page,root,result);
+  await (await import("./native-task-period-window.mjs")).nativeTaskPeriodWindow({ getPage, root, result, candidate, dailyRollback, launch, close, packageFiles });
+  page = getPage();
   const preserved = await phoneBatchUi(page, root);
   result.checks.firstRoleUiAndPhoneBatchUndo = true;
   await close();

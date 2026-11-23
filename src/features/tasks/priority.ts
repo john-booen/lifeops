@@ -1,5 +1,5 @@
 import { formatDate } from "../../date";
-import { taskDeadlineDate, timeMinutes } from "../../taskSchedule";
+import { taskDeadlineDate, timeMinutes, isTaskWindow } from "../../taskSchedule";
 import type { LifeOpsTask } from "../../types";
 import { taskCapacity, taskCategory, taskEstimates, tasksDueBy } from "./capacity";
 
@@ -22,7 +22,7 @@ export function prioritizeTasks(tasks: readonly LifeOpsTask[], now: Date, energy
     if (due === today) { score += 2; reasons.push("今天到期"); }
     if (task.quadrant === "important-urgent") { score += 3; reasons.push("重要且紧急"); }
     if (task.quadrant === "important-not-urgent") { score += 2; reasons.push("重要不紧急"); }
-    const start = task.date === today ? task.startTime || task.time : undefined;
+    const start = !isTaskWindow(task) && task.date === today ? task.startTime || task.time : undefined;
     const end = (task.endDate || task.date) === today ? task.endTime : undefined;
     const deadline = task.dueDate === today ? task.dueTime : undefined;
     const upcoming = [start, end, deadline].some(time => {

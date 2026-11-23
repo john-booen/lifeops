@@ -6,6 +6,7 @@ import { decideProactiveDelivery, recordProactiveDelivery, type ProactivePolicyS
 import { stewardCandidate, stewardReminderWindows, type ProactiveCandidate } from "../../scheduler";
 import type { StoreHost } from "../../store/settingsSlice";
 import type { TaskDashboardData } from "../../types";
+import { isTaskScheduledForDay, isTaskWindow } from "../../taskSchedule";
 import { ideaDaysStalled, listIdeas } from "../ideas/notes";
 import { ideaIsStalled, ideaRemindersSinceProgress, recordIdeaReminder } from "../ideas/progress";
 import { advanceCompensationDebt, compensationSummaryLine, summarizeCompensationDebt } from "../habits/compensationDebt";
@@ -73,7 +74,8 @@ async function morningReason(store: StoreHost, board: TaskDashboardData, now: Da
   const compensation = context?.tasks.available === false ? "补偿欠账暂时无法核对。"
     : debt ? "补偿" + debt.replaceAll(" · ", "，") + "。" : "目前没有未完成的补偿。";
   const scope = context?.tasks.filtered ? "仅核对可读任务。" : "";
-  return scope + compensation + status + deviceSleep + "。" + load + "。" + priorityLine
+  const periodLine = card.capacity.periodCount ? `另有${card.capacity.periodCount}项期间任务可分次推进，不代表今天必须全部做完。` : "";
+  return scope + compensation + status + deviceSleep + "。" + load + "。" + periodLine + priorityLine
     + (due === null ? "复习卡暂不可用。" : "到期复习卡 " + due + " 张。");
 }
 
@@ -88,7 +90,7 @@ function eveningReason(board: TaskDashboardData): string {
   const tradeProgress = trades.map(item => item.habit.name + " " + (item.periodUnavailable ? "暂不可用"
     : item.periodDone + "/" + item.periodTarget + (item.periodUnit ?? "笔"))).join("、");
   const penalties = board.tasks.filter(task => task.status === "active" && task.habitPunishment?.judgedDate === board.date);
-  const tasks = [...new Map([...board.today, ...board.overdue].map(task => [task.id, task])).values()];
+  const tasks = [...new Map([...board.today.filter(task => !isTaskWindow(task) || isTaskScheduledForDay(task, board.date)), ...board.overdue].map(task => [task.id, task])).values()];
   const examples = tasks.slice(0, 3).map(task => task.title).join("、");
   const taskLine = context?.tasks.available === false ? "任务和补偿记录暂不可用。"
     : (context?.tasks.filtered ? "可读任务中还有 " : "还有 ") + tasks.length + " 项今日或逾期任务"

@@ -3,6 +3,7 @@ import { contextSourceHash, isContextSourcePath, recordContextSource, type Conte
 import { readRecentMarkdownSnapshot, type RecentMarkdownSnapshot } from "../recentContext";
 import { activityNotePath } from "../activityRecords";
 import { linkedNoteName } from "../linkedNoteSettings";
+import { isTaskWindow } from "../taskSchedule";
 import { isVaultPathExcluded, isVisualCachePath } from "../privacy";
 import { randomUUID } from "node:crypto";
 import { guardDerivedMethods } from "../dataFoundation/derivedOperation";
@@ -1247,9 +1248,10 @@ export async function readTaskContextWithEvidence(store: StoreHost, date: string
       .slice(0, 8);
 
     const sections = [
-      ["Today", active.filter((task) => isTaskOnDate(task, date)).slice(0, 12)],
+      ["Today", active.filter((task) => !isTaskWindow(task) && isTaskOnDate(task, date)).slice(0, 12)],
       ["Overdue", active.filter((task) => isTaskOverdue(task, date)).slice(0, 12)],
-      ["Tomorrow", active.filter((task) => isTaskOnDate(task, tomorrow)).slice(0, 10)],
+      ["Tomorrow", active.filter((task) => !isTaskWindow(task) && isTaskOnDate(task, tomorrow)).slice(0, 10)],
+      ["Period Windows (分次推进，不是当天必须全部完成)", active.filter(isTaskWindow).slice(0, 15)],
       ["Next 7 Days", active.filter((task) => task.date && task.date > date && task.date <= nextSeven).slice(0, 15)],
       ["No Date", active.filter((task) => !task.date).slice(0, 10)],
       ["Recently Completed", completedRecent]

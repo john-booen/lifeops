@@ -16,12 +16,12 @@ import { automaticHabitProgress } from "../features/habits/tradeProgress";
 import { isHealthHabitSource } from "../features/health/habitSources";
 import { advanceCompensationDebt } from "../features/habits/compensationDebt";
 import { isVaultPathExcluded } from "../privacy";
-import { shiftTaskDates, taskCompletionDay } from "../taskSchedule";
+import { shiftTaskDates, taskCompletionDay, isTaskWindow } from "../taskSchedule";
 
 type StoreConstructor = { prototype: object };
 
 function shiftedPlanEndDate(task: LifeOpsTask, newDate: string): string {
-  if ((!task.startTime && !task.endTime) || !task.endDate) return "";
+  if (!task.endDate) return "";
   if (!normalizeJournalDate(newDate) || normalizeJournalDate(task.date) !== task.date
     || normalizeJournalDate(task.endDate) !== task.endDate) throw new Error("请先确认跨天安排的日期。");
   const utcDay = (value: string) => { const [y, m, d] = value.split("-").map(Number); return Date.UTC(y, m - 1, d); };
@@ -189,6 +189,7 @@ async duplicateTaskToDate(this: StoreHost, taskId: string, date: string): Promis
       project: task.project,
       date,
       endDate: shiftedPlanEndDate(task, date),
+      scheduleMode: task.scheduleMode,
       time: task.time,
       startTime: task.startTime,
       endTime: task.endTime,
@@ -224,6 +225,7 @@ async updateTaskDetails(this: StoreHost, taskId: string, input: LifeOpsTaskInput
         project: input.project === undefined ? task.project : input.project.trim() || "默认",
         date: input.date === undefined ? task.date : input.date.trim(),
         endDate: input.endDate === undefined ? task.endDate : input.endDate.trim() || "",
+        ...(input.scheduleMode === undefined ? {} : { scheduleMode: input.scheduleMode }),
         time: input.time === undefined ? task.time : input.time.trim() || "",
         ...(input.startTime === undefined ? {} : { startTime: input.startTime.trim() }),
         ...(input.endTime === undefined ? {} : { endTime: input.endTime.trim() }),
@@ -293,8 +295,8 @@ async getTaskDashboard(this: StoreHost, date: string = todayString(), options: {
       date,
       tasks,
       today: allActive.filter((task) => isTaskOnDate(task, date)),
-      tomorrow: allActive.filter((task) => isTaskOnDate(task, tomorrow)),
-      nextSevenDays: allActive.filter((task) => task.date && task.date > date && task.date <= nextSeven),
+      tomorrow: allActive.filter((task) => !isTaskWindow(task) && isTaskOnDate(task, tomorrow)),
+      nextSevenDays: allActive.filter((task) => task.date && task.date <= nextSeven && (isTaskWindow(task) ? (task.endDate || task.date) >= tomorrow : task.date > date)),
       overdue: allActive.filter((task) => isTaskOverdue(task, date)),
       completedToday: tasks.filter((task) => task.status === "completed" && taskCompletionDay(task.completedAt) === date),
       noDate: allActive.filter((task) => !task.date),
@@ -360,6 +362,7 @@ async createNextRepeatedTask(this: StoreHost, task: LifeOpsTask, completedAt: st
       time: task.time,
       startTime: task.startTime,
       endTime: task.endTime,
+      scheduleMode: task.scheduleMode,
       dueDate: next.dueDate,
       dueTime: task.dueTime,
       repeatUnit: task.repeatUnit,

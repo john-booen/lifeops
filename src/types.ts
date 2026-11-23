@@ -87,6 +87,8 @@ export interface LifeOpsTask {
   project: string;
   date: string;
   endDate: string;
+  /** Fixed work interval or a flexible completion window; absent in older records. */
+  scheduleMode?: "fixed" | "window";
   time: string;
   /** Planned interval only. `time` remains the unconverted legacy point. */
   startTime?: string;
@@ -119,6 +121,7 @@ export interface LifeOpsTaskInput {
   project?: string;
   date?: string;
   endDate?: string;
+  scheduleMode?: "fixed" | "window";
   time?: string;
   startTime?: string;
   endTime?: string;
