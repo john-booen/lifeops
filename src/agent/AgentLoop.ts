@@ -500,14 +500,14 @@ export class AgentLoop {
         }
         const single = calls.length === 1 && results[0]?.success ? results[0] : undefined;
         taskListAnswer = !input.voiceBackground && single && call.name === "list_tasks" && call.arguments.category === undefined
-          && call.arguments.directReply !== false && (call.arguments.directReply === true
+          && call.arguments.directReply !== false && (call.arguments.answerMode === "facts" || call.arguments.directReply === true
             || call.arguments.dueStatus === "overdue_and_today" || call.arguments.order === "priority" && Number.isInteger(call.arguments.limit))
           ? formatTaskListReply(single.output, formatDate(input.now)) : undefined;
         if (input.source === "text" && !input.voiceBackground && single && call.name === "list_tasks"
           && call.arguments.category === undefined && call.arguments.directReply !== false
           && !state.receipts.size && !state.confirmations.size && !state.errorCode
           && state.toolCalls.every(tool => tool.ok && tool.name === "list_tasks")
-          && (call.arguments.answerMode === "facts" || call.arguments.answerMode === undefined && simpleReadOnlyTaskLookup(input.message))) {
+          && call.arguments.answerMode === undefined && simpleReadOnlyTaskLookup(input.message)) {
           const reply = formatTaskListReply(single.output, formatDate(input.now));
           if (reply) {
             assertPolicy(); this.host.assertReadOnlyReplyCurrent?.();

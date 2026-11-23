@@ -232,14 +232,25 @@ it.each(["facts", "continue"] as const)("honors the model-selected %s mode for a
   await store.createTask({ title: "虚构水杉卡片归档", date: "2026-11-06", endDate: "2026-11-12", estimateMin: 600 });
   const before = await store.readPath(store.taskDbPath());
   responses.push(reply("", [tool("list_tasks", { query: "虚构水杉卡片归档", status: "all", answerMode })]));
-  if (answerMode === "continue") responses.push(reply("虚构完整解释，保留后续请求。"));
+  responses.push(reply(answerMode === "continue" ? "虚构完整解释，保留后续请求。" : "要不要再帮你改期？"));
   const result = await new AgentLoop(host).run(input({ message: "查一下虚构水杉卡片归档的安排。这是这段日期内分次完成的任务，请告诉我是期间任务还是明天必须全部做完、计划哪天结束，有没有另设必须截止日期。不要修改或新建任何记录。" }));
-  expect(requests).toHaveLength(answerMode === "facts" ? 1 : 2);
+  expect(requests).toHaveLength(2);
   if (answerMode === "facts") {
     expect(result.text).toContain("期间任务"); expect(result.text).toContain("计划完成：2026-11-12"); expect(result.text).toContain("必须截止：未另设");
   } else expect(result.text).toBe("虚构完整解释，保留后续请求。");
   expect(result.text).not.toMatch(/[？?]/u); expect(result.confirmations).toEqual([]); expect(result.receipts).toEqual([]);
   expect(await store.readPath(store.taskDbPath())).toBe(before);
+});
+it("does not let an early facts hint stop a requested four-task modification", async () => {
+  const rows=[];for(let i=0;i<4;i++)rows.push(await store.createTask({title:`虚构整批事实${i}`,date:"2026-11-12",startTime:"16:00",endTime:"16:30"}));
+  const before=await store.readPath(store.taskDbPath());
+  responses.push(reply("",[tool("list_tasks",{query:"虚构整批事实",answerMode:"facts"})]),
+    reply("",[tool("update_tasks",{updates:rows.map(row=>({taskIdOrTitle:row.id,startTime:"15:00",endTime:"15:30"}))})]),
+    reply("四条修改已整理为一张确认卡，尚未保存。"));
+  const result=await new AgentLoop(host).run(input({message:"把虚构整批事实四条原任务都改到15:00至15:30，给一份确认卡，等我确认后再保存。"}));
+  expect(requests).toHaveLength(3);expect(result.confirmations).toHaveLength(1);
+  expect((result.confirmations[0].toolBatch![0].arguments.updates as unknown[])).toHaveLength(4);
+  expect(result.receipts).toEqual([]);expect(await store.readPath(store.taskDbPath())).toBe(before);
 });
 
 it.each(["查一下虚构蓝盒相关未完成任务，不限定日期，先不要修改。", "查一下虚构蓝盒相关未完成任务，不限定日期。"])("finishes a simple named task lookup with verified dates and no second model request (%s)", async message => {
