@@ -4,7 +4,7 @@ import { createPersonalMemoryContextFilter, personalMemoryContextRevision, perso
 import { memorySourcePolicy } from "./personalMemorySources";
 import type { StoreHost } from "./store/settingsSlice";
 import type { AgentConversationMessage, AgentResponse } from "./types";
-import { summaryQuerySelections, type SummaryQueryScope } from "./agent/summaryQueryScope";
+import { summaryQuerySelections, type SummaryQueryRange, type SummaryQueryScope } from "./agent/summaryQueryScope";
 
 // Private and process-local. Enumerable symbols survive an ordinary object
 // spread, but neither JSON nor the Provider message projection carries them.
@@ -87,16 +87,21 @@ export function projectPersonalMemoryHistory(history: AgentConversationMessage[]
 /** Memory changes invalidate old prose, not a checked query's date selection.
  * Require the complete original pair; the selection only helps resolve a new
  * request and must be read again under the current permissions and memory. */
-export function historicalQueryHistoryContext(history: AgentConversationMessage[], store: StoreHost): string {
+export function historicalQueryHistorySelections(history: AgentConversationMessage[], store: StoreHost): SummaryQueryRange[] {
   for (let index = history.length - 1; index > 0; index--) {
     const user = history[index - 1], assistant = history[index];
     if (user.role !== "user" || assistant.role !== "assistant") continue;
     const token = (user as Proven)[evidence], owner = token && owners.get(token);
     if (!owner || token !== (assistant as Proven)[evidence] || owner.vault !== store.app.vault || owner.policy !== memorySourcePolicy(store)
-      || owner.userHash !== hash(user.content) || owner.assistantHash !== hash(assistant.content)) return "";
+      || owner.userHash !== hash(user.content) || owner.assistantHash !== hash(assistant.content)) return [];
     const selected = summaryQuerySelections(store, owner.queryScopes ?? []);
-    if (selected.length) return "此前已核对的历史查询日期范围（仅用于本轮指代，不是事实或写入授权）：\n" + JSON.stringify(selected)
-      + "\n只有本轮确实接续该查询时才使用；用户明确给出的新范围优先。本轮必须按当前权限重新读取，不沿用旧回复或旧事实。后续建议使用当前可用的已确认记忆；范围本身不证明任何事件。";
+    if (selected.length) return selected;
   }
-  return "";
+  return [];
+}
+
+export function historicalQueryHistoryContext(history: AgentConversationMessage[], store: StoreHost): string {
+  const selected = historicalQueryHistorySelections(history, store);
+  return selected.length ? "此前已核对的历史查询日期范围（仅用于本轮指代，不是事实或写入授权）：\n" + JSON.stringify(selected)
+    + "\n只有本轮确实接续该查询时才使用；用户明确给出的新范围优先。本轮必须按当前权限重新读取，不沿用旧回复或旧事实。后续建议使用当前可用的已确认记忆；范围本身不证明任何事件。" : "";
 }

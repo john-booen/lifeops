@@ -243,7 +243,7 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
         startTime: { type: "string", description: "明确计划开始的 HH:mm，未提开始则省略。" },
         endTime: { type: "string", description: "结束或做完的 HH:mm，如三点前交稿填 15:00。" },
         endDate: { type: "string", description: "跨天计划结束日期；同一天可省略。支持明确的相对日期，不推测。" },
-        scheduleMode: { type: "string", enum: ["fixed", "window"], description: "一周内、跨月期间分次完成填window，并给开始日期date与计划完成日期endDate。fixed仅表示明确固定的工作区间，不能把一周任务排成每天连续工作。" },
+        scheduleMode: { type: "string", enum: ["fixed", "window"], description: "window期间完成，date至endDate；fixed固定时段。" },
         category: { type: "string", description: "任务分类，可省略。" },
         learningTrackId: { type: "string", enum: Object.keys(LEARNING_TRACKS), description: "英语 english；交易 trading；量化 quant；AI ai" },
         estimateMin: { type: "number", exclusiveMinimum: 0, description: "用户提供的估计分钟数。" }

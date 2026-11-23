@@ -46,7 +46,8 @@ import { recoverReadOnlyStats, type StatsRecoveryRead } from "./readOnlyStatsRec
 import { resolvedTaskLookup, taskLookupResolution } from "./taskLookupResolution";
 import { holdToolProtocolPrefix, isLeakedToolProtocol, toolProtocolRepairMessages, unavailableToolProtocol, TOOL_PROTOCOL_UNAVAILABLE } from "./toolProtocol";
 import { historicalAnswerMessages, historicalEvidenceFallback } from "./historicalAnswer";
-import { historicalQueryHistoryContext } from "../personalMemoryHistory";
+import { historicalQueryHistoryContext, historicalQueryHistorySelections } from "../personalMemoryHistory";
+import { bindHistoricalDateReference } from "./historicalDateReference";
 import { simpleReadOnlyTaskLookup } from "./readOnlyTaskLookup";
 import { preferJournalOriginalReads } from "./journalOriginalRouting";
 
@@ -314,6 +315,7 @@ export class AgentLoop {
       }
       const history = agentHistoryMessages(input.history, this.host.store, context.memories);
       const queryContinuity = context.memories && !input.voiceBackground ? historicalQueryHistoryContext(input.history, this.host.store) : "";
+      const priorQueryDates = context.memories && !input.voiceBackground ? historicalQueryHistorySelections(input.history, this.host.store) : [];
       const currentMemory = context.memories && !input.voiceBackground
         ? formatConfirmedPersonalMemoryContext(context.memories, input.message, 4000, 8) : "";
       const messages: ChatMessage[] = [
@@ -429,7 +431,7 @@ export class AgentLoop {
         const requested = priority ? [priority] : response.toolCalls;
         const originalReads = input.source === "text" && !input.voiceBackground
           ? preferJournalOriginalReads(requested, input.message, input.now, history) : requested;
-        const grounded = requestedSummaryDates(originalReads, input.message, input.now, history);
+        const grounded = bindHistoricalDateReference(requestedSummaryDates(originalReads, input.message, input.now, history), input.message, priorQueryDates);
         let calls = this.scopedCalls(requestedSummaryTopics(grounded, input.message), state.id, round);
         const mixed = !input.voiceBackground ? await expandMixedTaskBatch(this.host.store, calls, input.now) : undefined;
         assertPolicy();

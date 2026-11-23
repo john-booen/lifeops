@@ -1,6 +1,6 @@
 /** Remote-only fictional completion windows: classification, actual editor and old-package readback. */
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 export async function nativeTaskPeriodWindow({ getPage, root, result, candidate, dailyRollback, launch, close, packageFiles }) {
@@ -28,20 +28,30 @@ export async function nativeTaskPeriodWindow({ getPage, root, result, candidate,
   result.checks.periodWindowClassificationAndVisibleList = true;
   await page.evaluate(async id => { const p = app.plugins.getPlugin("lifeops-assistant"); p.openTaskEditModal(await p.store.getTask(id)); }, fixture.week.id);
   const mode = page.locator(".modal-container .setting-item").filter({ has: page.getByText("安排方式", { exact: true }) }).locator("select");
-  assert.equal(await mode.inputValue(), "window"); await mode.selectOption("window");
+  assert.equal(await mode.inputValue(), "window");
+  // Exercise an actual mode change instead of reselecting a derived value.
+  await mode.selectOption("fixed");
+  await page.locator('.modal-container input[aria-label="计划结束日期"]').waitFor();
+  await mode.selectOption("window");
   const finish = page.locator('.modal-container input[aria-label="计划完成日期"]');
   await finish.fill(fixture.newEnd);
   await page.screenshot({ path: join(root, "period-task-editor.png") });
   await page.getByRole("button", { name: "保存修改", exact: true }).click();
-  await page.waitForFunction(async ({ id, end }) => {
+  const persisted = await page.waitForFunction(async ({ id, end }) => {
     const p = app.plugins.getPlugin("lifeops-assistant"), row = await p.store.getTask(id);
-    return !document.querySelector(".modal-container") && row.endDate === end && row.scheduleMode === "window";
+    const state = globalThis[Symbol.for("lifeops.fact-operation-state.v1")];
+    return !document.querySelector(".modal-container") && !state?.locks?.has(app.vault)
+      && !state?.activeWrites?.has(app.vault) && !p.sourceChangeTimers?.size
+      && row.endDate === end && row.scheduleMode === "window" ? row : false;
   }, { id: fixture.week.id, end: fixture.newEnd });
+  const quiescentRow = await persisted.jsonValue();
   const saved = await page.evaluate(async id => {
     const p = app.plugins.getPlugin("lifeops-assistant"), row = await p.store.getTask(id);
     const plan = await p.createAgentRuntime().executeAiToolCall({ name: "plan_today", arguments: {} }, "kimi");
     return { row, plan: JSON.parse(plan.output) };
   }, fixture.week.id);
+  await writeFile(join(root, "period-editor-readback.json"), JSON.stringify({ before: fixture.week, quiescentRow, saved }, null, 2));
+  assert.deepEqual(saved.row, quiescentRow);
   const { endDate, scheduleMode, updatedAt, ...rest } = saved.row;
   const { endDate: priorEnd, updatedAt: priorUpdated, ...original } = fixture.week;
   assert.deepEqual(rest, original); assert.equal(scheduleMode, "window"); assert.equal(endDate, fixture.newEnd);

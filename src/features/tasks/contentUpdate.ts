@@ -16,7 +16,7 @@ export const UPDATE_TASKS_TOOL: AiToolDefinition = {
         note: { type: "string", description: "新的完整备注；仅明确要求改备注时填写，空串表示清空。" },
         date: { type: "string", description: "新的安排日期；未要求则省略。" },
         endDate: { type: "string", description: "跨天结束日期；空串清除，省略保留。" },
-        scheduleMode: { type: "string", enum: ["fixed", "window"], description: "window表示一段日期内分次完成，不是每天全天占用；fixed仅用于明确的固定工作区间。未要求改变则省略。" },
+        scheduleMode: { type: "string", enum: ["fixed", "window"], description: "window期间分次完成；fixed固定时段；省略保留。" },
         startTime: { type: "string", description: "计划开始HH:mm；空串清除，省略保留。" },
         endTime: { type: "string", description: "计划结束HH:mm；空串清除，省略保留。" },
         time: { type: "string", description: "无区间任务的单点HH:mm，省略保留。" } }, required: ["taskIdOrTitle"] } }
