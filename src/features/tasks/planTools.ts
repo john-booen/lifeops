@@ -24,7 +24,7 @@ async function planningInputs(context: ToolExecutionContext) {
 export const TASK_PLANNING_TOOLS: LifeOpsToolDefinition[] = [
   {
     name: "list_tasks",
-    description: "查任务，默认未完成。按名称查找用query：省略date时跨日期；普通/优先列表仍默认今天。查修改对象须核对返回日期和ID，按nextOffset续查，不能把前20条当全部。",
+    description: "查任务，默认未完成。query省略date时跨日期，普通列表默认今天。纯查安排、期间方式或截止填answerMode=facts；还要解释、建议或修改填continue。核对日期和ID，按nextOffset续查。",
     safety: "safe",
     parameters: { type: "object", additionalProperties: false, properties: {
       date: { type: "string", description: "query查找省略日期时跨日期；普通/优先列表默认今天。" },
@@ -33,11 +33,12 @@ export const TASK_PLANNING_TOOLS: LifeOpsToolDefinition[] = [
       habitName: { type: "string", description: "只查这一项习惯的补偿时填写习惯名称。" },
       dueStatus: { type: "string", enum: ["overdue_and_today"], description: "仅用于明确要求分别列出逾期和今日到期。" },
       directReply: { type: "boolean", description: "兼容旧客户端；查询结果仍交回本轮继续处理。" },
+      answerMode: { type: "string", enum: ["facts", "continue"], description: "facts直接返回日期方式和截止；continue继续解释或处理。" },
       order: { type: "string", enum: ["priority"], description: "用户问最要紧的待办时按优先级排序。" },
       limit: { type: "integer", minimum: 1, maximum: 30, description: "列出几项就填几，不改变返回的总数。" },
       query: { type: "string", description: "按标题连续文字查找；省略日期跨日期，优先列表仍今天。" },
       offset: { type: "integer", minimum: 0, maximum: 100000, description: "普通列表沿用nextOffset取下一页；总数不变。" }
-    } },
+    }, required: ["answerMode"] },
     async execute(args, context) {
       const date = args.date === undefined ? todayString() : typeof args.date === "string" ? normalizeJournalDate(args.date) : "";
       const status = args.status === undefined ? "active" : args.status;
@@ -55,6 +56,7 @@ export const TASK_PLANNING_TOOLS: LifeOpsToolDefinition[] = [
         || (args.order !== undefined && (!ordered || status !== "active" || penalties))
         || (args.habitName !== undefined && (!penalties || !habitName || habitName.length > 40))
         || (args.directReply !== undefined && typeof args.directReply !== "boolean")
+        || (args.answerMode !== undefined && !["facts", "continue"].includes(String(args.answerMode)))
         || typeof offset !== "number" || !Number.isSafeInteger(offset) || offset < 0 || offset > 100000
         || (args.query !== undefined && (typeof args.query !== "string" || !query || query.length > 1000))
         || (dueGroups && (args.query !== undefined || offset !== 0))

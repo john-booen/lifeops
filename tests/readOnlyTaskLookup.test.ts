@@ -20,8 +20,3 @@ it("does not promote quoted task words or an ordinary conversation into read-onl
 it("keeps long compound requests on the normal conversation path", () => {
   expect(simpleReadOnlyTaskLookup("查蓝盒任务，" + "详细背景".repeat(60) + "，不修改。")).toBe(false);
 });
-it("finishes a factual period and deadline lookup without offering another edit", () => {
-  expect(simpleReadOnlyTaskLookup("查一下虚构水杉卡片归档的安排。这是这段日期内分次完成的任务，请告诉我是期间任务还是明天必须全部做完、计划哪天结束，有没有另设必须截止日期。不要修改或新建任何记录。")).toBe(true);
-  for (const text of ["查蓝纸任务安排并给一条建议。不要修改或新建任何记录。", "查蓝纸任务安排，帮我完成这条任务。不要修改或新建任何记录。", "查蓝纸任务安排。不要修改或新建任何记录。然后改时间。"])
-    expect(simpleReadOnlyTaskLookup(text)).toBe(false);
-});

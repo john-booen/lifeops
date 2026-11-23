@@ -506,7 +506,8 @@ export class AgentLoop {
         if (input.source === "text" && !input.voiceBackground && single && call.name === "list_tasks"
           && call.arguments.category === undefined && call.arguments.directReply !== false
           && !state.receipts.size && !state.confirmations.size && !state.errorCode
-          && state.toolCalls.every(tool => tool.ok && tool.name === "list_tasks") && simpleReadOnlyTaskLookup(input.message)) {
+          && state.toolCalls.every(tool => tool.ok && tool.name === "list_tasks")
+          && (call.arguments.answerMode === "facts" || call.arguments.answerMode === undefined && simpleReadOnlyTaskLookup(input.message))) {
           const reply = formatTaskListReply(single.output, formatDate(input.now));
           if (reply) {
             assertPolicy(); this.host.assertReadOnlyReplyCurrent?.();
