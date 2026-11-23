@@ -21,3 +21,12 @@ it("keeps both sides of a checked comparison and never changes non-summary calls
   expect(result[2]).toBe(write); expect(new Set(result.map(row => row.id)).size).toBe(3);
   expect(bindHistoricalDateReference([call], "接着这两周", [])).toEqual([call]);
 });
+it("re-reads the checked original range when the provider uses a broad journal search instead of summaries", () => {
+  const search: AiToolCall = { id: "fictional-search", name: "query_vault", arguments: { domain: "journal", operation: "search", query: "纸样归档", range: "all", limit: 10 } };
+  const [bound] = bindHistoricalDateReference([search], "接着这两周给一条下周建议", [selection]);
+  expect(bound.name).toBe("get_summaries"); expect(bound.arguments).toEqual({ ...selection, includeOriginals: true, query: "纸样归档" });
+  for (const extra of [{ operation: "get", path: "specific.md" }, { offset: 3 }, { domain: "memory" }, { limit: 0 }, { query: "x".repeat(121) }, { range: "year" }]) {
+    const specific = { ...search, arguments: { ...search.arguments, ...extra } };
+    expect(bindHistoricalDateReference([specific], "接着这两周", [selection])).toEqual([specific]);
+  }
+});

@@ -228,6 +228,17 @@ it("reads the requested multi-day journal originals instead of spending rounds l
   expect(await store.readPath(store.taskDbPath())).toBe(before);
 });
 
+it("answers stored period dates and an absent hard deadline directly without a follow-up offer", async () => {
+  await store.createTask({ title: "虚构水杉卡片归档", date: "2026-11-06", endDate: "2026-11-12", estimateMin: 600 });
+  const before = await store.readPath(store.taskDbPath());
+  responses.push(reply("", [tool("list_tasks", { query: "虚构水杉卡片归档", status: "all" })]));
+  const result = await new AgentLoop(host).run(input({ message: "查一下虚构水杉卡片归档的安排。这是这段日期内分次完成的任务，请告诉我是期间任务还是明天必须全部做完、计划哪天结束，有没有另设必须截止日期。不要修改或新建任何记录。" }));
+  expect(requests).toHaveLength(1); expect(result.text).toContain("期间任务");
+  expect(result.text).toContain("计划完成：2026-11-12"); expect(result.text).toContain("必须截止：未另设");
+  expect(result.text).not.toMatch(/[？?]/u); expect(result.confirmations).toEqual([]); expect(result.receipts).toEqual([]);
+  expect(await store.readPath(store.taskDbPath())).toBe(before);
+});
+
 it.each(["查一下虚构蓝盒相关未完成任务，不限定日期，先不要修改。", "查一下虚构蓝盒相关未完成任务，不限定日期。"])("finishes a simple named task lookup with verified dates and no second model request (%s)", async message => {
   await store.createTask({ title: "虚构蓝盒贴标签", date: "2026-11-13", time: "15:15" });
   await store.createTask({ title: "虚构蓝盒核对编号", date: "2026-11-14", time: "16:00" });

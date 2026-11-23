@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { setTimeout } from "node:timers/promises";
 
 export async function nativeTaskPeriodWindow({ getPage, root, result, candidate, dailyRollback, launch, close, packageFiles }) {
   const rollbackVersion = JSON.parse(await readFile(join(dailyRollback, "manifest.json"), "utf8")).version;
@@ -37,14 +38,26 @@ export async function nativeTaskPeriodWindow({ getPage, root, result, candidate,
   await finish.fill(fixture.newEnd);
   await page.screenshot({ path: join(root, "period-task-editor.png") });
   await page.getByRole("button", { name: "保存修改", exact: true }).click();
-  const persisted = await page.waitForFunction(async ({ id, end }) => {
-    const p = app.plugins.getPlugin("lifeops-assistant"), row = await p.store.getTask(id);
-    const state = globalThis[Symbol.for("lifeops.fact-operation-state.v1")];
-    return !document.querySelector(".modal-container") && !state?.locks?.has(app.vault)
-      && !state?.activeWrites?.has(app.vault) && !p.sourceChangeTimers?.size
-      && row.endDate === end && row.scheduleMode === "window" ? row : false;
-  }, { id: fixture.week.id, end: fixture.newEnd });
-  const quiescentRow = await persisted.jsonValue();
+  // The previous async wait predicate returned a false handle before the
+  // editor's write completed on both native versions. Await every real read
+  // in Node and keep the same 30s limit and exact persistence conditions.
+  const deadline = Date.now() + 30_000;
+  let readback;
+  do {
+    readback = await page.evaluate(async ({ id, end }) => {
+      const p = app.plugins.getPlugin("lifeops-assistant"), row = await p.store.getTask(id);
+      const state = globalThis[Symbol.for("lifeops.fact-operation-state.v1")];
+      return { row, ready: !document.querySelector(".modal-container") && !state?.locks?.has(app.vault)
+        && !state?.activeWrites?.has(app.vault) && !p.sourceChangeTimers?.size
+        && row.endDate === end && row.scheduleMode === "window",
+      error: document.querySelector(".lifeops-task-form-error")?.textContent ?? "" };
+    }, { id: fixture.week.id, end: fixture.newEnd });
+    if (readback.ready || readback.error) break;
+    await setTimeout(100);
+  } while (Date.now() < deadline);
+  await writeFile(join(root, "period-editor-save-snapshot.json"), JSON.stringify(readback, null, 2));
+  assert(readback.ready, readback.error || "Editor did not persist the exact completion window within 30 seconds");
+  const quiescentRow = readback.row;
   const saved = await page.evaluate(async id => {
     const p = app.plugins.getPlugin("lifeops-assistant"), row = await p.store.getTask(id);
     const plan = await p.createAgentRuntime().executeAiToolCall({ name: "plan_today", arguments: {} }, "kimi");

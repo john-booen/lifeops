@@ -209,7 +209,7 @@ export function formatHabitCompensationReply(name: string, output: string): stri
 
 interface TaskListGroup {
   count: number;
-  tasks: Array<{ title: string; time?: string; date?: string; endDate?: string }>;
+  tasks: Array<{ title: string; time?: string; date?: string; endDate?: string; scheduleMode?: string; dueDate?: string; dueTime?: string }>;
 }
 
 function validTaskListGroup(group: TaskListGroup | undefined): group is TaskListGroup {
@@ -221,7 +221,8 @@ function taskListLines(tasks: TaskListGroup["tasks"], includeDates = false): str
   return tasks.map((task, index) => {
     const date = typeof task.date === "string" && /^\d{4}-\d{2}-\d{2}$/u.test(task.date) ? task.date : "日期未核对";
     const span = task.endDate && task.endDate !== task.date && /^\d{4}-\d{2}-\d{2}$/u.test(task.endDate) ? date + " 至 " + task.endDate : date;
-    const detail = [includeDates ? span : "", task.time].filter(Boolean).join(" · ");
+    const period = task.scheduleMode === "window" ? `期间任务，期间内分次推进，不表示明天必须全部做完；计划完成：${task.endDate || date}；必须截止：${typeof task.dueDate !== "string" ? "本次未提供" : task.dueDate ? task.dueDate + (task.dueTime ? " " + task.dueTime : "") : "未另设"}` : "";
+    const detail = [includeDates ? span : "", task.time, period].filter(Boolean).join(" · ");
     return `${index + 1}. ${task.title}${detail ? `（${detail}）` : ""}`;
   });
 }

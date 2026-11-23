@@ -9,6 +9,8 @@ import { taskCapacity, taskEstimates } from "../src/features/tasks/capacity";
 import { parseVaultTasks } from "../src/vaultApi";
 import { todayTaskCounts } from "../src/features/stats/stats";
 import { planTaskBatch } from "../src/agent/taskBatch";
+import { bindTaskPlanConfirmation } from "../src/features/tasks/planConfirmation";
+import { prepareToolBatch, executeConfirmedToolBatch } from "../src/toolBatch";
 import type { StoreHost } from "../src/store/settingsSlice";
 vi.mock("obsidian", () => ({ App: class {}, Notice: class {}, TFile: class {}, TFolder: class {}, normalizePath: (p: string) => p.replace(/\\/g, "/").replace(/\/{2,}/g, "/") }));
 const { LifeOpsStore } = await import("../src/store");
@@ -25,6 +27,33 @@ beforeEach(async () => {
 afterEach(async () => { vi.useRealTimers(); await rm(root, { recursive: true, force: true }); });
 
 describe("period completion is different from a single-day work appointment", () => {
+  it("keeps all original fields when a model repeats the derived fixed mode in a four-task clock adjustment", async () => {
+    const before = [];
+    for (let i = 0; i < 4; i++) before.push(await store.createTask({ title: `虚构保留方式${i}`, date: today, startTime: "16:00", endTime: "16:30", note: `虚构备注${i}` }));
+    const batch = prepareToolBatch([{ name: "update_tasks", arguments: { updates: before.map(row => ({ taskIdOrTitle: row.id, scheduleMode: "fixed", startTime: "15:00", endTime: "15:30" })) } }])!;
+    await bindTaskPlanConfirmation(store, batch); expect(batch.success).toBe(true);
+    const updates = batch.actions[0].toolBatch![0].arguments.updates as Record<string, unknown>[];
+    expect(updates.every(row => !Object.hasOwn(row, "scheduleMode"))).toBe(true);
+    await executeConfirmedToolBatch(batch.actions[0], new AgentRuntime({ store, refreshViews: async () => {} }), () => {});
+    const after = (await store.readTaskDb({ readOnly: true })).tasks;
+    for (let i = 0; i < 4; i++) {
+      const { startTime, endTime, updatedAt, ...rest } = after[i];
+      const { startTime: oldStart, endTime: oldEnd, updatedAt: oldUpdated, ...original } = before[i];
+      expect({ startTime, endTime }).toEqual({ startTime: "15:00", endTime: "15:30" }); expect(rest).toEqual(original);
+    }
+  });
+  it.each([
+    { originalEnd: "2026-11-30", nextMode: "fixed" },
+    { originalEnd: "", nextMode: "fixed" },
+    { originalEnd: "", nextMode: "window" }
+  ] as const)("retains a necessary explicit mode when new dates change the default: %j", async ({ originalEnd, nextMode }) => {
+    const row = await store.createTask({ title: "虚构必要方式", date: today, endDate: originalEnd, startTime: "16:00", endTime: "16:30" });
+    const batch = prepareToolBatch([{ name: "update_tasks", arguments: { updates: [{ taskIdOrTitle: row.id, endDate: "2026-12-02", scheduleMode: nextMode }] } }], 0, "先确认", true)!;
+    await bindTaskPlanConfirmation(store, batch);
+    const update = (batch.actions[0].toolBatch![0].arguments.updates as Record<string, unknown>[])[0];
+    if (nextMode === "fixed") expect(update.scheduleMode).toBe("fixed");
+    else expect(update.scheduleMode).toBe("window");
+  });
   it.each([
     ["week", "2026-11-21", "2026-11-27"],
     ["month", "2026-10-29", "2026-12-02"],

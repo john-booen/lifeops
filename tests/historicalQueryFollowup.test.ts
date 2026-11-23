@@ -72,7 +72,9 @@ it.each([0, 3, 12])("continues the checked two-week query after a real memory co
       // Reproduce the live regression: the provider invents a newer range
       // despite the checked selection surviving the memory correction.
       const modelRange = backgroundCount === 12 ? { from: "2026-11-02", to: "2026-11-12" } : range;
-      return { content: "", toolCalls: [{ id: "fictional-reread-corrected-week", name: "get_summaries", arguments: { level: "week", range: modelRange, includeOriginals: true } }] };
+      return { content: "", toolCalls: [backgroundCount === 3
+        ? { id: "fictional-reread-as-search", name: "query_vault", arguments: { domain: "journal", operation: "search", query: "纸样归档" } }
+        : { id: "fictional-reread-corrected-week", name: "get_summaries", arguments: { level: "week", range: modelRange, includeOriginals: true } }] };
     }
     expect(sent).toContain("2026-10-28"); expect(sent).toContain("2026-11-04"); expect(sent).toContain("19:30");
     const answer = followupTurns === 2 ? "虚构未发布新草稿" : "10月28日与11月4日均记录连续25分钟归档。下一步（建议）：按当前已更正记忆，周三19:30留25分钟；未创建任务。";

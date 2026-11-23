@@ -14,8 +14,20 @@ export function bindHistoricalDateReference(calls: AiToolCall[], message: string
   if (!selected.length || selected.length > 8 || !reference.test(text) || newDates.test(text)) return calls;
   // A request for one part of the prior period still needs its own selection.
   if (/(?:其中|第|前一|后一|最后一|最早一)(?:[一二三四五六七八九十\d]+)?(?:周|星期|月|天)/u.test(text)) return calls;
-  return calls.flatMap(call => call.name !== "get_summaries" ? [call] : selected.map((scope, index) => ({
-    ...call, id: call.id ? `${call.id}:checked-range:${index}` : undefined,
-    arguments: { ...call.arguments, level: scope.level, range: { ...scope.range } }
-  })));
+  return calls.flatMap(call => {
+    const a = call.arguments;
+    const journal = call.name === "query_vault" && a.domain === "journal"
+      && (a.operation === "list" && a.query === undefined || a.operation === "search" && typeof a.query === "string" && !!a.query.trim() && a.query.length <= 120)
+      && Object.keys(a).every(key => ["domain", "operation", "query", "date", "range", "sort", "limit"].includes(key))
+      && (a.limit === undefined || Number.isInteger(a.limit) && Number(a.limit) >= 1 && Number(a.limit) <= 100)
+      && (a.sort === undefined || ["newest", "oldest"].includes(String(a.sort)))
+      && (a.range === undefined || ["today", "week", "month", "all"].includes(String(a.range)));
+    if (call.name !== "get_summaries" && !journal) return [call];
+    return selected.map((scope, index) => ({
+      ...call, name: "get_summaries", id: call.id ? `${call.id}:checked-range:${index}` : undefined,
+      arguments: journal ? { level: scope.level, range: { ...scope.range }, includeOriginals: true,
+        ...(typeof a.query === "string" ? { query: a.query } : {}) }
+        : { ...a, level: scope.level, range: { ...scope.range } }
+    }));
+  });
 }

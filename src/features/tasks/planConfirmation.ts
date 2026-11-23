@@ -2,7 +2,7 @@ import type { ToolCallResult } from "../../agentRuntime";
 import { readContextTasks } from "../../contextData";
 import { recordRevision } from "../../operationIdentity";
 import type { StoreHost } from "../../store/settingsSlice";
-import { taskScheduleLabel } from "../../taskSchedule";
+import { taskScheduleLabel, taskScheduleMode } from "../../taskSchedule";
 import { TASK_PLAN_FIELDS, taskPlanUpdate } from "./scheduleUpdate";
 
 /** Freeze the exact existing records shown in a batch's confirmation preview. */
@@ -27,6 +27,11 @@ export async function bindTaskPlanConfirmation(store: StoreHost, batch: ToolCall
         for (const key of ["title", "note"] as const) if (Object.prototype.hasOwnProperty.call(row, key)
           && Object.is(before[key], row[key])) delete row[key];
         const next = { ...before, ...taskPlanUpdate(before, row) };
+        // A model may echo list_tasks' derived mode even though the user only
+        // changed clocks. Preserve the original metadata unless the mode is
+        // different or is needed to keep that meaning under the new dates.
+        if (row.scheduleMode !== undefined && row.scheduleMode === taskScheduleMode(before)
+          && taskScheduleMode({ ...next, scheduleMode: before.scheduleMode }) === row.scheduleMode) delete row.scheduleMode;
         row.taskIdOrTitle = before.id; row.expectedRevision = recordRevision(before);
         const oldPlan = [before.date, taskScheduleLabel(before)].filter(Boolean).join(" ") || "未排时间";
         const newPlan = [next.date, taskScheduleLabel(next)].filter(Boolean).join(" ") || "未排时间";
