@@ -254,17 +254,23 @@ export async function exerciseNativeDeviceBatch({ getPage, root, vault, profile,
   await close(); await packageFiles(candidate); await launch(); page = getPage();
   // Reopened Obsidian can expose the plugin before its copied ledger and
   // writer bootstrap are readable. Retain the actual undone-receipt gate.
-  await page.waitForFunction(async operationId => {
-    const p = app.plugins.getPlugin("lifeops-assistant");
-    if (!p?.deviceInbox || p.dataFoundationBootstrap) return false;
-    await p.deviceInbox.scan();
-    return (await p.deviceInbox.list()).some(row => row.operationId === operationId && row.undone);
-  }, received.offlineOperationId, { timeout: 15000 });
-  const restored = await page.evaluate(async () => {
-    const p = app.plugins.getPlugin("lifeops-assistant"); await p.deviceInbox.scan();
-    return { tasks: (await p.store.readTaskDb()).tasks, version: p.manifest.version, id: p.devices.execution.deviceId,
-      rows: await p.deviceInbox.list() };
-  });
+  const readbackDeadline = Date.now() + 15000;
+  let restored;
+  do {
+    restored = await page.evaluate(async operationId => {
+      const p = app.plugins.getPlugin("lifeops-assistant");
+      if (!p?.deviceInbox || p.dataFoundationBootstrap) return null;
+      await p.deviceInbox.scan();
+      const rows = await p.deviceInbox.list(), tasks = (await p.store.readTaskDb()).tasks;
+      const state = globalThis[Symbol.for("lifeops.fact-operation-state.v1")];
+      if (!rows.some(row => row.operationId === operationId && row.undone)
+        || state?.locks?.has(app.vault) || state?.activeWrites?.has(app.vault)) return null;
+      return { tasks, version: p.manifest.version, id: p.devices.execution.deviceId, rows };
+    }, received.offlineOperationId);
+    if (restored) break;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  } while (Date.now() < readbackDeadline);
+  assert(restored, "Reinstalled package did not read the actual undone receipt within 15000ms");
   assert.equal(restored.version, received.version); assert.equal(restored.id, writerId); assert.deepEqual(restored.tasks, old.tasks);
   assert(restored.rows.some(row => row.operationId === received.offlineOperationId && row.undone));
   result.checks.reinstallRetainsDataAndDoesNotReplay = true;
