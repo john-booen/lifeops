@@ -57,9 +57,9 @@ jobs:
   verify:
     needs: source-plan
     if: needs.source-plan.outputs.reuse != 'true'
-    # Keep the full instrumented suite on its reviewed native ARM64 timing baseline.
-    # The lightweight audit uses Intel, avoiding a second ARM64 queue.
-    runs-on: macos-15
+    # Hosted ARM jobs failed allocation without executing a step. Keep every
+    # test and coverage gate unchanged on the available hosted Intel Macs.
+    runs-on: macos-15-intel
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -128,7 +128,7 @@ jobs:
 
   native-task-content:
     if: github.event_name == 'workflow_dispatch' && inputs.native_task_content
-    runs-on: macos-15
+    runs-on: macos-15-intel
     timeout-minutes: 20
     strategy:
       fail-fast: false
