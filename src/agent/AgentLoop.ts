@@ -1055,7 +1055,8 @@ export class AgentLoop {
         : "没有核对到你要改时刻的是哪条待办。请用本轮指明的待办，或用上轮已核对回执中的任务 ID；仍不清楚就先问我。", actions: []
     }));
     for (const result of blocked) this.recordResult(input, state, calls.find(call => call.id === result.callId)!.name, result);
-    const batch = prepareToolBatch(allowed, state.writeCount, input.message, state.requestedTaskConfirmation);
+    const requestedTaskPreview = state.requestedTaskConfirmation && allowed.some(call => ["update_tasks", "reschedule_task", "complete_task"].includes(call.name));
+    const batch = prepareToolBatch(allowed, state.writeCount, input.message, requestedTaskPreview);
     if (batch) {
       await bindTaskPlanConfirmation(this.host.store, batch);
       if (batch.success && batch.actions[0]) sealRequestedToolBatch(batch.actions[0]);

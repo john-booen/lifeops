@@ -69,3 +69,10 @@ it("uses the same verified priority answer when a model redundantly asks for a w
   expect(repeatedTaskListPriority([priority, { ...wider, arguments: { ...wider.arguments, directReply: false } }], date)).toBeUndefined();
   expect(repeatedTaskListPriority([priority, { ...wider, arguments: { ...wider.arguments, query: "纸样" } }], date)).toBeUndefined();
 });
+
+it("uses one current priority read for a redundant same-day task count but preserves other requests",()=>{
+ const priority={name:"list_tasks",arguments:{order:"priority",limit:2,directReply:true}},stats={name:"get_stats",arguments:{domain:"tasks",range:"today"}};
+ expect(repeatedTaskListPriority([priority,stats],date)).toBe(priority);
+ for(const argumentsValue of[{domain:"habits",range:"today"},{domain:"tasks",range:"week"},{domain:"tasks",range:"today",directReply:"task_meaning"}])expect(repeatedTaskListPriority([priority,{...stats,arguments:argumentsValue}],date)).toBeUndefined();
+ expect(repeatedTaskListPriority([{...priority,arguments:{...priority.arguments,date:"2068-11-20"}},stats],date)).toBeUndefined();
+});

@@ -2054,9 +2054,15 @@
         "delete_task"
       ],
       "expectWrites": {
-        "tasks": 0
+        "tasks.created": 0,
+        "tasks.deleted": 0,
+        "tasks.rescheduled": 0,
+        "tasks.timeChanged": 0
       },
-      "judge": "前轮通过实际查询核对唯一已有任务虚构指代预览蓝纸，编号和2026年11月12日09:00–10:00原安排应保留。本轮只是指代改名并明确先给确认卡：必须生成一张绑定该任务真实当前版本的修改卡，列新名虚构蓝纸待核对新名；在确认前不得修改任何任务，不得删除重建，不要再让用户重报刚查询的目标，也不能只口头说已生成卡或已经改好。"
+      "requestedTaskPreview": {
+        "fromTitle": "虚构指代预览蓝纸",
+        "title": "虚构蓝纸待核对新名"
+      }
     }
   }
 ]

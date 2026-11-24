@@ -251,3 +251,10 @@ it("checks the actual spoken receipt separately from the panel reply", () => {
   expect(scoreEvaluationCase(named, panelOnly)).toContain("播报缺少内容 15:15");
   expect(scoreEvaluationCase(named, { ...panelOnly, reply: "已记下虚构纸盒。", voiceSpeech: "15:15 给虚构纸盒贴标签。" })).toEqual([]);
 });
+
+it("checks a requested single-task preview from the actual frozen card and rejects prose or premature writes",()=>{
+ const q=questions.find(row=>row.id==="single-task-requested-preview-83")! as EvalQuestion,before={id:"fictional-single-card",title:"虚构指代预览蓝纸",date:"2026-11-12",startTime:"09:00",endTime:"10:00"},update={taskIdOrTitle:before.id,title:"虚构蓝纸待核对新名",expectedRevision:recordRevision(before)};
+ const valid:EvalObservation={...observed,reply:"请核对虚构蓝纸待核对新名，尚未修改。",tasks:[before],preparedTasks:[before],createdTasks:[],confirmations:1,confirmationActions:[{type:"tool_batch",targetIds:[]}],receipts:0,proposedTaskChanges:[{name:"update_tasks",arguments:{updates:[update]}}],writes:{"tasks.created":0,"tasks.deleted":0,"tasks.rescheduled":0,"tasks.timeChanged":0}};
+ expect(scoreEvaluationCase(q,valid)).toEqual([]);
+ for(const bad of[{...valid,confirmations:0,proposedTaskChanges:[]},{...valid,tasks:[{...before,title:update.title}]},{...valid,proposedTaskChanges:[{name:"update_tasks",arguments:{updates:[{...update,expectedRevision:"unverified"}]}}]},{...valid,proposedTaskChanges:[{name:"update_tasks",arguments:{updates:[{...update,note:"unrequested"}]}}]}])expect(scoreEvaluationCase(q,bad)).not.toEqual([]);
+});

@@ -999,7 +999,7 @@ describe("unified agent loop", () => {
     expect(result.receipts).toEqual([]);
   });
 
-  it.each(["single", "duplicate", "also-plan"].flatMap(mode => ["text", "voice"].map(source => [mode, source] as const)))(
+  it.each(["single", "duplicate", "also-plan", "also-stats"].flatMap(mode => ["text", "voice"].map(source => [mode, source] as const)))(
     "reports a brief computed remaining count after continuation (%s/%s)", async (mode, source) => {
     const date = formatDate(now);
     await store.createTask({ title: "虚构归档", date, quadrant: "not-important-not-urgent" });
@@ -1007,7 +1007,8 @@ describe("unified agent loop", () => {
     await store.createTask({ title: "虚构验收", date, quadrant: "important-urgent" });
     responses.push(reply("", [tool("list_tasks", { date, order: "priority", limit: 2, directReply: true }),
       ...(mode === "duplicate" ? [tool("list_tasks", { directReply: true }, "synthetic-count")] : []),
-      ...(mode === "also-plan" ? [tool("plan_today", {}, "synthetic-plan")] : [])]));
+      ...(mode === "also-plan" ? [tool("plan_today", {}, "synthetic-plan")] : []),
+      ...(mode === "also-stats" ? [tool("get_stats", {domain:"tasks",range:"today"}, "synthetic-stats")] : [])]));
     responses.push(reply("模型很长的提醒。".repeat(50)));
     const spoken: string[] = [];
     const result = await new AgentLoop(host).run(input({ message: "今天还剩几项，只说最要紧的两件。", source: source as "text" | "voice",
@@ -3316,4 +3317,9 @@ it('does not treat a quoted task field as a preview instruction',async()=>{
   responses.push(reply('',[tool('update_tasks',{updates:[{taskIdOrTitle:task.id,note:'先给确认卡'}]},'fictional-quoted-preview')]),reply('已保存备注。'));
   const result=await new AgentLoop(host).run(input({message:'把「虚构指代原名」的备注改成「先给确认卡」。'}));
   expect(result.confirmations).toEqual([]);expect((await store.getTask(task.id)).note).toBe('先给确认卡');
+});
+it('keeps a task-preview phrase in an explicit memory as memory content',async()=>{
+  responses.push(reply('',[tool('append_memory_note',{content:'虚构：我希望修改任务时先给确认卡。',category:'rules',explicit:true},'fictional-memory-preview-wording')]),reply('这条虚构偏好已保存。'));
+  const result=await new AgentLoop(host).run(input({message:'请记住，虚构：我希望修改任务时先给确认卡。'}));
+  expect(result.confirmations).toEqual([]);expect(result.receipts).toHaveLength(1);expect((await store.readPersonalMemories()).records.some(row=>row.content.includes('先给确认卡'))).toBe(true);
 });

@@ -41,6 +41,7 @@ interface EvalChecks {
   createdTaskBatch?: { date: string; notBefore: string; titleIncludes: string[]; unscheduled?: true };
   phoneBatch?: { created: number; existing: number };
   updatedTasks?: Array<{ fromTitleIncludes: string; title: string }>;
+  requestedTaskPreview?: { fromTitle: string; title: string };
   plannedTaskChanges?: { titlePrefix: string; count: number; fromHour: number; date: string };
   mixedTaskOutcome?: { edits: Array<{ from: string; to: string }>; createdTitles: string[]; date: string };
   createdOrClarify?: { titleIncludes: string; dates: string[]; clarify: string[] };
@@ -158,6 +159,14 @@ export function scoreEvaluationCase(question: EvalQuestion, observed: EvalObserv
         const rows = creates.filter(call => call.arguments.title === title);
         return rows.length !== 1 || normalizeJournalDate(String(rows[0].arguments.date)) !== plan.date;
       }))) issues.push("混合任务既未全部保存并核对，也未完整保留在同一待确认计划");
+  }
+  if(checks.requestedTaskPreview){
+    const request=checks.requestedTaskPreview,originals=observed.preparedTasks?.filter(row=>row.title===request.fromTitle)??[],calls=observed.proposedTaskChanges??[],updates=calls[0]?.arguments.updates,rows=Array.isArray(updates)?updates as Array<Record<string,unknown>>:[];
+    if(observed.confirmations!==1||observed.receipts!==0||recordRevision(observed.tasks)!==recordRevision(observed.preparedTasks??[])
+      ||!["tasks.created","tasks.deleted","tasks.rescheduled","tasks.timeChanged"].every(key=>observed.writes[key]===0)
+      ||calls.length!==1||calls[0].name!=="update_tasks"||originals.length!==1||rows.length!==1
+      ||rows[0].taskIdOrTitle!==originals[0].id||rows[0].title!==request.title||rows[0].expectedRevision!==recordRevision(originals[0])
+      ||Object.keys(rows[0]).some(key=>!["taskIdOrTitle","title","expectedRevision"].includes(key)))issues.push("单条修改未在绑定原任务版本的确认卡中保留，或确认前发生写入");
   }
   if (checks.plannedTaskChanges) {
     const plan = checks.plannedTaskChanges;

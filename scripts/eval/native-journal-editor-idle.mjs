@@ -1,7 +1,7 @@
 /** Real native Markdown input; all notes and measurements belong to the remote fictional vault. */
 import assert from "node:assert/strict";
 import { join } from "node:path";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { setTimeout } from "node:timers/promises";
 
 async function quiet(page) {
@@ -123,7 +123,11 @@ export async function nativeJournalEditorIdle({ getPage, root, result, candidate
   await quiet(getPage());
   await close(); await packageFiles(dailyRollback); await launch();
   const previous = await exercise(getPage(), fixture.path, fixture.base, join(root, "native-journal-previous.png"));
-  assert(previous.synchronousScans > 0, "Previous package must reproduce the synchronous editor listener");
+  const previousVersion=JSON.parse(await readFile(join(dailyRollback,"manifest.json"),"utf8")).version;
+  const parts=previousVersion.split(".").map(Number);assert(parts.length===3&&parts.every(Number.isInteger),"Invalid previous package version");
+  const previousAlreadyFixed=parts[0]>0||parts[0]===0&&(parts[1]>5||parts[1]===5&&parts[2]>=130);
+  if(previousAlreadyFixed){assert.equal(previous.synchronousScans,0,"Already-fixed previous daily must retain zero synchronous scans");assert.equal(previous.typingIndexCalls,0);}
+  else assert(previous.synchronousScans > 0, "Legacy previous package must reproduce the synchronous editor listener");
   await close(); await packageFiles(candidate); await launch();
   const current = await exercise(getPage(), fixture.path, fixture.base, join(root, "native-journal-current.png"));
   assert(current.events >= 90); assert.equal(current.synchronousScans, 0);
@@ -135,7 +139,7 @@ export async function nativeJournalEditorIdle({ getPage, root, result, candidate
   await quiet(getPage());
   assert.equal(await getPage().evaluate(path => !!app.vault.getAbstractFileByPath(path), fixture.path), false);
   result.checks.journalFictionalNoteCleanupAndStylePreserved = true;
-  result.journalEditor = { previous, current, realNativeKeyboard: true, fictionalOnly: true,
+  result.journalEditor = { previousVersion, previousAlreadyFixed, previous, current, realNativeKeyboard: true, fictionalOnly: true,
     interpretation: "Event-handler cost only; not proof of every cause of user-perceived latency." };
   await writeFile(join(root, "native-journal-editor-idle.json"), JSON.stringify(result.journalEditor, null, 2));
 }
