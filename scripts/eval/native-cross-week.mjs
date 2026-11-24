@@ -38,9 +38,12 @@ export async function crossWeekUi(page,root,result) {
       const output=tools.map(message=>{try{return JSON.parse(message.content);}catch{return null;}}).find(item=>item?.originalEvidence);
       if(!output)return{content:"",toolCalls:[{id:"fictional-cross-week-read",name:"get_summaries",arguments:{level:"week",range:{from:"2026-10-26",to:"2026-11-08"},includeOriginals:true,query:"纸样 归档 虚纸 裁剪 纸样归档"}}]};
       evidence=output.originalEvidence;
-      if(!messages[0].content.includes(corrected))throw Error("Corrected availability missing from live context");
+      const planning=textOnly?messages.find(row=>row.role==='user'&&row.content.startsWith('本轮重新核对的当前个人资料')):null;
+      const current=planning?JSON.parse(planning.content.slice(planning.content.indexOf('\n')+1)):null;
+      const memory=textOnly&&current?.scope==='future_constraints_only'?current.records:messages[0].content;
+      if(!memory?.includes(corrected))throw Error("Corrected availability missing from live context");
       if(!textOnly){const content="虚构未核对草稿：没打卡意味着记录方式有问题。";onText?.(content);return{content,toolCalls:[]};}
-      if(options?.tools?.length||options?.reasoningEffort!=="low"||messages.some(message=>message.content.includes("虚构未核对草稿")))throw Error("Unverified draft or unbounded reasoning entered final historical answer");
+      if(options?.tools?.length||options?.reasoning!=='disabled'||!options?.preferFinite||options?.maxTokens!==4096||messages[0].content.includes(corrected)||messages.some(message=>message.content.includes("虚构未核对草稿")))throw Error("Unverified draft or unbounded reasoning entered final historical answer");
       return{content:evidence.notes.map(note=>note.date+" · "+note.path+"\n"+note.text).join("\n\n")+"\n"+evidence.coverageSummary+"\n下一步：按当前记忆周三19:30连续25分钟。仅两次样本，未创建任务；未命中不代表没有日记。",toolCalls:[]};
     };
     p.ai.agentTurnStream=mock;Object.getPrototypeOf(p.ai).agentTurnStream=mock;

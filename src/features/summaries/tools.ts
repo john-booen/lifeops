@@ -1,6 +1,7 @@
 import type { LifeOpsToolDefinition } from "../../toolRegistry";
 import { summaryLevels } from "./periods";
 import { executeStoredQuery } from "../../storedQueryRead";
+import { ISO_DATE_INTERVAL_PATTERN } from "../stats/stats";
 
 export const SUMMARIES_TOOL: LifeOpsToolDefinition = {
   name: "get_summaries",
@@ -14,7 +15,7 @@ export const SUMMARIES_TOOL: LifeOpsToolDefinition = {
       query: { type: "string", maxLength: 120, description: "日记主题关键词，最多8词、空格分隔且全部命中；不查当前记忆。" },
       range: { anyOf: [{ type: "string", enum: ["today", "this_week", "last_week", "last_7d", "this_month", "last_month", "last_30d"] },
         { type: "object", additionalProperties: false, required: ["from", "to"],
-          properties: { from: { type: "string" }, to: { type: "string" } } }] }
+          properties: { from: { type: "string" }, to: { type: "string" } } }, { type: "string", pattern: ISO_DATE_INTERVAL_PATTERN }] }
     }
   },
   execute: (args,context) => executeStoredQuery("get_summaries",args,context)

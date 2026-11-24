@@ -62,6 +62,15 @@ it("seeds a contradictory legacy summary with one dated original and preserves o
  expect(await vault.bytes(journal("2026-11-11"))).toBe("虚构其他周原文应保留。");
 });
 
+it.each(['2026-11-02..2026-11-08','2026-11-02/2026-11-08'])("reads the exact ISO interval %s without replacing it with this week",async interval=>{
+ await vault.seed('TEST_VAULT_ONLY.md','内容全部为虚构数据。');await prepareSparseSummaryFixture(store);
+ const result=await query('fictional-iso-interval',{range:interval,includeOriginals:true});
+ expect(result.success,result.output).toBe(true);const data=JSON.parse(result.output);
+ expect(data.range).toEqual({from:'2026-11-02',to:'2026-11-08'});
+ expect(data.originalEvidence.notes).toEqual([expect.objectContaining({date:'2026-11-03',text:expect.stringContaining('10张')})]);
+ expect((await store.readHabitDb()).checkins).toEqual([]);expect((await store.readTaskDb()).tasks).toEqual([]);
+});
+
 it("rejects task interval preparation before changing records without the fictional marker",async()=>{
  await store.createTask({title:"虚构应保留登记",date:"2026-11-04"});await seedSummary("2026-11-04","虚构旧统计正文。");
  const before=await store.readTaskDb(),path=summaryPath(store,summaryPeriod("week","2026-11-04")),bytes=await vault.bytes(path);

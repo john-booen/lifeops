@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { normalizeJournalDate } from "../src/date";
-import { resolveStatsRange } from "../src/features/stats/stats";
+import { resolveStatsRange, type StatsRange } from "../src/features/stats/stats";
 
 describe("Chinese calendar dates", () => {
   it.each([
@@ -52,5 +52,12 @@ describe("Chinese calendar dates", () => {
     expect(resolveStatsRange({ from: "这周一", to: "月底" }, now)).toEqual({ from: "2026-11-09", to: "2026-11-30" });
     expect(() => resolveStatsRange({ from: "下周三", to: "本周五" }, now)).toThrow("开始日期不能晚于结束日期");
     expect(() => resolveStatsRange({ from: "11月31日", to: "月底" }, now)).toThrow("有效的起止日期");
+  });
+
+  it.each(['2028-02-29..2028-03-02','2028-02-29/2028-03-02'] as const)('keeps valid leap-day interval %s exact across months',interval=>{
+    expect(resolveStatsRange(interval,new Date(2026,10,12,12))).toEqual({from:'2028-02-29',to:'2028-03-02'});
+  });
+  it.each(['2026-02-29..2026-03-01','2026-11-31/2026-12-02','2026-11-08..2026-11-02','x2026-11-02..2026-11-08','2026-11-02/2026-11-08x'])('rejects invalid interval %s rather than substituting current dates',interval=>{
+    expect(()=>resolveStatsRange(interval as StatsRange,new Date(2026,10,12,12))).toThrow();
   });
 });

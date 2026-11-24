@@ -13,7 +13,10 @@ import { COMPLETION_INTERVAL_MEANING, RECORDED_DATA_SCOPE, TASK_METRIC_DEFINITIO
 
 export type StatsDomain = "tasks" | "habits" | "journal" | "trades" | "ideas" | "learning" | "health";
 export const statsNamedRanges = ["today", "last_3d", "this_week", "last_week", "last_7d", "this_month", "last_month", "last_30d"] as const;
-export type StatsRange = { from: string; to: string } | typeof statsNamedRanges[number];
+export const ISO_DATE_INTERVAL_PATTERN = "^(\\d{4}-\\d{2}-\\d{2})(?:\\.\\.|/)(\\d{4}-\\d{2}-\\d{2})$";
+const isoDateInterval = new RegExp(ISO_DATE_INTERVAL_PATTERN);
+type IsoInterval = `${number}-${number}-${number}..${number}-${number}-${number}` | `${number}-${number}-${number}/${number}-${number}-${number}`;
+export type StatsRange = { from: string; to: string } | typeof statsNamedRanges[number] | IsoInterval;
 export type StatsGroup = "category" | TradeStatGroup;
 export interface StatsRequest {
   domain: StatsDomain;
@@ -52,6 +55,10 @@ const dateKey = (date: string, group: DateGrouping) => group === "week" ? startO
 export function resolveStatsRange(range: StatsRange, now: Date): DayRange {
   if (!Number.isFinite(now.getTime())) throw Error("统计时间无效。");
   const today = formatDate(now);
+  if (typeof range === "string") {
+    const interval = isoDateInterval.exec(range);
+    if (interval) return resolveStatsRange({ from: interval[1], to: interval[2] }, now);
+  }
   if (typeof range === "object" && range !== null) {
     const from = typeof range.from === "string" ? normalizeJournalDate(range.from, today) : "";
     const to = typeof range.to === "string" ? normalizeJournalDate(range.to, today) : "";
@@ -73,7 +80,7 @@ export function resolveStatsRange(range: StatsRange, now: Date): DayRange {
     this_month: today.slice(0, 7) + "-01", last_30d: addDays(today, -29)
   };
   if (!Object.hasOwn(start, range)) throw Error("不支持这个统计区间。");
-  return { from: start[range], to: today };
+  return { from: start[range as keyof typeof start], to: today };
 }
 
 export function getStats(request: StatsRequest, data: StatsData, now: Date) {
