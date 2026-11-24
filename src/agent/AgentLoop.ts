@@ -387,7 +387,8 @@ export class AgentLoop {
         const requiredTool = required?.name;
         nextTool = undefined;
         const usesEvidence = state.toolCalls.some(tool => tool.ok && ANALYSIS_INPUT_TOOLS.has(tool.name));
-        const responseRole = role === "fast" && input.source === "text" && (requiredTool || usesEvidence) ? "main" : role;
+        const responseRole = required?.name === "propose_task_plan" && required.retry ? "deep"
+          : role === "fast" && input.source === "text" && (requiredTool || usesEvidence) ? "main" : role;
         const titlesSaved = exactTitleEdits && [...state.results.values()].some(result =>
           state.taskContentCalls?.has(result.callId) && result.success && result.receipt);
         const remainingTools = titlesSaved ? palette.filter(tool => tool.name !== "list_tasks" && tool.name !== "update_tasks") : palette;
@@ -407,7 +408,8 @@ export class AgentLoop {
         }
         const missingRequiredCall = () => response.toolCalls.length !== 1 || response.toolCalls[0].name !== requiredTool || requiredTool==="query_vault"&&(response.toolCalls[0].arguments.domain!=="memory"||response.toolCalls[0].arguments.operation!=="get"||typeof response.toolCalls[0].arguments.query!=="string"||!String(response.toolCalls[0].arguments.query).trim());
         if (required?.name === "propose_task_plan" && !required.retry && missingRequiredCall()) {
-          response = await this.callModel(input, state, responseRole, messages, availableTools, false, false, requiredTool);
+          response = await this.callModel(input, state, "deep", messages, availableTools, false, false, requiredTool,
+            { reasoning: "disabled", finite: true });
           assertPolicy();
           required.retry = true;
         }

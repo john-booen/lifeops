@@ -3356,3 +3356,9 @@ it('tells the plan retry exactly which read-only flag must be removed',async()=>
   const result=await new AgentLoop(host).run(input({message:'按我的节奏给明天排个计划'}));
   expect(requests[2].filter(m=>m.role==='tool').map(m=>m.content).join('\n')).toContain('draftTomorrow');expect(prepare).toHaveBeenCalledOnce();expect(result.confirmations).toHaveLength(1);expect(result.receipts).toEqual([]);
 });
+it('uses one bounded deep repair when a required plan call is replaced by another read',async()=>{
+  const date=addDays(todayString(),1),prepare=vi.fn(async()=>({id:'fictional-required-plan-repair',type:'task_plan' as const,title:'确认安排',description:'点确认后保存',content:'虚构安排',date,taskPlanToken:'fictional-token'}));runtime=new AgentRuntime({store,refreshViews:async()=>{},prepareTaskPlan:prepare});
+  responses.push(reply('',[tool('plan_today',{draftTomorrow:true})]),reply('',[tool('query_vault',{domain:'memory',operation:'get',query:'虚构节奏'})]),reply('',[tool('propose_task_plan',{tasks:[{title:'准备虚构材料',date}]})]));
+  const result=await new AgentLoop(host).run(input({message:'按我的节奏给明天排个计划'}));
+  expect(roles.at(-1)).toBe('deep');expect(prepare).toHaveBeenCalledOnce();expect(result.confirmations).toHaveLength(1);expect(result.toolCalls.some(call=>call.name==='query_vault')).toBe(false);expect(result.receipts).toEqual([]);expect(requests).toHaveLength(3);
+});
