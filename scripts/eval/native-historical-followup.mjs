@@ -35,16 +35,20 @@ export async function nativeHistoricalFollowup(page, root, result) {
     let calls = 0, evidence;
     const mock = async (messages, onText, options) => {
       calls++;
-      if (!messages[0]?.content.includes("## Confirmed Personal Memory") || !messages[0].content.includes(prepared.corrected)) {
+      const final = options?.toolChoice === "none";
+      const planning=final?messages.find(row=>row.role==='user'&&row.content.startsWith('本轮重新核对的当前个人资料')):null;
+      const current=planning?JSON.parse(planning.content.slice(planning.content.indexOf('\n')+1)):null;
+      const memory=final&&current?.scope==='future_constraints_only'?current.records:messages[0]?.content;
+      if (!memory?.includes("## Confirmed Personal Memory") || !memory.includes(prepared.corrected)) {
         throw Error("Complete current confirmed memory missing from provider context");
       }
+      if(final&&messages[0].content.includes(prepared.corrected))throw Error('Current planning constraint leaked back into historical system context');
       if (calls === 1) {
         const text = JSON.stringify(messages);
         if (!text.includes("2026-10-26") || !text.includes("2026-11-08") || !text.includes(prepared.corrected)
           || text.includes(prepared.old) || messages.some(message => message.content.includes(prepared.oldReply))) throw Error("Checked dates or current memory missing; old prose reused");
         return { content: "虚构读取前猜测：历史两次都在20:15，不可发布为事实。", toolCalls: [{ id: "fictional-native-followup-reread", name: "get_summaries", arguments: { level: "week", range: { from: "2026-10-26", to: "2026-11-08" }, includeOriginals: true, query: "纸样 归档" } }] };
       }
-      const final = options?.toolChoice === "none";
       if(final&&JSON.stringify(messages).includes("虚构读取前猜测"))throw Error("Unverified intermediate assistant prose reached final historical interpretation");
       const outputs = final ? messages.filter(message => message.role === "user" && message.content.startsWith("已核对的工具读回资料"))
         .map(message => JSON.parse(message.content.slice(message.content.indexOf("\n") + 1)).result) : messages.filter(message => message.role === "tool").map(message => message.content);

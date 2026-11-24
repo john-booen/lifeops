@@ -7,7 +7,10 @@ import { setTimeout } from "node:timers/promises";
 async function quiet(page) {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
-    if (await page.evaluate(() => !app.plugins.getPlugin("lifeops-assistant").sourceChangeTimers.size)) return;
+    if (await page.evaluate(() => {
+      const p=app.plugins.getPlugin("lifeops-assistant"),state=globalThis[Symbol.for("lifeops.fact-operation-state.v1")];
+      return !p.sourceChangeTimers.size&&!p.dataFoundationBootstrap&&!state?.locks?.has(app.vault)&&!state?.activeWrites?.has(app.vault);
+    })) return;
     await setTimeout(100);
   }
   throw Error("Fictional source updates did not settle within 30s");

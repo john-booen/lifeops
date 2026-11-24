@@ -34,7 +34,7 @@ import { requestedSummaryDates } from "./summaryDateRange";
 import { recurringScheduleAnswer } from "./recurringSchedule";
 import { explicitRecentTaskTimeChange, previousSavedTask, unverifiedTaskTimeChanges, type SavedTaskReference } from "./taskTimeCorrection";
 import { explicitRunningCheckin, explicitSingleTimedTask } from "./offlineFallback";
-import { memorySourcePolicy } from "../personalMemorySources";
+import { memorySourcePolicy, readPersonalMemoryWithSources } from "../personalMemorySources";
 import { agentModelRole, settingsForAgentModel, type AgentModelRole } from "./models";
 import { extractTradingRules } from "../features/trading/ruleSources";
 import { handleVoiceJobTool, isVoiceJobTool, needsVoiceJobSummary, voiceJobControlTool, voiceJobSpeech, voiceJobTools, type VoiceJobManager } from "../voice/jobs";
@@ -832,7 +832,12 @@ export class AgentLoop {
     let needsEvidenceFallback = false;
     try {
       current();
-      const answer = await this.callModel(input, state, "deep", historicalAnswerMessages(messages), [], true, false, undefined, "low");
+      const memories = await readPersonalMemoryWithSources(store);
+      current();
+      const currentPlanningContext = formatConfirmedPersonalMemoryContext(memories.records, input.message, 4000, 8);
+      const answer = await this.callModel(input, state, "deep", historicalAnswerMessages(messages, {
+        question: input.message, currentPlanningContext, asOf: input.now.toISOString()
+      }), [], true, false, undefined, "low");
       current();
       if (!answer.content.trim() || answer.toolCalls.length || answer.content === TOOL_PROTOCOL_UNAVAILABLE) {
         state.errorCode = "response_incomplete";
