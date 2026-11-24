@@ -19,11 +19,20 @@ async function quiet(page) {
 async function exercise(page, path, base, screenshot) {
   // Plugin exposure precedes layout bootstrap on the older native host.
   // Observe the real writer and installed listeners before generating saves.
-  await page.waitForFunction(path => {
+  try { await page.waitForFunction(path => {
     const p = app.plugins.getPlugin("lifeops-assistant");
     return p.dataFoundationEventsRegistered === true && !p.dataFoundationBootstrap
       && p.store.canWriteFacts() && p.store.isManagedSourcePath(path);
-  }, path, { timeout: 30_000 });
+  }, path, { timeout: 30_000 }); } catch (error) {
+    const state = await page.evaluate(path => {
+      const p = app.plugins.getPlugin("lifeops-assistant");
+      return { version:p.manifest.version, registered:p.dataFoundationEventsRegistered,
+        booting:!!p.dataFoundationBootstrap, canWrite:p.store.canWriteFacts(), managed:p.store.isManagedSourcePath(path),
+        deviceProblem:p.devices.execution.problemMessage, path,
+        recoveryPath:p.store.path(p.settings.folders.aiReports,"Operations/write-recovery.json") };
+    }, path);
+    throw new Error("Native journal preflight failed: " + JSON.stringify(state), { cause:error });
+  }
   await quiet(page);
   await page.evaluate(async ({ path, base }) => {
     const file = app.vault.getAbstractFileByPath(path);
