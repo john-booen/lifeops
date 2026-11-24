@@ -67,6 +67,27 @@ async function close() {
       return !p?.dataFoundationBootstrap && !p?.activeProviderRequests?.size && !state?.locks?.has(app.vault)
         && !state?.activeWrites?.has(app.vault) && !p?.sourceChangeTimers?.size;
     }, null, { timeout: 30_000 });
+    // A Vault event can arrive after the first idle snapshot. Wait for a
+    // stable, settled on-disk WAL as well before closing or copying a vault.
+    const deadline = Date.now() + 30_000;
+    let prior, stableAt = 0, settled = false;
+    while (Date.now() < deadline) {
+      const snapshot = await page.evaluate(async () => {
+        const p=app.plugins.getPlugin("lifeops-assistant"),state=globalThis[Symbol.for("lifeops.fact-operation-state.v1")];
+        const path=p.settings.folders.aiReports+"/Operations/write-recovery.json";
+        let raw=null;
+        try { raw=await app.vault.adapter.read(path); } catch(error) { if(error.code!=="ENOENT")throw error; }
+        return {idle:!p.dataFoundationBootstrap&&!p.activeProviderRequests.size&&!state?.locks?.has(app.vault)
+          &&!state?.activeWrites?.has(app.vault)&&!p.sourceChangeTimers.size,
+          pending:raw!==null&&JSON.parse(raw).status==='pending',raw};
+      });
+      if(snapshot.idle&&!snapshot.pending){
+        if(snapshot.raw!==prior){prior=snapshot.raw;stableAt=Date.now();}
+        else if(stableAt&&Date.now()-stableAt>=500){settled=true;break;}
+      }else{prior=undefined;stableAt=0;}
+      await setTimeout(100);
+    }
+    assert(settled,"Native fixture did not reach a stable committed WAL before close");
     const session = await browser.newBrowserCDPSession();
     await session.send("Browser.close").catch(error => { if (!error.message.includes("closed")) throw error; });
   }
