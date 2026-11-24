@@ -17,6 +17,14 @@ async function quiet(page) {
 }
 
 async function exercise(page, path, base, screenshot) {
+  // Plugin exposure precedes layout bootstrap on the older native host.
+  // Observe the real writer and installed listeners before generating saves.
+  await page.waitForFunction(path => {
+    const p = app.plugins.getPlugin("lifeops-assistant");
+    return p.dataFoundationEventsRegistered === true && !p.dataFoundationBootstrap
+      && p.store.canWriteFacts() && p.store.isManagedSourcePath(path);
+  }, path, { timeout: 30_000 });
+  await quiet(page);
   await page.evaluate(async ({ path, base }) => {
     const file = app.vault.getAbstractFileByPath(path);
     await app.vault.modify(file, base);
@@ -71,6 +79,7 @@ async function exercise(page, path, base, screenshot) {
       if (!persisted) await setTimeout(100);
     } while (!persisted && Date.now() < deadline);
     assert(persisted, "Native editor did not persist exact typed/deleted text within 15s");
+    await page.waitForFunction(() => globalThis.__nativeJournalProbe.indexCalls > 0, null, { timeout: 15_000 });
     await quiet(page);
     const saved = await page.evaluate(async path => ({
       text: await app.vault.read(app.vault.getAbstractFileByPath(path)),
