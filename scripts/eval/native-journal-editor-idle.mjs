@@ -24,12 +24,14 @@ async function exercise(page, path, base, screenshot) {
     return p.dataFoundationEventsRegistered === true && !p.dataFoundationBootstrap
       && p.store.canWriteFacts() && p.store.isManagedSourcePath(path);
   }, path, { timeout: 30_000 }); } catch (error) {
-    const state = await page.evaluate(path => {
+    const state = await page.evaluate(async path => {
       const p = app.plugins.getPlugin("lifeops-assistant");
+      const heartbeat = await p.store.readJson(p.store.path(p.settings.folders.aiReports,"System/heartbeat.json"), {});
+      const recovery = await p.store.readJson(p.store.path(p.settings.folders.aiReports,"Operations/write-recovery.json"), {});
       return { version:p.manifest.version, registered:p.dataFoundationEventsRegistered,
         booting:!!p.dataFoundationBootstrap, canWrite:p.store.canWriteFacts(), managed:p.store.isManagedSourcePath(path),
         deviceProblem:p.devices.execution.problemMessage, path,
-        recoveryPath:p.store.path(p.settings.folders.aiReports,"Operations/write-recovery.json") };
+        heartbeat:{version:heartbeat.version,ok:heartbeat.ok,errors:heartbeat.errors},recoveryStatus:recovery.status };
     }, path);
     throw new Error("Native journal preflight failed: " + JSON.stringify(state), { cause:error });
   }
@@ -112,6 +114,12 @@ export async function nativeJournalEditorIdle({ getPage, root, result, candidate
     const base = "# " + name + "\n\n" + "这是虚构的长日记正文，用来验收原生编辑与删除。\n".repeat(2000) + "\n";
     await app.vault.create(path, base); return { path, base };
   });
+  // Native file observation can follow create()'s resolution. Do not close the
+  // fixture while its first derived source generation has not been committed.
+  await getPage().waitForFunction(async path => {
+    const p=app.plugins.getPlugin("lifeops-assistant"),manifest=await p.store.readSourceManifest();
+    return manifest.entries.some(row=>row.path===path&&row.status==='active');
+  }, fixture.path, { timeout:30_000 });
   await quiet(getPage());
   await close(); await packageFiles(dailyRollback); await launch();
   const previous = await exercise(getPage(), fixture.path, fixture.base, join(root, "native-journal-previous.png"));
