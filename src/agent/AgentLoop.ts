@@ -26,7 +26,7 @@ import { prepareToolBatch, sealRequestedToolBatch } from "../toolBatch";
 import { bindTaskPlanConfirmation } from "../features/tasks/planConfirmation";
 import type { AgentActionSuggestion, AgentConversationMessage, AgentResponse, AgentWriteReceipt, LifeOpsSettings, ProviderRunResult } from "../types";
 import { agentHistoryMessages, buildResidentContext, clipBytes, type ResidentContext } from "./context";
-import { titleEditRequest,confirmedTitleEdits,completeTitleEditCalls,titleEditCall } from "./explicitTitleEdits";
+import { titleEditRequest,confirmedTitleEdits,completeTitleEditCalls,titleEditCall,taskConfirmationRequested } from "./explicitTitleEdits";
 import { formatConfirmedPersonalMemoryContext } from "../personalMemoryContext";
 import { expandMixedTaskBatch } from "./mixedTaskBatch";
 import { requestedSummaryTopics } from "./summaryTopicQuery";
@@ -369,7 +369,7 @@ export class AgentLoop {
       const asksMarketWinRates = !input.voiceBackground && /(?:各[^。！？!?]*市场|市场[^。！？!?]*分别)[^。！？!?]*胜率/u.test(input.message)
         && !/盈亏|回撤|收益率|最大亏损/u.test(input.message);
       const titleRequest = !input.voiceBackground ? await titleEditRequest(this.host.store, input.message) : undefined;
-      state.requestedTaskConfirmation = titleRequest?.confirmationRequested;
+      state.requestedTaskConfirmation = !input.voiceBackground && taskConfirmationRequested(input.message);
       const exactTitleEdits=!input.voiceBackground?(titleRequest?.edits
         ?? await confirmedTitleEdits(this.host.store,input.message,input.history,context.memories??[])):undefined;
       let taskListAnswer: string | undefined;

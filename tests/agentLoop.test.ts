@@ -256,7 +256,7 @@ it("does not let an early facts hint stop a requested four-task modification", a
     reply("",[tool("update_tasks",{updates:rows.map(row=>({taskIdOrTitle:row.id,startTime:"15:00",endTime:"15:30"}))})]),
     reply("四条修改已整理为一张确认卡，尚未保存。"));
   const result=await new AgentLoop(host).run(input({message:"把虚构整批事实四条原任务都改到15:00至15:30，给一份确认卡，等我确认后再保存。"}));
-  expect(requests).toHaveLength(3);expect(result.confirmations).toHaveLength(1);
+  expect(requests).toHaveLength(2);expect(result.confirmations).toHaveLength(1);
   expect((result.confirmations[0].toolBatch![0].arguments.updates as unknown[])).toHaveLength(4);
   expect(result.receipts).toEqual([]);expect(await store.readPath(store.taskDbPath())).toBe(before);
 });
@@ -3293,4 +3293,27 @@ it.each(["complete", "legacy", "manual"] as const)("checks the original line end
     expect((await store.readTaskDb()).tasks).toEqual([]);
     expect(await store.readPath(PHONE_INBOX_PATH)).toBe(origin === "manual" ? raw : raw + "\n");
   } finally { inbox.stop(); }
+});
+
+it.each([
+  {message:'刚才那条，标题改成「虚构指代新名」，先给确认卡。',patch:{title:'虚构指代新名'}},
+  {message:'刚才那条的工作区间改为15:00至16:00，等我确认后再保存。',patch:{startTime:'15:00',endTime:'16:00'}},
+  {message:'把「虚构指代原名」的备注改成「要先核对」，先给我确认卡。',patch:{note:'要先核对'}}
+])('keeps an explicit preview without a title pair: $message',async({message,patch})=>{
+  const task=await store.createTask({title:'虚构指代原名',date:'2026-11-12',startTime:'09:00',endTime:'10:00',note:'虚构原备注'});
+  const before={db:await store.readPath(store.taskDbPath()),mirror:await store.readPath(store.taskMirrorPath()),ledger:await store.readPath(new OperationLedger(store).filePath)};
+  responses.push(reply('',[tool('update_tasks',{updates:[{taskIdOrTitle:task.id,...patch}]},'fictional-independent-preview')]),reply('请核对修改后确认。'));
+  const result=await new AgentLoop(host).run(input({message}));
+  expect(result.confirmations).toHaveLength(1);expect(result.confirmations[0].type).toBe('tool_batch');expect(result.receipts).toEqual([]);
+  expect(await store.readPath(store.taskDbPath())).toBe(before.db);expect(await store.readPath(store.taskMirrorPath())).toBe(before.mirror);
+  expect(await store.readPath(new OperationLedger(store).filePath)).toBe(before.ledger);
+  expect(result.confirmations[0].toolBatch?.[0].arguments.updates).toMatchObject([{taskIdOrTitle:task.id,...patch}]);
+  await executeConfirmedToolBatch(result.confirmations[0],runtime,()=>{});
+  expect(await store.getTask(task.id)).toMatchObject({id:task.id,date:'2026-11-12',...patch});
+});
+it('does not treat a quoted task field as a preview instruction',async()=>{
+  const task=await store.createTask({title:'虚构指代原名',date:'2026-11-12'});
+  responses.push(reply('',[tool('update_tasks',{updates:[{taskIdOrTitle:task.id,note:'先给确认卡'}]},'fictional-quoted-preview')]),reply('已保存备注。'));
+  const result=await new AgentLoop(host).run(input({message:'把「虚构指代原名」的备注改成「先给确认卡」。'}));
+  expect(result.confirmations).toEqual([]);expect((await store.getTask(task.id)).note).toBe('先给确认卡');
 });

@@ -6,6 +6,12 @@ import type { PersonalMemoryRecord } from "../personalMemory";
 import { isCurrentAgentHistoryPair } from "../personalMemoryHistory";
 import { isLiteralTaskConfirmation } from "../features/tasks/confirmationText";
 
+/** A user's existing wait marker protects writes even when the target needs model lookup. */
+export function taskConfirmationRequested(message:string):boolean {
+  const outside=message.replace(/[「“"][^「」“”"]*[」”"]/gu,"");
+  return /等我确认|确认后|先.{0,4}确认/u.test(outside);
+}
+
 interface TitleEdit { id:string; before:string; title:string }
 interface TitleEditRequest { edits:TitleEdit[]; confirmationRequested:boolean }
 
@@ -39,7 +45,7 @@ export async function titleEditRequest(store:StoreHost,message:string):Promise<T
   outside=tail.replace(/[「“"][^「」“”"]*[」”"]/gu,"");
   if(/如果|假如|举例|例子|只讨论|不(?:要)?(?:执行|修改|改名|保存)|先别|暂不|是否|会怎样|是什么|翻译|怎么说|什么意思|台词|[?？]/u.test(outside)
     || /把[\s\S]*?(?:改为|改成|重命名为|更名为)/u.test(outside))return;
-  const confirmationRequested = /等我确认|确认后|先.{0,4}确认/u.test(outside);
+  const confirmationRequested = taskConfirmationRequested(outside);
   const data=await readContextTasks(store);if(!data.available)return;
   const result:TitleEdit[]=[],seen=new Set<string>();
   for(const edit of edits){

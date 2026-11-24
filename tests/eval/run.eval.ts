@@ -197,6 +197,7 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
   if (question.fixture === "one_overdue_task") {
     await store.createTask({ title: "补齐纸箱清单", date: "2026-11-11", dueDate: "2026-11-11" });
   }
+  if (question.fixture === "single_task_preview") await store.createTask({ title:"虚构指代预览蓝纸", date:"2026-11-12", startTime:"09:00", endTime:"10:00", note:"虚构原备注保留" });
   const plugin = Object.assign(Object.create(Plugin.prototype), {
     app, store, settings: store.settings, lifecycleGeneration: 1, unloaded: false,
     ai: new LifeOpsAi(store.settings), updateStatusBar: async () => {}, refreshViews: async () => {},
