@@ -36,8 +36,9 @@ export const TASK_PLAN_TOOL: LifeOpsToolDefinition = {
     }, required: ["title"] } } }, required: ["tasks"] },
   prepareConfirmation: async (args, context, request) => {
     try {
-      if (Object.keys(args).some(key => !["tasks", "projectId", "capacityAware"].includes(key))
-        || args.capacityAware !== undefined && typeof args.capacityAware !== "boolean"
+      const unknown = Object.keys(args).filter(key => !["tasks", "projectId", "capacityAware"].includes(key));
+      if (unknown.length) throw Error(`propose_task_plan 不接受字段 ${unknown.join("、")}；顶层只保留 tasks、可选 projectId 和 capacityAware。每项任务使用 title、可选 date、time 和 category。`);
+      if (args.capacityAware !== undefined && typeof args.capacityAware !== "boolean"
         || args.projectId !== undefined && typeof args.projectId !== "string"
         || !Array.isArray(args.tasks) || !args.tasks.length || args.tasks.length > 8) throw Error("请提供一至八项具体任务安排及可选已有项目。");
       if (!context.prepareTaskPlan || !request.userMessage?.trim()) throw Error("请在当前对话提出安排，并使用可见确认卡核对。");

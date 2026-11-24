@@ -59,3 +59,13 @@ it("shows a repeated historical read only once in an unavailable-provider fallba
   expect(answer.split('查询范围').length-1).toBe(1);
   expect(answer.split('摘要来源').length-1).toBe(1);
 });
+it("retains an actual journal readback when final analysis fails without importing other domains", () => {
+  const content = JSON.stringify({date:"2026-11-03",text:"Fictional original mood; no stated cause."});
+  const messages:ChatMessage[] = ["first","second","other"].flatMap(id => [
+    {role:"assistant" as const,content:"",tool_calls:[{id,type:"function" as const,function:{name:"query_vault",arguments:JSON.stringify({domain:id==="other"?"tasks":"journal",operation:"get"})}}]},
+    {role:"tool" as const,tool_call_id:id,content:id==="other"?JSON.stringify({text:"Unrelated current task."}):content}
+  ]);
+  const answer=historicalEvidenceFallback(messages);
+  expect(answer).toContain("2026");expect(answer.split("Fictional original mood").length-1).toBe(1);
+  expect(answer).not.toContain("Unrelated current task");expect(answer).toContain("暂不作原因");
+});

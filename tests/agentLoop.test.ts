@@ -3339,3 +3339,20 @@ it('retrieves a named memory beyond the initial context before answering its dat
  responses.push(reply('',[tool('query_vault',{domain:'memory',operation:'get',query:'虚构海盐索引'})]),reply('已有记录：2026年10月28日完成六张虚构海盐索引卡。'));
  const result=await new AgentLoop(host).run(input({message}));expect(toolChoices[0]).toEqual({type:'function',function:{name:'query_vault'}});expect(result.toolCalls).toContainEqual({name:'query_vault',ok:true});expect(result.text).toContain('六张');expect(await store.readPath(store.personalMemoryPath())).toBe(before);expect(result.receipts).toEqual([]);
 });
+it('keeps a compound review after a task meaning read alongside habit statistics',async()=>{
+  responses.push(reply('',[tool('get_stats',{domain:'tasks',range:{from:'2026-11-02',to:'2026-11-08'},directReply:'task_meaning'}),tool('get_stats',{domain:'habits',range:{from:'2026-11-02',to:'2026-11-08'}},'fictional-habit-review')]),reply('跑步与攒钱仍需按各自次数核对，不能只看任务完成率。'));
+  const result=await new AgentLoop(host).run(input({message:'批评一下我这周的表现。'}));
+  expect(result.text).toContain('跑步与攒钱');expect(requests).toHaveLength(2);expect(result.receipts).toEqual([]);
+});
+it('publishes only an evidence-based final after reading both journal statistics and originals',async()=>{
+  await store.appendDaily('2026-11-03','日记','感到焦虑，未写具体原因。','早','感到焦虑，未写具体原因。');
+  responses.push(reply('',[tool('get_stats',{domain:'journal',range:{from:'2026-11-02',to:'2026-11-08'}}),tool('query_vault',{domain:'journal',operation:'get',date:'2026-11-03',period:'早'},'fictional-original-read')]),reply('虚构中途猜测：一定是睡眠造成焦虑。'),reply('11月3日原话是“感到焦虑，未写具体原因。”已读日记未说明具体原因。'));
+  const chunks:string[]=[];const result=await new AgentLoop(host).run(input({message:'看看我最近的日记，我在焦虑什么？',onText:text=>chunks.push(text)}));
+  expect(result.toolCalls).toEqual([{name:'get_stats',ok:true},{name:'query_vault',ok:true}]);expect(result.text).toContain('未说明具体原因');expect(result.text).not.toContain('一定是睡眠');expect(chunks.join('')).toBe(result.text);expect(roles.at(-1)).toBe('deep');expect(result.receipts).toEqual([]);
+});
+it('tells the plan retry exactly which read-only flag must be removed',async()=>{
+  const date=addDays(todayString(),1);const prepare=vi.fn(async()=>({id:'fictional-plan-key-retry',type:'task_plan' as const,title:'确认虚构安排',description:'点击确认保存',content:'虚构',date,taskPlanToken:'fictional-plan-token'}));runtime=new AgentRuntime({store,refreshViews:async()=>{},prepareTaskPlan:prepare});
+  responses.push(reply('',[tool('plan_today',{draftTomorrow:true})]),reply('',[tool('propose_task_plan',{draftTomorrow:true,tasks:[{title:'准备虚构材料',date}]})]),reply('',[tool('propose_task_plan',{tasks:[{title:'准备虚构材料',date}]})]));
+  const result=await new AgentLoop(host).run(input({message:'按我的节奏给明天排个计划'}));
+  expect(requests[2].filter(m=>m.role==='tool').map(m=>m.content).join('\n')).toContain('draftTomorrow');expect(prepare).toHaveBeenCalledOnce();expect(result.confirmations).toHaveLength(1);expect(result.receipts).toEqual([]);
+});

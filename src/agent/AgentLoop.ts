@@ -112,6 +112,7 @@ interface TurnState {
   requestedTaskConfirmation?: boolean;
   taskBatchNotes?: string[];
   statsReads?: Map<string, StatsRecoveryRead>;
+  journalOriginalRead?: boolean;
   errorCode?: string;
   textOnlyAnswerAttempted?: boolean;
 }
@@ -493,7 +494,7 @@ export class AgentLoop {
         const meaningCall = calls.find(call => call.name === "get_stats" && call.arguments.domain === "tasks" && call.arguments.directReply === "task_meaning");
         const meaningResult = meaningCall && results.find(result => result.callId === meaningCall.id && result.success);
         if (!input.voiceBackground && !state.receipts.size && !state.confirmations.size && meaningResult
-          && calls.every(call => getLifeOpsTool(call.name)?.safety === "safe")) {
+          && calls.every(call => call.name === "get_stats" && call.arguments.domain === "tasks")) {
           const reply = taskMetricMeaning(meaningResult.output);
           assertProviderActive(input.signal); assertPolicy();
           if (reply) return this.localAnswer(input, state, reply);
@@ -826,7 +827,8 @@ export class AgentLoop {
 
   private needsHistoricalAnswer(input: AgentTurnInput, state: TurnState): boolean {
     return input.source === "text" && !input.voiceBackground && !state.receipts.size && !state.confirmations.size
-      && state.toolCalls.some(call => call.ok && call.name === "get_summaries")
+      && (state.toolCalls.some(call => call.ok && call.name === "get_summaries")
+        || state.journalOriginalRead === true && [...state.statsReads?.values() ?? []].some(read => read.arguments.domain === "journal"))
       && state.toolCalls.every(call => call.ok && (isBackgroundReadTool(call.name) || [LOAD_TOOLS.name, DEEP_ANALYSIS.name].includes(call.name)));
   }
 
@@ -1112,6 +1114,8 @@ export class AgentLoop {
       this.recordResult(input, state, call?.name ?? "tool_batch", result);
       if (call?.name === "get_stats" && result.success) (state.statsReads ??= new Map()).set(result.callId,
         { arguments: structuredClone(call.arguments), output: result.output });
+      if (call?.name === "query_vault" && call.arguments.domain === "journal" && result.success
+        && ["get", "search"].includes(String(call.arguments.operation))) state.journalOriginalRead = true;
     }
     return [...denied, ...results];
   }

@@ -35,10 +35,27 @@ function literal(text: string): string {
 export function historicalEvidenceFallback(messages: ChatMessage[]): string {
   const ids = new Set(messages.flatMap(message => message.tool_calls ?? [])
     .filter(call => call.function.name === "get_summaries").map(call => call.id));
+  const journalIds = new Set(messages.flatMap(message => message.tool_calls ?? []).filter(call => {
+    if (call.function.name !== "query_vault") return false;
+    try { const args = JSON.parse(call.function.arguments); return args.domain === "journal" && ["get", "search"].includes(args.operation); }
+    catch { return false; }
+  }).map(call => call.id));
   const pieces: string[] = [];
   const ranges = new Set<string>(), coverage = new Set<string>(), notes = new Set<string>(), summaries = new Set<string>();
+  const journalReadbacks = new Set<string>();
   for (const message of messages) {
-    if (message.role !== "tool" || !ids.has(message.tool_call_id ?? "")) continue;
+    if (message.role !== "tool") continue;
+    if (journalIds.has(message.tool_call_id ?? "")) {
+      try {
+        const data = JSON.parse(message.content);
+        if (data && typeof data === "object" && !journalReadbacks.has(message.content) && journalReadbacks.size < 28) {
+          journalReadbacks.add(message.content);
+          pieces.push("> 本轮日记工具读回（原结果片段，尚未作原因判断）：\n> " + literal([...message.content].slice(0, 1600).join("")));
+        }
+      } catch { /* Invalid readback does not become source evidence. */ }
+      continue;
+    }
+    if (!ids.has(message.tool_call_id ?? "")) continue;
     try {
       const data = JSON.parse(message.content);
       if (!data || !Array.isArray(data.summaries)) continue;
