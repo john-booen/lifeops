@@ -6,6 +6,7 @@ import type { StoreHost } from "./store/settingsSlice";
 import {produceVaultQueryRead,type VaultQueryRead,type VaultQueryReader} from "./vaultQueryRead";
 import { contextSourceHash } from "./sourceReferences";
 import { dailyQueryPaths, readDailyQuery } from "./dailyQuery";
+import { noteCalendar } from "./features/summaries/noteCalendar";
 
 export type VaultQueryDomain = "journal" | "note" | "trade" | "health" | "memory" | "task" | "habit";
 export type VaultQueryOperation = "get" | "list" | "search";
@@ -251,9 +252,11 @@ function domainMatches(store: StoreHost, domain: VaultQueryDomain, path: string)
 function sourceBlock(store: StoreHost, domain: VaultQueryDomain, file: TFile, title: string): string {
   const source = `vault:${file.path}`;
   const modified = Number.isFinite(file.stat.mtime) ? new Date(file.stat.mtime).toISOString() : "unknown";
+  const date = domain === "journal" ? journalDateFromPath(file.path, store.settings.folders.dailyRoot) : undefined;
   return (domain === "journal" ? ["### Journal Source",
     `- date: ${journalDateFromPath(file.path, store.settings.folders.dailyRoot) || "unknown"}`,
     `- period: ${journalPeriodFromPath(file.path) || "unknown（原文件未标明早晚，不能确认所属时段）"}`,
+    ...(date ? [`- calendar: ${JSON.stringify(noteCalendar(date))}`] : []),
     `- file: ${file.name}`, `- path: ${file.path}`, "- source: vault", `- evidence: ${source}`, `- modified: ${modified}`
   ] : [`### ${title}`, `- path: ${file.path}`, `- category: ${domain}`, `- source: ${source}`, `- modified: ${modified}`]).join("\n");
 }

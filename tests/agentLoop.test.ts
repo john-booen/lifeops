@@ -3362,3 +3362,8 @@ it('uses one bounded deep repair when a required plan call is replaced by anothe
   const result=await new AgentLoop(host).run(input({message:'按我的节奏给明天排个计划'}));
   expect(roles.at(-1)).toBe('deep');expect(prepare).toHaveBeenCalledOnce();expect(result.confirmations).toHaveLength(1);expect(result.toolCalls.some(call=>call.name==='query_vault')).toBe(false);expect(result.receipts).toEqual([]);expect(requests).toHaveLength(3);
 });
+it('still grounds the historical final when an optional safe source inspection fails',async()=>{
+  responses.push(reply('',[tool('get_summaries',{level:'day',range:{from:'2026-11-02',to:'2026-11-08'},includeOriginals:true}),tool('inspect_note_understanding_source',{path:'Missing/fictional.md'},'fictional-unavailable-optional-source')]),reply('虚构中途猜测：历史事件一定在19:30发生。'),reply('已读历史资料没有证明发生时刻；当前19:30只约束未来建议。'));
+  const chunks:string[]=[];const result=await new AgentLoop(host).run(input({message:'核对这两周的虚构原文，不要修改。',onText:text=>chunks.push(text)}));
+  expect(result.toolCalls).toContainEqual({name:'get_summaries',ok:true});expect(result.toolCalls).toContainEqual({name:'inspect_note_understanding_source',ok:false});expect(result.text).not.toContain('一定在19:30发生');expect(result.text).toContain('只约束未来');expect(chunks.join('')).toBe(result.text);expect(roles.at(-1)).toBe('deep');expect(result.receipts).toEqual([]);
+});

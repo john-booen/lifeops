@@ -22,6 +22,13 @@ beforeEach(async () => {
   vault = new DiskVault(root);
   store = new LifeOpsStore({ vault } as any, structuredClone(DEFAULT_SETTINGS)) as unknown as StoreHost;
 });
+it.each([
+  ['2026-01-01','2025-12-31'],['2024-03-01','2024-02-29']
+])('anchors journal relative words to its own date %s while keeping the original bytes',async(date,yesterday)=>{
+  const path=store.dailyNotePath(date,'早'),raw='昨晚22:10完成虚构黄纸袋标记；今早07:30起床。引用旧话“明天寄出”不代表已完成。';await vault.seed(path,raw);
+  const result=await executeVaultQuery(store,{domain:'journal',operation:'get',date,period:'早'});
+  expect(result).toContain('"昨晚":"'+yesterday+'"');expect(result).toContain('"今早":"'+date+'"');expect(result).toContain('原叙述时点');expect(result).toContain(raw);expect(await vault.bytes(path)).toBe(raw);
+});
 afterEach(async () => { vi.restoreAllMocks(); await rm(root, { recursive: true, force: true }); });
 
 describe("query_vault contract on a real temporary synthetic Vault", () => {

@@ -831,7 +831,7 @@ export class AgentLoop {
     return input.source === "text" && !input.voiceBackground && !state.receipts.size && !state.confirmations.size
       && (state.toolCalls.some(call => call.ok && call.name === "get_summaries")
         || state.journalOriginalRead === true && [...state.statsReads?.values() ?? []].some(read => read.arguments.domain === "journal"))
-      && state.toolCalls.every(call => call.ok && (isBackgroundReadTool(call.name) || [LOAD_TOOLS.name, DEEP_ANALYSIS.name].includes(call.name)));
+      && state.toolCalls.every(call => isBackgroundReadTool(call.name) || [LOAD_TOOLS.name, DEEP_ANALYSIS.name].includes(call.name));
   }
 
   private async finishHistoricalAnswer(input: AgentTurnInput, state: TurnState, messages: ChatMessage[]): Promise<void> {
