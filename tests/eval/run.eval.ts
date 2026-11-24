@@ -317,6 +317,15 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
     for (const message of question.prelude ?? []) {
       const result = await plugin.submitAgentMessageStream(message, history, () => {}, { source: "text" });
       history.push({ role: "user", content: message }, { role: "assistant", content: result.reply, receipts: result.receipts });
+      if (question.fixture === "single_task_preview") {
+        // The native chat binds the actual producer response, not reconstructed prose.
+        const { bindAgentHistoryResponse, isCurrentAgentHistoryPair } = await import("../../src/personalMemoryHistory");
+        const { readPersonalMemoryWithSources } = await import("../../src/personalMemorySources");
+        bindAgentHistoryResponse(result, history.at(-2), history.at(-1));
+        if (!isCurrentAgentHistoryPair(history.at(-2), history.at(-1), store as unknown as StoreHost,
+          (await readPersonalMemoryWithSources(store as unknown as StoreHost)).records)
+          || !result.reply.includes("虚构指代预览蓝纸")) throw Error("Single-task preview prelude must retain the actual native pair and checked task.");
+      }
     }
     runningPrelude = false;
     if (question.afterPreludeHistory) history.push(...await attestedCorrectionHistory(question.afterPreludeHistory, store as unknown as StoreHost));
