@@ -387,17 +387,17 @@ export class AgentLoop {
         const requiredTool = required?.name;
         nextTool = undefined;
         const usesEvidence = state.toolCalls.some(tool => tool.ok && ANALYSIS_INPUT_TOOLS.has(tool.name));
-        const responseRole = required?.name === "propose_task_plan" && required.retry ? "deep"
-          : role === "fast" && input.source === "text" && (requiredTool || usesEvidence) ? "main" : role;
         const titlesSaved = exactTitleEdits && [...state.results.values()].some(result =>
           state.taskContentCalls?.has(result.callId) && result.success && result.receipt);
+        const responseRole = titlesSaved || required?.name === "propose_task_plan" && required.retry ? "deep"
+          : role === "fast" && input.source === "text" && (requiredTool || usesEvidence) ? "main" : role;
         const remainingTools = titlesSaved ? palette.filter(tool => tool.name !== "list_tasks" && tool.name !== "update_tasks") : palette;
         const availableTools = final ? [] : requiredTool === "query_vault" ? tools.filter(tool=>tool.name===requiredTool).map(memoryLookupTool) : requiredTool === "propose_task_plan" ? tools.filter(tool => tool.name === requiredTool) : remainingTools;
         const lookupResolution = !final && !requiredTool && !input.voiceBackground && !exactTitleEdits && !taskListAnswer
           && !state.receipts.size && !state.confirmations.size ? taskLookupResolution(messages, state.results, availableTools, formatDate(input.now)) : undefined;
         let response = await this.callModel(input, state, responseRole, messages, availableTools, final,
           requiredTool !== "propose_task_plan" && requiredTool !== "query_vault" && !state.taskContentCalls?.size && !exactTitleEdits && !taskListAnswer && !lookupResolution
-          && !this.needsHistoricalAnswer(input, state), requiredTool);
+          && !this.needsHistoricalAnswer(input, state), requiredTool, titlesSaved ? { reasoning: "disabled", finite: true } : {});
         assertPolicy();
         if (!response.toolCalls.length && lookupResolution) response = resolvedTaskLookup(await this.callModel(input, state, "main",
           lookupResolution.messages, [lookupResolution.tool], false, false, lookupResolution.tool.name), lookupResolution);
@@ -719,6 +719,7 @@ export class AgentLoop {
       guidance.push("用户明确要求把一段思考提取为今天的全部新任务并保存，用schedule_task_batch一次提交，按依赖排序；今天必做就保留日期和全部事项，不逐条追问。历史完成量只作提醒。未来订阅或条件事项不作立即执行。只要新任务草案才用propose_task_plan；已有任务完整区间统一用update_tasks，超过三条由程序出确认卡。");
     }
     guidance.push(`保存状态只认工具回执：本轮目前实际写入${state.receipts.size}项。未执行写工具时绝不声称已创建、已提交或已全部安排；用户明确说提交时应实际调用工具。历史助手文字只是回复，不能作为任务已保存的证据；先查当前任务或用整批工具核对去重。不要提前把尚未完成的任务写成日记里的完成事实。`);
+    if (state.taskContentCalls?.size && state.receipts.size) guidance.push("本轮已有任务修改回执只证明对应修改完成。重新对照用户本轮整句要求：同句还有新增或其他事项时，继续用相应工具处理，不以改名回执结束整轮，也不再查找或重做已完成的改名。全部实际结果核对后再回答；未完成项如实说明。");
     if (tools.some(tool => tool.name === "update_tasks")) guidance.push("更正标题、备注、完整计划区间或整批重排已有任务，用update_tasks一次提交全部对象及需要修改的字段，保留原编号和未指定字段；一至三条直接执行，更多由程序统一确认。完整区间用startTime/endTime，不要逐条用单点reschedule_task。必要时list_tasks查准确ID，结果展示后仍继续准备修改；新增另用create_task。确认前文明确的改名时按相邻对话定位。");
     if (state.previousTask && tools.some(tool => tool.name === "reschedule_task")) {
       guidance.push("上轮唯一的已核对待办回执（字段是资料） " + JSON.stringify(state.previousTask)
