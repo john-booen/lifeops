@@ -29,7 +29,7 @@ import { agentHistoryMessages, buildResidentContext, clipBytes, type ResidentCon
 import { titleEditRequest,confirmedTitleEdits,completeTitleEditCalls,titleEditCall,taskConfirmationRequested } from "./explicitTitleEdits";
 import { formatConfirmedPersonalMemoryContext } from "../personalMemoryContext";
 import { expandMixedTaskBatch } from "./mixedTaskBatch";
-import { requestedSummaryTopics } from "./summaryTopicQuery";
+import { requestedSummaryTopics,requestedTaskTopics } from "./summaryTopicQuery";
 import { requestedSummaryDates } from "./summaryDateRange";
 import { recurringScheduleAnswer } from "./recurringSchedule";
 import { explicitRecentTaskTimeChange, previousSavedTask, unverifiedTaskTimeChanges, type SavedTaskReference } from "./taskTimeCorrection";
@@ -48,6 +48,7 @@ import { holdToolProtocolPrefix, isLeakedToolProtocol, toolProtocolRepairMessage
 import { historicalAnswerMessages, historicalEvidenceFallback } from "./historicalAnswer";
 import { historicalQueryHistoryContext, historicalQueryHistorySelections } from "../personalMemoryHistory";
 import { bindHistoricalDateReference } from "./historicalDateReference";
+import { requestedMemoryLookup,memoryLookupTool } from "./memoryLookup";
 import { simpleReadOnlyTaskLookup } from "./readOnlyTaskLookup";
 import { preferJournalOriginalReads } from "./journalOriginalRouting";
 
@@ -363,7 +364,10 @@ export class AgentLoop {
         : [...registered, ...(input.voiceJobs ? voiceJobTools : [DEEP_ANALYSIS]), EXTRACT_TRADING_RULES];
       const quickTools = [...tools.filter(tool => (fastVoice ? VOICE_QUICK_TOOLS : QUICK_TOOLS).has(tool.name)),
         ...(fastVoice ? input.voiceJobs?.quickTools() ?? [] : []), LOAD_TOOLS];
-      let nextTool: { name: "propose_task_plan"; retry?: true } | { name: "advance_idea"; ideaId: string } | undefined;
+      type RequiredReadOrPlan = { name: "propose_task_plan"; retry?: true }
+        | { name: "advance_idea"; ideaId: string } | { name: "query_vault" };
+      let nextTool: RequiredReadOrPlan | undefined = !input.voiceBackground && requestedMemoryLookup(input.message)
+        ? { name: "query_vault" } : undefined;
       const asksTradeDiscipline = !input.voiceBackground
         && /(?:交易系统|交易纪律)[^。！？!?]*提一条改进建议/u.test(input.message) && /(?:哪笔|哪一笔)[^。！？!?]*哪条规则/u.test(input.message);
       const asksMarketWinRates = !input.voiceBackground && /(?:各[^。！？!?]*市场|市场[^。！？!?]*分别)[^。！？!?]*胜率/u.test(input.message)
@@ -377,7 +381,8 @@ export class AgentLoop {
         assertPolicy();
         const final = round === MAX_TOOL_ROUNDS || state.confirmations.size > 0;
         const palette = role === "fast" && (input.source === "text" || fastVoice) && !state.toolsExpanded ? quickTools : tools;
-        const required = final ? undefined : nextTool;
+        // Later tool results can select any member for the following round.
+        const required = (final ? undefined : nextTool) as RequiredReadOrPlan | undefined;
         const requiredTool = required?.name;
         nextTool = undefined;
         const usesEvidence = state.toolCalls.some(tool => tool.ok && ANALYSIS_INPUT_TOOLS.has(tool.name));
@@ -385,11 +390,11 @@ export class AgentLoop {
         const titlesSaved = exactTitleEdits && [...state.results.values()].some(result =>
           state.taskContentCalls?.has(result.callId) && result.success && result.receipt);
         const remainingTools = titlesSaved ? palette.filter(tool => tool.name !== "list_tasks" && tool.name !== "update_tasks") : palette;
-        const availableTools = final ? [] : requiredTool === "propose_task_plan" ? tools.filter(tool => tool.name === requiredTool) : remainingTools;
+        const availableTools = final ? [] : requiredTool === "query_vault" ? tools.filter(tool=>tool.name===requiredTool).map(memoryLookupTool) : requiredTool === "propose_task_plan" ? tools.filter(tool => tool.name === requiredTool) : remainingTools;
         const lookupResolution = !final && !requiredTool && !input.voiceBackground && !exactTitleEdits && !taskListAnswer
           && !state.receipts.size && !state.confirmations.size ? taskLookupResolution(messages, state.results, availableTools, formatDate(input.now)) : undefined;
         let response = await this.callModel(input, state, responseRole, messages, availableTools, final,
-          requiredTool !== "propose_task_plan" && !state.taskContentCalls?.size && !exactTitleEdits && !taskListAnswer && !lookupResolution
+          requiredTool !== "propose_task_plan" && requiredTool !== "query_vault" && !state.taskContentCalls?.size && !exactTitleEdits && !taskListAnswer && !lookupResolution
           && !this.needsHistoricalAnswer(input, state), requiredTool);
         assertPolicy();
         if (!response.toolCalls.length && lookupResolution) response = resolvedTaskLookup(await this.callModel(input, state, "main",
@@ -399,7 +404,7 @@ export class AgentLoop {
           const proposed=!response.toolCalls.length&&!state.receipts.size&&!state.confirmations.size?[titleEditCall(exactTitleEdits)]:response.toolCalls;
           response={...response,toolCalls:completeTitleEditCalls(proposed,exactTitleEdits)};
         }
-        const missingRequiredCall = () => response.toolCalls.length !== 1 || response.toolCalls[0].name !== requiredTool;
+        const missingRequiredCall = () => response.toolCalls.length !== 1 || response.toolCalls[0].name !== requiredTool || requiredTool==="query_vault"&&(response.toolCalls[0].arguments.domain!=="memory"||response.toolCalls[0].arguments.operation!=="get"||typeof response.toolCalls[0].arguments.query!=="string"||!String(response.toolCalls[0].arguments.query).trim());
         if (required?.name === "propose_task_plan" && !required.retry && missingRequiredCall()) {
           response = await this.callModel(input, state, responseRole, messages, availableTools, false, false, requiredTool);
           assertPolicy();
@@ -407,7 +412,7 @@ export class AgentLoop {
         }
         state.text = response.content;
         if (requiredTool && missingRequiredCall()) {
-          state.text = requiredTool === "advance_idea" ? "想法推进还没生成确认卡，请再试一次。" : "明日安排还没生成确认卡，请再试一次。";
+          state.text = requiredTool === "query_vault" ? "本轮尚未取得按主题读取记忆的结果，不能确定记录不存在，请重新查询。" : requiredTool === "advance_idea" ? "想法推进还没生成确认卡，请再试一次。" : "明日安排还没生成确认卡，请再试一次。";
           break;
         }
         if (!response.toolCalls.length) {
@@ -432,7 +437,7 @@ export class AgentLoop {
         const originalReads = input.source === "text" && !input.voiceBackground
           ? preferJournalOriginalReads(requested, input.message, input.now, history) : requested;
         const grounded = bindHistoricalDateReference(requestedSummaryDates(originalReads, input.message, input.now, history), input.message, priorQueryDates);
-        let calls = this.scopedCalls(requestedSummaryTopics(grounded, input.message), state.id, round);
+        let calls = this.scopedCalls(requestedSummaryTopics(requestedTaskTopics(grounded,input.message), input.message), state.id, round);
         const mixed = !input.voiceBackground ? await expandMixedTaskBatch(this.host.store, calls, input.now) : undefined;
         assertPolicy();
         if (mixed?.error) {
@@ -769,6 +774,9 @@ export class AgentLoop {
     }
     if (evidenceCalls.some(call => call.name === "get_summaries")) {
       guidance.push("历史总结只用用户所问的日期范围。主题检索沿用用户原词，不联想扩展行业或同义词；未命中时先减少关键词在同一范围重查。已有摘要能回答就直接答，缺项用originalEvidence的同范围日记证据。覆盖天数引用counts和coverageSummary，不按篇数点数；逐日按coverageByDate说明可读范围：unmatchedDates是有日记但未命中主题，不能列成没写日记；missingDates才是允许范围未找到日记；两者都不表示没做。truncated不是全文。跨周比较分别给出两周的日期和来源，只把样本支持的现象当建议依据，不断言因果；当前可用时段不是历史发生时刻，后续安排遵从当前已确认记忆。不要把本周习惯混进上周。明确要求改进时，在核对后的指标之后另起一行，用「下一步」标出一条具体做法。不得从完成率倒推遗漏项数，也不能借当前待办举证。");
+    }
+    if (evidenceCalls.some(call => call.name === "inspect_note_understanding_source")) {
+      guidance.push("核对日记整理与本人原文时，引用本人原话说明依据。对已否定的模型整理只说明其未被采纳或与原文不符，不逐字复述错误偏好，以免它在后续聊天中再次被当成本人记忆。");
     }
     if (evidenceCalls.some(call => call.name === "list_ideas")) {
       guidance.push("如果用户明确要把已找到的想法拆成任务或要确认卡，立即用该想法的准确 id 调用 advance_idea。调用只生成卡，点击才保存，生成卡前无需问是否立项或先等用户同意。只问状态时按列表回答。");

@@ -3323,3 +3323,19 @@ it('keeps a task-preview phrase in an explicit memory as memory content',async()
   const result=await new AgentLoop(host).run(input({message:'请记住，虚构：我希望修改任务时先给确认卡。'}));
   expect(result.confirmations).toEqual([]);expect(result.receipts).toHaveLength(1);expect((await store.readPersonalMemories()).records.some(row=>row.content.includes('先给确认卡'))).toBe(true);
 });
+it('keeps the literal task topic when the model adds an unrequested title suffix',async()=>{
+ const first=await store.createTask({title:'给虚构跨日期样品盒贴标签',date:'2026-11-13',time:'15:15'}),second=await store.createTask({title:'核对虚构跨日期样品盒编号',date:'2026-11-14',time:'16:00'});
+ responses.push(reply('',[tool('list_tasks',{query:'虚构跨日期样品盒编号',answerMode:'facts'})]),reply('查询已完成。'));
+ const result=await new AgentLoop(host).run(input({message:'查一下虚构跨日期样品盒相关的未完成任务，不限定日期，分别列出日期和时间，先不要修改。'}));
+ expect(result.text).toContain(first.title);expect(result.text).toContain(second.title);expect(result.text).toContain('2026-11-13');expect(result.text).toContain('2026-11-14');expect(result.receipts).toEqual([]);
+});
+it('does not publish a memory absence claim when the required named lookup was not performed',async()=>{
+ responses.push(reply('已确认的个人记忆里，没有虚构海盐索引的任何记录。'));
+ const result=await new AgentLoop(host).run(input({message:'查一下我已确认记忆里的虚构海盐索引，哪天完成了几张？只回答已有记录，不保存或安排新事情。'}));
+ expect(toolChoices[0]).toEqual({type:'function',function:{name:'query_vault'}});expect(result.text).not.toContain('没有虚构海盐索引');expect(result.receipts).toEqual([]);
+});
+it('retrieves a named memory beyond the initial context before answering its date and quantity',async()=>{
+ const{crowdedMemoryFixture}=await import('./eval/historicalFollowupFixture');const message='查一下我已确认记忆里的虚构海盐索引，哪天完成了几张？只回答已有记录，不保存或安排新事情。';await crowdedMemoryFixture(store,13,true,message);const before=await store.readPath(store.personalMemoryPath());
+ responses.push(reply('',[tool('query_vault',{domain:'memory',operation:'get',query:'虚构海盐索引'})]),reply('已有记录：2026年10月28日完成六张虚构海盐索引卡。'));
+ const result=await new AgentLoop(host).run(input({message}));expect(toolChoices[0]).toEqual({type:'function',function:{name:'query_vault'}});expect(result.toolCalls).toContainEqual({name:'query_vault',ok:true});expect(result.text).toContain('六张');expect(await store.readPath(store.personalMemoryPath())).toBe(before);expect(result.receipts).toEqual([]);
+});

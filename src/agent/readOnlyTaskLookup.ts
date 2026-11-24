@@ -1,7 +1,9 @@
+export function startsReadOnlyLookup(message:string):boolean { return /^(?:请|麻烦)?(?:帮我)?(?:查|找|列出|列一下)/u.test(message.trim()); }
+
 /** A simple lookup may finish at the verified list; compound requests continue. */
 export function simpleReadOnlyTaskLookup(message: string): boolean {
   const text = message.trim();
-  if (text.length > 200 || !/^(?:请|麻烦)?(?:帮我)?(?:查|找|列出|列一下)/u.test(text)) return false;
+  if (text.length > 200 || !startsReadOnlyLookup(text)) return false;
   const clause = /(?:^|[，,。；;\s])(?:先)?(?:(?:不要|不)(?:做任何|做)?(?:修改|改动|调整)|只查不改|只看不改|只读即可)(?=$|[，,。；;\s])/u;
   if (!clause.test(text) && !/(?:任务|待办)/u.test(text)) return false;
   const request = text.replace(clause, " ").replace(/(?:未完成|已完成)/gu, "");
