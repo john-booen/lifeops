@@ -670,7 +670,8 @@ export class AgentLoop {
   }
 
   private async callModel(input: AgentTurnInput, state: TurnState, role: AgentModelRole,
-    messages: ChatMessage[], tools: AiToolDefinition[], final: boolean, streamOutput = true, requiredTool?: string, reasoningEffort?: "low"): Promise<AiChatResult> {
+    messages: ChatMessage[], tools: AiToolDefinition[], final: boolean, streamOutput = true, requiredTool?: string,
+    completion: { reasoningEffort?: "low"; reasoning?: "disabled"; finite?: boolean } = {}): Promise<AiChatResult> {
     assertProviderActive(input.signal);
     let previous = "";
     const sourcePolicy = memorySourcePolicy(this.host.store);
@@ -788,9 +789,9 @@ export class AgentLoop {
     };
     const response = await this.host.aiForRole(role).agentTurnStream(requestMessages, emit,
       { signal: input.signal, tools, toolChoice: final ? "none" : requiredTool ? { type: "function", function: { name: requiredTool } } : "auto",
-      preferFinite: shortTextFirst,
-      reasoning: role === "deep" && (!input.voiceBackground || final && messages.length === 2) ? "enabled" : "disabled",
-      ...(reasoningEffort ? { reasoningEffort } : {}),
+      preferFinite: shortTextFirst || requiredTool === "resolve_task_lookup" || completion.finite === true,
+      reasoning: completion.reasoning ?? (role === "deep" && (!input.voiceBackground || final && messages.length === 2) ? "enabled" : "disabled"),
+      ...(completion.reasoningEffort ? { reasoningEffort: completion.reasoningEffort } : {}),
       ...(role === "deep" && final && !tools.length ? { timeoutMs: 45_000 }
         : input.voiceBackground && final && messages.length === 2 ? { timeoutMs: 12_000 } : {}),
       maxTokens: role === "deep" || requiredTool === "resolve_task_lookup" ? 4096 : shortTextFirst || role === "fast" && input.source !== "text" ? 512 : 1536,
@@ -837,7 +838,7 @@ export class AgentLoop {
       const currentPlanningContext = formatConfirmedPersonalMemoryContext(memories.records, input.message, 4000, 8);
       const answer = await this.callModel(input, state, "deep", historicalAnswerMessages(messages, {
         question: input.message, currentPlanningContext, asOf: input.now.toISOString()
-      }), [], true, false, undefined, "low");
+      }), [], true, false, undefined, { reasoning: "disabled", finite: true });
       current();
       if (!answer.content.trim() || answer.toolCalls.length || answer.content === TOOL_PROTOCOL_UNAVAILABLE) {
         state.errorCode = "response_incomplete";

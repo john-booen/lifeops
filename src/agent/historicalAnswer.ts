@@ -36,20 +36,28 @@ export function historicalEvidenceFallback(messages: ChatMessage[]): string {
   const ids = new Set(messages.flatMap(message => message.tool_calls ?? [])
     .filter(call => call.function.name === "get_summaries").map(call => call.id));
   const pieces: string[] = [];
+  const ranges = new Set<string>(), coverage = new Set<string>(), notes = new Set<string>(), summaries = new Set<string>();
   for (const message of messages) {
     if (message.role !== "tool" || !ids.has(message.tool_call_id ?? "")) continue;
     try {
       const data = JSON.parse(message.content);
       if (!data || !Array.isArray(data.summaries)) continue;
       const source = data.originalEvidence;
-      pieces.push("> 查询范围：" + literal(JSON.stringify(data.range ?? {})));
-      if (typeof source?.coverageSummary === "string") pieces.push("> " + literal(source.coverageSummary));
+      const range = JSON.stringify(data.range ?? {});
+      if (!ranges.has(range)) { ranges.add(range); pieces.push("> 查询范围：" + literal(range)); }
+      if (typeof source?.coverageSummary === "string" && !coverage.has(range + source.coverageSummary)) {
+        coverage.add(range + source.coverageSummary); pieces.push("> " + literal(source.coverageSummary));
+      }
       for (const note of (Array.isArray(source?.notes) ? source.notes : []).slice(0, 28)) {
         if (typeof note?.date !== "string" || typeof note?.path !== "string" || typeof note?.text !== "string") continue;
+        const key = JSON.stringify([note.date, note.path, note.text]);
+        if (notes.has(key) || notes.size >= 28) continue;
+        notes.add(key);
         pieces.push("> 笔记日期：" + literal(note.date) + "；来源：" + literal(note.path)
           + "\n> " + literal([...note.text].slice(0, 1600).join("")) + "\n> （原文片段，事件日期未核对。）");
       }
-      for (const summary of data.summaries.slice(0, 14)) if (typeof summary?.path === "string") {
+      for (const summary of data.summaries.slice(0, 14)) if (typeof summary?.path === "string" && !summaries.has(summary.path) && summaries.size < 14) {
+        summaries.add(summary.path);
         pieces.push("> 摘要来源：" + literal(summary.path) + "（二手总结，未作事实结论。）");
       }
     } catch { /* A malformed tool result cannot become historical evidence. */ }

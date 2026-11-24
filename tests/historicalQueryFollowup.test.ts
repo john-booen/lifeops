@@ -64,7 +64,7 @@ it.each([0, 3, 12])("continues the checked two-week query after a real memory co
   const proposal = await runtime.executeAiToolCall({ id: "fictional-followup-correct", name: "review_personal_memory", arguments: { memoryId: memory.id, decision: "correct", correctedContent: corrected } }, "kimi");
   expect(proposal.success, proposal.output).toBe(true); expect(await runConfirmedToolAction(proposal.actions[0], { store, refreshViews: async () => {} })).toBe(true);
   const tasks = await vault.bytes(store.taskDbPath()), memories = await vault.bytes(store.personalMemoryPath()); let followupTurns = 0;
-  vi.mocked(LifeOpsAi.prototype.agentTurnStream).mockImplementation(async (messages, onText) => {
+  vi.mocked(LifeOpsAi.prototype.agentTurnStream).mockImplementation(async (messages, onText, options) => {
     const sent = JSON.stringify(messages);
     if (++followupTurns === 1) {
       expect(sent).toContain(range.from); expect(sent).toContain(range.to);
@@ -77,6 +77,12 @@ it.each([0, 3, 12])("continues the checked two-week query after a real memory co
         : { id: "fictional-reread-corrected-week", name: "get_summaries", arguments: { level: "week", range: modelRange, includeOriginals: true } }] };
     }
     expect(sent).toContain("2026-10-28"); expect(sent).toContain("2026-11-04"); expect(sent).toContain("19:30");
+    if(options?.toolChoice==='none') {
+      expect(options.reasoning).toBe('disabled');
+      expect(options.maxTokens).toBe(4096);
+      expect(options.tools).toEqual([]);
+      expect(options.preferFinite).toBe(true);
+    }
     const answer = followupTurns === 2 ? "虚构未发布新草稿" : "10月28日与11月4日均记录连续25分钟归档。下一步（建议）：按当前已更正记忆，周三19:30留25分钟；未创建任务。";
     onText(answer); return { content: answer, toolCalls: [] };
   });

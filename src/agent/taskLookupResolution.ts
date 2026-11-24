@@ -23,10 +23,15 @@ export function taskLookupResolution(messages: ChatMessage[], results: ReadonlyM
   if (ids.size !== payload.tasks.length) return;
   const properties = updateTool.parameters.properties as Record<string, unknown> | undefined;
   if (!properties?.updates) return;
+  // This recovery repairs a task-list lookup, not the schedule semantics.
+  // Do not offer list_tasks' derived mode as a field to echo into every edit.
+  // Explicit mode changes remain available through the ordinary update tool.
+  const updates = structuredClone(properties.updates) as { items?: { properties?: Record<string, unknown> } };
+  if (updates.items?.properties) delete updates.items.properties.scheduleMode;
   const tool: AiToolDefinition = { name: "resolve_task_lookup", description: "按用户原请求区分只读答复与待确认的整批修改；此工具本身不保存。",
     parameters: { type: "object", additionalProperties: false, properties: {
       kind: { type: "string", enum: ["read_only", "prepare_updates", "unclear"] },
-      reply: { type: "string" }, coversAllRequested: { type: "boolean" }, updates: properties.updates
+      reply: { type: "string" }, coversAllRequested: { type: "boolean" }, updates
     }, required: ["kind"] } };
   const instruction = "刚才只读取了任务清单，尚未生成修改确认卡，也没有保存。必须调用resolve_task_lookup核对原始用户请求。"
     + "用户仅要查询、解释、假设或建议时选read_only，reply只回答所问，不声称生成卡或保存。"
@@ -49,6 +54,7 @@ export function resolvedTaskLookup(response: AiChatResult, lookup: TaskLookupRes
   }
   if (args.kind !== "prepare_updates" || args.coversAllRequested !== true || !Array.isArray(args.updates)
     || args.updates.length < 4 || args.updates.length > 20) return unavailable();
+  if (args.updates.some(row => row && typeof row === "object" && Object.prototype.hasOwnProperty.call(row, "scheduleMode"))) return unavailable();
   const ids = args.updates.map(row => row && typeof row === "object" && !Array.isArray(row) ? row.taskIdOrTitle : undefined);
   if (new Set(ids).size !== ids.length || ids.some(id => typeof id !== "string" || !lookup.ids.has(id))) return unavailable();
   return { ...response, content: "", toolCalls: [{ name: "update_tasks", arguments: { updates: args.updates } }] };

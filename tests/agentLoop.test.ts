@@ -118,6 +118,14 @@ it("keeps ordinary text starting with a less-than sign without invoking protocol
 });
 
 it("turns a model's unsupported eleven-task card claim into one real confirmation before any save", async () => {
+  const model = host.aiForRole;
+  host.aiForRole = role => ({agentTurnStream:(messages,onText,options)=>{
+    if(typeof options?.toolChoice==='object'&&options.toolChoice.function.name==='resolve_task_lookup') {
+      expect(options.preferFinite).toBe(true);
+      expect(options.reasoning).toBe('disabled');
+    }
+    return model(role).agentTurnStream(messages,onText,options);
+  }});
   const tasks = [];
   for (let i = 0; i < 11; i++) tasks.push(await store.createTask({ title: "虚构补卡纸样" + i, date: "2026-11-12", startTime: "20:00", endTime: "20:30" }));
   const before = await store.readPath(store.taskDbPath());
@@ -287,7 +295,7 @@ it("discards the direct read-only task answer if the source changes after its to
   expect(requests).toHaveLength(1); expect(streamed.join("")).toBe("");
 });
 
-it("finishes historical text with one tools-free reasoning answer, never streaming the discarded draft", async () => {
+it("finishes historical text with one complete tools-free grounded answer, never streaming the discarded draft", async () => {
   const answer = "11月3日记载整理10张；没登记，原因未知，其余日期也无法据此判断。";
   const original = host.aiForRole, finalOptions: unknown[] = [];
   host.aiForRole = role => ({ agentTurnStream: (messages, onText, options) => {
@@ -300,7 +308,7 @@ it("finishes historical text with one tools-free reasoning answer, never streami
   expect(result.text).toBe(answer); expect(streamed.join("")).toBe(answer);
   expect(requests).toHaveLength(3); expect(roles.at(-1)).toBe("deep");
   expect(catalogs.at(-1)).toEqual([]); expect(toolChoices.at(-1)).toBe("none");
-  expect(finalOptions).toEqual([expect.objectContaining({ reasoning: "enabled", reasoningEffort: "low", timeoutMs: 45_000, toolChoice: "none" })]);
+  expect(finalOptions).toEqual([expect.objectContaining({ reasoning: "disabled", preferFinite: true, maxTokens: 4096, timeoutMs: 45_000, toolChoice: "none" })]);
   const final = requests.at(-1)!;
   expect(final.some(message => message.role === "tool" || message.tool_calls?.length)).toBe(false);
   expect(JSON.stringify(final)).toContain("虚构紫纸已整理10张");

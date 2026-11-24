@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { historicalAnswerMessages } from "../src/agent/historicalAnswer";
+import { historicalAnswerMessages, historicalEvidenceFallback } from "../src/agent/historicalAnswer";
 import type { ChatMessage } from "../src/ai";
 
 it.each(["current-round", "prior-history"])("withholds an unverified %s interpretation while preserving actual readback identities and the user's question", phase => {
@@ -44,4 +44,18 @@ it("does not reuse resident present-day facts or a previous identical query's to
   expect(JSON.stringify(final)).not.toContain("Old unapproved");
   expect(JSON.stringify(final)).toContain("Fresh original journal read.");
   expect(JSON.stringify(final)).toContain("Wednesday 19:30");
+});
+
+it("shows a repeated historical read only once in an unavailable-provider fallback", () => {
+  const content=JSON.stringify({range:{from:'2026-10-26',to:'2026-11-08'},summaries:[{path:'Reports/week.md'}],
+    originalEvidence:{coverageSummary:'Fictional fourteen-day coverage.',notes:[{date:'2026-10-28',path:'Journal/a.md',text:'Fictional unique passage.'}]}});
+  const messages:ChatMessage[]=['first','second'].flatMap(id=>[
+    {role:'assistant' as const,content:'',tool_calls:[{id,type:'function' as const,function:{name:'get_summaries',arguments:'{}'}}]},
+    {role:'tool' as const,tool_call_id:id,content}
+  ]);
+  const answer=historicalEvidenceFallback(messages);
+  expect(answer.split('Fictional unique passage').length-1).toBe(1);
+  expect(answer.split('Fictional fourteen').length-1).toBe(1);
+  expect(answer.split('查询范围').length-1).toBe(1);
+  expect(answer.split('摘要来源').length-1).toBe(1);
 });

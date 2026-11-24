@@ -36,6 +36,7 @@ export async function nativeHistoricalFollowup(page, root, result) {
     const mock = async (messages, onText, options) => {
       calls++;
       const final = options?.toolChoice === "none";
+      if(final&&(options.reasoning!=='disabled'||options.maxTokens!==4096||!options.preferFinite))throw Error('Grounded final readback must reserve its budget for a complete visible response');
       const planning=final?messages.find(row=>row.role==='user'&&row.content.startsWith('本轮重新核对的当前个人资料')):null;
       const current=planning?JSON.parse(planning.content.slice(planning.content.indexOf('\n')+1)):null;
       const memory=final&&current?.scope==='future_constraints_only'?current.records:messages[0]?.content;
