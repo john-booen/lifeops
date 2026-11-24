@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { App } from "obsidian";
 import { clearJournalPresentation, refreshJournalPresentation } from "../src/journalPresentation";
 
@@ -8,13 +8,20 @@ function fixture(path: string, content: string, mode = "source") {
     file: { path, basename: path.split("/").at(-1)!.replace(/\.md$/, "") },
     getMode: () => mode,
     editor: { getLine: (i: number) => content.split("\n")[i] ?? "", lineCount: () => content.split("\n").length },
-    containerEl: { classList: { toggle: (s: string, on: boolean) => on ? names.add(s) : names.delete(s), remove: (...s: string[]) => s.forEach(x => names.delete(x)) } }
+    containerEl: { classList: { contains: (s: string) => names.has(s), toggle: vi.fn((s: string, on: boolean) => on ? names.add(s) : names.delete(s)), remove: (...s: string[]) => s.forEach(x => names.delete(x)) } }
   };
   const app = { workspace: { getLeavesOfType: () => [{ view }] }, metadataCache: { getFileCache: () => ({ headings: [{ level: 1, heading: view.file.basename }] }) } } as unknown as App;
   return { app, view, names };
 }
 
 describe("journal presentation does not change note content or global preferences", () => {
+  it("does not write unchanged classes again after ordinary body edits", () => {
+    const f = fixture("日记/2026-09-23早.md", "# 2026-09-23早\n\n正文");
+    refreshJournalPresentation(f.app, "日记");
+    f.view.containerEl.classList.toggle.mockClear();
+    for (let i = 0; i < 50; i++) refreshJournalPresentation(f.app, "日记");
+    expect(f.view.containerEl.classList.toggle).not.toHaveBeenCalled();
+  });
   it("hides a duplicate filename only when the editor contains the same first heading", () => {
     const f = fixture("日记/2026-09-23早.md", "# 2026-09-23早\n\n正文");
     refreshJournalPresentation(f.app, "日记");

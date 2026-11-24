@@ -58,7 +58,7 @@ import { readPersonalMemoryWithSources } from "./personalMemorySources";
 import type { StewardOperationSummary } from "./panel/stewardRecords";
 import { LIFEOPS_VIEW_TYPE, LifeOpsView } from "./lifeOpsView";
 import type { LocalRecordKind } from "./localRecordNotes";
-import { refreshJournalPresentation, clearJournalPresentation } from "./journalPresentation";
+import { watchJournalPresentation, clearJournalPresentation } from "./journalPresentation";
 import { LifeOpsEventBus } from "./lifeOpsEventBus";
 import { resolvePlatformCapabilities } from "./platformCapabilities";
 import { restrictCredentialFilePermissions } from "./credentialSecurity";
@@ -122,6 +122,7 @@ export default class LifeOpsPlugin extends Plugin {
   private statusBar!: HTMLElement;
   private styleEl: HTMLStyleElement | null = null;
   private readonly sourceChangeTimers = new Map<string, number>();
+  private lastEditorActivityAt = Number.NEGATIVE_INFINITY;
   private readonly proactiveLifecycle = new ProactiveLifecycle(() => { void this.runProactiveCycle(); }, notify =>
     this.lifeOpsEvents.subscribe(event => {
       if (event.type === "task.changed" || event.type === "habit.changed") notify();
@@ -213,14 +214,8 @@ export default class LifeOpsPlugin extends Plugin {
     this.store = this.devices?.createStore() ?? new LifeOpsStore(this.app, this.settings);
     this.devices?.watch(event => this.registerEvent(event), cleanup => this.register(cleanup), () => this.refreshViews());
     registerTradeReviewActions(this as unknown as TradeReviewUiHost);
-    const refreshJournalStyle = () => {
-      if (this.isLifecycleCurrent(generation)) refreshJournalPresentation(this.app, this.settings.folders.dailyRoot);
-    };
-    this.registerEvent(this.app.workspace.on("file-open", refreshJournalStyle));
-    this.registerEvent(this.app.workspace.on("layout-change", refreshJournalStyle));
-    this.registerEvent(this.app.workspace.on("editor-change", refreshJournalStyle));
-    this.registerEvent(this.app.metadataCache.on("changed", refreshJournalStyle));
-    this.app.workspace.onLayoutReady(refreshJournalStyle);
+    this.register(watchJournalPresentation(this.app, () => this.settings.folders.dailyRoot,
+      event => this.registerEvent(event), () => this.isLifecycleCurrent(generation)));
     try {
       const interrupted = (this.store?.canWriteFacts?.() !== false) && await hasInterruptedFactOperation(this.store as unknown as StoreHost);
       if (!this.isLifecycleCurrent(generation)) return;
@@ -597,6 +592,10 @@ export default class LifeOpsPlugin extends Plugin {
   }
 
   private registerVaultSourceEvents(): void {
+    this.registerEvent(this.app.workspace.on("editor-change", () => {
+      // Record activity only. Derived indexes must not compete with native typing.
+      this.lastEditorActivityAt = Date.now();
+    }));
     this.registerEvent(this.app.vault.on("create", (file) => {
       if (file instanceof TFolder) this.queuePersonalMemorySourceRefresh(file.path, true);
       if (file instanceof TFile) {
@@ -659,12 +658,20 @@ export default class LifeOpsPlugin extends Plugin {
   private queueVaultSourceUpsert(path: string): void {
     if (!(this.store?.canWriteFacts?.() !== false) || !this.store.isManagedSourcePath(path)) return;
     this.clearVaultSourceTimer(path);
-    const timer = window.setTimeout(() => {
+    const update = () => {
+      if (this.unloaded) return;
+      const remaining = 1500 - (Date.now() - this.lastEditorActivityAt);
+      if (remaining > 0) {
+        this.sourceChangeTimers.set(path, window.setTimeout(update, remaining));
+        return;
+      }
       this.sourceChangeTimers.delete(path);
+      if (this.store?.canWriteFacts?.() === false || !this.store.isManagedSourcePath(path)) return;
       void this.store.upsertVaultSource(path).catch((error) => {
         console.error("LifeOps failed to update Vault source", error);
       });
-    }, 500);
+    };
+    const timer = window.setTimeout(update, 500);
     this.sourceChangeTimers.set(path, timer);
   }
 

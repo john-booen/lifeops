@@ -9,7 +9,7 @@ vi.mock('obsidian', () => ({
 }));
 vi.mock('../src/lifeOpsView', () => ({ LIFEOPS_VIEW_TYPE: 'lifeops', LifeOpsView: class {} }));
 vi.mock('../src/settingsTab', () => ({ LifeOpsSettingTab: class {} }));
-vi.mock('../src/journalPresentation', () => ({ refreshJournalPresentation: vi.fn(), clearJournalPresentation: vi.fn() }));
+vi.mock('../src/journalPresentation', () => ({ watchJournalPresentation: vi.fn(() => () => {}), clearJournalPresentation: vi.fn() }));
 
 const { default: LifeOpsPlugin } = await import('../src/main');
 
@@ -171,5 +171,57 @@ describe('production lifecycle continuations after unload', () => {
     const refreshing = plugin.updateStatusBar(); await entered.promise; plugin.onunload(); waiting.resolve(); await refreshing;
     expect(status.setText).not.toHaveBeenCalled();
     expect(status.toggleClass).not.toHaveBeenCalled();
+  });
+});
+
+describe('native typing yields derived source indexing until idle', () => {
+  function sourceHost() {
+    vi.useFakeTimers();
+    const events = new Map<string, (...args: any[]) => void>();
+    plugin.registerEvent = vi.fn();
+    plugin.app.workspace.on = (event: string, callback: (...args: any[]) => void) => { events.set(event, callback); return {}; };
+    plugin.app.vault.on = vi.fn();
+    store.isManagedSourcePath = vi.fn((path: string) => path.startsWith('日记/'));
+    store.canWriteFacts = vi.fn(() => true);
+    store.upsertVaultSource = vi.fn(async () => {});
+    (LifeOpsPlugin.prototype as any).registerVaultSourceEvents.call(plugin);
+    return { edit: () => events.get('editor-change')!(), save: () => plugin.queueVaultSourceUpsert('日记/虚构.md') };
+  }
+  it('does not derive indexes during continuous typing/deletion and indexes once after the pause', () => {
+    const h = sourceHost(); h.save();
+    for (let i = 0; i < 100; i++) {
+      h.edit(); if (i % 20 === 0) h.save(); vi.advanceTimersByTime(50);
+    }
+    h.edit(); vi.advanceTimersByTime(1499);
+    expect(store.upsertVaultSource.mock.calls.length).toBe(0);
+    vi.advanceTimersByTime(1);
+    expect(store.upsertVaultSource).toHaveBeenCalledExactlyOnceWith('日记/虚构.md');
+  });
+  it('retains ordinary saved-file indexing when the editor is idle', () => {
+    const h = sourceHost(); h.save(); vi.advanceTimersByTime(499);
+    expect(store.upsertVaultSource.mock.calls.length).toBe(0);
+    vi.advanceTimersByTime(1); expect(store.upsertVaultSource).toHaveBeenCalledTimes(1);
+  });
+  it('coalesces repeated saves and reads the latest saved content at execution', () => {
+    const h = sourceHost(); let saved = '初稿', indexed = '';
+    store.upsertVaultSource.mockImplementation(async () => { indexed = saved; });
+    h.edit(); h.save(); vi.advanceTimersByTime(700);
+    saved = '最终虚构稿'; h.save(); vi.advanceTimersByTime(800);
+    expect(indexed).toBe('最终虚构稿'); expect(store.upsertVaultSource).toHaveBeenCalledTimes(1);
+  });
+  it('cancels a deferred update on unload', () => {
+    const h = sourceHost(); h.edit(); h.save(); vi.advanceTimersByTime(500);
+    plugin.onunload(); vi.advanceTimersByTime(2000);
+    expect(store.upsertVaultSource.mock.calls.length).toBe(0);
+  });
+  it.each(['writer', 'scope'])('rechecks %s before a delayed update', guard => {
+    const h = sourceHost(); h.edit(); h.save(); vi.advanceTimersByTime(500);
+    (guard === 'writer' ? store.canWriteFacts : store.isManagedSourcePath).mockReturnValue(false);
+    vi.advanceTimersByTime(1000); expect(store.upsertVaultSource.mock.calls.length).toBe(0);
+  });
+  it('does not resurrect a queued path after rename/delete cancellation', () => {
+    const h = sourceHost(); h.edit(); h.save(); vi.advanceTimersByTime(500);
+    plugin.clearVaultSourceTimer('日记/虚构.md'); vi.advanceTimersByTime(2000);
+    expect(store.upsertVaultSource.mock.calls.length).toBe(0);
   });
 });
