@@ -172,6 +172,31 @@ it.each(['create_task','schedule_task_batch'])('F1 guards the actual Runtime bef
   await plugin.executeAgentAction(result.actions[0]);expect((await store.readTaskDb()).tasks).toHaveLength(1);
 });
 
+it('F1 does not issue an empty creation card or ledger claim when every waiting batch task already exists',async()=>{
+  const date=normalizeJournalDate('明天',todayString())!,title='虚构已存在等待整批';
+  const existing=await store.createTask({title,date,startTime:'09:00',endTime:'09:30'}),before=await facts();
+  const runtime=new AgentRuntime({store,refreshViews:async()=>{}});
+  const result=await runtime.executeToolCall({toolName:'schedule_task_batch',arguments:{date:'明天',tasks:[{title}]},source:'kimi',callId:'fictional-existing-held-batch',userMessage:'明天新建虚构已存在等待整批，等我确认后再保存。'});
+  expect(result.success).toBe(true);expect(result.actions).toEqual([]);expect(result.receipt).toBeUndefined();expect(result.output).toContain('没有需要新建');
+  expect(await facts()).toEqual(before);expect((await store.readTaskDb()).tasks).toEqual([existing]);
+});
+
+it('F1 refuses invalid availability before a waiting batch can publish a card or claim a write',async()=>{
+  const runtime=new AgentRuntime({store,refreshViews:async()=>{}}),before=await facts();
+  const result=await runtime.executeToolCall({toolName:'schedule_task_batch',arguments:{date:'明天',availableStart:'24:75',tasks:[{title:'虚构非法时段等待整批'}]},source:'kimi',callId:'fictional-invalid-held-availability',userMessage:'明天创建虚构非法时段等待整批，先给确认卡。'});
+  expect(result.success).toBe(false);expect(result.actions).toEqual([]);expect(result.receipt).toBeUndefined();expect(result.output).toContain('HH:mm');expect(await facts()).toEqual(before);
+});
+
+it('F1 preserves an existing task and holds only the genuinely new remainder in one frozen batch card',async()=>{
+  const date=normalizeJournalDate('明天',todayString())!,existing=await store.createTask({title:'虚构整批原有纸盒',date,startTime:'09:00',endTime:'09:30'}),before=await facts();
+  const runtime=new AgentRuntime({store,refreshViews:async()=>{}});
+  const result=await runtime.executeToolCall({toolName:'schedule_task_batch',arguments:{date:'明天',tasks:[{title:existing.title},{title:'虚构整批剩余纸盒',dueDate:'后天',dueTime:'17:30'}]},source:'kimi',callId:'fictional-held-remainder',userMessage:'明天创建虚构整批原有纸盒和虚构整批剩余纸盒，等我确认后再保存。'});
+  expect(result.success).toBe(true);expect(await facts()).toEqual(before);expect(result.actions).toHaveLength(1);expect(result.actions[0].toolBatch).toHaveLength(1);expect(result.output).toContain('已存在');
+  expect(result.actions[0].toolBatch![0].arguments.title).toBe('虚构整批剩余纸盒');
+  await plugin.executeAgentAction(result.actions[0]);const rows=(await store.readTaskDb()).tasks;expect(rows).toHaveLength(2);expect(rows.find(row=>row.id===existing.id)).toEqual(existing);
+  expect(rows.find(row=>row.title==='虚构整批剩余纸盒')).toMatchObject({date,dueDate:normalizeJournalDate('后天',todayString()),dueTime:'17:30'});
+});
+
 it('F1 groups separate model creation calls into one real card and deduplicates concurrent approvals',async()=>{
   calls=[tool('create_task',{title:'虚构整份甲',date:'明天'},'fictional-card-a'),tool('create_task',{title:'虚构整份乙',date:'明天'},'fictional-card-b')];
   const before=await facts(),result=await run('新建虚构整份甲和虚构整份乙，等我确认再保存。');expect(await facts()).toEqual(before);expect(result.actions).toHaveLength(1);
