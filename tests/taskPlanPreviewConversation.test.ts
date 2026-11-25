@@ -224,6 +224,22 @@ it('F1 freezes relative dates before midnight, keeps the independent deadline an
   }finally{vi.useRealTimers();}
 });
 
+it('freezes existing-task relative dates and deadlines in a mixed preview before a next-day confirmation',async()=>{
+  vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date(2026,10,25,23,59));
+  try{
+    const existing=await store.createTask({title:'虚构跨夜原纸样',date:'2026-11-25'}),before=await facts();
+    calls=[tool('update_tasks',{updates:[{taskIdOrTitle:existing.id,date:'明天',endDate:'后天',scheduleMode:'window',dueDate:'大后天',dueTime:'17:30'}]},'fictional-crossnight-update'),
+      tool('create_task',{title:'虚构跨夜新纸样',date:'明天'},'fictional-crossnight-create')];
+    const result=await run('请调整虚构跨夜原纸样的计划区间与独立截止，再新增虚构跨夜新纸样，先给完整确认卡，等我确认后再保存。'),action=result.actions[0];
+    expect(action.type).toBe('tool_batch');expect(await facts()).toEqual(before);
+    expect(action.content).toContain('2026-11-26');expect(action.content).toContain('2026-11-28 17:30');
+    vi.setSystemTime(new Date(2026,10,26,7));await plugin.executeAgentAction(action);
+    const tasks=(await store.readTaskDb()).tasks;
+    expect(tasks.find(task=>task.id===existing.id)).toMatchObject({date:'2026-11-26',endDate:'2026-11-27',scheduleMode:'window',dueDate:'2026-11-28',dueTime:'17:30'});
+    expect(tasks.find(task=>task.title==='虚构跨夜新纸样')?.date).toBe('2026-11-26');
+  }finally{vi.useRealTimers();}
+});
+
 it.each([true,false])('F1 applies adjacent approval or cancellation to the actual persistent new-task plan: %s',async approved=>{
   const before=await facts(),result=await run(),action=result.actions[0];expect(action.type).toBe('task_plan');
   const message={role:'assistant' as const,content:result.reply},view={agentMessages:[message],pendingAgentActions:[action]};

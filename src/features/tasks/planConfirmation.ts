@@ -9,20 +9,22 @@ import {taskScheduleInput} from './scheduleInput';
 import {buildTaskFromInput} from '../../vaultApi';
 import {explicitReminderClock} from '../../taskReference';
 import {stripTaskWaitSuffix} from './creationPolicy';
+import {formatDate} from '../../date';
 
 /** Freeze the exact existing records shown in a batch's confirmation preview. */
 export async function bindTaskPlanConfirmation(store: StoreHost, batch: ToolCallResult,userMessage=''): Promise<void> {
   const action = batch.actions[0], calls = action?.toolBatch;
   if (action?.type !== "tool_batch" || !calls?.some(call => ['update_tasks','create_task'].includes(call.name))) return;
   try {
+    const instant=new Date(),baseDate=formatDate(instant);
     const { tasks } = await readContextTasks(store), frozen = structuredClone(calls), preview: string[] = [];
     for (const call of frozen) {
       if(call.name==='create_task'){
         if(typeof call.arguments.title!=='string'||!call.arguments.title.trim())throw Error('新任务缺少具体标题，尚未保存。');
-        const schedule=taskScheduleInput(call.arguments,{reminderClock:explicitReminderClock(stripTaskWaitSuffix(userMessage))});
+        const schedule=taskScheduleInput(call.arguments,{baseDate,reminderClock:explicitReminderClock(stripTaskWaitSuffix(userMessage))});
         const other=Object.fromEntries(Object.entries(call.arguments).filter(([key])=>!['date','time','endDate','startTime','endTime','scheduleMode','dueDate','dueTime','estimateMin'].includes(key)));
         call.arguments={...other,...schedule};
-        const task=buildTaskFromInput({title:call.arguments.title as string,...call.arguments},new Date());
+        const task=buildTaskFromInput({title:call.arguments.title as string,...call.arguments},instant);
         preview.push(`新建「${task.title}」：${[task.date||'未安排日期',taskScheduleLabel(task),taskDeadlineLabel(task)].filter(Boolean).join('；')}`);continue;
       }
       if (call.name !== "update_tasks") {
@@ -39,7 +41,11 @@ export async function bindTaskPlanConfirmation(store: StoreHost, batch: ToolCall
         // A repeated old title/note is preservation, not a requested edit.
         for (const key of ["title", "note"] as const) if (Object.prototype.hasOwnProperty.call(row, key)
           && Object.is(before[key], row[key])) delete row[key];
-        const next = { ...before, ...taskPlanUpdate(before, row) };
+        const frozenPlan = taskPlanUpdate(before, row,baseDate);
+        // The displayed dates and approved payload must keep the same meaning
+        // if confirmation happens after midnight or a later restart.
+        Object.assign(row, frozenPlan);
+        const next = { ...before, ...frozenPlan };
         // A model may echo list_tasks' derived mode even though the user only
         // changed clocks. Preserve the original metadata unless the mode is
         // different or is needed to keep that meaning under the new dates.
