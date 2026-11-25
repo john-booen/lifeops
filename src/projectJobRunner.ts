@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import type { AiToolCall } from "./ai";
 import { AgentRuntime } from "./agentRuntime";
 import { normalizeJournalDate, formatDate } from "./date";
+import { buildTaskFromInput } from "./vaultApi";
+import { TASK_PLAN_FIELDS, taskPlanUpdate } from "./features/tasks/scheduleUpdate";
 import { factRecoveryPath, fileRevision, inspectFactRecovery, recoverFactOperation } from "./dataFoundation/factOperation";
 import { OperationLedger, operationFingerprint, type OperationLedgerDocument } from "./dataFoundation/operationLedger";
 import { recordRevision } from "./operationIdentity";
@@ -78,12 +80,15 @@ export class ProjectJobRunner {
     if (snapshot.document.job) reject("已有一份持久安排，请先在安排入口核对。当前批次保留该记录，不替换它。");
     const instant = this.now(), baseDate = formatDate(instant), id = randomUUID();
     const steps = tasks.map((task, index) => {
-      if (Object.keys(task).some(key => !["title", "date", "time", "category"].includes(key))) reject("任务包含当前不支持的字段，请重新核对。");
-      const date = normalizeJournalDate(task.date?.trim() || baseDate, baseDate), time = task.time?.trim() || "";
+      if (Object.keys(task).some(key => !["title", "category", ...TASK_PLAN_FIELDS].includes(key))) reject("任务包含当前不支持的字段，请重新核对。");
+      const suppliedDate = task.date?.trim() || (task.dueDate !== undefined || task.dueTime !== undefined ? "" : baseDate);
+      const date = suppliedDate ? normalizeJournalDate(suppliedDate, baseDate) : "", time = task.time?.trim() || "";
       const title = task.title.trim(), category = task.category?.trim() || "AI建议";
-      if (!date || !title || /[\r\n]/.test(title) || /[\r\n·]/.test(category)
+      if (suppliedDate && !date || !title || /[\r\n]/.test(title) || /[\r\n·]/.test(category)
         || time && !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time)) reject("任务标题、日期或时间无法识别，请核对后再保存。");
-      const args = { title, date, time, category };
+      const initial = buildTaskFromInput({title,date,time,category},instant);
+      const suppliedPlan = {...task}; if (!date) delete suppliedPlan.date;
+      const args: ProjectJobArguments = { title, date, time, category, ...taskPlanUpdate(initial, suppliedPlan, baseDate) };
       return { toolName: "create_task" as const, operationId: projectJobStepOperationId(id, index), arguments: args,
         fingerprint: operationFingerprint("create_task", args) };
     });

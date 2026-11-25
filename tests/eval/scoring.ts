@@ -13,6 +13,7 @@ export interface EvalTask {
   endDate?: string;
   scheduleMode?: "fixed" | "window";
   dueDate?: string;
+  dueTime?: string;
 }
 export interface EvalCheckin { habitId: string; date: string; value?: number; count: number; status: string }
 type EvalToolFact = { name: string; output: Record<string, unknown> | Record<string, unknown>[] };
@@ -39,6 +40,7 @@ interface EvalChecks {
   createdTask?: { titleIncludes: string; date: string } &
     ({ time: string; endTime?: never } | { endTime: string; time?: never });
   createdTaskBatch?: { date: string; notBefore: string; titleIncludes: string[]; unscheduled?: true };
+  createdPeriodTask?: {titleIncludes:string;date:string;endDate:string;dueDate:string;dueTime:string};
   phoneBatch?: { created: number; existing: number };
   updatedTasks?: Array<{ fromTitleIncludes: string; title: string }>;
   requestedTaskPreview?: { fromTitle: string; title: string };
@@ -262,6 +264,14 @@ export function scoreEvaluationCase(question: EvalQuestion, observed: EvalObserv
         ? (task.startTime || task.time) === expected.time
         : task.endTime === expected.endTime && !task.startTime && !task.time));
     if (!matched) issues.push("新建任务的标题、日期或时间不符");
+  }
+  if(checks.createdPeriodTask){
+    const expected=checks.createdPeriodTask,task=observed.createdTasks[0];
+    if(observed.createdTasks.length!==1||observed.receipts<1||!task||!task.title.includes(expected.titleIncludes)
+      ||task.date!==expected.date||task.endDate!==expected.endDate||task.scheduleMode!=="window"
+      ||task.dueDate!==expected.dueDate||task.dueTime!==expected.dueTime||task.time||task.startTime||task.endTime){
+      issues.push("期间任务的日期范围、独立必须截止或实际保存不符");
+    }
   }
   if (checks.createdOrClarify) {
     const { titleIncludes, dates, clarify } = checks.createdOrClarify;

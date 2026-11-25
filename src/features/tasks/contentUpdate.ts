@@ -6,16 +6,18 @@ import { recordRevision } from "../../operationIdentity";
 import { isVaultPathExcluded } from "../../privacy";
 import { taskScheduleLabel } from "../../taskSchedule";
 import { TASK_PLAN_FIELDS, taskPlanUpdate } from "./scheduleUpdate";
+import { TASK_DEADLINE_PROPERTIES, taskDeadlineLabel } from "./deadlineInput";
 
 export const UPDATE_TASKS_TOOL: AiToolDefinition = {
   name: "update_tasks",
-  description: "修改已有任务标题、备注或完整时段，全部放入updates。超过三条只生成统一确认卡，用户要整批预览也调用。准确唯一完整标题可直接用。保留编号、未指定字段和完成状态，不删除重建。",
+  description: "修改已有任务标题、备注、完整时段或独立必须截止，全部放入updates。超过三条只生成统一确认卡，用户要整批预览也调用。准确唯一完整标题可直接用。保留编号、未指定字段和完成状态，不删除重建。",
   parameters: { type: "object", additionalProperties: false, properties: {
     updates: { type: "array", minItems: 1, maxItems: 20, items: { type: "object", additionalProperties: false,
       properties: { taskIdOrTitle: { type: "string" }, title: { type: "string", description: "更正后的完整标题；未要求改名时省略。" },
         note: { type: "string", description: "新的完整备注；仅明确要求改备注时填写，空串表示清空。" },
         date: { type: "string", description: "新的安排日期；未要求则省略。" },
         endDate: { type: "string", description: "跨天结束日期；空串清除，省略保留。" },
+        ...TASK_DEADLINE_PROPERTIES,
         scheduleMode: { type: "string", enum: ["fixed", "window"], description: "window期间分次完成；fixed固定时段；省略保留。" },
         startTime: { type: "string", description: "计划开始HH:mm；空串清除，省略保留。" },
         endTime: { type: "string", description: "计划结束HH:mm；空串清除，省略保留。" },
@@ -84,8 +86,8 @@ export async function updateTaskContents(args: Record<string, unknown>, context:
     const { updatedAt: _newTime, ...actual } = verified;
     if (recordRevision(actual) !== recordRevision(expected)) throw Error("任务内容修改后核对未通过。");
     taskEdits.push({ id: before.id, beforeTitle: before.title, title });
-    const schedule = [verified.date, taskScheduleLabel(verified)].filter(Boolean).join(" ");
-    if (plan) outputs.push(`已更新「${title}」：${[before.date, taskScheduleLabel(before)].filter(Boolean).join(" ") || "未排时间"} → ${schedule || "未排时间"}。编号${before.id}；完成状态保留。`);
+    const schedule = [verified.date, taskScheduleLabel(verified), taskDeadlineLabel(verified)].filter(Boolean).join(" ");
+    if (plan) outputs.push(`已更新「${title}」：${[before.date, taskScheduleLabel(before), taskDeadlineLabel(before)].filter(Boolean).join(" ") || "未排时间"} → ${schedule || "未排时间"}${before.dueDate && !verified.dueDate ? "；已清除必须截止" : ""}。编号${before.id}；完成状态保留。`);
     else outputs.push(`已更新「${before.title}」→「${title}」${note !== before.note ? "，备注已更新" : ""}。编号${before.id}${schedule ? `；原安排${schedule}` : ""}；完成状态保留。`);
   }
   await context.refreshViews();

@@ -1,15 +1,17 @@
 import { normalizeJournalDate } from "../../date";
 import { timeMinutes, validateTaskSchedule } from "../../taskSchedule";
 import type { LifeOpsTask } from "../../types";
+import { taskDeadlineInput } from "./deadlineInput";
 
-export const TASK_PLAN_FIELDS = ["date", "endDate", "time", "startTime", "endTime", "scheduleMode"] as const;
+export const TASK_SCHEDULE_FIELDS = ["date", "endDate", "time", "startTime", "endTime", "scheduleMode"] as const;
+export const TASK_PLAN_FIELDS = [...TASK_SCHEDULE_FIELDS, "dueDate", "dueTime"] as const;
 
-/** Apply only supplied plan fields; task identity, completion and deadline remain untouched. */
-export function taskPlanUpdate(before: LifeOpsTask, row: Record<string, unknown>): Partial<LifeOpsTask> {
-  const supplied = TASK_PLAN_FIELDS.filter(key => row[key] !== undefined);
-  if (!supplied.length) return {};
+/** Apply supplied schedule/deadline fields independently, preserving other task data. */
+export function taskPlanUpdate(before: LifeOpsTask, row: Record<string, unknown>, baseDate?: string): Partial<LifeOpsTask> {
+  if (!TASK_PLAN_FIELDS.some(key => row[key] !== undefined)) return {};
   if (before.status !== "active") throw Error("已完成的任务不重新排程，本次整批未修改。");
-  const patch: Partial<LifeOpsTask> = {};
+  const supplied = TASK_SCHEDULE_FIELDS.filter(key => row[key] !== undefined);
+  const patch: Partial<LifeOpsTask> = taskDeadlineInput(row, before, baseDate);
   for (const key of supplied) {
     const value = row[key];
     if (typeof value !== "string") throw Error("计划日期和时刻须为文字，本次整批未修改。");
@@ -18,7 +20,7 @@ export function taskPlanUpdate(before: LifeOpsTask, row: Record<string, unknown>
       if (text !== "fixed" && text !== "window") throw Error("任务安排方式须为fixed或window，本次整批未修改。");
       patch.scheduleMode = text;
     } else if (key === "date" || key === "endDate") {
-      const date = text ? normalizeJournalDate(text) : "";
+      const date = text ? normalizeJournalDate(text, baseDate) : "";
       if (text && !date || key === "date" && !date) throw Error("请提供有效的计划日期，本次整批未修改。");
       patch[key] = date;
     } else {

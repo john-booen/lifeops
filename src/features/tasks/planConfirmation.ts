@@ -3,7 +3,8 @@ import { readContextTasks } from "../../contextData";
 import { recordRevision } from "../../operationIdentity";
 import type { StoreHost } from "../../store/settingsSlice";
 import { taskScheduleLabel, taskScheduleMode } from "../../taskSchedule";
-import { TASK_PLAN_FIELDS, taskPlanUpdate } from "./scheduleUpdate";
+import { TASK_SCHEDULE_FIELDS, taskPlanUpdate } from "./scheduleUpdate";
+import { taskDeadlineLabel } from "./deadlineInput";
 
 /** Freeze the exact existing records shown in a batch's confirmation preview. */
 export async function bindTaskPlanConfirmation(store: StoreHost, batch: ToolCallResult): Promise<void> {
@@ -35,8 +36,9 @@ export async function bindTaskPlanConfirmation(store: StoreHost, batch: ToolCall
         row.taskIdOrTitle = before.id; row.expectedRevision = recordRevision(before);
         const oldPlan = [before.date, taskScheduleLabel(before)].filter(Boolean).join(" ") || "未排时间";
         const newPlan = [next.date, taskScheduleLabel(next)].filter(Boolean).join(" ") || "未排时间";
-        const plan = TASK_PLAN_FIELDS.some(key => row[key] !== undefined) ? `：${oldPlan} → ${newPlan}` : "";
-        preview.push(`「${before.title}」${plan}${row.title !== undefined ? `；新标题「${row.title}」` : ""}${row.note !== undefined ? `；新备注：${row.note}` : ""}`);
+        const plan = TASK_SCHEDULE_FIELDS.some(key => row[key] !== undefined) ? `：${oldPlan} → ${newPlan}` : "";
+        const deadline = row.dueDate !== undefined || row.dueTime !== undefined ? `；${taskDeadlineLabel(before) || "未另设必须截止"} → ${taskDeadlineLabel(next) || "清除必须截止"}` : "";
+        preview.push(`「${before.title}」${plan}${deadline}${row.title !== undefined ? `；新标题「${row.title}」` : ""}${row.note !== undefined ? `；新备注：${row.note}` : ""}`);
       }
     }
     action.toolBatch = frozen; action.id = `proposal:batch:${recordRevision(frozen)}`; batch.callId = action.id;

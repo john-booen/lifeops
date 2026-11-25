@@ -12,6 +12,7 @@ import type { FactOperationOptions, GuardedFileChange } from "./dataFoundation/f
 import { addDays, normalizeJournalDate, todayString } from "./date";
 import { isVaultPathExcluded } from "./privacy";
 import { shiftTaskDates, taskCompletionDay, taskScheduleLabel, timeMinutes, validateTaskSchedule } from "./taskSchedule";
+import { TASK_DEADLINE_PROPERTIES, taskDeadlineInput, taskDeadlineLabel } from "./features/tasks/deadlineInput";
 import { createPersonalMemory, findMemorySuppression, personalMemorySourceAssessment, personalMemoryReadSnapshot, reviewPersonalMemoryRecord, upsertPersonalMemoryRecord, type PersonalMemoryKind } from "./personalMemory";
 import type { StoreHost } from "./store/settingsSlice";
 import type { AgentActionSuggestion, HabitDefinition, HabitInput, LifeOpsTask } from "./types";
@@ -232,7 +233,7 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
   },
   {
     name: "create_task",
-    description: "用户表达未来要做的事时建任务。周末等有多个日期时，问具体哪天或说明采用的日期。改现有任务用 reschedule_task。",
+    description: "用户表达未来要做的事时建任务，计划安排与独立必须截止分别保存。周末等有多个日期时，问具体哪天或说明采用的日期。改现有任务用 update_tasks。",
     safety: "direct-write",
     parameters: {
       type: "object",
@@ -244,6 +245,7 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
         endTime: { type: "string", description: "结束或做完的 HH:mm，如三点前交稿填 15:00。" },
         endDate: { type: "string", description: "跨天计划结束日期；同一天可省略。支持明确的相对日期，不推测。" },
         scheduleMode: { type: "string", enum: ["fixed", "window"], description: "window期间完成，date至endDate；fixed固定时段。" },
+        ...TASK_DEADLINE_PROPERTIES,
         category: { type: "string", description: "任务分类，可省略。" },
         learningTrackId: { type: "string", enum: Object.keys(LEARNING_TRACKS), description: "英语 english；交易 trading；量化 quant；AI ai" },
         estimateMin: { type: "number", exclusiveMinimum: 0, description: "用户提供的估计分钟数。" }
@@ -258,6 +260,9 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
       const suppliedDate = toolArgString(args, "date");
       const date = suppliedDate ? normalizeJournalDate(suppliedDate) : "";
       if (suppliedDate && !date) return toolError("任务日期无法识别或不存在，请明确有效日期；这次没有创建任务，也没有改成未定日期。");
+      let deadline: Partial<Pick<LifeOpsTask, "dueDate" | "dueTime">>;
+      try { deadline = taskDeadlineInput(args); }
+      catch (error) { return toolError(error instanceof Error ? error.message : "必须截止无效，没有创建任务。"); }
       const plan: { startTime?: string; endTime?: string; endDate?: string; scheduleMode?: "fixed" | "window" } = {};
       if (args.scheduleMode !== undefined) {
         if (args.scheduleMode !== "fixed" && args.scheduleMode !== "window") return toolError("任务安排方式无效，没有创建任务。");
@@ -299,6 +304,7 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
         date,
         time,
         ...plan,
+        ...deadline,
         category,
         estimateMin,
         learningTrackId,
@@ -308,11 +314,12 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
       const verified = after.find((item) => item.id === task.id || item.source === operationSource);
       if (!verified || verified.title !== task.title || verified.status !== "active"
         || verified.estimateMin !== task.estimateMin || verified.learningTrackId !== task.learningTrackId
-        || verified.time !== task.time || verified.startTime !== task.startTime || verified.endTime !== task.endTime || verified.endDate !== task.endDate) {
+        || verified.time !== task.time || verified.startTime !== task.startTime || verified.endTime !== task.endTime || verified.endDate !== task.endDate
+        || verified.dueDate !== task.dueDate || verified.dueTime !== task.dueTime) {
         return toolError(`任务写入后校验失败，没有确认任务库中存在：${task.title}。`);
       }
       await context.refreshViews();
-      const when = [dateDisplay(verified.date), taskScheduleLabel(verified)].filter(Boolean).join(" ");
+      const when = [dateDisplay(verified.date), taskScheduleLabel(verified), taskDeadlineLabel(verified)].filter(Boolean).join(" ");
       const excluded = context.store.settings.privacy?.excludedVaultPrefixes;
       const allowed = (task: LifeOpsTask) => !task.sourceNotePath || !isVaultPathExcluded(task.sourceNotePath, excluded);
       const load = typeof context.store.taskDbPath === "function" && !isVaultPathExcluded(context.store.taskDbPath(), excluded)

@@ -4,9 +4,12 @@ import type { FactOperationOptions } from "./dataFoundation/factOperation";
 import { isSafeOperationId, recordRevision } from "./operationIdentity";
 import { isVaultPathExcluded } from "./privacy";
 import type { StoreHost } from "./store/settingsSlice";
+import type { LifeOpsTaskInput } from "./types";
+import { validateTaskSchedule } from "./taskSchedule";
 
 export type ProjectJobStatus = "queued" | "running" | "completed" | "failed" | "cancelled" | "timed_out";
-export type ProjectJobArguments = { title: string; date: string; time: string; category: string };
+export type ProjectJobArguments = { title: string; date: string; time: string; category: string }
+  & Pick<LifeOpsTaskInput,"endDate"|"startTime"|"endTime"|"scheduleMode"|"dueDate"|"dueTime">;
 export interface ProjectJobProjectBinding {
   projectId: string; title: string; goalId: string; goalTitle: string;
   state: "suggested" | "agreed" | "started"; initialProjectHash: string;
@@ -100,10 +103,16 @@ function validProjectBinding(value: unknown): value is ProjectJobProjectBinding 
     && ["suggested", "agreed", "started"].includes(value.state) && sha(value.initialProjectHash);
 }
 function validArguments(value: unknown): value is ProjectJobArguments {
-  return object(value) && Object.keys(value).length === 4 && Object.keys(value).every(key => ["title", "date", "time", "category"].includes(key))
+  if (!(object(value) && ["title", "date", "time", "category"].every(key => Object.hasOwn(value,key))
+    && Object.keys(value).every(key => ["title", "date", "time", "category", "endDate", "startTime", "endTime", "scheduleMode", "dueDate", "dueTime"].includes(key))
     && typeof value.title === "string" && Boolean(value.title.trim()) && value.title === value.title.trim() && !/[\r\n]/.test(value.title)
     && date(value.date) && typeof value.time === "string" && (value.time === "" || /^([01]\d|2[0-3]):[0-5]\d$/.test(value.time))
-    && typeof value.category === "string" && value.category === value.category.trim() && !/[\r\n·]/.test(value.category);
+    && typeof value.category === "string" && value.category === value.category.trim() && !/[\r\n·]/.test(value.category))) return false;
+  for (const key of ["endDate","dueDate"]) if (value[key] !== undefined && !date(value[key])) return false;
+  for (const key of ["startTime","endTime","dueTime"]) if (value[key] !== undefined
+    && (typeof value[key] !== "string" || value[key] !== "" && !/^([01]\d|2[0-3]):[0-5]\d$/.test(value[key]))) return false;
+  if (value.dueTime && !value.dueDate || value.time && (value.startTime || value.endTime)) return false;
+  try { validateTaskSchedule({...value as ProjectJobArguments,endDate:value.endDate??""}); return true; } catch { return false; }
 }
 function validNextStepArguments(value: unknown): value is ProjectNextStepArguments {
   return object(value) && Object.keys(value).length === 3 && Object.keys(value).every(key => ["projectId", "text", "sourcePath"].includes(key))

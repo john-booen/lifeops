@@ -63,6 +63,15 @@ beforeEach(async () => {
 afterEach(async () => { vi.restoreAllMocks(); await Promise.all(roots.map(root => rm(root, { recursive: true, force: true }))); });
 
 describe("persistent single project Job repository", () => {
+  it("validates optional period and deadline fields even after payload hashes are recomputed",()=>{
+    const value=job(),args=taskArguments(value.steps[0]);Object.assign(args,{time:"",endDate:"2026-10-12",scheduleMode:"window",dueDate:"2026-10-13",dueTime:"17:30"});
+    value.steps[0].fingerprint=operationFingerprint("create_task",args);value.planHash=projectJobPlanHash(value);
+    expect(validateProjectJobDocument({version:1,job:value})).toBe(true);
+    for(const patch of [{dueDate:"2026-02-30"},{dueDate:"",dueTime:"17:30"},{dueTime:"25:00"},{endDate:"2026-10-01"},{scheduleMode:"unknown"},{startTime:"15:00",endTime:"14:00",endDate:"2026-10-06",scheduleMode:"fixed"}]){
+      const changed=structuredClone(value),next=taskArguments(changed.steps[0]);Object.assign(next,patch);changed.steps[0].fingerprint=operationFingerprint("create_task",next);changed.planHash=projectJobPlanHash(changed);
+      expect(validateProjectJobDocument({version:1,job:changed}),JSON.stringify(patch)).toBe(false);
+    }
+  });
   it("loads missing state read-only, then persists a bound authorization and survives a fresh Store", async () => {
     const writes = vault.writes.length, empty = await repo.load();
     expect(empty.document).toEqual({ version: 1, job: null }); expect(empty.raw).toBeNull(); expect(vault.writes).toHaveLength(writes);

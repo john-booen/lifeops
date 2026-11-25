@@ -93,6 +93,24 @@ it("keeps the task database unchanged when an explicit offline month-day is impo
   expect(await facts()).toEqual(before);
 });
 
+it.each([
+  {plan:{date:"今天",endDate:"下周三",scheduleMode:"window",dueDate:"12月3日",dueTime:"17:30"},expected:{date:"2026-11-25",endDate:"2026-12-02",scheduleMode:"window",dueDate:"2026-12-03",dueTime:"17:30"}},
+  {plan:{date:"",dueDate:"12月3日",dueTime:"17:30"},expected:{date:"",endDate:"",dueDate:"2026-12-03",dueTime:"17:30"}}
+])("previews and confirms the same independent deadline without dropping period fields: $plan",async({plan,expected})=>{
+  vi.useFakeTimers({toFake:["Date"]});vi.setSystemTime(new Date(2026,10,25,10));
+  try{
+    const before=await facts();calls=[tool("propose_task_plan",{tasks:[{title,...plan}],capacityAware:true},"fictional-deadline-preview-plan")];
+    const result=await run("请新建合成临时任务，按明确的期间和独立硬截止先给确认卡，确认后再保存。");
+    expect(result.actions).toHaveLength(1);expect(result.actions[0].content).toContain("必须截止2026-12-03 17:30");
+    if(plan.endDate)expect(result.actions[0].content).toContain("2026-12-02");
+    expect(await facts()).toEqual(before);await plugin.executeAgentAction(result.actions[0]);
+    expect((await store.readTaskDb()).tasks).toMatchObject([{title,...expected}]);
+    await expect(plugin.executeAgentAction(result.actions[0])).rejects.toThrow();expect((await store.readTaskDb()).tasks).toHaveLength(1);
+    await plugin.executeAgentToolCall({id:"fictional-deadline-preview-undo",name:"undo_latest_operation",arguments:{}},"撤销上一步");
+    expect(await vault.bytes(store.taskDbPath())).toBe(before.db);expect(await vault.bytes(store.taskMirrorPath())).toBe(before.mirror);
+  }finally{vi.useRealTimers();}
+});
+
 for (const source of ["text", "voice"] as const) {
   it(`keeps the acceptance card's natural new-task request preview-only (${source})`, async () => {
     const text = "帮我新建一个测试任务，名字叫“听感验收小任务”，安排明天，希望下午三点前完成。先给我确认卡，不要直接保存。";

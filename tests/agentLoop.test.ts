@@ -3299,6 +3299,7 @@ it.each(["complete", "legacy", "manual"] as const)("checks the original line end
 it.each([
   {message:'刚才那条，标题改成「虚构指代新名」，先给确认卡。',patch:{title:'虚构指代新名'}},
   {message:'刚才那条的工作区间改为15:00至16:00，等我确认后再保存。',patch:{startTime:'15:00',endTime:'16:00'}},
+  {message:'刚才那条的必须截止改为11月26日17:30，先给确认卡。',patch:{dueDate:'2026-11-26',dueTime:'17:30'}},
   {message:'把「虚构指代原名」的备注改成「要先核对」，先给我确认卡。',patch:{note:'要先核对'}}
 ])('keeps an explicit preview without a title pair: $message',async({message,patch})=>{
   const task=await store.createTask({title:'虚构指代原名',date:'2026-11-12',startTime:'09:00',endTime:'10:00',note:'虚构原备注'});

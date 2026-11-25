@@ -406,6 +406,7 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
     const latest = await new OperationLedger(store as unknown as StoreHost).latestReversible();
     if (latest?.operationId !== "fictional-history-upsert_idea") issues.push("较早的虚构想法操作未保留");
   }
+  if(question.checks.createdPeriodTask && process.env.LIFEOPS_EVAL_DIAGNOSTICS === "1") process.stdout.write(`${question.id} 虚构期间与截止诊断 · ${redactSensitiveText(JSON.stringify({created:observed.createdTasks.map(({id,title,date,endDate,scheduleMode,time,startTime,endTime,dueDate,dueTime})=>({id,title,date,endDate,scheduleMode,time,startTime,endTime,dueDate,dueTime})),receipts:observed.receipts}),credentials)}\n`);
   const failedTool = tools.find((tool) => !tool.ok && tool.detail);
   if (issues.length && failedTool) issues.unshift(`${failedTool.name} 未执行，${failedTool.detail}`);
   if (errorDetail) issues.push(errorDetail);

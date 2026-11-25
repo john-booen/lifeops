@@ -282,6 +282,7 @@ export async function verifyProjectTaskFiles(
     if (!task || typeof task.id !== "string" || oldDb.tasks.some(old => old.id === task.id || old.source === task.source)
       || task.source !== `lifeops-agent-tool:${operationId}` || task.status !== "active"
       || task.title !== args.title || task.date !== args.date || task.time !== args.time || task.category !== args.category
+      || (["endDate","startTime","endTime","scheduleMode","dueDate","dueTime"] as const).some(key => args[key] !== undefined && task[key] !== args[key])
       || task.completedAt !== "" || !Array.isArray(task.completionLog) || task.completionLog.length) stop();
     const { renderTaskMirror } = await import("./dataFoundation/taskPersistence");
     if (renderTaskMirror(newDb.tasks, mirror.before) !== mirror.after

@@ -1,4 +1,5 @@
 import type { AiToolDefinition } from "../../ai";
+import { TASK_DEADLINE_PROPERTIES } from "./deadlineInput";
 
 export const TASK_BATCH_TOOL: AiToolDefinition = {
   name: "schedule_task_batch",
@@ -10,7 +11,7 @@ export const TASK_BATCH_TOOL: AiToolDefinition = {
     tasks: { type: "array", minItems: 1, maxItems: 20, items: { type: "object", additionalProperties: false,
       properties: { title: { type: "string", description: "具体动作及对象，保留纠正后的人名、项目名，按依赖和优先顺序排列。" },
         estimateMin: { type: "integer", minimum: 1, maximum: 720, description: "分钟估算；未提供时程序暂按30分钟，并明确都是暂估。" },
-        category: { type: "string" } }, required: ["title"] } }
+        category: { type: "string" }, ...TASK_DEADLINE_PROPERTIES }, required: ["title"] } }
   }, required: ["date", "tasks"] }
 };
 

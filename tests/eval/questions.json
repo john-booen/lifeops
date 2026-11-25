@@ -2064,5 +2064,38 @@
         "title": "虚构蓝纸待核对新名"
       }
     }
+  },
+{
+  "id": "period-task-independent-deadline-84",
+  "milestone": "M6",
+  "domain": "tasks",
+  "mode": "text",
+  "history": [],
+  "input": "请直接新建并保存「虚构银杏跨月整理」：可从2026年11月25日开始，到12月2日期间分次完成，不排每天固定工作时段。另有独立交付期限，必须在2026年12月3日17:30前完成。计划完成和必须截止分别保存，不用再问。",
+  "checks": {
+    "mustSucceedTools": [
+      "create_task"
+    ],
+    "mustNotCallTools": [
+      "delete_task",
+      "update_tasks"
+    ],
+    "maxConfirmations": 0,
+    "minReceipts": 1,
+    "maxReplyChars": 1600,
+    "expectWrites": {
+      "tasks.created": 1,
+      "tasks.deleted": 0,
+      "tasks.rescheduled": 0,
+      "tasks.timeChanged": 0
+    },
+    "createdPeriodTask": {
+      "titleIncludes": "虚构银杏跨月整理",
+      "date": "2026-11-25",
+      "endDate": "2026-12-02",
+      "dueDate": "2026-12-03",
+      "dueTime": "17:30"
+    }
   }
+}
 ]
