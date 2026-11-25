@@ -3,8 +3,8 @@ import {timeMinutes} from "../../taskSchedule";
 import type {LifeOpsTask} from "../../types";
 
 export const TASK_DEADLINE_PROPERTIES = {
-  dueDate: {type:"string",description:"另有独立硬性承诺（如另有必须截止、合同交付期限）才填，可用明确相对日期。普通的明天下午三点前做完是计划完成，用date与endTime，不填这里；不复制计划结束。修改时空串清除日期和截止时刻，省略保留。"},
-  dueTime: {type:"string",description:"必须截止的HH:mm，须有截止日期；不是计划结束时刻。修改时空串清除，省略保留。"}
+  dueDate: {type:"string",description:"独立硬截止日；普通做完用date/endTime。空串清除，省略保留。"},
+  dueTime: {type:"string",description:"硬截止HH:mm，须有dueDate；空串清除，省略保留。"}
 };
 
 /** Validate all supplied deadline fields before any write; omitted fields retain their meaning. */
