@@ -34,6 +34,38 @@ function literal(text: string): string {
     .replace(/[\\`*_{}\[\]()#+.!|~$=-]/g, "\\$&").replace(/\r\n?/g, "\n").replace(/\n/g, "\n> ");
 }
 
+/** Daily status keeps a short literal source beside interpretation. Statistics
+ * and filenames alone must not stand in for the day's recorded words. */
+export function dailyJournalEvidence(messages:ChatMessage[]):string {
+  const calls=new Map(messages.flatMap(message=>message.tool_calls??[]).flatMap(call=>{
+    try{return [[call.id,{name:call.function.name,args:JSON.parse(call.function.arguments)}] as const];}catch{return [];}
+  }));
+  const days=new Set<string>();
+  for(const message of messages){
+    const call=message.role==='tool'?calls.get(message.tool_call_id??''):undefined;
+    if(call?.name!=='get_stats'||call.args.domain!=='journal')continue;
+    try{const {range}=JSON.parse(message.content);if(typeof range?.from==='string'&&range.from===range.to)days.add(range.from);}catch{ /* Not a daily statistic. */ }
+  }
+  if(!days.size)return '';
+  const pieces:string[]=[],seen=new Set<string>();
+  for(const message of messages){
+    const call=message.role==='tool'?calls.get(message.tool_call_id??''):undefined;
+    if(call?.name!=='query_vault'||call.args.domain!=='journal'||call.args.operation!=='get')continue;
+    // Only the producer's leading source header is trusted as metadata. A
+    // source-looking heading inside a note stays untrusted body text.
+    if(!message.content.startsWith('### Journal Source\n'))continue;
+    for(const block of message.content.split('### Journal Source\n').slice(1,2)){
+      const end=block.indexOf('\n\n');if(end<0)continue;
+      const header=block.slice(0,end),date=header.match(/^- date: (\d{4}-\d{2}-\d{2})$/mu)?.[1],path=header.match(/^- path: (.+)$/mu)?.[1];
+      if(!date||!days.has(date)||!path||seen.has(path)||pieces.length>=2)continue;
+      seen.add(path);const body=block.slice(end+2).trim(),excerpt=[...body].slice(0,900).join('');if(!excerpt)continue;
+      const quote=literal(excerpt).replace(/(\d)\\\.(?=\d)/gu,'$1.');
+      pieces.push(`来源：${literal(path)}\n> ${quote}${body.length>excerpt.length?'\n> （后文已省略）':''}`);
+    }
+  }
+  return pieces.length?'本轮日记原文片段：\n\n'+pieces.join('\n\n'):'';
+}
+
 /** An unavailable interpretation must not resurrect a rejected model draft. */
 export function historicalEvidenceFallback(messages: ChatMessage[]): string {
   const ids = new Set(messages.flatMap(message => message.tool_calls ?? [])
@@ -49,6 +81,9 @@ export function historicalEvidenceFallback(messages: ChatMessage[]): string {
   for (const message of messages) {
     if (message.role !== "tool") continue;
     if (journalIds.has(message.tool_call_id ?? "")) {
+      if(message.content.startsWith('### Journal Source\n')&&!journalReadbacks.has(message.content)&&journalReadbacks.size<28){
+        journalReadbacks.add(message.content);pieces.push('> 本轮日记工具读回（原文片段，尚未作原因判断）：\n> '+literal([...message.content].slice(0,1600).join('')));continue;
+      }
       try {
         const data = JSON.parse(message.content);
         if (data && typeof data === "object" && !journalReadbacks.has(message.content) && journalReadbacks.size < 28) {

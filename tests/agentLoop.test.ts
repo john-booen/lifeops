@@ -3391,3 +3391,9 @@ it('keeps named-tool plan argument repair finite and non-thinking after validati
   responses.push(reply('',[tool('plan_today',{draftTomorrow:true})]),reply('',[tool('propose_task_plan',{tasks:[{title:'虚构草案',date}]})]),reply('',[tool('propose_task_plan',{tasks:[{title:'虚构修正草案',date}]})]));
   const result=await new AgentLoop(host).run(input({message:'给我安排一下明天。'}));expect(result.confirmations).toHaveLength(1);expect(roles.at(-1)).toBe('deep');expect(optionsSeen.at(-1)).toMatchObject({reasoning:'disabled',preferFinite:true,toolChoice:{type:'function',function:{name:'propose_task_plan'}}});expect(requests).toHaveLength(3);
 });
+
+it('retains the actual daily words when a successful final model answer omits their specific content',async()=>{
+  await store.appendDaily('2026-11-12','日记','虚构：今天精力2分，感到焦虑。今天要见客户、写周报。','早','虚构：今天精力2分，感到焦虑。今天要见客户、写周报。');
+  responses.push(reply('',[tool('query_vault',{domain:'journal',operation:'get',date:'2026-11-12'},'fictional-daily-original'),tool('get_stats',{domain:'journal',range:{from:'2026-11-12',to:'2026-11-12'}},'fictional-daily-stats')]),reply('虚构未发布草稿'),reply('今天已经读到日记和登记统计。'));
+  const result=await new AgentLoop(host).run(input({message:'今天日记状态怎么样？'}));expect(result.text,JSON.stringify(requests[1]?.filter(m=>m.role==='tool'))).toContain('见客户');expect(result.text).toContain('写周报');expect(result.text).toContain('感到焦虑');expect(result.text).toContain('本轮日记原文片段');expect(result.receipts).toEqual([]);expect(result.confirmations).toEqual([]);expect(requests).toHaveLength(3);
+});

@@ -45,7 +45,7 @@ import { planTaskBatch, TASK_BATCH_TOOL, taskBatchOutput } from "./taskBatch";
 import { recoverReadOnlyStats, type StatsRecoveryRead } from "./readOnlyStatsRecovery";
 import { resolvedTaskLookup, taskLookupResolution } from "./taskLookupResolution";
 import { holdToolProtocolPrefix, isLeakedToolProtocol, toolProtocolRepairMessages, unavailableToolProtocol, TOOL_PROTOCOL_UNAVAILABLE } from "./toolProtocol";
-import { historicalAnswerMessages, historicalEvidenceFallback } from "./historicalAnswer";
+import { dailyJournalEvidence, historicalAnswerMessages, historicalEvidenceFallback } from "./historicalAnswer";
 import { historicalQueryHistoryContext, historicalQueryHistorySelections } from "../personalMemoryHistory";
 import { bindHistoricalDateReference } from "./historicalDateReference";
 import { requestedMemoryLookup,memoryLookupTool } from "./memoryLookup";
@@ -865,7 +865,7 @@ export class AgentLoop {
       if (!answer.content.trim() || answer.toolCalls.length || answer.content === TOOL_PROTOCOL_UNAVAILABLE) {
         state.errorCode = "response_incomplete";
         needsEvidenceFallback = true;
-      } else state.text = answer.content;
+      } else state.text = [answer.content,dailyJournalEvidence(messages)].filter(Boolean).join("\n\n");
     } catch (error) {
       current();
       state.usageKnown = false;
