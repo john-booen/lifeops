@@ -204,6 +204,9 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
     lifeOpsEvents: { publish: () => {} }, buildSemanticContext: async () => ""
   });
   const before = await snapshot(activeRoot);
+  const confirmationHost = store as unknown as StoreHost;
+  const confirmationSnapshot = async () => Promise.all([confirmationHost.taskDbPath(), confirmationHost.taskMirrorPath(), new OperationLedger(confirmationHost).filePath].map(path => confirmationHost.readPath(path)));
+  const confirmationBefore = question.checks.requestedCreationPreview ? await confirmationSnapshot() : undefined;
   let lookupResolutionRequested = false;
   const actualTurn = LifeOpsAi.prototype.agentTurnStream;
   let injectedTurns = 0;
@@ -393,7 +396,8 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
         - before.quiz.cards.reduce((sum, card) => sum + card.history.filter(attempt => attempt.correct).length, 0)
     },
     confirmations: reply.actions.length,
-    confirmationActions: reply.actions.map((action) => ({ type: action.type, targetIds: action.habitIds ?? action.taskIds ?? [] })),
+    confirmationActions: reply.actions.map((action) => ({ type: action.type, targetIds: action.habitIds ?? action.taskIds ?? [], content: action.content })),
+    ...(confirmationBefore ? {confirmationProtectedFilesUnchanged: JSON.stringify(confirmationBefore) === JSON.stringify(await confirmationSnapshot())} : {}),
     receipts: reply.receipts?.length ?? 0,
     inputTokens: usage.inputTokens, firstTokenMs, errorCode
   };

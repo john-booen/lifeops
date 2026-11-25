@@ -44,6 +44,7 @@ interface EvalChecks {
   phoneBatch?: { created: number; existing: number };
   updatedTasks?: Array<{ fromTitleIncludes: string; title: string }>;
   requestedTaskPreview?: { fromTitle: string; title: string };
+  requestedCreationPreview?: {titleIncludes: string};
   plannedTaskChanges?: { titlePrefix: string; count: number; fromHour: number; date: string };
   mixedTaskOutcome?: { edits: Array<{ from: string; to: string }>; createdTitles: string[]; date: string };
   createdOrClarify?: { titleIncludes: string; dates: string[]; clarify: string[] };
@@ -83,7 +84,8 @@ export interface EvalObservation {
   tasks: EvalTask[];
   preparedTasks?: EvalTask[];
   confirmations: number;
-  confirmationActions: { type: string; targetIds: string[] }[];
+  confirmationActions: { type: string; targetIds: string[]; content?: string }[];
+  confirmationProtectedFilesUnchanged?: boolean;
   receipts: number;
   preludeCreatedTasks: number;
   inputTokens?: number;
@@ -128,6 +130,12 @@ export function shouldRepeatLatencyMeasurement(question: EvalQuestion, observed:
 export function scoreEvaluationCase(question: EvalQuestion, observed: EvalObservation): string[] {
   const { checks } = question;
   const issues: string[] = [];
+  if (checks.requestedCreationPreview) {
+    const cards = observed.confirmationActions.filter(action => ['task_plan', 'tool_batch'].includes(action.type));
+    if (observed.confirmations !== 1 || cards.length !== 1 || !cards[0].content?.includes(checks.requestedCreationPreview.titleIncludes)
+      || observed.receipts !== 0 || observed.confirmationProtectedFilesUnchanged !== true)
+      issues.push('新任务缺少真实确认卡，或确认前任务库、镜像、账本已有变化');
+  }
   if (checks.journalEvidence && !hasJournalEvidence(observed.journalToolReads ?? [], checks.journalEvidence)) issues.push("缺少同范围原始日记依据");
   if (checks.mixedTaskOutcome) {
     const plan = checks.mixedTaskOutcome, calls = observed.proposedTaskChanges ?? [];

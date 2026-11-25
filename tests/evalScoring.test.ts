@@ -268,3 +268,10 @@ it("checks the actual period and independent deadline and rejects missing, confl
   for(const patch of [{dueDate:"2026-12-02"},{dueTime:undefined},{scheduleMode:"fixed"},{date:"2026-11-26"},{endDate:""},{time:"09:00"},{startTime:"09:00",endTime:"10:00"}])expect(scoreEvaluationCase(q,{...valid,createdTasks:[{...period,...patch} as typeof period]})).not.toEqual([]);
   for(const bad of [{...valid,createdTasks:[]},{...valid,receipts:0},{...valid,createdTasks:[period,{...period,id:"extra"}]}])expect(scoreEvaluationCase(q,bad)).not.toEqual([]);
 });
+
+it('requires a real new-task card and unchanged fact files, rather than a promise to wait',()=>{
+  const q=questions.find(row=>row.id==='creation-must-wait-for-confirmation-85')! as EvalQuestion;
+  const valid:EvalObservation={...observed,confirmations:1,confirmationActions:[{type:'tool_batch',targetIds:[],content:'新建虚构青色样本贴标签，尚未保存。'}],confirmationProtectedFilesUnchanged:true,receipts:0,writes:{'tasks.created':0,'tasks.deleted':0,'tasks.rescheduled':0,'tasks.timeChanged':0}};
+  expect(scoreEvaluationCase(q,valid)).toEqual([]);
+  for(const bad of [{...valid,confirmationProtectedFilesUnchanged:false},{...valid,confirmations:0,confirmationActions:[]},{...valid,receipts:1},{...valid,confirmationActions:[{type:'update_memory',targetIds:[],content:'虚构青色样本'}]}])expect(scoreEvaluationCase(q,bad)).not.toEqual([]);
+});

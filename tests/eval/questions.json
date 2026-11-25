@@ -2097,5 +2097,25 @@
       "dueTime": "17:30"
     }
   }
-}
+},
+  {
+    "id": "creation-must-wait-for-confirmation-85",
+    "milestone": "M6",
+    "domain": "tasks",
+    "mode": "text",
+    "history": [],
+    "input": "明天下午3点提醒我给虚构青色样本贴标签，等我确认后再保存。",
+    "checks": {
+      "minConfirmations": 1,
+      "maxConfirmations": 1,
+      "maxReplyChars": 1600,
+      "expectWrites": {
+        "tasks.created": 0,
+        "tasks.deleted": 0,
+        "tasks.rescheduled": 0,
+        "tasks.timeChanged": 0
+      },
+      "requestedCreationPreview": {"titleIncludes": "虚构青色样本"}
+    }
+  }
 ]
