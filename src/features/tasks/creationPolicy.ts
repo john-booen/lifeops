@@ -11,7 +11,7 @@ export function taskCreationPolicy(message = ''): {wait: boolean; denied: boolea
   const wait = taskConfirmationRequested(message) || /[?？]$|(?:吗|呢)$/u.test(outside);
   const example = /(?:这|那)(?:只是|仅是|仅仅是|是)?(?:举个|举的|一个)?(?:例子|示例)|(?:^|[，,。；;\s])(?:例如|比如|举例(?:来说)?|假如|假设|如果|要是)(?:[，,：:\s]|我|明天|今天|后天|下周|你)/u.test(outside);
   const cancelled = /算了|(?:取消(?:了)?|不用了?|不建了)[。！!\s]*$|(?:取消)(?:这(?:个|项|条)?|刚才的)?(?:创建|新建|保存|安排)/u.test(outside);
-  const noWrite = /(?:不要|不用|别|先别|暂不)(?:再)?(?:创建|新建|建(?:立)?|保存|执行)/u.test(outside);
+  const noWrite = /(?:(?:不要|不用|先别|暂不)(?:再)?|(?:^|[，,。；;\s])(?:请(?:你)?|你|还是|千万|务必)?别(?:再)?)(?:创建|新建|建(?:立)?|保存|执行)/u.test(outside);
   return {wait, denied: example || cancelled || !wait && noWrite};
 }
 export function stripTaskWaitSuffix(value: string): string {

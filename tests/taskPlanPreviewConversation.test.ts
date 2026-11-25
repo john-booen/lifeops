@@ -213,3 +213,12 @@ it.each(['假如我明天建虚构练习，等我确认。','请不要创建虚�
 it.each([{message:'不用等我确认，直接创建虚构纸盒。',title:'虚构纸盒'},{message:'创建任务「取消订阅」，今天做。',title:'取消订阅'}])('F1 preserves explicit no-wait creation: $message',async({message,title})=>{
   calls=[tool('create_task',{title,date:'今天'})];const result=await run(message);expect(result.actions).toEqual([]);expect((await store.readTaskDb()).tasks.map(t=>t.title)).toEqual([title]);
 });
+
+it('F1 does not mistake 分别保存 for 别保存 in a legitimate period creation',async()=>{
+  calls=[tool('create_task',{title:'虚构银杏跨月整理',date:'2026-11-25',endDate:'2026-12-02',scheduleMode:'window',dueDate:'2026-12-03',dueTime:'17:30'})];
+  const result=await run('请直接新建并保存「虚构银杏跨月整理」：可从2026年11月25日开始，到12月2日期间分次完成，不排每天固定工作时段。另有独立交付期限，必须在2026年12月3日17:30前完成。计划完成和必须截止分别保存，不用再问。');
+  expect(result.actions).toEqual([]);expect(result.receipts).toHaveLength(1);expect((await store.readTaskDb()).tasks).toMatchObject([{title:'虚构银杏跨月整理',date:'2026-11-25',endDate:'2026-12-02',dueDate:'2026-12-03',dueTime:'17:30'}]);
+});
+it.each(['别创建虚构纸盒。','请你别保存虚构纸盒。','这次先别创建虚构纸盒。'])('F1 preserves actual negative imperatives: %s',async message=>{
+  calls=[tool('create_task',{title:'虚构纸盒'})];const before=await facts(),result=await run(message);expect(await facts()).toEqual(before);expect(result.actions).toEqual([]);
+});
