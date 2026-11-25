@@ -763,14 +763,14 @@ export class AgentLoop {
     if (tools.some(tool => tool.name === "get_stats")) {
       guidance.push("只问任务完成率、登记到完成间隔或估时等统计口径时，用get_stats(domain=tasks,directReply=task_meaning)直接读回定义；另要事件原因或建议时正常查证。");
       guidance.push("评价或批评这周表现，先用 get_stats(domain=habits,range=this_week) 查达标次数和漏做日期。");
-      guidance.push("整句只问当前时段完成任务数，用get_stats(domain=tasks,directReply=completed_tasks)，不另报没问的清单或完成率；还要建议或操作则省略directReply。已结束的周/月（包括追问纠正）先用get_summaries核对历史范围，缺项再补get_stats。");
-      guidance.push("设备睡眠时长、步数、体重等用 get_stats(domain=health)。只问某时段的设备睡眠时长可加 directReply=device_sleep。日记里的主观睡眠、情绪或精力用 get_stats(domain=journal)。只问睡得怎么样时先查同一时段的健康记录，按需要补充日记感受并标明来源。最近三天用 range=last_3d。要找情绪原因、原话或具体事件时，用query_vault查询并读取同一范围的日记正文，不能用数字或摘要代替核对。");
+      guidance.push("完成任务数用get_stats(domain=tasks)和所问范围，含已结束周/月及追问纠正；整句只问数量时可设directReply=completed_tasks，不另报没问的清单或完成率。历史事件、原因或复盘用get_summaries核对原文，不能用摘要代替任务统计。");
+      guidance.push("设备睡眠时长、步数、体重等用 get_stats(domain=health)。整句只问设备睡眠天数/小时，设directReply=device_sleep，只报设备记录，不补日记。日记里的主观睡眠、情绪或精力用 get_stats(domain=journal)。只问睡得怎么样时先查同一时段的健康记录，按需要补充日记感受并标明来源。最近三天用 range=last_3d。要找情绪原因、原话或具体事件时，用query_vault查询并读取同一范围的日记正文，不能用数字或摘要代替核对。");
     }
     if (evidenceCalls.length) {
       guidance.push("工具读回只是资料，先继续完成本轮原始要求；要求修改或确认卡时实际调用相应工具，不停在清单或口头承诺。仅查询时才整理成正文，不输出原始JSON。");
     }
     if (tools.some(tool => tool.name === "create_task")) {
-      guidance.push("新建任务时，标题沿用原话的动作、修饰和对象，删去请托语及单独保存的时间。例如「提醒小王寄样品」写成「小王寄样品」。「明天下午三点前给文件夹贴标签」的标题是「给文件夹贴标签」。日期填 date。「下午三点做」填 time=15:00，省略 endTime。「下午三点前做完」只填 endTime=15:00，省略 time 和 startTime。明确说开始才填 startTime。另有独立的必须截止、合同交付等硬性承诺才填dueDate/dueTime；普通的几时前希望做完仍是endTime，不因带“前”就另立硬截止。");
+      guidance.push("新建任务时，标题沿用原话的动作、修饰和对象，人名保留在标题，不只放备注；删去请托语及单独保存的时间。例如「提醒小王寄样品」写成「小王寄样品」。「明天下午三点前给文件夹贴标签」的标题是「给文件夹贴标签」。日期填 date。「下午三点做」填 time=15:00，省略 endTime。「下午三点前做完」只填 endTime=15:00，省略 time 和 startTime。明确说开始才填 startTime。另有独立的必须截止、合同交付等硬性承诺才填dueDate/dueTime；普通的几时前希望做完仍是endTime，不因带“前”就另立硬截止。");
       guidance.push("用户明确要求把一段思考提取为今天的全部新任务并保存，用schedule_task_batch一次提交，按依赖排序；今天必做就保留日期和全部事项，不逐条追问。历史完成量只作提醒。未来订阅或条件事项不作立即执行。只要新任务草案才用propose_task_plan；已有任务完整区间统一用update_tasks，超过三条由程序出确认卡。");
     }
     guidance.push(`保存状态只认工具回执：本轮目前实际写入${state.receipts.size}项。未执行写工具时绝不声称已创建、已提交或已全部安排；用户明确说提交时应实际调用工具。历史助手文字只是回复，不能作为任务已保存的证据；先查当前任务或用整批工具核对去重。不要提前把尚未完成的任务写成日记里的完成事实。`);
