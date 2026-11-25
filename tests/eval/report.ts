@@ -1,6 +1,7 @@
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { EvalObservation, EvalQuestion } from "./scoring";
+import {evaluationRouteLabels,type EvaluationRoute} from './routes';
 
 export interface EvalResult {
   id: string;
@@ -17,6 +18,7 @@ export interface EvalResult {
   errorCode?: string;
   judgeReason?: string;
   transportFailures: number;
+  route?:EvaluationRoute;
   firstTransportMeasurement?: { firstTokenMs?: number; totalMs: number; issues: string[] };
 }
 interface PublishedScore {
@@ -47,9 +49,11 @@ export async function writeEvaluationReport(questions: EvalQuestion[], results: 
   const heading = `# ${date} ${milestone} 评测`;
   const lines = [
     heading, "", `固定评测时间 2026-11-12 20:00 +08:00。通过 ${passed.length}/${results.length}，通过率 ${(passRate * 100).toFixed(1)}%。`, "",
-    "| 题目 | 结果 | 输入 token | 输出 token | 首字 ms | 总耗时 ms | 模型 | 工具 |",
-    "|---|---|---:|---:|---:|---:|---|---|",
-    ...results.map((result) => `| ${result.id} | ${result.passed ? "通过" : "未通过"} | ${result.inputTokens ?? "未返回"} | ${result.outputTokens ?? "未返回"} | ${result.firstTokenMs ?? "无文本"} | ${result.totalMs} | ${result.models.join("、") || "本地"} | ${result.tools.map((tool) => tool.name + (tool.ok ? " ✓" : " ×")).join("、") || "无"} |`),
+    ...[...Object.entries(evaluationRouteLabels)].map(([kind,label])=>`${label}：${results.filter(result=>result.route?.kind===kind).length}题。`),
+    `路线范围：只计本轮，不含夹具/前序；未测量${results.filter(result=>!result.route).length}题。原评分的输入量、模型及工具列仍包含整题前序，未更改评分。写入工具路线不等于已经落任务；任务差分另列新增/删除/更新。`,"",
+    "| 题目 | 结果 | 本轮路线 | 本轮产品请求 | 本轮任务差分 | 输入 token | 输出 token | 首字 ms | 总耗时 ms | 整题模型 | 整题工具 |",
+    "|---|---|---|---:|---|---:|---:|---:|---:|---|---|",
+    ...results.map((result) => `| ${result.id} | ${result.passed ? "通过" : "未通过"} | ${result.route?evaluationRouteLabels[result.route.kind]:'未测量'} | ${result.route?.productRequests??'未知'} | ${result.route?Object.values(result.route.taskChanges).join('/'):'未知'} | ${result.inputTokens ?? "未返回"} | ${result.outputTokens ?? "未返回"} | ${result.firstTokenMs ?? "无文本"} | ${result.totalMs} | ${result.models.join("、") || "本地"} | ${result.tools.map((tool) => tool.name + (tool.ok ? " ✓" : " ×")).join("、") || "无"} |`),
     "", "## 未通过明细", "",
     ...results.filter((result) => !result.passed).flatMap((result) => [
       `### ${result.id}`, "",

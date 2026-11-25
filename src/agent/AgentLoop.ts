@@ -12,6 +12,7 @@ import { backgroundStatsTool } from "../features/stats/tools";
 import { resolveStatsRange } from "../features/stats/stats";
 import { asksForTodayPriorities, formatHabitCompensationReply, formatTaskCompletionRate, formatTaskListReply, formatTaskPriorities, formatVoiceTaskPriorities, habitCompensationQuestion, repeatedTaskListPriority, taskCompletionRateQuestion, todayTaskListQuestion, voiceTaskPriorityTool } from "../features/tasks/planTools";
 import { asksForTodayCapacity, formatTodayCapacity, planCapacityEvidence } from "../features/tasks/capacityEvidence";
+import { completedTasksReply } from "../features/stats/completedTasksReply";
 import { weekendClarification } from "../features/tasks/weekendClarification";
 import { phoneInboxCall, phoneInboxRequest, phoneInboxToolDefinitions } from "../features/phoneInbox/agent";
 import { phoneInboxOperationId, type PhoneInboxTurn } from "../features/phoneInbox/model";
@@ -553,6 +554,13 @@ export class AgentLoop {
           && call.arguments.directReply !== false && (call.arguments.answerMode === "facts" || call.arguments.directReply === true
             || call.arguments.dueStatus === "overdue_and_today" || call.arguments.order === "priority" && Number.isInteger(call.arguments.limit))
           ? formatTaskListReply(single.output, formatDate(input.now)) : undefined;
+        if (input.source === "text" && taskListAnswer && call.arguments.answerMode === "facts"
+          && !state.receipts.size && !state.confirmations.size && !state.errorCode && !exactTitleEdits
+          && !requiredTool && !attestedHistoricalReads.length && !this.needsHistoricalAnswer(input, state)
+          && state.toolCalls.every(tool => tool.ok && tool.name === "list_tasks")) {
+          assertPolicy(); this.host.assertReadOnlyReplyCurrent?.();
+          return this.localAnswer(input, state, taskListAnswer);
+        }
         if (input.source === "text" && !input.voiceBackground && single && call.name === "list_tasks"
           && call.arguments.category === undefined && call.arguments.directReply !== false
           && !state.receipts.size && !state.confirmations.size && !state.errorCode
@@ -582,6 +590,10 @@ export class AgentLoop {
           } else if (!input.voiceBackground && call.name === "get_stats"
             && call.arguments.domain === "health" && call.arguments.directReply === "device_sleep") {
             reply = deviceHealthAnswer(single.output, "sleepHours");
+          } else if (input.source === "text" && !input.voiceBackground && call.name === "get_stats"
+            && call.arguments.domain === "tasks" && call.arguments.directReply === "completed_tasks"
+            && call.arguments.groupBy === undefined && !state.receipts.size && !state.confirmations.size && !state.requestedTaskConfirmation) {
+            reply = completedTasksReply(single.output, formatDate(input.now));
           } else if (round === 0 && fastVoice && call.name === "get_stats") reply = formatVoiceStats(single.output, call.arguments);
           else if (round === 0 && fastVoice && call.name === "plan_today") reply = formatVoiceTaskPriorities(single.output, call.arguments);
           else if (input.source === "text" && single.actions.length === 1
@@ -741,7 +753,7 @@ export class AgentLoop {
       }
     }
     if (tools.some(tool => tool.name === "list_tasks")) {
-      guidance.push("只查询任务事实时填answerMode=facts；同句还有解释、建议或修改时填continue，继续完成整句要求。");
+      guidance.push("只查询未完成清单时填所问日期和answerMode=facts，不加用户没要的排序或数量限制；同句还有解释、建议或修改时填continue，继续完成整句要求。");
       guidance.push("只按名字查找任务而未限定日期时，用query并省略date，查全部日期；用户指定今天或某日时传对应date。逐条使用返回的date/endDate和准确ID，不把跨日期结果当作今天清单；同名对象不明确先核对，不自行选一条改。");
       guidance.push("要求把逾期和今天到期的未完成任务分开时，用 list_tasks 的 dueStatus=overdue_and_today。如另要建议，设 directReply=false。问今天还剩几项和最要紧的 N 项（含今晚未完成提醒）时，用 list_tasks 的 order=priority、limit=N、directReply=true，省略 dueStatus，不用 plan_today。只问今天该先做什么、想知道排序理由或精力影响，用 plan_today，不用 list_tasks。");
     }
@@ -751,7 +763,7 @@ export class AgentLoop {
     if (tools.some(tool => tool.name === "get_stats")) {
       guidance.push("只问任务完成率、登记到完成间隔或估时等统计口径时，用get_stats(domain=tasks,directReply=task_meaning)直接读回定义；另要事件原因或建议时正常查证。");
       guidance.push("评价或批评这周表现，先用 get_stats(domain=habits,range=this_week) 查达标次数和漏做日期。");
-      guidance.push("当前日或本周统计用get_stats；已结束的周/月（包括追问纠正）先用get_summaries核对历史范围、摘要及统计到哪天，缺项再补get_stats。");
+      guidance.push("整句只问当前时段完成任务数，用get_stats(domain=tasks,directReply=completed_tasks)，不另报没问的清单或完成率；还要建议或操作则省略directReply。已结束的周/月（包括追问纠正）先用get_summaries核对历史范围，缺项再补get_stats。");
       guidance.push("设备睡眠时长、步数、体重等用 get_stats(domain=health)。只问某时段的设备睡眠时长可加 directReply=device_sleep。日记里的主观睡眠、情绪或精力用 get_stats(domain=journal)。只问睡得怎么样时先查同一时段的健康记录，按需要补充日记感受并标明来源。最近三天用 range=last_3d。要找情绪原因、原话或具体事件时，用query_vault查询并读取同一范围的日记正文，不能用数字或摘要代替核对。");
     }
     if (evidenceCalls.length) {

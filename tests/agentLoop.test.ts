@@ -240,9 +240,9 @@ it.each(["facts", "continue"] as const)("honors the model-selected %s mode for a
   await store.createTask({ title: "虚构水杉卡片归档", date: "2026-11-06", endDate: "2026-11-12", estimateMin: 600 });
   const before = await store.readPath(store.taskDbPath());
   responses.push(reply("", [tool("list_tasks", { query: "虚构水杉卡片归档", status: "all", answerMode })]));
-  responses.push(reply(answerMode === "continue" ? "虚构完整解释，保留后续请求。" : "要不要再帮你改期？"));
+  if(answerMode === "continue")responses.push(reply("虚构完整解释，保留后续请求。"));
   const result = await new AgentLoop(host).run(input({ message: "查一下虚构水杉卡片归档的安排。这是这段日期内分次完成的任务，请告诉我是期间任务还是明天必须全部做完、计划哪天结束，有没有另设必须截止日期。不要修改或新建任何记录。" }));
-  expect(requests).toHaveLength(2);
+  expect(requests).toHaveLength(answerMode === "facts" ? 1 : 2);
   if (answerMode === "facts") {
     expect(result.text).toContain("期间任务"); expect(result.text).toContain("计划完成：2026-11-12"); expect(result.text).toContain("必须截止：未另设");
   } else expect(result.text).toBe("虚构完整解释，保留后续请求。");
@@ -1324,6 +1324,25 @@ describe("unified agent loop", () => {
   it('lets the model answer a new casual greeting without adding a local phrase shortcut',async()=>{
     responses.push(reply('嗨，我在。'));const result=await new AgentLoop(host).run(input({message:'嗨，在吗？'}));
     expect(requests).toHaveLength(1);expect(result.text).toBe('嗨，我在。');expect(result.toolCalls).toEqual([]);
+  });
+
+  it('reads back a model-selected completed task count without another model request',async()=>{
+    vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(now);
+    try{
+      const task=await store.createTask({title:'虚构完成统计',date:formatDate(now)});await store.completeTask(task.id);
+      const before=await store.readPath(store.taskDbPath());
+      responses.push(reply('',[tool('get_stats',{domain:'tasks',range:'today',directReply:'completed_tasks'})]),new Error('Must not restate verified count'));
+      const result=await new AgentLoop(host).run(input({message:'数一下已经做完的事情。'}));
+      expect(result.text).toBe('今天已完成 1 个任务。');expect(requests).toHaveLength(1);
+      expect(result.receipts).toEqual([]);expect(await store.readPath(store.taskDbPath())).toBe(before);
+    }finally{vi.useRealTimers();}
+  });
+
+  it('does not let a count hint swallow a simultaneous task creation',async()=>{
+    responses.push(reply('',[tool('get_stats',{domain:'tasks',range:'today',directReply:'completed_tasks'},'synthetic-count-read'),tool('create_task',{title:'虚构统计后新增',date:formatDate(now)},'synthetic-following-create')]),reply('虚构新任务已保存。'));
+    const result=await new AgentLoop(host).run(input({message:'查一下完成数，再把虚构统计后新增建成待办。'}));
+    expect(result.receipts).toHaveLength(1);expect(requests).toHaveLength(2);
+    expect((await store.readTaskDb({readOnly:true})).tasks).toContainEqual(expect.objectContaining({title:'虚构统计后新增'}));
   });
 
   it("returns the exact habit name from the delete confirmation without another model call", async () => {
