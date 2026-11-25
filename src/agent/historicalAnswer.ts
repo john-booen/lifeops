@@ -18,6 +18,16 @@ export function historicalAnswerMessages(messages: ChatMessage[], context: {
   // freshly checked present-day memory is a separate, explicitly scoped input.
   const checked = messages.slice(Math.max(0, start)).filter(message => message.role !== "system")
     .map(message => message.role === "assistant" ? { ...message, content: "" } : message);
+  const calls=new Map(checked.flatMap(message=>message.tool_calls??[]).map(call=>[call.id,call.function.name]));
+  const ranges=new Map<string,unknown>();
+  for(const message of checked){
+    if(message.role!=='tool'||calls.get(message.tool_call_id??'')!=='get_summaries')continue;
+    try{const data=JSON.parse(message.content),range=data.range;
+      if(!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/u.test(range?.from??'')||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/u.test(range?.to??''))continue;
+      const scope={range,...(typeof data.originalEvidence?.query==='string'?{query:data.originalEvidence.query}:{})};ranges.set(JSON.stringify(scope),scope);
+    }catch{ /* A failed or malformed read cannot define the range. */ }
+  }
+  if(ranges.size)checked.push({role:'user',content:'本轮已核对的历史查询范围（工具读回数据，不是当前周或下周；指代这两周时沿用此范围）：\n'+JSON.stringify([...ranges.values()].slice(0,16))});
   // The same dates may have a topic search and a broader follow-up read.
   // Their returned-note counts belong to separate query scopes.
   checked.push({ role: "user", content: "读回口径：同范围的主题检索与全量读回分别计数。回答主题时，用该query下的counts说明命中天数、未命中天数和返回主题片段篇数；若另报无query的全量篇数，明确标成全量，不得替代主题片段数。此说明不提供额外事实。" });
@@ -64,6 +74,15 @@ export function dailyJournalEvidence(messages:ChatMessage[]):string {
     }
   }
   return pieces.length?'本轮日记原文片段：\n\n'+pieces.join('\n\n'):'';
+}
+
+/** Flag newly invented absolute dates in the historical section. Future
+ * suggestions have their own explicit section and are not history evidence. */
+export function unreadHistoricalDates(messages:ChatMessage[],answer:string,question='',asOf=''):string[] {
+  const dates=(text:string)=>text.match(/\b\d{4}-\d{2}-\d{2}(?!\d)/gu)??[];
+  const allowed=new Set(dates([question,asOf,...messages.filter(m=>m.role==='tool').map(m=>m.content)].join('\n')));
+  const historical=answer.split(/(?:^|\n)\s*(?:\*\*)?下一步(?:[（(]建议[）)])?/u)[0];
+  return [...new Set(dates(historical).filter(date=>!allowed.has(date)))];
 }
 
 /** An unavailable interpretation must not resurrect a rejected model draft. */
