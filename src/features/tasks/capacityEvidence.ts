@@ -46,7 +46,7 @@ export function planCapacityEvidence(output: string, answer: string, question = 
     || typeof typical !== "number" || !Number.isFinite(typical) || typical < 0) return;
   const counts = new Set([...answer.matchAll(/(?<![\d.])(\d+(?:\.\d+)?)\s*(?:项|个|件)/gu)].map(match => Number(match[1])));
   const scope = result.scope ? "（仅含可读记录）" : "";
-  const verdict = mentionsCapacity ? "" : `按记录，今天的待办已超载${scope}。`;
+  const verdict = answer.includes('已超载')||answer.includes('已经超载') ? "" : `按记录，今天的待办已超载${scope}。`;
   if (counts.has(scheduled) && counts.has(typical)) return verdict || undefined;
   const comparison = `今天原排 ${scheduled} 项，常态完成 ${typical} 项${scope}。`;
   return verdict ? verdict + comparison : "核对到的工作量：" + comparison;

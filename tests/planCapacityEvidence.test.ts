@@ -1,6 +1,11 @@
 import { expect, it } from "vitest";
 import { formatTodayCapacity, planCapacityEvidence } from "../src/features/tasks/capacityEvidence";
 
+it('keeps the authoritative overload verdict when the model only says the work may not fit',()=>{
+  const facts=JSON.stringify({today:{scheduled:12},capacity:{overloaded:true,typicalCount:6}});
+  expect(planCapacityEvidence(facts,'今天原排12项，平常完成6项，可能做不完。','我今天的任务会不会做不完，需要挪一些吗？')).toContain('已超载');
+});
+
 const facts = JSON.stringify({ today: { scheduled: 12 }, capacity: { overloaded: true, typicalCount: 6 } });
 
 it("distinguishes normal load, measured zero, and insufficient history", () => {

@@ -131,6 +131,7 @@ const QUICK_TOOLS = new Set([
   "create_habit", "complete_habit", "miss_habit", "delete_habit", "append_journal_entry",
   "append_memory_note", "query_vault", "undo_latest_operation", "propose_task_plan", "deep_analysis", "inspect_trade_review"
 ]);
+const FAST_TEXT_TOOLS = new Set(['list_tasks','plan_today','get_stats','get_summaries','query_vault','schedule_task_batch']);
 const VOICE_QUICK_TOOLS = new Set([
   "list_tasks", "plan_today", "get_stats", "get_summaries", "learning_progress", "query_vault",
   "start_quiz",
@@ -140,7 +141,7 @@ const VOICE_QUICK_TOOLS = new Set([
 const ANALYSIS_INPUT_TOOLS = new Set(["get_stats", "get_summaries", "plan_today", "query_vault", "inspect_trade_review"]);
 const LOAD_TOOLS: AiToolDefinition = {
   name: "load_more_tools",
-  description: "需要项目、交易、想法、学习、阅读、知识笔记、记忆审查或正式周复盘工具时，先展开完整工具。",
+  description: "需要写入、其他资料领域或深入分析时，直接展开完整工具，无需先询问用户。",
   parameters: { type: "object", additionalProperties: false, properties: {} }
 };
 const DEEP_ANALYSIS: AiToolDefinition = {
@@ -388,7 +389,10 @@ export class AgentLoop {
       for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
         assertPolicy();
         const final = round === MAX_TOOL_ROUNDS || state.confirmations.size > 0;
-        const palette = role === "fast" && (input.source === "text" || fastVoice) && !state.toolsExpanded ? quickTools : tools;
+        const readFirstText=role==='fast'&&input.source==='text'&&!input.voiceBackground&&!state.toolsExpanded
+          &&!state.receipts.size&&!state.confirmations.size&&!exactTitleEdits&&!state.requestedTaskConfirmation;
+        const palette = readFirstText ? [...tools.filter(tool=>FAST_TEXT_TOOLS.has(tool.name)),LOAD_TOOLS]
+          : role === "fast" && (input.source === "text" || fastVoice) && !state.toolsExpanded ? quickTools : tools;
         // Later tool results can select any member for the following round.
         const required = (final ? undefined : nextTool) as RequiredReadOrPlan | undefined;
         const requiredTool = required?.name;
@@ -825,8 +829,15 @@ export class AgentLoop {
     } else if (tools.some(tool => tool.name === "advance_idea")) {
       guidance.push("用户要推进一个想法或把主题拆成任务时，先用 list_ideas 查是否已登记。有唯一结果就用 advance_idea 出确认卡，无需先问同意或立项。");
     }
-    const requestMessages = system?.role === "system" && guidance.length
-      ? [{ ...system, content: [system.content, ...guidance].join("\n") }, ...messages.slice(1)] : messages;
+    const readFirstText=input.source==='text'&&tools.length===FAST_TEXT_TOOLS.size+1
+      &&tools.every(tool=>FAST_TEXT_TOOLS.has(tool.name)||tool.name===LOAD_TOOLS.name);
+    const requestGuidance=readFirstText?[
+      '普通问候只问好一句，不反问要做什么。本人事实须用本轮工具核对，不猜测。',
+      '清单用list_tasks，纯查询填answerMode=facts；还要解释或修改填continue。排序/超载用plan_today，统计用get_stats，跨周或月比较先get_summaries；日记原因与原话用query_vault核对正文。',
+      '读回后继续完成用户整句要求；明确保存多项新任务用schedule_task_batch一次提交，其他写入或缺工具直接load_more_tools，不以清单代替操作，不先问是否需要。没有回执不能说已保存。'
+    ]:guidance;
+    const requestMessages = system?.role === "system" && requestGuidance.length
+      ? [{ ...system, content: [system.content, ...requestGuidance].join("\n") }, ...messages.slice(1)] : messages;
     const emit = (content: string) => {
       if (holdToolProtocolPrefix(content)) return;
       const delta = content.startsWith(previous) ? content.slice(previous.length) : content;
