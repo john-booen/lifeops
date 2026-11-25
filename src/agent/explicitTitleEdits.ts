@@ -57,6 +57,7 @@ export async function titleEditRequest(store:StoreHost,message:string):Promise<T
 /** Complete a partial model submission using only the user's exact pairs.
  * Other actions (for example a new task in the same sentence) remain in order. */
 export function completeTitleEditCalls(calls:AiToolCall[],edits:TitleEdit[]):AiToolCall[] {
+  calls=bindTitleEditContent(calls,edits);
   const updates=calls.filter(call=>call.name==="update_tasks");
   if(!updates.length)return [titleEditCall(edits),...calls];
   for(const call of updates){
@@ -68,6 +69,19 @@ export function completeTitleEditCalls(calls:AiToolCall[],edits:TitleEdit[]):AiT
   }
   const first=updates[0];
   return calls.flatMap(call=>call.name!=="update_tasks"?[call]:call===first?[{...call,arguments:{updates:edits.map(edit=>({taskIdOrTitle:edit.before,title:edit.title}))}}]:[]);
+}
+
+/** Constrain content of a model-selected edit. This neither adds a tool/row
+ * nor proves approval; unproven history cannot select a write through it. */
+export function bindTitleEditContent(calls:AiToolCall[],edits:TitleEdit[]):AiToolCall[]{
+ return calls.map(call=>{
+  if(call.name!=='update_tasks'||!Array.isArray(call.arguments.updates))return call;
+  return{...call,arguments:{...call.arguments,updates:call.arguments.updates.map(row=>{
+   if(!row||typeof row!=='object'||Array.isArray(row)||typeof row.title!=='string')return row;
+   const exact=edits.find(edit=>row.taskIdOrTitle===edit.id||row.taskIdOrTitle===edit.before);
+   return exact?{...row,title:exact.title}:row;
+  })}};
+ });
 }
 
 export function titleEditCall(edits:TitleEdit[]):AiToolCall {

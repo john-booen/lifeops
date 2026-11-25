@@ -304,6 +304,23 @@ async function pendingTitleHistory(proven = true, different = false, tail = "其
  return history;
 }
 
+it('keeps quoted title content exact on the normal model route without upgrading an unproven pair into approval',async()=>{
+ const before=await seed(),history=await pendingTitleHistory(false);
+ const {result}=await run([tool([{taskIdOrTitle:before[0].id,title:'虚拟新纸样甲'},{taskIdOrTitle:before[1].id,title:'虚拟新纸样乙'}])],'确定',history);
+ expect(result.receipts.flatMap(row=>row.taskEdits??[])).toHaveLength(2);
+ expect((await store.readTaskDb()).tasks.map(row=>row.title)).toEqual(['虚构新纸样甲','虚构新纸样乙']);
+});
+
+it('does not invent a missing model edit or use illustrative old names as exact content',async()=>{
+ await seed();const noWrite=await run([],'确定',await pendingTitleHistory(false));expect(noWrite.result.receipts).toEqual([]);
+ const history=await pendingTitleHistory(false,false,'这只是举例，不修改。');
+ const {bindTitleEditContent,titleEditRequest}=await import('../src/agent/explicitTitleEdits');
+ expect(await titleEditRequest(store,history[0].content)).toBeUndefined();
+ const calls=[tool([{taskIdOrTitle:'unknown',title:'虚构模型原值',note:'保留其他参数'}])];
+ expect(bindTitleEditContent(calls,[{id:'other',before:'虚构旧名',title:'虚构明确新名'}])).toEqual(calls);
+ expect(bindTitleEditContent([],[])).toEqual([]);
+});
+
 it("retains the adjacent proven two-name confirmation even if the model only looks on the wrong date", async () => {
  const before = await seed(), history = await pendingTitleHistory();
  const { result } = await run([{ name: "list_tasks", arguments: { date: "2066-01-09", query: "纸样", directReply: true } }], "确定", history);

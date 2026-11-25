@@ -26,7 +26,8 @@ import { prepareToolBatch, sealRequestedToolBatch } from "../toolBatch";
 import { bindTaskPlanConfirmation } from "../features/tasks/planConfirmation";
 import type { AgentActionSuggestion, AgentConversationMessage, AgentResponse, AgentWriteReceipt, LifeOpsSettings, ProviderRunResult } from "../types";
 import { agentHistoryMessages, buildResidentContext, clipBytes, type ResidentContext } from "./context";
-import { titleEditRequest,confirmedTitleEdits,completeTitleEditCalls,titleEditCall,taskConfirmationRequested } from "./explicitTitleEdits";
+import { titleEditRequest,confirmedTitleEdits,completeTitleEditCalls,bindTitleEditContent,titleEditCall,taskConfirmationRequested } from "./explicitTitleEdits";
+import {isLiteralTaskConfirmation} from '../features/tasks/confirmationText';
 import { formatConfirmedPersonalMemoryContext } from "../personalMemoryContext";
 import { expandMixedTaskBatch } from "./mixedTaskBatch";
 import { requestedSummaryTopics,requestedTaskTopics } from "./summaryTopicQuery";
@@ -383,6 +384,9 @@ export class AgentLoop {
       state.requestedTaskConfirmation = !input.voiceBackground && taskConfirmationRequested(input.message);
       const exactTitleEdits=!input.voiceBackground?(titleRequest?.edits
         ?? await confirmedTitleEdits(this.host.store,input.message,input.history,context.memories??[])):undefined;
+      const contentTitleEdits=!input.voiceBackground&&!exactTitleEdits&&isLiteralTaskConfirmation(input.message)
+        &&history.at(-2)?.role==='user'&&history.at(-1)?.role==='assistant'
+        ?(await titleEditRequest(this.host.store,history.at(-2)!.content))?.edits:undefined;
       const attestedHistoricalReads=input.source==='text'&&!input.voiceBackground
         ?bindHistoricalDateReference([{name:'get_summaries',arguments:{includeOriginals:true}}],input.message,priorQueryDates).filter(call=>call.arguments.level!==undefined):[];
       let taskListAnswer: string | undefined;
@@ -410,6 +414,7 @@ export class AgentLoop {
         if (!response.toolCalls.length && lookupResolution) response = resolvedTaskLookup(await this.callModel(input, state, "main",
           lookupResolution.messages, [lookupResolution.tool], false, false, lookupResolution.tool.name), lookupResolution);
         assertPolicy();
+        if(contentTitleEdits)response={...response,toolCalls:bindTitleEditContent(response.toolCalls,contentTitleEdits)};
         if(!requiredTool&&!final&&exactTitleEdits&&!state.taskContentCalls?.size){
           const proposed=!response.toolCalls.length&&!state.receipts.size&&!state.confirmations.size?[titleEditCall(exactTitleEdits)]:response.toolCalls;
           response={...response,toolCalls:completeTitleEditCalls(proposed,exactTitleEdits)};
