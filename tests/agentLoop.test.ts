@@ -1298,19 +1298,19 @@ describe("unified agent loop", () => {
     expect(result.toolCalls).toEqual([{ name: "load_more_tools", ok: true }]);
   });
 
-  it('keeps a short model-led read within a small catalog across its retrieval and answer',async()=>{
+  it('keeps creation and undo available while a model-led read leaves facts unchanged',async()=>{
     const before=await store.readPath(store.taskDbPath());
     responses.push(reply('',[tool('list_tasks',{date:formatDate(now)})]),reply('已核对今天剩余的虚构事项。'));
     const result=await new AgentLoop(host).run(input({message:'今天还有啥没做完？'}));
     expect(result.toolCalls).toEqual([{name:'list_tasks',ok:true}]);expect(requests).toHaveLength(2);
-    for(const catalog of catalogs){expect(catalog).toHaveLength(7);expect(catalog).toEqual(expect.arrayContaining(['list_tasks','plan_today','get_stats','get_summaries','query_vault','schedule_task_batch','load_more_tools']));}
+    for(const catalog of catalogs)expect(catalog).toEqual(expect.arrayContaining(['list_tasks','create_task','undo_latest_operation','schedule_task_batch','load_more_tools']));
     expect(await store.readPath(store.taskDbPath())).toBe(before);expect(result.receipts).toEqual([]);
   });
 
   it('loads the original write tools without asking the user and then commits through the original runtime',async()=>{
     responses.push(reply('',[tool('load_more_tools',{})]),reply('',[tool('create_task',{title:'虚构展开后任务',date:formatDate(now)})]),reply('已保存虚构展开后任务。'));
     const result=await new AgentLoop(host).run(input({message:'把想法存成任务'}));
-    expect(catalogs[0]).not.toContain('create_task');expect(catalogs[1]).toEqual(expect.arrayContaining(['create_task','schedule_task_batch','update_tasks','query_vault']));
+    expect(catalogs[0]).toEqual(expect.arrayContaining(['create_task','undo_latest_operation']));expect(catalogs[1]).toEqual(expect.arrayContaining(['create_task','schedule_task_batch','update_tasks','query_vault']));
     expect(result.receipts).toHaveLength(1);expect((await store.readTaskDb({readOnly:true})).tasks).toContainEqual(expect.objectContaining({title:'虚构展开后任务'}));
     expect(result.confirmations).toEqual([]);
   });
@@ -1321,9 +1321,9 @@ describe("unified agent loop", () => {
     expect(catalogs[0]).toContain('create_task');expect(result.confirmations).toHaveLength(1);expect(result.receipts).toEqual([]);expect(await store.readPath(store.taskDbPath())).toBe(before);
   });
 
-  it('lets the model answer a new casual greeting with a small catalog instead of adding a local phrase shortcut',async()=>{
+  it('lets the model answer a new casual greeting without adding a local phrase shortcut',async()=>{
     responses.push(reply('嗨，我在。'));const result=await new AgentLoop(host).run(input({message:'嗨，在吗？'}));
-    expect(requests).toHaveLength(1);expect(catalogs[0]).toHaveLength(7);expect(result.text).toBe('嗨，我在。');expect(result.toolCalls).toEqual([]);
+    expect(requests).toHaveLength(1);expect(result.text).toBe('嗨，我在。');expect(result.toolCalls).toEqual([]);
   });
 
   it("returns the exact habit name from the delete confirmation without another model call", async () => {

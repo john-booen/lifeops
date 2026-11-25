@@ -131,7 +131,7 @@ const QUICK_TOOLS = new Set([
   "create_habit", "complete_habit", "miss_habit", "delete_habit", "append_journal_entry",
   "append_memory_note", "query_vault", "undo_latest_operation", "propose_task_plan", "deep_analysis", "inspect_trade_review"
 ]);
-const FAST_TEXT_TOOLS = new Set(['list_tasks','plan_today','get_stats','get_summaries','query_vault','schedule_task_batch']);
+const FAST_TEXT_TOOLS = new Set(['list_tasks','plan_today','get_stats','get_summaries','query_vault','schedule_task_batch','create_task','undo_latest_operation']);
 const VOICE_QUICK_TOOLS = new Set([
   "list_tasks", "plan_today", "get_stats", "get_summaries", "learning_progress", "query_vault",
   "start_quiz",
@@ -741,6 +741,7 @@ export class AgentLoop {
       }
     }
     if (tools.some(tool => tool.name === "list_tasks")) {
+      guidance.push("只查询任务事实时填answerMode=facts；同句还有解释、建议或修改时填continue，继续完成整句要求。");
       guidance.push("只按名字查找任务而未限定日期时，用query并省略date，查全部日期；用户指定今天或某日时传对应date。逐条使用返回的date/endDate和准确ID，不把跨日期结果当作今天清单；同名对象不明确先核对，不自行选一条改。");
       guidance.push("要求把逾期和今天到期的未完成任务分开时，用 list_tasks 的 dueStatus=overdue_and_today。如另要建议，设 directReply=false。问今天还剩几项和最要紧的 N 项（含今晚未完成提醒）时，用 list_tasks 的 order=priority、limit=N、directReply=true，省略 dueStatus，不用 plan_today。只问今天该先做什么、想知道排序理由或精力影响，用 plan_today，不用 list_tasks。");
     }
@@ -750,7 +751,7 @@ export class AgentLoop {
     if (tools.some(tool => tool.name === "get_stats")) {
       guidance.push("只问任务完成率、登记到完成间隔或估时等统计口径时，用get_stats(domain=tasks,directReply=task_meaning)直接读回定义；另要事件原因或建议时正常查证。");
       guidance.push("评价或批评这周表现，先用 get_stats(domain=habits,range=this_week) 查达标次数和漏做日期。");
-      guidance.push("单问具体时段完成率、完成数或计划数，用get_stats查指标；比较多个日、周、月周期，先用get_summaries核对各期摘要及统计到哪天，再按需补get_stats。");
+      guidance.push("当前日或本周统计用get_stats；已结束的周/月（包括追问纠正）先用get_summaries核对历史范围、摘要及统计到哪天，缺项再补get_stats。");
       guidance.push("设备睡眠时长、步数、体重等用 get_stats(domain=health)。只问某时段的设备睡眠时长可加 directReply=device_sleep。日记里的主观睡眠、情绪或精力用 get_stats(domain=journal)。只问睡得怎么样时先查同一时段的健康记录，按需要补充日记感受并标明来源。最近三天用 range=last_3d。要找情绪原因、原话或具体事件时，用query_vault查询并读取同一范围的日记正文，不能用数字或摘要代替核对。");
     }
     if (evidenceCalls.length) {
@@ -778,7 +779,7 @@ export class AgentLoop {
     }
     if (input.voiceBackground) guidance.push("这是只读的后台分析。核对所需资料后直接回答原问题，避免添加无关建议。");
     if (tools.some(tool => tool.name === "get_summaries")) {
-      guidance.push("问上周、上月的整体表现或复盘，先用 get_summaries，分别传 level=week 和 range=last_week，或 level=month 和 range=last_month。包括问做得怎么样或要一条改进。只问某个统计数字时用 get_stats。");
+      guidance.push("问上周、上月的表现、完成数或复盘，先用 get_summaries，分别传 level=week 和 range=last_week，或 level=month 和 range=last_month。包括问做得怎么样、追问纠正或要一条改进。当前时段单项统计才直接用get_stats。");
       guidance.push("围绕某个目标或习惯找跨周规律时，get_summaries传所问日期范围、includeOriginals=true和该主题的连续关键词query，读取定位原文；不能只用日记开头的无关片段。");
     }
     if (input.voiceBackground && tools.some(tool => tool.name === "get_stats" || tool.name === "get_summaries")) {
@@ -829,15 +830,8 @@ export class AgentLoop {
     } else if (tools.some(tool => tool.name === "advance_idea")) {
       guidance.push("用户要推进一个想法或把主题拆成任务时，先用 list_ideas 查是否已登记。有唯一结果就用 advance_idea 出确认卡，无需先问同意或立项。");
     }
-    const readFirstText=input.source==='text'&&tools.length===FAST_TEXT_TOOLS.size+1
-      &&tools.every(tool=>FAST_TEXT_TOOLS.has(tool.name)||tool.name===LOAD_TOOLS.name);
-    const requestGuidance=readFirstText?[
-      '普通问候只问好一句，不反问要做什么。本人事实须用本轮工具核对。连续纠正沿用上一条用户的主题和时段，助手误述不能覆盖原问题。',
-      '清单用list_tasks，纯查询填answerMode=facts；还要解释或修改填continue。排序/超载用plan_today，统计用get_stats，周月总结或比较先get_summaries；日记原因与原话用query_vault核对正文。',
-      '读回后继续完成用户整句要求；多项新建用schedule_task_batch一次提交，单项新建先load_more_tools再create_task，不把新建当成已有任务改期；其他写入或缺工具直接load_more_tools。无需先问同意，保存或撤销只认工具实际回执。'
-    ]:guidance;
-    const requestMessages = system?.role === "system" && requestGuidance.length
-      ? [{ ...system, content: [system.content, ...requestGuidance].join("\n") }, ...messages.slice(1)] : messages;
+    const requestMessages = system?.role === "system" && guidance.length
+      ? [{ ...system, content: [system.content, ...guidance].join("\n") }, ...messages.slice(1)] : messages;
     const emit = (content: string) => {
       if (holdToolProtocolPrefix(content)) return;
       const delta = content.startsWith(previous) ? content.slice(previous.length) : content;
