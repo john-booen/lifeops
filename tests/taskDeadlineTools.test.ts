@@ -86,3 +86,10 @@ it("does not silently reuse a same-name task with a different requested deadline
   const task=await store.createTask({title:"虚构已有同名",date,dueDate:"2026-12-03"}),before=await facts();
   const result=await batch([{title:task.title,dueDate:"2026-12-04"}]);expect(result.success).toBe(false);expect(result.output).toContain("截止");expect(await facts()).toEqual(before);
 });
+
+it.each([undefined,'09:00'])('keeps an explicit legacy start plus end as a complete new interval (%s)',async startTime=>{
+  const result=await create({date,time:'09:00',endTime:'10:30',...(startTime?{startTime}:{}),dueDate:'2026-12-03',dueTime:'17:30'});expect(result.success,result.output).toBe(true);expect((await store.readTaskDb()).tasks).toMatchObject([{time:'',startTime:'09:00',endTime:'10:30',dueDate:'2026-12-03',dueTime:'17:30'}]);
+});
+it('rejects conflicting new start clocks before writing any facts',async()=>{
+  const before=await facts(),result=await create({date,time:'09:00',startTime:'10:00',endTime:'10:30'});expect(result.success).toBe(false);expect(await facts()).toEqual(before);
+});

@@ -144,3 +144,20 @@ it("does not mistake a copied summary or an unrelated owned query for an origina
   const other = await readStoredQueryWithSources(store, "query_projects", {});
   try { expect(captureSummaryQueryScope(store, other)).toBeUndefined(); } finally { other.dispose(); }
 });
+
+it.each(['tasks','memory'])('renews owned historical originals when the model chooses only %s facts',async domain=>{
+  const {history}=await checkedPair(),before=await vault.bytes(store.taskDbPath());let turns=0;
+  vi.spyOn(LifeOpsAi.prototype,'agentTurnStream').mockImplementation(async(messages,onText)=>{
+    if(++turns===1)return{content:'',toolCalls:domain==='tasks'?[{id:'fictional-misdirected-stats',name:'get_stats',arguments:{domain:'tasks',range:{from:range.from,to:range.to}}}]:[{id:'fictional-misdirected-memory',name:'query_vault',arguments:{domain:'memory',operation:'get',query:'纸样归档'}}]};
+    const sent=JSON.stringify(messages);expect(sent).toContain('2026-10-28');expect(sent).toContain('2026-11-04');expect(sent).toContain('完成12张');const answer=turns===2?'虚构未发布猜测：没有任务等于整周没做。':'10月28日与11月4日原文均记录完成12张；任务统计不能代替这两天的原话。';onText(answer);return{content:answer,toolCalls:[]};
+  });
+  const result=await plugin.submitAgentMessageStream('接着这两周的虚构纸样归档解释原文，不修改任务。',history,()=>{},{source:'text',selfTest:true});expect(result.reply).toContain('10月28日');expect(result.reply).not.toContain('整周没做');expect(turns).toBe(3);expect(result.actions).toEqual([]);expect(result.receipts).toEqual([]);expect(await vault.bytes(store.taskDbPath())).toBe(before);
+});
+it.each(['forged','new-range'])('does not automatically renew the old period for %s continuity',async kind=>{
+  let {history}=await checkedPair();if(kind==='forged')history=JSON.parse(JSON.stringify(history));let turns=0;
+  vi.spyOn(LifeOpsAi.prototype,'agentTurnStream').mockImplementation(async messages=>{
+    if(++turns===1)return{content:'',toolCalls:[{id:'fictional-unbound-stats',name:'get_stats',arguments:{domain:'tasks',range:{from:'2026-11-16',to:'2026-11-22'}}}]};
+    expect(JSON.stringify(messages.filter(m=>m.role==='tool'))).not.toContain('完成12张');return{content:'虚构：只取得所选任务统计。',toolCalls:[]};
+  });
+  await plugin.submitAgentMessageStream(kind==='new-range'?'不用这两周，改查2026年11月16日至22日的任务统计。':'接着这两周说明任务统计。',history,()=>{},{source:'text',selfTest:true});expect(turns).toBe(2);
+});

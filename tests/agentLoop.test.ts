@@ -3384,3 +3384,10 @@ it('stops after one rejected plan repair without executing a repeated unoffered 
   const before=await store.readPath(store.taskDbPath()),result=await new AgentLoop(host).run(input({message:'给我安排一下明天。'}));
   expect(requests).toHaveLength(3);expect(result.confirmations).toEqual([]);expect(result.receipts).toEqual([]);expect(result.toolCalls.map(c=>c.name)).toEqual(['plan_today']);expect(await store.readPath(store.taskDbPath())).toBe(before);expect(result.text).toContain('还没生成确认卡');
 });
+
+it('keeps named-tool plan argument repair finite and non-thinking after validation rejects the first card',async()=>{
+  const date=addDays(todayString(),1),optionsSeen:any[]=[],original=host.aiForRole;host.aiForRole=role=>({agentTurnStream:(messages,onText,options)=>{optionsSeen.push(options);return original(role).agentTurnStream(messages,onText,options);}});
+  const prepare=vi.fn(async tasks=>{if(prepare.mock.calls.length===1)throw Error('虚构首次参数无效');return{id:'fictional-nonthinking-retry',type:'task_plan' as const,title:'确认安排',description:'点击确认',content:'虚构安排',date,taskPlanToken:'fictional-finite'};});runtime=new AgentRuntime({store,refreshViews:async()=>{},prepareTaskPlan:prepare});
+  responses.push(reply('',[tool('plan_today',{draftTomorrow:true})]),reply('',[tool('propose_task_plan',{tasks:[{title:'虚构草案',date}]})]),reply('',[tool('propose_task_plan',{tasks:[{title:'虚构修正草案',date}]})]));
+  const result=await new AgentLoop(host).run(input({message:'给我安排一下明天。'}));expect(result.confirmations).toHaveLength(1);expect(roles.at(-1)).toBe('deep');expect(optionsSeen.at(-1)).toMatchObject({reasoning:'disabled',preferFinite:true,toolChoice:{type:'function',function:{name:'propose_task_plan'}}});expect(requests).toHaveLength(3);
+});

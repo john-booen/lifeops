@@ -13,6 +13,7 @@ import { addDays, normalizeJournalDate, todayString } from "./date";
 import { isVaultPathExcluded } from "./privacy";
 import { shiftTaskDates, taskCompletionDay, taskScheduleLabel, timeMinutes, validateTaskSchedule } from "./taskSchedule";
 import { TASK_DEADLINE_PROPERTIES, taskDeadlineInput, taskDeadlineLabel } from "./features/tasks/deadlineInput";
+import { newTaskScheduleInput } from "./features/tasks/newScheduleInput";
 import { createPersonalMemory, findMemorySuppression, personalMemorySourceAssessment, personalMemoryReadSnapshot, reviewPersonalMemoryRecord, upsertPersonalMemoryRecord, type PersonalMemoryKind } from "./personalMemory";
 import type { StoreHost } from "./store/settingsSlice";
 import type { AgentActionSuggestion, HabitDefinition, HabitInput, LifeOpsTask } from "./types";
@@ -257,6 +258,8 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
       if (!proposedTitle) return toolError("创建任务缺少标题。");
       const title = explicitScheduledTaskTitle(proposedTitle, request.userMessage);
       if (isCopiedTaskTitleReference(title, request.userMessage)) return toolError("任务标题仍在引用前文，请核对具体标题；这次没有创建任务。");
+      try { args = newTaskScheduleInput(args); }
+      catch (error) { return toolError(error instanceof Error ? error.message : "计划区间无效，没有创建任务。"); }
       const suppliedDate = toolArgString(args, "date");
       const date = suppliedDate ? normalizeJournalDate(suppliedDate) : "";
       if (suppliedDate && !date) return toolError("任务日期无法识别或不存在，请明确有效日期；这次没有创建任务，也没有改成未定日期。");

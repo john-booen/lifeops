@@ -398,7 +398,7 @@ export class AgentLoop {
           && !state.receipts.size && !state.confirmations.size ? taskLookupResolution(messages, state.results, availableTools, formatDate(input.now)) : undefined;
         let response = await this.callModel(input, state, responseRole, messages, availableTools, final,
           requiredTool !== "propose_task_plan" && requiredTool !== "query_vault" && !state.taskContentCalls?.size && !exactTitleEdits && !taskListAnswer && !lookupResolution
-          && !this.needsHistoricalAnswer(input, state), requiredTool, titlesSaved ? { reasoning: "disabled", finite: true } : {});
+          && !this.needsHistoricalAnswer(input, state), requiredTool, titlesSaved || required?.name === "propose_task_plan" && required.retry ? { reasoning: "disabled", finite: true } : {});
         assertPolicy();
         if (!response.toolCalls.length && lookupResolution) response = resolvedTaskLookup(await this.callModel(input, state, "main",
           lookupResolution.messages, [lookupResolution.tool], false, false, lookupResolution.tool.name), lookupResolution);
@@ -441,7 +441,15 @@ export class AgentLoop {
         const originalReads = input.source === "text" && !input.voiceBackground
           ? preferJournalOriginalReads(requested, input.message, input.now, history) : requested;
         const grounded = bindHistoricalDateReference(requestedSummaryDates(originalReads, input.message, input.now, history), input.message, priorQueryDates);
-        let calls = this.scopedCalls(requestedSummaryTopics(requestedTaskTopics(grounded,input.message), input.message), state.id, round);
+        // A date-only continuity receipt survives a memory correction, but its
+        // old prose does not. Renew that read when the model selects only safe
+        // facts from another domain; an empty task list cannot replace diaries.
+        const continuityReads = !input.voiceBackground && !state.toolCalls.some(call => call.name === "get_summaries")
+          && !grounded.some(call => call.name === "get_summaries")
+          && grounded.every(call => getLifeOpsTool(call.name)?.safety === "safe")
+          ? bindHistoricalDateReference([{ name:"get_summaries", arguments:{includeOriginals:true} }],input.message,priorQueryDates)
+            .filter(call => call.arguments.level !== undefined) : [];
+        let calls = this.scopedCalls([...continuityReads,...requestedSummaryTopics(requestedTaskTopics(grounded,input.message), input.message)], state.id, round);
         const mixed = !input.voiceBackground ? await expandMixedTaskBatch(this.host.store, calls, input.now) : undefined;
         assertPolicy();
         if (mixed?.error) {
@@ -716,7 +724,7 @@ export class AgentLoop {
       guidance.push("工具读回只是资料，先继续完成本轮原始要求；要求修改或确认卡时实际调用相应工具，不停在清单或口头承诺。仅查询时才整理成正文，不输出原始JSON。");
     }
     if (tools.some(tool => tool.name === "create_task")) {
-      guidance.push("新建任务时，标题沿用原话的动作、修饰和对象，删去请托语及单独保存的时间。例如「提醒小王寄样品」写成「小王寄样品」。「明天下午三点前给文件夹贴标签」的标题是「给文件夹贴标签」。日期填 date。「下午三点做」填 time=15:00，省略 endTime。「下午三点前做完」只填 endTime=15:00，省略 time 和 startTime。明确说开始才填 startTime。明确交付或约定的硬期限另填dueDate/dueTime；计划结束不自动变成硬期限，未提硬截止就省略。");
+      guidance.push("新建任务时，标题沿用原话的动作、修饰和对象，删去请托语及单独保存的时间。例如「提醒小王寄样品」写成「小王寄样品」。「明天下午三点前给文件夹贴标签」的标题是「给文件夹贴标签」。日期填 date。「下午三点做」填 time=15:00，省略 endTime。「下午三点前做完」只填 endTime=15:00，省略 time 和 startTime。明确说开始才填 startTime。另有独立的必须截止、合同交付等硬性承诺才填dueDate/dueTime；普通的几时前希望做完仍是endTime，不因带“前”就另立硬截止。");
       guidance.push("用户明确要求把一段思考提取为今天的全部新任务并保存，用schedule_task_batch一次提交，按依赖排序；今天必做就保留日期和全部事项，不逐条追问。历史完成量只作提醒。未来订阅或条件事项不作立即执行。只要新任务草案才用propose_task_plan；已有任务完整区间统一用update_tasks，超过三条由程序出确认卡。");
     }
     guidance.push(`保存状态只认工具回执：本轮目前实际写入${state.receipts.size}项。未执行写工具时绝不声称已创建、已提交或已全部安排；用户明确说提交时应实际调用工具。历史助手文字只是回复，不能作为任务已保存的证据；先查当前任务或用整批工具核对去重。不要提前把尚未完成的任务写成日记里的完成事实。`);

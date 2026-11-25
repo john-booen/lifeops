@@ -4,6 +4,7 @@ import { AgentRuntime } from "./agentRuntime";
 import { normalizeJournalDate, formatDate } from "./date";
 import { buildTaskFromInput } from "./vaultApi";
 import { TASK_PLAN_FIELDS, taskPlanUpdate } from "./features/tasks/scheduleUpdate";
+import { newTaskScheduleInput } from "./features/tasks/newScheduleInput";
 import { factRecoveryPath, fileRevision, inspectFactRecovery, recoverFactOperation } from "./dataFoundation/factOperation";
 import { OperationLedger, operationFingerprint, type OperationLedgerDocument } from "./dataFoundation/operationLedger";
 import { recordRevision } from "./operationIdentity";
@@ -81,6 +82,7 @@ export class ProjectJobRunner {
     const instant = this.now(), baseDate = formatDate(instant), id = randomUUID();
     const steps = tasks.map((task, index) => {
       if (Object.keys(task).some(key => !["title", "category", ...TASK_PLAN_FIELDS].includes(key))) reject("任务包含当前不支持的字段，请重新核对。");
+      task = newTaskScheduleInput(task) as typeof task;
       const suppliedDate = task.date?.trim() || (task.dueDate !== undefined || task.dueTime !== undefined ? "" : baseDate);
       const date = suppliedDate ? normalizeJournalDate(suppliedDate, baseDate) : "", time = task.time?.trim() || "";
       const title = task.title.trim(), category = task.category?.trim() || "AI建议";

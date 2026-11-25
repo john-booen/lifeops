@@ -122,3 +122,9 @@ for (const source of ["text", "voice"] as const) {
     expect(await facts()).toEqual(before);
   });
 }
+
+it('previews and confirms an explicit legacy start plus end without losing its hard deadline',async()=>{
+  calls=[tool('propose_task_plan',{tasks:[{title,date:'2026-11-13',time:'09:00',endTime:'10:30',scheduleMode:'fixed',dueDate:'2026-11-14',dueTime:'17:30'}]})];
+  const before=await facts(),result=await run();expect(result.actions).toHaveLength(1);expect(await facts()).toEqual(before);expect(result.actions[0].content).toContain('09:00');expect(result.actions[0].content).toContain('10:30');
+  await plugin.executeAgentAction(result.actions[0]);expect((await store.readTaskDb()).tasks).toMatchObject([{title,date:'2026-11-13',time:'',startTime:'09:00',endTime:'10:30',dueDate:'2026-11-14',dueTime:'17:30'}]);
+});
