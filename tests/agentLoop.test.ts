@@ -3368,3 +3368,19 @@ it('still grounds the historical final when an optional safe source inspection f
   const chunks:string[]=[];const result=await new AgentLoop(host).run(input({message:'核对这两周的虚构原文，不要修改。',onText:text=>chunks.push(text)}));
   expect(result.toolCalls).toContainEqual({name:'get_summaries',ok:true});expect(result.toolCalls).toContainEqual({name:'inspect_note_understanding_source',ok:false});expect(result.text).not.toContain('一定在19:30发生');expect(result.text).toContain('只约束未来');expect(chunks.join('')).toBe(result.text);expect(roles.at(-1)).toBe('deep');expect(result.receipts).toEqual([]);
 });
+
+it.each(['plain','read','write'])('gives the bounded plan repair its rejected protocol and never executes it (%s)',async kind=>{
+  const date=addDays(todayString(),1),prepare=vi.fn(async()=>({id:'fictional-repaired-protocol',type:'task_plan' as const,title:'确认虚构安排',description:'确认后保存',content:'虚构纸样安排',date,taskPlanToken:'fictional-repair-token'}));runtime=new AgentRuntime({store,refreshViews:async()=>{},prepareTaskPlan:prepare});
+  const rejected=kind==='plain'?reply('我需要先查明天。'):reply('',[tool(kind==='read'?'list_tasks':'create_task',kind==='read'?{date}:{title:'虚构不得保存'})]);
+  responses.push(reply('',[tool('plan_today',{draftTomorrow:true})]),rejected,reply('',[tool('propose_task_plan',{tasks:[{title:'整理虚构纸样',date}]})]));
+  const before=await store.readPath(store.taskDbPath()),result=await new AgentLoop(host).run(input({message:'给我安排一下明天。'}));
+  expect(requests).toHaveLength(3);expect(catalogs.at(-1)).toEqual(['propose_task_plan']);expect(toolChoices.at(-1)).toEqual({type:'function',function:{name:'propose_task_plan'}});
+  expect(requests.at(-1)?.at(-1)?.content).toContain('未执行其中任何调用');
+  if(kind!=='plain')expect(requests.at(-1)?.filter(m=>m.role==='tool').at(-1)?.content).toContain('"executed":false');
+  expect(result.toolCalls.map(c=>c.name)).toEqual(['plan_today','propose_task_plan']);expect(result.confirmations).toHaveLength(1);expect(prepare).toHaveBeenCalledOnce();expect(result.receipts).toEqual([]);expect(await store.readPath(store.taskDbPath())).toBe(before);
+});
+it('stops after one rejected plan repair without executing a repeated unoffered write',async()=>{
+  responses.push(reply('',[tool('plan_today',{draftTomorrow:true})]),reply('',[tool('list_tasks',{date:'2026-11-13'})]),reply('',[tool('create_task',{title:'虚构不得偷写'})]));
+  const before=await store.readPath(store.taskDbPath()),result=await new AgentLoop(host).run(input({message:'给我安排一下明天。'}));
+  expect(requests).toHaveLength(3);expect(result.confirmations).toEqual([]);expect(result.receipts).toEqual([]);expect(result.toolCalls.map(c=>c.name)).toEqual(['plan_today']);expect(await store.readPath(store.taskDbPath())).toBe(before);expect(result.text).toContain('还没生成确认卡');
+});
