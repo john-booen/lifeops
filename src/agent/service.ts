@@ -23,7 +23,8 @@ import { LifeOpsStore } from "../store";
 import type { StoreHost } from "../store/settingsSlice";
 import { runConfirmedToolAction, type StructuredJsonRequest } from "../toolRegistry";
 import { writeReceipts } from "../writeReceipts";
-import { executeConfirmedToolBatch, prepareToolBatch } from "../toolBatch";
+import { dismissRequestedToolBatch, executeConfirmedToolBatch, prepareToolBatch, sealRequestedToolBatch } from "../toolBatch";
+import {taskConfirmationRequested} from '../features/tasks/creationPolicy';
 import { bindTaskPlanConfirmation } from "../features/tasks/planConfirmation";
 import type { AgentActionSuggestion, AgentResponse, QualityLogEntry, ProviderRunResult, ProviderRequestOptions, ProviderStage } from "../types";
 
@@ -105,9 +106,10 @@ export async function executeToolCalls(this: AgentHost, toolCalls: AiToolCall[],
         output: "本轮工具调用编号重复，已停止整批执行，请重新提出安排。", actions: [] }));
       return { ...toolResultsToAgentExecution(refused), results: refused };
     }
-    const batch = prepareToolBatch(frozenCalls, 0, userMessage);
+    const batch = prepareToolBatch(frozenCalls, 0, userMessage,taskConfirmationRequested(userMessage));
     if (batch) {
-      await bindTaskPlanConfirmation(this.store as unknown as StoreHost, batch);
+      await bindTaskPlanConfirmation(this.store as unknown as StoreHost, batch,userMessage);
+      if(batch.success&&batch.actions[0])sealRequestedToolBatch(batch.actions[0]);
       return { ...toolResultsToAgentExecution([batch]), results: [batch] };
     }
     const queries = frozenCalls.filter(call => call.name === "query_vault");
@@ -254,6 +256,7 @@ export async function saveLocalOperation(this: AgentHost, name: string, args: Re
   }
 
 export function dismissAgentAction(this: AgentHost, action: AgentActionSuggestion): void {
+    if(action.type==='tool_batch')dismissRequestedToolBatch(action);
     if (action.type === "task_plan") this.taskPlanReviews?.dismiss(action as TaskPlanReviewAction);
     if (action.type === "idea_advance") void import("../features/ideas/advance")
       .then(({ dismissIdeaAdvance }) => dismissIdeaAdvance(this.store as unknown as StoreHost, action));

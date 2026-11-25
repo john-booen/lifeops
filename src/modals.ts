@@ -1,3 +1,4 @@
+import {taskScheduleInput} from "./features/tasks/scheduleInput";
 import { TASK_CATEGORIES } from "./features/tasks/capacity";
 import { isLearningTrackId, LEARNING_TRACKS } from "./features/learning/model";
 import { renderHabitPunishmentFields, renderHabitTargetFields } from "./features/habits/formFields";
@@ -533,10 +534,9 @@ export class TaskModal extends Modal {
       button.setButtonText(this.labels.submit ?? "保存任务").setCta().onClick(async () => {
         if (!this.value.title.trim()) return;
         try {
-          validateTaskSchedule({ date: this.value.date ?? "", endDate: this.value.endDate ?? "", time: this.value.time ?? "", startTime: this.value.startTime, endTime: this.value.endTime, estimateMin: this.value.estimateMin });
-          if (this.value.dueTime && !this.value.dueDate) throw new Error("填写必须截止时刻时，请同时选择截止日期；也可以清除时刻。");
+          const schedule=taskScheduleInput({...this.value});
           button.setDisabled(true);
-          await this.onSubmit({ ...this.value });
+          await this.onSubmit({ ...this.value,...schedule });
           this.close();
         } catch (failure) {
           error.setText(failure instanceof Error ? failure.message : "没有保存，请重试；原有记录已保留。");

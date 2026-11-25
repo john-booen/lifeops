@@ -12,8 +12,8 @@ import type { FactOperationOptions, GuardedFileChange } from "./dataFoundation/f
 import { addDays, normalizeJournalDate, todayString } from "./date";
 import { isVaultPathExcluded } from "./privacy";
 import { shiftTaskDates, taskCompletionDay, taskScheduleLabel, timeMinutes, validateTaskSchedule } from "./taskSchedule";
-import { TASK_DEADLINE_PROPERTIES, taskDeadlineInput, taskDeadlineLabel } from "./features/tasks/deadlineInput";
-import { newTaskScheduleInput } from "./features/tasks/newScheduleInput";
+import { TASK_DEADLINE_PROPERTIES, taskDeadlineLabel } from "./features/tasks/deadlineInput";
+import {taskScheduleInput} from "./features/tasks/scheduleInput";
 import { createPersonalMemory, findMemorySuppression, personalMemorySourceAssessment, personalMemoryReadSnapshot, reviewPersonalMemoryRecord, upsertPersonalMemoryRecord, type PersonalMemoryKind } from "./personalMemory";
 import type { StoreHost } from "./store/settingsSlice";
 import type { AgentActionSuggestion, HabitDefinition, HabitInput, LifeOpsTask } from "./types";
@@ -258,35 +258,10 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
       if (!proposedTitle) return toolError("创建任务缺少标题。");
       const title = explicitScheduledTaskTitle(proposedTitle, request.userMessage);
       if (isCopiedTaskTitleReference(title, request.userMessage)) return toolError("任务标题仍在引用前文，请核对具体标题；这次没有创建任务。");
-      try { args = newTaskScheduleInput(args); }
-      catch (error) { return toolError(error instanceof Error ? error.message : "计划区间无效，没有创建任务。"); }
-      const suppliedDate = toolArgString(args, "date");
-      const date = suppliedDate ? normalizeJournalDate(suppliedDate) : "";
-      if (suppliedDate && !date) return toolError("任务日期无法识别或不存在，请明确有效日期；这次没有创建任务，也没有改成未定日期。");
-      let deadline: Partial<Pick<LifeOpsTask, "dueDate" | "dueTime">>;
-      try { deadline = taskDeadlineInput(args); }
-      catch (error) { return toolError(error instanceof Error ? error.message : "必须截止无效，没有创建任务。"); }
-      const plan: { startTime?: string; endTime?: string; endDate?: string; scheduleMode?: "fixed" | "window" } = {};
-      if (args.scheduleMode !== undefined) {
-        if (args.scheduleMode !== "fixed" && args.scheduleMode !== "window") return toolError("任务安排方式无效，没有创建任务。");
-        plan.scheduleMode = args.scheduleMode;
-      }
-      for (const key of ["startTime", "endTime", "endDate"] as const) {
-        if (args[key] === undefined) continue;
-        if (typeof args[key] !== "string") return toolError("计划日期与时刻须为文字，没有创建任务。");
-        const value = (args[key] as string).trim();
-        if (key === "endDate") {
-          plan.endDate = value ? normalizeJournalDate(value) : "";
-          if (value && !plan.endDate) return toolError("计划结束日期无法识别或不存在，没有创建任务。");
-        } else plan[key] = value;
-      }
-      const estimateMin = args.estimateMin;
-      let time = normalizeToolTime(toolArgString(args, "time"));
-      if (!time && plan.endTime && !plan.startTime && !plan.endDate && estimateMin === undefined
-        && (args.time === undefined || args.time === "") && explicitReminderClock(request.userMessage) === plan.endTime) {
-        time = plan.endTime;
-        delete plan.endTime;
-      }
+      let schedule:ReturnType<typeof taskScheduleInput>;
+      try { schedule=taskScheduleInput(args,{reminderClock:explicitReminderClock(request.userMessage)}); }
+      catch(error){return toolError(error instanceof Error?error.message:'任务日期或时刻无效，没有保存。');}
+      const {date='',time='',estimateMin,...plan}=schedule;
       const learningTrackId = args.learningTrackId;
       if (learningTrackId !== undefined && !isLearningTrackId(learningTrackId)) return toolError("学习轨道无效，请核对。");
       const specifiedCategory = toolArgString(args, "category");
@@ -307,7 +282,6 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
         date,
         time,
         ...plan,
-        ...deadline,
         category,
         estimateMin,
         learningTrackId,
@@ -1317,17 +1291,6 @@ function toolArgString(args: Record<string, unknown>, key: string): string {
   if (typeof value === "string") return value.trim();
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   return "";
-}
-
-function normalizeToolTime(value: string): string {
-  const time = value.trim();
-  if (!time) return "";
-  const colon = time.match(/^(\d{1,2})[:：](\d{2})$/);
-  if (colon) return `${colon[1].padStart(2, "0")}:${colon[2]}`;
-  const hour = time.match(/(\d{1,2})\s*点(半|(\d{1,2})分?)?/);
-  if (!hour) return "";
-  const minute = hour[2] === "半" ? "30" : (hour[3] ?? "0").padStart(2, "0");
-  return `${hour[1].padStart(2, "0")}:${minute}`;
 }
 
 function normalizeFrequencyUnit(value: string): HabitInput["frequencyUnit"] {

@@ -15,6 +15,8 @@ const {LifeOpsStore} = await import("../src/store");
 const {LifeOpsAi} = await import("../src/ai");
 const {default: Plugin} = await import("../src/main");
 const {DiskVault} = await import("./helpers/diskVault");
+const {AgentRuntime} = await import("../src/agentRuntime");
+const {armAdjacentTaskPlan,consumeAdjacentTaskPlan,consumeAdjacentTaskDecision} = await import("../src/panel/taskPlanApproval");
 const title = "合成临时任务";
 const message = "请帮我安排一项任务：合成临时任务，今天做，先给确认卡。";
 const previewMessages = [message, "请先给我一张待确认的任务安排卡，只包含合成临时任务，今天做，暂不保存。",
@@ -127,4 +129,79 @@ it('previews and confirms an explicit legacy start plus end without losing its h
   calls=[tool('propose_task_plan',{tasks:[{title,date:'2026-11-13',time:'09:00',endTime:'10:30',scheduleMode:'fixed',dueDate:'2026-11-14',dueTime:'17:30'}]})];
   const before=await facts(),result=await run();expect(result.actions).toHaveLength(1);expect(await facts()).toEqual(before);expect(result.actions[0].content).toContain('09:00');expect(result.actions[0].content).toContain('10:30');
   await plugin.executeAgentAction(result.actions[0]);expect((await store.readTaskDb()).tasks).toMatchObject([{title,date:'2026-11-13',time:'',startTime:'09:00',endTime:'10:30',dueDate:'2026-11-14',dueTime:'17:30'}]);
+});
+
+it.each([
+  {name:'local timed shortcut',message:'明天下午3点提醒我交虚构报告 等我确认',offline:false,batch:false},
+  {name:'model create tool',message:'请新增虚构橙盒整理，先给我确认卡再保存。',offline:false,batch:false},
+  {name:'offline command',message:'/todo 今天 10:00 虚构离线报告 等我确认',offline:true,batch:false},
+  {name:'daily task batch',message:'把虚构橙盒整理和虚构蓝盒归档都排在今天，先给我确认卡，等我确认后再保存。',offline:false,batch:true}
+])('F1 holds every creation entry until a real card is approved: $name',async({message,offline,batch})=>{
+  if(offline)plugin.settings.ai.provider='off';
+  calls=batch?[tool('schedule_task_batch',{date:'今天',tasks:[{title:'虚构橙盒整理'},{title:'虚构蓝盒归档'}]})]:[tool('create_task',{title:'虚构橙盒整理',date:'今天'})];
+  const before=await facts(),result=await run(message);expect(await facts(),JSON.stringify({reply:result.reply,actions:result.actions})).toEqual(before);expect(result.actions).toHaveLength(1);expect(['task_plan','tool_batch']).toContain(result.actions[0].type);expect(result.receipts??[]).toEqual([]);
+  await plugin.executeAgentAction(result.actions[0]);const saved=(await store.readTaskDb()).tasks;expect(saved).toHaveLength(batch?2:1);const after=await facts();await plugin.executeAgentAction(result.actions[0]).catch(()=>undefined);expect(await vault.bytes(store.taskDbPath())).toBe(after.db);expect((await store.readTaskDb()).tasks).toEqual(saved);
+});
+it.each([
+  '明天下午3点提醒我交虚构报告 算了不用',
+  '明天下午3点提醒我开虚构会议 这只是举个例子'
+])('F1 rejects cancelled or illustrative creation even when a model requests the write: %s',async message=>{
+  calls=[tool('create_task',{title:'虚构不应保存的报告',date:'今天'})];const before=await facts(),result=await run(message);expect(await facts()).toEqual(before);expect(result.actions).toEqual([]);expect(result.receipts??[]).toEqual([]);
+});
+it.each([
+  {message:'明天下午3:00提醒我给靛色纸样夹贴标签。',title:'给靛色纸样夹贴标签'},
+  {message:'请创建任务，名称为「等我确认」，今天做。',title:'等我确认'}
+])('F1 preserves authorized direct creation and quoted literal titles: $message',async({message,title})=>{
+  calls=[tool('create_task',{title,date:'今天'})];const result=await run(message);expect((await store.readTaskDb()).tasks.map(row=>row.title)).toEqual([title]);expect(result.actions).toEqual([]);expect(result.receipts).toHaveLength(1);
+});
+
+it.each(['先给我确认卡再保存','等我同意后再建','先确认，暂时不要保存'])('F1 binds a creation-only card to one adjacent bare approval: %s',async suffix=>{
+  calls=[tool('create_task',{title:'虚构相邻确认',date:'明天'})];
+  const before=await facts(),result=await run(`请新建虚构相邻确认，${suffix}。`),action=result.actions[0];
+  expect(await facts()).toEqual(before);expect(action?.type).toBe('tool_batch');
+  const message={role:'assistant' as const,content:result.reply},view={agentMessages:[message],pendingAgentActions:[action]};
+  armAdjacentTaskPlan(view,message,[action]);expect(consumeAdjacentTaskPlan(view,'确定')).toBe(action);
+  expect(consumeAdjacentTaskPlan(view,'确定')).toBeUndefined();await plugin.executeAgentAction(action);
+  expect((await store.readTaskDb()).tasks.map(t=>t.title)).toEqual(['虚构相邻确认']);
+});
+
+it.each(['create_task','schedule_task_batch'])('F1 guards the actual Runtime before ledger claim, even with a supplied confirmed flag: %s',async name=>{
+  const runtime=new AgentRuntime({store,refreshViews:async()=>{}}),before=await facts();
+  const result=await runtime.executeToolCall({toolName:name,arguments:name==='create_task'?{title:'虚构底层确认',date:'明天'}:{date:'明天',tasks:[{title:'虚构底层确认'}]},source:'kimi',callId:`fictional-flag-${name}`,userMessage:'创建虚构底层确认，等我确认再保存。',confirmedByUser:true});
+  expect(result.success,result.output).toBe(true);expect(await facts()).toEqual(before);expect(result.actions).toHaveLength(1);
+  await plugin.executeAgentAction(result.actions[0]);expect((await store.readTaskDb()).tasks).toHaveLength(1);
+});
+
+it('F1 groups separate model creation calls into one real card and deduplicates concurrent approvals',async()=>{
+  calls=[tool('create_task',{title:'虚构整份甲',date:'明天'},'fictional-card-a'),tool('create_task',{title:'虚构整份乙',date:'明天'},'fictional-card-b')];
+  const before=await facts(),result=await run('新建虚构整份甲和虚构整份乙，等我确认再保存。');expect(await facts()).toEqual(before);expect(result.actions).toHaveLength(1);
+  const action=result.actions[0];expect(action.toolBatch).toHaveLength(2);await Promise.allSettled([plugin.executeAgentAction(action),plugin.executeAgentAction(action)]);
+  expect((await store.readTaskDb()).tasks.map(t=>t.title)).toEqual(['虚构整份甲','虚构整份乙']);
+});
+
+it('F1 revokes the exact dismissed card and refuses a copied capability without touching facts',async()=>{
+  calls=[tool('create_task',{title:'虚构取消确认',date:'明天'})];const before=await facts(),result=await run('创建虚构取消确认，先给确认卡。'),action=result.actions[0];
+  await expect(plugin.executeAgentAction(structuredClone(action))).rejects.toThrow();
+  const message={role:'assistant' as const,content:result.reply},view={agentMessages:[message],pendingAgentActions:[action]};
+  armAdjacentTaskPlan(view,message,[action]);expect(consumeAdjacentTaskDecision(view,'取消')).toEqual({action,approved:false});
+  plugin.dismissAgentAction(action);await expect(plugin.executeAgentAction(action)).rejects.toThrow('取消');expect(await facts()).toEqual(before);
+});
+
+it('F1 freezes relative dates before midnight, keeps the independent deadline and can undo the exact creation',async()=>{
+  vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date(2026,10,25,23,59));
+  try{
+    const before=await facts();calls=[tool('create_task',{title:'虚构跨夜核对',date:'明天',endDate:'下周三',scheduleMode:'window',dueDate:'12月3日',dueTime:'17:30'})];
+    const result=await run('新建虚构跨夜核对，先给确认卡。'),action=result.actions[0];expect(await facts()).toEqual(before);
+    expect(action.content).toContain('2026-12-03 17:30');vi.setSystemTime(new Date(2026,10,26,7));await plugin.executeAgentAction(action);
+    expect((await store.readTaskDb()).tasks).toMatchObject([{date:'2026-11-26',endDate:'2026-12-02',dueDate:'2026-12-03',dueTime:'17:30'}]);
+    await plugin.executeAgentToolCall({id:'fictional-crossnight-undo',name:'undo_latest_operation',arguments:{}},'撤销上一步');
+    expect(await vault.bytes(store.taskDbPath())).toBe(before.db);expect(await vault.bytes(store.taskMirrorPath())).toBe(before.mirror);
+  }finally{vi.useRealTimers();}
+});
+
+it.each(['假如我明天建虚构练习，等我确认。','请不要创建虚构练习。','虚构练习，先给确认卡，算了取消。'])('F1 does not turn negative examples into executable cards: %s',async message=>{
+  calls=[tool('create_task',{title:'虚构练习'})];const before=await facts(),result=await run(message);expect(await facts()).toEqual(before);expect(result.actions).toEqual([]);
+});
+it.each([{message:'不用等我确认，直接创建虚构纸盒。',title:'虚构纸盒'},{message:'创建任务「取消订阅」，今天做。',title:'取消订阅'}])('F1 preserves explicit no-wait creation: $message',async({message,title})=>{
+  calls=[tool('create_task',{title,date:'今天'})];const result=await run(message);expect(result.actions).toEqual([]);expect((await store.readTaskDb()).tasks.map(t=>t.title)).toEqual([title]);
 });

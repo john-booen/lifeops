@@ -1,28 +1,36 @@
 import { describe, expect, it, vi } from "vitest";
 import type { LifeOpsTaskInput } from "../src/types";
 const state = vi.hoisted(() => ({ settings: [] as Array<{ name: string; text?: any; dropdown?: any; button?: any }> }));
-vi.mock("obsidian", () => ({ Setting: class {
+vi.mock("obsidian", () => ({ Modal:class {contentEl:any;constructor(){this.contentEl={empty(){},addClass(){},createDiv(){return{setText(){}};},createEl(){return this;}};}close(){}}, Notice:class{},Setting: class {
   row: { name: string; text?: any; dropdown?: any; button?: any } = { name: "" };
   constructor() { state.settings.push(this.row); }
   setName(name: string) { this.row.name = name; return this; }
   setDesc() { return this; }
   addDropdown(configure: (d: any) => void) {
-    const d: any = { options: {}, value: "", addOption(k: string, v: string) { d.options[k] = v; return d; }, setValue(v: string) { d.value = v; return d; }, onChange(f: (v: string) => void) { d.change = f; return d; } }; this.row.dropdown = d; configure(d); return this;
+    const d: any = { options: {}, value: "", addOption(k: string, v: string) { d.options[k] = v; return d; }, setDisabled(){return d;},setValue(v: string) { d.value = v; return d; }, onChange(f: (v: string) => void) { d.change = f; return d; } }; this.row.dropdown = d; configure(d); return this;
   }
   addText(configure: (t: any) => void) {
-    const t: any = { value: "", inputEl: { type: "", setAttribute() {}, addEventListener() {} }, setValue(v: string) { t.value = v; return t; }, onChange(f: (v: string) => void) { t.change = f; return t; } }; this.row.text = t; configure(t); return this;
+    const t: any = { value: "", inputEl: { type: "", setAttribute() {}, addEventListener() {} },setPlaceholder(){return t;}, setValue(v: string) { t.value = v; return t; }, onChange(f: (v: string) => void) { t.change = f; return t; } }; this.row.text = t; configure(t); return this;
   }
+  addTextArea(configure:(t:any)=>void){return this.addText(configure);}
   addButton(configure: (b: any) => void) {
-    const b: any = { buttonEl: { setAttribute() {} }, setButtonText() { return b; }, setTooltip() { return b; }, onClick(f: () => void) { b.click = f; return b; } }; this.row.button = b; configure(b); return this;
+    const b: any = { buttonEl: { setAttribute() {} },setCta(){return b;},setDisabled(){return b;}, setButtonText() { return b; }, setTooltip() { return b; }, onClick(f: () => void) { b.click = f; return b; } }; this.row.button = b; configure(b); return this;
   }
 } }));
 const { renderTaskScheduleForm } = await import("../src/taskScheduleForm");
+const {TaskModal}=await import('../src/modals');
+const {taskScheduleInput}=await import('../src/features/tasks/scheduleInput');
 function fixture(value: LifeOpsTaskInput) {
   const parent = { createEl: () => ({ createEl() {}, open: false }) } as unknown as HTMLElement;
   const render = vi.fn(() => { state.settings = []; renderTaskScheduleForm(parent, value, render); }); render();
   return { render, field: (name: string) => state.settings.find(row => row.name === name)! };
 }
 describe("task completion-window form", () => {
+  it('submits the real TaskModal with the same period and independent deadline parser as chat',async()=>{
+    state.settings=[];const submit=vi.fn(async(_value:LifeOpsTaskInput)=>{}),input:LifeOpsTaskInput={title:'虚构表单与聊天同义',date:'2026-11-25',endDate:'2026-12-02',scheduleMode:'window',dueDate:'2026-12-03',dueTime:'17:30'};
+    new TaskModal({} as any,submit,input).onOpen();await state.settings.find(row=>row.name==='')!.button.click();
+    expect(submit).toHaveBeenCalledOnce();expect(submit.mock.calls[0][0]).toMatchObject({...input,...taskScheduleInput({...input})});
+  });
   it("opens an existing week as a window with its end date visible and leaves stored fields untouched", () => {
     const value: LifeOpsTaskInput = { title: "虚构一周归档", date: "2026-11-21", endDate: "2026-11-27", startTime: "16:15", endTime: "16:45" }, before = structuredClone(value);
     const ui = fixture(value);

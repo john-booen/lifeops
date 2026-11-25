@@ -7,7 +7,7 @@ import { mergePendingAgentActions, PENDING_ACTION_CONFLICT_NOTICE } from "../pen
 import { bindAgentHistoryResponse } from "../personalMemoryHistory";
 import { renderWriteReceipts } from "../writeReceipts";
 import { renderChatMessageContent } from "./chatInteraction";
-import { armAdjacentTaskPlan, consumeAdjacentTaskPlan } from "./taskPlanApproval";
+import { armAdjacentTaskPlan, consumeAdjacentTaskDecision } from "./taskPlanApproval";
 import {
   addEchoText,
   clearEchoMemories,
@@ -324,12 +324,14 @@ const messageListPanel = {
       let message = isVoice ? this.currentVoiceMessageText() : this.agentInput.trim();
       if (!message || this.agentBusy) return;
       if (!isVoice) {
-        const plan = consumeAdjacentTaskPlan(this, message);
-        if (plan) {
+        const decision = consumeAdjacentTaskDecision(this, message);
+        if (decision) {
           const confirmation: AgentConversationMessage = { role: "user", content: message };
           this.agentMessages = [...this.agentMessages, confirmation].slice(-12);
           this.appendAgentMessage(confirmation); this.setAgentInput("");
-          await this.acceptAgentSuggestion(plan); return;
+          if (decision.approved) await this.acceptAgentSuggestion(decision.action);
+          else await this.dismissAgentSuggestion(decision.action.id);
+          return;
         }
       }
       if (isVoice && this.agentVoiceSendInFlight) return;

@@ -52,6 +52,7 @@ import { requestedMemoryLookup,memoryLookupTool } from "./memoryLookup";
 import { simpleReadOnlyTaskLookup } from "./readOnlyTaskLookup";
 import { preferJournalOriginalReads } from "./journalOriginalRouting";
 import { requiredPlanRepairMessages } from "./requiredPlanRepair";
+import {taskCreationPolicy} from '../features/tasks/creationPolicy';
 
 export type WriteReceipt = AgentWriteReceipt;
 export interface AgentTurnInput {
@@ -183,6 +184,7 @@ export class AgentLoop {
     const input = { ...request, history: request.history.map(entry => ({ ...entry })), now: new Date(request.now.getTime()) };
     const role = input.voiceBackground ? "deep" : agentModelRole(input.source, input.message);
     const state = this.newState(role);
+    state.requestedTaskConfirmation=taskConfirmationRequested(input.message);
     const policy = memorySourcePolicy(this.host.store);
     const assertPolicy = () => {
       if (policy !== memorySourcePolicy(this.host.store)) throw new DOMException("资料权限已更改，请重新发送。", "AbortError");
@@ -1057,6 +1059,16 @@ export class AgentLoop {
           throw Error("整批安排须单独调用，后台分析不保存任务。");
         }
         const plan = await planTaskBatch(this.host.store, call, input.now);
+        const creationPolicy=taskCreationPolicy(input.message);
+        if(creationPolicy.denied)throw Error('这句包含取消或举例要求，本批没有创建任务。');
+        if(creationPolicy.wait){
+          const preview=prepareToolBatch(plan.calls,state.writeCount,input.message,true);
+          if(!preview)throw Error('本批没有可确认的新任务。');
+          await bindTaskPlanConfirmation(this.host.store,preview,input.message);
+          preview.output=[preview.output,...plan.notes,...plan.existing].join('\n');
+          if(preview.success&&preview.actions[0])sealRequestedToolBatch(preview.actions[0]);
+          const result={...preview,callId:call.id!};this.recordResult(input,state,TASK_BATCH_TOOL.name,result);return[result];
+        }
         const saved: string[] = [];
         let failure: string | undefined;
         for (const item of plan.calls) {
@@ -1086,10 +1098,10 @@ export class AgentLoop {
         : "没有核对到你要改时刻的是哪条待办。请用本轮指明的待办，或用上轮已核对回执中的任务 ID；仍不清楚就先问我。", actions: []
     }));
     for (const result of blocked) this.recordResult(input, state, calls.find(call => call.id === result.callId)!.name, result);
-    const requestedTaskPreview = state.requestedTaskConfirmation && allowed.some(call => ["update_tasks", "reschedule_task", "complete_task"].includes(call.name));
+    const requestedTaskPreview = state.requestedTaskConfirmation && allowed.some(call => ["create_task", "update_tasks", "reschedule_task", "complete_task"].includes(call.name));
     const batch = prepareToolBatch(allowed, state.writeCount, input.message, requestedTaskPreview);
     if (batch) {
-      await bindTaskPlanConfirmation(this.host.store, batch);
+      await bindTaskPlanConfirmation(this.host.store, batch,input.message);
       if (batch.success && batch.actions[0]) sealRequestedToolBatch(batch.actions[0]);
       this.recordResult(input, state, "tool_batch", batch);
       return [batch, ...blocked];

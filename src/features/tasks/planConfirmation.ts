@@ -5,14 +5,26 @@ import type { StoreHost } from "../../store/settingsSlice";
 import { taskScheduleLabel, taskScheduleMode } from "../../taskSchedule";
 import { TASK_SCHEDULE_FIELDS, taskPlanUpdate } from "./scheduleUpdate";
 import { taskDeadlineLabel } from "./deadlineInput";
+import {taskScheduleInput} from './scheduleInput';
+import {buildTaskFromInput} from '../../vaultApi';
+import {explicitReminderClock} from '../../taskReference';
+import {stripTaskWaitSuffix} from './creationPolicy';
 
 /** Freeze the exact existing records shown in a batch's confirmation preview. */
-export async function bindTaskPlanConfirmation(store: StoreHost, batch: ToolCallResult): Promise<void> {
+export async function bindTaskPlanConfirmation(store: StoreHost, batch: ToolCallResult,userMessage=''): Promise<void> {
   const action = batch.actions[0], calls = action?.toolBatch;
-  if (action?.type !== "tool_batch" || !calls?.some(call => call.name === "update_tasks")) return;
+  if (action?.type !== "tool_batch" || !calls?.some(call => ['update_tasks','create_task'].includes(call.name))) return;
   try {
     const { tasks } = await readContextTasks(store), frozen = structuredClone(calls), preview: string[] = [];
     for (const call of frozen) {
+      if(call.name==='create_task'){
+        if(typeof call.arguments.title!=='string'||!call.arguments.title.trim())throw Error('新任务缺少具体标题，尚未保存。');
+        const schedule=taskScheduleInput(call.arguments,{reminderClock:explicitReminderClock(stripTaskWaitSuffix(userMessage))});
+        const other=Object.fromEntries(Object.entries(call.arguments).filter(([key])=>!['date','time','endDate','startTime','endTime','scheduleMode','dueDate','dueTime','estimateMin'].includes(key)));
+        call.arguments={...other,...schedule};
+        const task=buildTaskFromInput({title:call.arguments.title as string,...call.arguments},new Date());
+        preview.push(`新建「${task.title}」：${[task.date||'未安排日期',taskScheduleLabel(task),taskDeadlineLabel(task)].filter(Boolean).join('；')}`);continue;
+      }
       if (call.name !== "update_tasks") {
         preview.push(call.name === "create_task" ? `新建「${String(call.arguments.title ?? "")}」${call.arguments.date ? `，${call.arguments.date}` : ""}`
           : `另含一项操作：${call.name}（${JSON.stringify(call.arguments)}）`);

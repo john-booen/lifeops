@@ -16,6 +16,7 @@ import {isOwnedStoredQueryRead} from "./storedQueryRead";
 import { isTaskBatchReceipt } from "./features/tasks/batchReceipt";
 import { retrySummaryRead } from "./agent/summaryReadRetry";
 import { taskContentWriteGuard } from "./features/tasks/contentUpdate";
+import {taskCreationPolicy} from './features/tasks/creationPolicy';
 const isHeldQuery=(name:string)=>["query_vault","query_projects","query_trading_research","list_personal_memory_candidates","get_summaries"].includes(name);
 const isOwnedQueryRead=(store:StoreHost,read:VaultQueryRead)=>isOwnedVaultQueryRead(store,read)||isOwnedStoredQueryRead(store,read);
 
@@ -100,6 +101,29 @@ export class AgentRuntime {
         output: `暂不支持这个工具：${request.toolName}`,
         actions: []
       };
+    }
+    if(['create_task','schedule_task_batch'].includes(tool.name)){
+      const policy=taskCreationPolicy(request.userMessage);
+      if(policy.denied)return{callId:request.callId,success:false,output:'这句包含取消或举例要求，没有创建任务。',actions:[]};
+      // A provider's arguments or a generic confirmedByUser flag cannot waive
+      // the original wait. Job checkpoints are private host authorization;
+      // visible batch approval executes its exact, separately bound payload.
+      if(policy.wait&&!control?.checkpoint){
+        const {prepareToolBatch,sealRequestedToolBatch}=await import('./toolBatch');
+        const {bindTaskPlanConfirmation}=await import('./features/tasks/planConfirmation');
+        let calls=[{id:request.callId,name:tool.name,arguments:request.arguments}];
+        let notes:string[]=[];
+        if(tool.name==='schedule_task_batch'){
+          try{const {planTaskBatch}=await import('./agent/taskBatch');const plan=await planTaskBatch(this.context.store,calls[0],new Date());calls=plan.calls as typeof calls;notes=[...plan.existing,...plan.notes];}
+          catch(error){return{callId:request.callId,success:false,output:error instanceof Error?error.message:'本批尚未保存。',actions:[]};}
+        }
+        const preview=prepareToolBatch(calls,0,request.userMessage,true);
+        if(!preview)return{callId:request.callId,success:true,output:'本批没有需要新建的任务，未修改原记录。',actions:[]};
+        await bindTaskPlanConfirmation(this.context.store,preview,request.userMessage);control?.assertCurrent();
+        if(preview.success&&preview.actions[0])sealRequestedToolBatch(preview.actions[0]);
+        if(notes.length)preview.output+='\n'+notes.join('\n');
+        return{...preview,callId:request.callId};
+      }
     }
     if (tool.name === "schedule_task_batch") {
       const { taskBatchWriteGuard } = await import("./features/tasks/batchWrite");

@@ -6,11 +6,8 @@ import type { PersonalMemoryRecord } from "../personalMemory";
 import { isCurrentAgentHistoryPair } from "../personalMemoryHistory";
 import { isLiteralTaskConfirmation } from "../features/tasks/confirmationText";
 
-/** A user's existing wait marker protects writes even when the target needs model lookup. */
-export function taskConfirmationRequested(message:string):boolean {
-  const outside=message.replace(/[「“"][^「」“”"]*[」”"]/gu,"");
-  return /等我确认|确认后|先.{0,4}确认/u.test(outside);
-}
+import {taskConfirmationRequested} from '../features/tasks/creationPolicy';
+export {taskConfirmationRequested} from '../features/tasks/creationPolicy';
 
 interface TitleEdit { id:string; before:string; title:string }
 interface TitleEditRequest { edits:TitleEdit[]; confirmationRequested:boolean }

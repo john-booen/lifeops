@@ -9,6 +9,7 @@ import { taskScheduleLabel } from "../taskSchedule";
 import type { AgentResponse } from "../types";
 import type { AgentRuntime } from "../agentRuntime";
 import type { AgentTurnInput } from "./AgentLoop";
+import {stripTaskWaitSuffix,taskCreationPolicy} from '../features/tasks/creationPolicy';
 
 const dateAndTask = new RegExp(String.raw`(?:^|[，,\s])(${journalDateToken})(?=$|[，,\s零一二两三四五六七八九十半\d]|凌晨|早上|上午|中午|下午|傍晚|晚上)`, "u");
 const taskThenSchedule = new RegExp(String.raw`^(?:请(?:帮我)?|帮我)?\s*(?:创建|新建|添加|建)(?:一[个条项])?(?:任务|待办)(?:[：:]\s*|[ \t]+)([^，,]+)[，,]\s*(?:安排在|定在|时间是)(${journalDateToken})\s*([^，,]+)$`, "u");
@@ -17,7 +18,8 @@ const leadingSchedule = new RegExp(String.raw`^(?:${journalDateToken})(?:\s*\d|\
 
 export function explicitSingleTimedTask(message: string, today: string): Record<string, unknown> | null {
   const text = message.trim().replace(/[。！!]$/u, "");
-  if (/[。；;？！!?\r\n]|(?:如果|要是|的话|然后|同时|另外|或者|再帮我|先查|每周|每天|重复)/u.test(text)) return null;
+  const policy=taskCreationPolicy(message);
+  if (policy.wait||policy.denied||/[。；;？！!?\r\n]|(?:如果|要是|的话|然后|同时|另外|或者|再帮我|先查|每周|每天|重复)/u.test(text)) return null;
   const separated = taskThenSchedule.exec(text);
   if (separated) {
     const [, rawTitle, day, clockText] = separated;
@@ -78,12 +80,12 @@ export async function offlineFallback(input: AgentTurnInput, store: StoreHost, r
     : /^(?:checkin|打卡)$/i.test(verb) ? "complete_habit" : "create_task";
   const args = toolName === "complete_task" ? { taskIdOrTitle: value.trim() }
     : toolName === "complete_habit" ? { name: value.trim() }
-      : offlineTask(value, date);
+      : offlineTask(taskCreationPolicy(message).wait?stripTaskWaitSuffix(value):value, date);
   if (!args) return { reply: "没识别出任务时间，请用明确的日期和时刻，例如「明天 10:00」。", actions: [] };
   const assertCurrent = () => assertProviderActive(input.signal);
   assertCurrent();
   const result = await runtime.executeToolCall({
-    toolName, arguments: args, source: "system", callId: newLocalOperationId("offline"), confirmedByUser: true
+    toolName, arguments: args, source: "system", callId: newLocalOperationId("offline"), confirmedByUser: true,userMessage:input.message
   }, { assertCurrent });
   return { reply: result.output, actions: result.actions, receipts: result.receipt ? [result.receipt] : [] };
 }
