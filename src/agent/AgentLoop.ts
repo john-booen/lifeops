@@ -702,7 +702,7 @@ export class AgentLoop {
   }
 
   private localAnswer(input: AgentTurnInput, state: TurnState, reply: string): AgentTurnResult {
-    state.model = "local";
+    if (!state.providerRuns.length) state.model = "local";
     state.text = reply;
     state.firstTokenMs ??= performance.now() - state.started;
     input.onText?.(reply);
