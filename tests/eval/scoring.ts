@@ -1,5 +1,6 @@
 import { recordRevision } from "../../src/operationIdentity";
 import { normalizeJournalDate } from "../../src/date";
+import {taskScheduleMode} from '../../src/taskSchedule';
 import { hasEquivalentDateAlias } from "./dateAliases";
 import { hasJournalEvidence, type JournalEvidenceCheck, type JournalToolRead } from "./journalEvidence";
 
@@ -276,7 +277,7 @@ export function scoreEvaluationCase(question: EvalQuestion, observed: EvalObserv
   if(checks.createdPeriodTask){
     const expected=checks.createdPeriodTask,task=observed.createdTasks[0];
     if(observed.createdTasks.length!==1||observed.receipts<1||!task||!task.title.includes(expected.titleIncludes)
-      ||task.date!==expected.date||task.endDate!==expected.endDate||task.scheduleMode!=="window"
+      ||task.date!==expected.date||task.endDate!==expected.endDate||taskScheduleMode({...task,endDate:task.endDate??''})!=="window"
       ||task.dueDate!==expected.dueDate||task.dueTime!==expected.dueTime||task.time||task.startTime||task.endTime){
       issues.push("期间任务的日期范围、独立必须截止或实际保存不符");
     }

@@ -265,6 +265,8 @@ it("checks the actual period and independent deadline and rejects missing, confl
   const period={id:"fictional-period-deadline",title:"虚构银杏跨月整理",date:"2026-11-25",endDate:"2026-12-02",scheduleMode:"window" as const,dueDate:"2026-12-03",dueTime:"17:30"};
   const valid:EvalObservation={...observed,reply:"已按期间和独立交付期限保存。",tools:[{name:"create_task",ok:true}],createdTasks:[period],tasks:[period],confirmations:0,confirmationActions:[],receipts:1,writes:{"tasks.created":1,"tasks.deleted":0,"tasks.rescheduled":0,"tasks.timeChanged":0}};
   expect(scoreEvaluationCase(q,valid)).toEqual([]);
+  // The UI and daily classifier intentionally support a legacy implicit window.
+  expect(scoreEvaluationCase(q,{...valid,createdTasks:[{...period,scheduleMode:undefined}]})).toEqual([]);
   for(const patch of [{dueDate:"2026-12-02"},{dueTime:undefined},{scheduleMode:"fixed"},{date:"2026-11-26"},{endDate:""},{time:"09:00"},{startTime:"09:00",endTime:"10:00"}])expect(scoreEvaluationCase(q,{...valid,createdTasks:[{...period,...patch} as typeof period]})).not.toEqual([]);
   for(const bad of [{...valid,createdTasks:[]},{...valid,receipts:0},{...valid,createdTasks:[period,{...period,id:"extra"}]}])expect(scoreEvaluationCase(q,bad)).not.toEqual([]);
 });
