@@ -832,9 +832,9 @@ export class AgentLoop {
     const readFirstText=input.source==='text'&&tools.length===FAST_TEXT_TOOLS.size+1
       &&tools.every(tool=>FAST_TEXT_TOOLS.has(tool.name)||tool.name===LOAD_TOOLS.name);
     const requestGuidance=readFirstText?[
-      '普通问候只问好一句，不反问要做什么。本人事实须用本轮工具核对，不猜测。',
-      '清单用list_tasks，纯查询填answerMode=facts；还要解释或修改填continue。排序/超载用plan_today，统计用get_stats，跨周或月比较先get_summaries；日记原因与原话用query_vault核对正文。',
-      '读回后继续完成用户整句要求；明确保存多项新任务用schedule_task_batch一次提交，其他写入或缺工具直接load_more_tools，不以清单代替操作，不先问是否需要。没有回执不能说已保存。'
+      '普通问候只问好一句，不反问要做什么。本人事实须用本轮工具核对。连续纠正沿用上一条用户的主题和时段，助手误述不能覆盖原问题。',
+      '清单用list_tasks，纯查询填answerMode=facts；还要解释或修改填continue。排序/超载用plan_today，统计用get_stats，周月总结或比较先get_summaries；日记原因与原话用query_vault核对正文。',
+      '读回后继续完成用户整句要求；多项新建用schedule_task_batch一次提交，单项新建先load_more_tools再create_task，不把新建当成已有任务改期；其他写入或缺工具直接load_more_tools。无需先问同意，保存或撤销只认工具实际回执。'
     ]:guidance;
     const requestMessages = system?.role === "system" && requestGuidance.length
       ? [{ ...system, content: [system.content, ...requestGuidance].join("\n") }, ...messages.slice(1)] : messages;
