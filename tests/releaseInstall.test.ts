@@ -54,6 +54,14 @@ async function prepare() {
   return output;
 }
 
+it('refuses a real daily install without its external policy before changing the program',async()=>{
+  vi.stubEnv('LIFEOPS_DAILY_INSTALL_POLICY','');
+  try{await expect(installPackage({...config,dailyInstall:true},version,await prepare())).rejects.toThrow('安装策略');
+    expect(await read(pluginFile('main.js'))).toBe(oldProgram);
+    await expect(lstat(config.backupRoot)).rejects.toMatchObject({code:'ENOENT'});
+  }finally{vi.unstubAllEnvs();}
+});
+
 it("verifies backup, installs the package, and restores program files while preserving later data", async () => {
   const installed = await installPackage(config, version, await prepare());
   const backup = join(installed.backup, "vault");

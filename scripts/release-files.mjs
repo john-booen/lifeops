@@ -8,6 +8,7 @@ import { assertSafeDiskPath } from "../src/dataFoundation/offlineRecovery.ts";
 import { decodeFactRecovery, MAX_RECOVERY_BYTES } from "../src/dataFoundation/recoveryEncoding.ts";
 import { FULL_PLUGIN_FILES } from "./plugin-package-upgrade.mjs";
 import { assert, readRegularFile, sha256, verifyPluginPackage } from "./verify-plugin-package.mjs";
+import {verifyDailyInstallPolicy} from './daily-install-policy.mjs';
 
 export const projectRoot = fileURLToPath(new URL("../", import.meta.url));
 const pluginRelative = ".obsidian/plugins/lifeops-assistant";
@@ -52,7 +53,7 @@ export async function loadReleaseConfig() {
     assert(typeof path === "string" && !isAbsolute(path) && !path.includes("\\")
       && path.split("/").every(part => part.trim() && !part.startsWith(".")), "心跳路径必须位于目标库内");
   }
-  return { vaultPath, pluginPath, backupRoot, heartbeatPath, rollbackHeartbeatPath };
+  return { vaultPath, pluginPath, backupRoot, heartbeatPath, rollbackHeartbeatPath, dailyInstall: !rehearsalConfig };
 }
 
 function inside(parent, child) {
@@ -288,6 +289,8 @@ async function removeRetiredResources(stage, contents) {
 }
 
 export async function installPackage(config, version, packageDir = join(projectRoot, "dist/release", version)) {
+  const checkPolicy = async () => { if (config.dailyInstall) await verifyDailyInstallPolicy(process.env.LIFEOPS_DAILY_INSTALL_POLICY, version); };
+  await checkPolicy();
   const { contents } = await verifyPluginPackage({ packageDir });
   assert(JSON.parse(contents.get("manifest.json").toString("utf8")).version === version, "安装包版本不符");
   const mainSha256 = sha256(contents.get("main.js"));
@@ -305,6 +308,7 @@ export async function installPackage(config, version, packageDir = join(projectR
       }
       await verifyPluginSnapshot(config.pluginPath, snapshot, false);
       assert(await settledRecoveryRevision(config) === recovery, "版本切换期间恢复记录发生变化");
+      await checkPolicy();
     });
     return { version, mainSha256, backup, startedAt: Date.now() };
   });

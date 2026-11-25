@@ -199,6 +199,14 @@ it('F1 freezes relative dates before midnight, keeps the independent deadline an
   }finally{vi.useRealTimers();}
 });
 
+it.each([true,false])('F1 applies adjacent approval or cancellation to the actual persistent new-task plan: %s',async approved=>{
+  const before=await facts(),result=await run(),action=result.actions[0];expect(action.type).toBe('task_plan');
+  const message={role:'assistant' as const,content:result.reply},view={agentMessages:[message],pendingAgentActions:[action]};
+  armAdjacentTaskPlan(view,message,[action]);expect(consumeAdjacentTaskDecision(view,approved?'确定':'取消')).toEqual({action,approved});
+  if(approved){await plugin.executeAgentAction(action);expect((await store.readTaskDb()).tasks.map(t=>t.title)).toEqual([title]);}
+  else{plugin.dismissAgentAction(action);await expect(plugin.executeAgentAction(action)).rejects.toThrow();expect(await facts()).toEqual(before);}
+});
+
 it.each(['假如我明天建虚构练习，等我确认。','请不要创建虚构练习。','虚构练习，先给确认卡，算了取消。'])('F1 does not turn negative examples into executable cards: %s',async message=>{
   calls=[tool('create_task',{title:'虚构练习'})];const before=await facts(),result=await run(message);expect(await facts()).toEqual(before);expect(result.actions).toEqual([]);
 });
