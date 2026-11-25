@@ -46,6 +46,7 @@ import { recoverReadOnlyStats, type StatsRecoveryRead } from "./readOnlyStatsRec
 import { resolvedTaskLookup, taskLookupResolution } from "./taskLookupResolution";
 import { holdToolProtocolPrefix, isLeakedToolProtocol, toolProtocolRepairMessages, unavailableToolProtocol, TOOL_PROTOCOL_UNAVAILABLE } from "./toolProtocol";
 import { dailyJournalEvidence, historicalAnswerMessages, historicalEvidenceFallback, unreadHistoricalDates } from "./historicalAnswer";
+import {historicalDateConflicts} from './historicalDateConflicts';
 import { historicalQueryHistoryContext, historicalQueryHistorySelections } from "../personalMemoryHistory";
 import { bindHistoricalDateReference } from "./historicalDateReference";
 import { requestedMemoryLookup,memoryLookupTool } from "./memoryLookup";
@@ -893,14 +894,18 @@ export class AgentLoop {
       let answer = await this.callModel(input, state, "deep", finalMessages, [], true, false, undefined, { reasoning: "disabled", finite: true });
       current();
       const inventedDates=unreadHistoricalDates(messages,answer.content,input.message,input.now.toISOString());
-      if(inventedDates.length){
+      const dateConflicts=historicalDateConflicts(messages,answer.content,input.message);
+      if(inventedDates.length||dateConflicts.length){
         // Correct the interpretation only; never repeat the original reads or
         // permit a tool call because a generated date was ungrounded.
-        answer=await this.callModel(input,state,"deep",[...finalMessages,{role:"user",content:"上一稿在历史部分引入了本轮原文、查询范围及原问题都未提供的绝对日期。请只用已核对读回的range和来源日期重写，不能把当前周或下周当成所问历史范围。未来建议另起「下一步（建议）」段，不混成历史事实。未核对日期为："+JSON.stringify(inventedDates)}],[],true,false,undefined,{reasoning:"disabled",finite:true});
+        const repair=inventedDates.length?"上一稿在历史部分引入了本轮原文、查询范围及原问题都未提供的绝对日期。请只用已核对读回的range和来源日期重写，不能把当前周或下周当成所问历史范围。未来建议另起「下一步（建议）」段，不混成历史事实。未核对日期为："+JSON.stringify(inventedDates):'';
+        const attribution=dateConflicts.length?'事件日期列与其所引原句的日历参照不一致。逐行重读相应原文，先核叙述时点，再写事件实际日期；不能直接把笔记当天当成昨晚。若原文另有明确日期或引用，按原叙述时点；不确定则说明未知，不猜测。这些是待核对的冲突，不是额外事件证据：'+JSON.stringify(dateConflicts):'';
+        answer=await this.callModel(input,state,"deep",[...finalMessages,{role:"user",content:[repair,attribution].filter(Boolean).join('\n')}],[],true,false,undefined,{reasoning:"disabled",finite:true});
         current();
       }
       if (!answer.content.trim() || answer.toolCalls.length || answer.content === TOOL_PROTOCOL_UNAVAILABLE
-        || unreadHistoricalDates(messages,answer.content,input.message,input.now.toISOString()).length) {
+        || unreadHistoricalDates(messages,answer.content,input.message,input.now.toISOString()).length
+        || historicalDateConflicts(messages,answer.content,input.message).length) {
         state.errorCode = "response_incomplete";
         needsEvidenceFallback = true;
       } else state.text = [answer.content,dailyJournalEvidence(messages)].filter(Boolean).join("\n\n");

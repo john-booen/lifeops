@@ -1745,6 +1745,18 @@ describe("unified agent loop", () => {
   });
 });
 
+it.each([true,false])('repairs a literal source-date conflict once and withholds an unrepaired event table: %s',async repaired=>{
+  await store.appendDaily('2026-11-05','日记','昨晚22:10完成虚构纸盒标记。','早','昨晚22:10完成虚构纸盒标记。');
+  const bad='| 事件实际日期 | 原话 | 来源 |\n|---|---|---|\n| 2026-11-05 | 昨晚22:10完成虚构纸盒标记 | 《2026-11-05早》 |';
+  const good=bad.replace('| 2026-11-05 |','| 2026-11-04 |');
+  responses.push(reply('',[tool('get_summaries',{level:'day',range:'2026-11-05..2026-11-05',includeOriginals:true})]),reply('已经读取原文。'),reply(bad),reply(repaired?good:bad));
+  const quality=vi.spyOn(store,'appendQualityLog'),before=await store.readPath(store.taskDbPath()),result=await new AgentLoop(host).run(input({message:'请按事件实际发生日期列出这篇原始日记的虚构纸盒标记，并给来源，不改任务。'}));
+  expect(requests).toHaveLength(4);expect(result.toolCalls.filter(call=>call.name==='get_summaries')).toHaveLength(1);expect(result.receipts).toEqual([]);expect(await store.readPath(store.taskDbPath())).toBe(before);
+  expect(requests.at(-1)?.some(message=>message.content.includes('待核对的冲突'))).toBe(true);
+  if(repaired){expect(result.text).toContain('| 2026-11-04 |');expect(quality.mock.calls.at(-1)?.[0].errorCode).toBeUndefined();}
+  else{expect(result.text).not.toContain('| 2026-11-05 |');expect(result.text).toContain('历史分析未完成');expect(quality.mock.calls.at(-1)?.[0].errorCode).toBe('response_incomplete');}
+});
+
 it("uses the four local commands without a model and gives undo receipts for local writes", async () => {
   store.settings.ai.provider = "off";
   const habit = await store.createHabit({ name: "纯虚构读书", frequencyUnit: "day", frequencyInterval: 1, targetCount: 1 });
