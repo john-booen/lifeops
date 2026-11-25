@@ -2497,6 +2497,28 @@ describe("complete batch task scheduling", () => {
   const tasks = () => Array.from({ length: 5 }, (_, i) => ({ title: `虚构纸样流程${i}`, estimateMin: 30 }));
   const batch = (args: Record<string, unknown> = {}) => tool("schedule_task_batch", { date: "今天", tasks: tasks(), ...args });
 
+  it('repairs invalid availability once before any write and keeps the complete original task list',async()=>{
+    responses.push(reply('',[batch({availableStart:'现在'})]),reply('',[batch({availableStart:'13:00'})]));
+    const result=await new AgentLoop(host).run(input({message:'五项虚构工作按原顺序今天全部创建。'}));
+    expect(requests).toHaveLength(2);expect(requests[1].some(row=>row.role==='tool'&&row.content?.includes('"executed":false'))).toBe(true);
+    expect(toolChoices[1]).toEqual({type:'function',function:{name:'schedule_task_batch'}});
+    expect(result.receipts).toHaveLength(5);expect((await store.readTaskDb()).tasks.map(row=>row.title)).toEqual(tasks().map(row=>row.title));
+  });
+  it.each([{tasks:[{title:'虚构被删掉四项'}]},{date:'明天'}])('refuses an availability repair that changes the frozen original plan: %j',async patch=>{
+    const before=await store.readPath(new OperationLedger(store).filePath);
+    responses.push(reply('',[batch({availableEnd:'全天'})]),reply('',[batch({availableEnd:'22:00',...patch})]));
+    const result=await new AgentLoop(host).run(input({message:'五项今天全部创建。'}));expect(requests).toHaveLength(2);expect(result.receipts).toEqual([]);expect((await store.readTaskDb()).tasks).toEqual([]);expect(await store.readPath(new OperationLedger(store).filePath)).toBe(before);
+  });
+  it('stops after one still-invalid repair rather than looping or dropping tasks',async()=>{
+    responses.push(reply('',[batch({availableEnd:'全天'})]),reply('',[batch({availableEnd:'25:00'})]),reply('虚构不该调用的第三轮'));
+    const result=await new AgentLoop(host).run(input());expect(requests).toHaveLength(2);expect(result.receipts).toEqual([]);expect((await store.readTaskDb()).tasks).toEqual([]);
+  });
+  it('preserves explicit confirmation after availability repair',async()=>{
+    responses.push(reply('',[batch({availableStart:'现在'})]),reply('',[batch({availableStart:'13:00'})]));
+    const result=await new AgentLoop(host).run(input({message:'五项都排今天，先给确认卡，等我确认再保存。'}));
+    expect(requests).toHaveLength(2);expect(result.confirmations).toHaveLength(1);expect(result.receipts).toEqual([]);expect((await store.readTaskDb()).tasks).toEqual([]);
+  });
+
   it("creates the entire plan in one user turn and returns only verified saved results", async () => {
     responses.push(reply("", [batch()]));
     const result = await new AgentLoop(host).run(input({ message: "五件虚构纸样工作今天必须完成，全天有时间，排好时间后全部创建。" }));

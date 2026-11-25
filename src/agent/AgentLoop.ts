@@ -53,6 +53,8 @@ import { simpleReadOnlyTaskLookup } from "./readOnlyTaskLookup";
 import { preferJournalOriginalReads } from "./journalOriginalRouting";
 import { requiredPlanRepairMessages } from "./requiredPlanRepair";
 import {taskCreationPolicy} from '../features/tasks/creationPolicy';
+import {TaskBatchAvailabilityError} from './taskBatch';
+import {batchAvailabilityFailure,BATCH_AVAILABILITY_REPAIR,repairedBatchAvailability} from './batchAvailabilityRepair';
 
 export type WriteReceipt = AgentWriteReceipt;
 export interface AgentTurnInput {
@@ -465,6 +467,22 @@ export class AgentLoop {
         messages.push({ role: "assistant", content: response.content, tool_calls: calls.map(call => ({
           id: call.id!, type: "function", function: { name: call.name, arguments: JSON.stringify(call.arguments) }
         })) });
+        if(!input.voiceBackground&&calls.length===1&&calls[0].name===TASK_BATCH_TOOL.name
+          &&availableTools.some(tool=>tool.name===TASK_BATCH_TOOL.name)&&!state.receipts.size&&!state.confirmations.size&&!taskCreationPolicy(input.message).denied){
+          try{await planTaskBatch(this.host.store,calls[0],input.now);}
+          catch(error){
+            if(error instanceof TaskBatchAvailabilityError){
+              const rejected=calls[0],failure=batchAvailabilityFailure(rejected,error.message);
+              this.recordResult(input,state,TASK_BATCH_TOOL.name,{callId:rejected.id!,success:false,output:error.message,actions:[]});
+              const repaired=await this.callModel(input,state,'main',[...messages,failure,{role:'system',content:BATCH_AVAILABILITY_REPAIR}],
+                availableTools.filter(tool=>tool.name===TASK_BATCH_TOOL.name),false,false,TASK_BATCH_TOOL.name,{reasoning:'disabled',finite:true});
+              assertPolicy();const corrected=repairedBatchAvailability(rejected,repaired.toolCalls);
+              if(!corrected)return this.localAnswer(input,state,error.message+' 自动核对未完成，原清单没有保存。');
+              calls=this.scopedCalls([corrected],state.id,round+MAX_TOOL_ROUNDS+1);
+              messages.push(failure,{role:'assistant',content:repaired.content,tool_calls:calls.map(call=>({id:call.id!,type:'function',function:{name:call.name,arguments:JSON.stringify(call.arguments)}}))});
+            }
+          }
+        }
         const results = await this.executeTools(input, state, calls, context.text, availableTools);
         const requestedPreview = state.requestedTaskConfirmation && results.find(result => result.success
           && result.actions.some(action => action.type === "tool_batch"));

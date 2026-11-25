@@ -15,6 +15,7 @@ export interface TaskBatchPlan {
 }
 const clock = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 const key = (title: string) => title.trim().normalize("NFKC");
+export class TaskBatchAvailabilityError extends Error {}
 
 /** Only structured tool arguments choose this path; no text pattern routes user intent. */
 export async function planTaskBatch(store: StoreHost, call: AiToolCall, now: Date,
@@ -28,7 +29,7 @@ export async function planTaskBatch(store: StoreHost, call: AiToolCall, now: Dat
   if (!date || date < today && !options.retainPastDate) throw Error("请指定今天或未来的日期；不会把新安排排进过去。");
   const suppliedClock = (name: "availableStart" | "availableEnd") => {
     if (args[name] === undefined) return undefined;
-    if (typeof args[name] !== "string" || timeMinutes(args[name] as string) === undefined) throw Error("可用时间须为 HH:mm；尚未保存。");
+    if (typeof args[name] !== "string" || timeMinutes(args[name] as string) === undefined) throw new TaskBatchAvailabilityError("可用时间须为 HH:mm；尚未保存。");
     return timeMinutes(args[name] as string)!;
   };
   const current = date < today ? 1440 : date === today ? Math.ceil((now.getHours() * 60 + now.getMinutes() + 1) / 5) * 5 : 9 * 60;
