@@ -370,7 +370,7 @@ export class AgentLoop {
         : [...registered, ...(input.voiceJobs ? voiceJobTools : [DEEP_ANALYSIS]), EXTRACT_TRADING_RULES];
       const quickTools = [...tools.filter(tool => (fastVoice ? VOICE_QUICK_TOOLS : QUICK_TOOLS).has(tool.name)),
         ...(fastVoice ? input.voiceJobs?.quickTools() ?? [] : []), LOAD_TOOLS];
-      type RequiredReadOrPlan = { name: "propose_task_plan"; retry?: true }
+      type RequiredReadOrPlan = { name: "propose_task_plan"; retry?: true; argumentRetry?: true }
         | { name: "advance_idea"; ideaId: string } | { name: "query_vault" };
       let nextTool: RequiredReadOrPlan | undefined = !input.voiceBackground && requestedMemoryLookup(input.message)
         ? { name: "query_vault" } : undefined;
@@ -382,6 +382,8 @@ export class AgentLoop {
       state.requestedTaskConfirmation = !input.voiceBackground && taskConfirmationRequested(input.message);
       const exactTitleEdits=!input.voiceBackground?(titleRequest?.edits
         ?? await confirmedTitleEdits(this.host.store,input.message,input.history,context.memories??[])):undefined;
+      const attestedHistoricalReads=input.source==='text'&&!input.voiceBackground
+        ?bindHistoricalDateReference([{name:'get_summaries',arguments:{includeOriginals:true}}],input.message,priorQueryDates).filter(call=>call.arguments.level!==undefined):[];
       let taskListAnswer: string | undefined;
       for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
         assertPolicy();
@@ -399,10 +401,10 @@ export class AgentLoop {
         const remainingTools = titlesSaved ? palette.filter(tool => tool.name !== "list_tasks" && tool.name !== "update_tasks") : palette;
         const availableTools = final ? [] : requiredTool === "query_vault" ? tools.filter(tool=>tool.name===requiredTool).map(memoryLookupTool) : requiredTool === "propose_task_plan" ? tools.filter(tool => tool.name === requiredTool) : remainingTools;
         const lookupResolution = !final && !requiredTool && !input.voiceBackground && !exactTitleEdits && !taskListAnswer
-          && !state.receipts.size && !state.confirmations.size ? taskLookupResolution(messages, state.results, availableTools, formatDate(input.now)) : undefined;
+          && !state.receipts.size && !state.confirmations.size ? taskLookupResolution(messages, state.results, availableTools, formatDate(input.now), state.requestedTaskConfirmation) : undefined;
         let response = await this.callModel(input, state, responseRole, messages, availableTools, final,
           requiredTool !== "propose_task_plan" && requiredTool !== "query_vault" && !state.taskContentCalls?.size && !exactTitleEdits && !taskListAnswer && !lookupResolution
-          && !this.needsHistoricalAnswer(input, state), requiredTool, titlesSaved || required?.name === "propose_task_plan" && required.retry ? { reasoning: "disabled", finite: true } : {});
+          && !this.needsHistoricalAnswer(input, state)&&!attestedHistoricalReads.length&&!state.requestedTaskConfirmation, requiredTool, titlesSaved || required?.name === "propose_task_plan" && required.retry ? { reasoning: "disabled", finite: true } : {});
         assertPolicy();
         if (!response.toolCalls.length && lookupResolution) response = resolvedTaskLookup(await this.callModel(input, state, "main",
           lookupResolution.messages, [lookupResolution.tool], false, false, lookupResolution.tool.name), lookupResolution);
@@ -424,6 +426,13 @@ export class AgentLoop {
           break;
         }
         if (!response.toolCalls.length) {
+          if(attestedHistoricalReads.length&&!state.receipts.size&&!state.confirmations.size
+            &&!state.toolCalls.some(call=>call.name==='get_summaries')&&state.toolCalls.every(call=>isBackgroundReadTool(call.name)||call.name===LOAD_TOOLS.name)){
+            const reads=this.scopedCalls(attestedHistoricalReads,state.id,round+MAX_TOOL_ROUNDS+2);
+            messages.push({role:'assistant',content:'',tool_calls:reads.map(call=>({id:call.id!,type:'function',function:{name:call.name,arguments:JSON.stringify(call.arguments)}}))});
+            const readResults=await this.executeRegular(input,state,reads);assertPolicy();
+            for(const call of reads)messages.push({role:'tool',tool_call_id:call.id!,content:readResults.find(result=>result.callId===call.id)?.output??'本轮原文尚未取得，不作事实结论。'});
+          }
           if (this.needsHistoricalAnswer(input, state) && !state.textOnlyAnswerAttempted) {
             await this.finishHistoricalAnswer(input, state, messages);
           } else if (this.needsHistoricalAnswer(input, state)) {
@@ -536,7 +545,7 @@ export class AgentLoop {
           return this.localAnswer(input, state, results[0].output);
         }
         const single = calls.length === 1 && results[0]?.success ? results[0] : undefined;
-        taskListAnswer = !input.voiceBackground && single && call.name === "list_tasks" && call.arguments.category === undefined
+        taskListAnswer = !input.voiceBackground && !state.requestedTaskConfirmation && single && call.name === "list_tasks" && call.arguments.category === undefined
           && call.arguments.directReply !== false && (call.arguments.answerMode === "facts" || call.arguments.directReply === true
             || call.arguments.dueStatus === "overdue_and_today" || call.arguments.order === "priority" && Number.isInteger(call.arguments.limit))
           ? formatTaskListReply(single.output, formatDate(input.now)) : undefined;
@@ -593,7 +602,7 @@ export class AgentLoop {
               ? this.compactVoiceOutput(output) : output });
         }
         if (required?.name === "propose_task_plan" && !results.some(result => result.success)) {
-          if (!required.retry && round < MAX_TOOL_ROUNDS - 1) nextTool = { name: required.name, retry: true };
+          if (!required.argumentRetry && round < MAX_TOOL_ROUNDS - 1) nextTool = { name: required.name, retry: true, argumentRetry: true };
           else {
             state.text = results[0]?.output || "明日安排还没生成确认卡，请再试一次。";
             input.onText?.(state.text);

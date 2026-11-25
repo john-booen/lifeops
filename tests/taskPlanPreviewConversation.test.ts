@@ -210,7 +210,7 @@ it.each([true,false])('F1 applies adjacent approval or cancellation to the actua
 it.each(['假如我明天建虚构练习，等我确认。','请不要创建虚构练习。','虚构练习，先给确认卡，算了取消。'])('F1 does not turn negative examples into executable cards: %s',async message=>{
   calls=[tool('create_task',{title:'虚构练习'})];const before=await facts(),result=await run(message);expect(await facts()).toEqual(before);expect(result.actions).toEqual([]);
 });
-it.each([{message:'不用等我确认，直接创建虚构纸盒。',title:'虚构纸盒'},{message:'创建任务「取消订阅」，今天做。',title:'取消订阅'}])('F1 preserves explicit no-wait creation: $message',async({message,title})=>{
+it.each([{message:'不用等我确认，直接创建虚构纸盒。',title:'虚构纸盒'},{message:'创建任务「取消订阅」，今天做。',title:'取消订阅'},{message:'不用给我确认卡，直接创建虚构纸盒。',title:'虚构纸盒'},{message:'创建任务「制作确认卡」，今天做。',title:'制作确认卡'}])('F1 preserves explicit no-wait creation: $message',async({message,title})=>{
   calls=[tool('create_task',{title,date:'今天'})];const result=await run(message);expect(result.actions).toEqual([]);expect((await store.readTaskDb()).tasks.map(t=>t.title)).toEqual([title]);
 });
 

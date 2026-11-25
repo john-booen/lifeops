@@ -261,6 +261,19 @@ it("does not let an early facts hint stop a requested four-task modification", a
   expect(result.receipts).toEqual([]);expect(await store.readPath(store.taskDbPath())).toBe(before);
 });
 
+it.each(['先给我确认卡，等我确认后再保存。','准备一份统一确认卡。','先让我确认完整修改，尚不保存。'])('repairs a missing real modification card after the model only repeats a checked list (%s)',async suffix=>{
+ const rows=[];for(let i=0;i<2;i++)rows.push(await store.createTask({title:`虚构卡前查${i}`,date:'2026-11-12',startTime:'16:00',endTime:'16:30'}));
+ const before=await store.readPath(store.taskDbPath());responses.push(reply('',[tool('list_tasks',{query:'虚构卡前查',answerMode:'facts'})]),reply('这里只列出两条原任务，还没有卡。'),reply('',[tool('resolve_task_lookup',{kind:'prepare_updates',coversAllRequested:true,updates:rows.map(row=>({taskIdOrTitle:row.id,startTime:'15:00',endTime:'15:30'}))})]));
+ const result=await new AgentLoop(host).run(input({message:'把这两条虚构卡前查原任务都改到15:00至15:30，'+suffix}));
+ expect(requests).toHaveLength(3);expect(result.confirmations).toHaveLength(1);expect(result.receipts).toEqual([]);expect(await store.readPath(store.taskDbPath())).toBe(before);expect(result.text).not.toContain('这里只列出');
+});
+
+it('separates one required-tool repair from one invalid-argument repair without creating tasks',async()=>{
+ const date=addDays(todayString(),1),prepare=vi.fn(async()=>({id:'fictional-two-repair-budgets',type:'task_plan' as const,title:'确认',description:'未保存',content:'虚构完整草案',date,taskPlanToken:'fictional-budget-token'}));runtime=new AgentRuntime({store,refreshViews:async()=>{},prepareTaskPlan:prepare});
+ responses.push(reply('',[tool('plan_today',{draftTomorrow:true})]),reply('',[tool('list_tasks',{date})]),reply('',[tool('propose_task_plan',{tasks:[{title:'准备虚构材料',date,priority:'high'}]})]),reply('',[tool('propose_task_plan',{tasks:[{title:'准备虚构材料',date}]})]));
+ const result=await new AgentLoop(host).run(input({message:'给明天安排一份草案。'}));expect(requests).toHaveLength(4);expect(requests.at(-1)?.filter(row=>row.role==='tool').map(row=>row.content).join('\n')).toContain('priority');expect(result.confirmations).toHaveLength(1);expect(prepare).toHaveBeenCalledOnce();expect(result.receipts).toEqual([]);expect((await store.readTaskDb()).tasks).toEqual([]);
+});
+
 it.each(["查一下虚构蓝盒相关未完成任务，不限定日期，先不要修改。", "查一下虚构蓝盒相关未完成任务，不限定日期。"])("finishes a simple named task lookup with verified dates and no second model request (%s)", async message => {
   await store.createTask({ title: "虚构蓝盒贴标签", date: "2026-11-13", time: "15:15" });
   await store.createTask({ title: "虚构蓝盒核对编号", date: "2026-11-14", time: "16:00" });

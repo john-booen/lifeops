@@ -50,8 +50,11 @@ export const TASK_PLAN_TOOL: LifeOpsToolDefinition = {
       const tasks = args.tasks.map(value => {
         if (!value || typeof value !== "object" || Array.isArray(value)) throw Error("每项安排须有具体任务名称。");
         const item = value as Record<string, unknown>;
-        if (Object.keys(item).some(key => !["title", "category", ...TASK_PLAN_FIELDS].includes(key)) || typeof item.title !== "string"
-          || !item.title.trim() || Object.values(item).some(value => typeof value !== "string")) throw Error("安排包含未支持的字段，请重新提出具体任务。");
+        const unsupported=Object.keys(item).filter(key=>!["title","category",...TASK_PLAN_FIELDS].includes(key));
+        if(unsupported.length)throw Error('安排包含未支持的字段：'+unsupported.join('、')+'。请按工具字段定义修正，保留任务与已明确日期/时刻，不保存。');
+        const wrongType=Object.keys(item).filter(key=>typeof item[key]!=='string');
+        if(wrongType.length)throw Error('安排字段须为文字：'+wrongType.join('、')+'；未填写的可选字段请省略，不使用null或数字。尚未保存。');
+        if(typeof item.title!=='string'||!item.title.trim())throw Error('每项安排须有具体任务名称。');
         const task = structuredClone(item) as Partial<ProjectJobArguments> & { title: string };
         if (task.date) {
           const date = normalizeJournalDate(task.date);

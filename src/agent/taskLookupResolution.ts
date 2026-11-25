@@ -6,11 +6,12 @@ export interface TaskLookupResolution {
   messages: ChatMessage[];
   ids: Set<string>;
   fallback: string;
+  minimumUpdates: number;
 }
 
 /** A read result is not an executable confirmation, regardless of model prose. */
 export function taskLookupResolution(messages: ChatMessage[], results: ReadonlyMap<string, { success: boolean; output: string }>,
-  tools: AiToolDefinition[], today: string): TaskLookupResolution | undefined {
+  tools: AiToolDefinition[], today: string, confirmationRequested = false): TaskLookupResolution | undefined {
   const last = messages.at(-1);
   if (last?.role !== "tool" || !last.tool_call_id) return;
   const call = messages.flatMap(message => message.tool_calls ?? []).find(row => row.id === last.tool_call_id);
@@ -18,7 +19,8 @@ export function taskLookupResolution(messages: ChatMessage[], results: ReadonlyM
   if (call?.function.name !== "list_tasks" || !result?.success || !updateTool) return;
   let payload: { tasks?: { id?: unknown }[]; truncated?: boolean };
   try { payload = JSON.parse(result.output); } catch { return; }
-  if (!Array.isArray(payload.tasks) || payload.tasks.length < 4) return;
+  const minimumUpdates = confirmationRequested ? 1 : 4;
+  if (!Array.isArray(payload.tasks) || payload.tasks.length < minimumUpdates) return;
   const ids = new Set(payload.tasks.flatMap(task => typeof task.id === "string" && task.id ? [task.id] : []));
   if (ids.size !== payload.tasks.length) return;
   const properties = updateTool.parameters.properties as Record<string, unknown> | undefined;
@@ -35,10 +37,10 @@ export function taskLookupResolution(messages: ChatMessage[], results: ReadonlyM
     }, required: ["kind"] } };
   const instruction = "刚才只读取了任务清单，尚未生成修改确认卡，也没有保存。必须调用resolve_task_lookup核对原始用户请求。"
     + "用户仅要查询、解释、假设或建议时选read_only，reply只回答所问，不声称生成卡或保存。"
-    + "用户明确要求准备至少四条已有任务的修改时，选prepare_updates，把全部所要求的修改一次放进updates，coversAllRequested=true。"
+    + `用户明确要求准备至少${minimumUpdates}条已有任务的修改时，选prepare_updates，把全部所要求的修改一次放进updates，coversAllRequested=true。`
     + "taskIdOrTitle必须照抄已读ID，保留未要求改变的字段。不要从助手自写表格或口头承诺推导用户授权。"
     + "未确定的想法、条件句或只讨论不要变成修改；清单不足或无法完整表达就选unclear，不编造确认卡。";
-  return { tool, ids, messages: messages.map((message, index) => index === 0 && message.role === "system"
+  return { tool, ids, minimumUpdates, messages: messages.map((message, index) => index === 0 && message.role === "system"
     ? { ...message, content: message.content + "\n" + instruction } : message),
     fallback: "任务清单已读回，但尚未生成可执行的调整卡，也没有保存修改。\n" + formatTaskListReply(result.output, today) };
 }
@@ -53,7 +55,7 @@ export function resolvedTaskLookup(response: AiChatResult, lookup: TaskLookupRes
     return { ...response, content: args.reply.trim(), toolCalls: [] };
   }
   if (args.kind !== "prepare_updates" || args.coversAllRequested !== true || !Array.isArray(args.updates)
-    || args.updates.length < 4 || args.updates.length > 20) return unavailable();
+    || args.updates.length < lookup.minimumUpdates || args.updates.length > 20) return unavailable();
   if (args.updates.some(row => row && typeof row === "object" && Object.prototype.hasOwnProperty.call(row, "scheduleMode"))) return unavailable();
   const ids = args.updates.map(row => row && typeof row === "object" && !Array.isArray(row) ? row.taskIdOrTitle : undefined);
   if (new Set(ids).size !== ids.length || ids.some(id => typeof id !== "string" || !lookup.ids.has(id))) return unavailable();

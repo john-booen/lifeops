@@ -104,6 +104,22 @@ async function checkedPair(ranges = [range]) {
   bindAgentHistoryResponse(response, user, assistant); return { history: [user, assistant], user, assistant, response, scopes };
 }
 
+it.each(['按刚更正的时间，接着这两周的虚构纸样归档给一条下周建议，不创建任务。','继续这两个星期的回顾。','用刚才的日期范围继续归档回顾。'])('rereads owned originals when a follow-up model returns no tools: %s',async message=>{
+ const {history}=await checkedPair(),before=await vault.bytes(store.taskDbPath()),sent:string[]=[];let turns=0;
+ vi.spyOn(LifeOpsAi.prototype,'agentTurnStream').mockImplementation(async(messages,onText)=>{
+   turns++;sent.push(JSON.stringify(messages));
+   const content=turns===1?'我只看到当前设定，没有两周的原文依据。':'10月28日、11月4日的原文都记录虚构纸样归档连续25分钟完成12张；未创建任务。';onText(content);return{content,toolCalls:[]};
+ });
+ const result=await plugin.submitAgentMessageStream(message,history,()=>{},{source:'text',selfTest:true});
+ expect(turns).toBe(2);expect(sent[1]).toContain('2026-10-28');expect(sent[1]).toContain('2026-11-04');expect(sent[1]).toContain('完成12张');expect(result.reply).not.toContain('没有两周');expect(result.actions).toEqual([]);expect(result.receipts).toEqual([]);expect(await vault.bytes(store.taskDbPath())).toBe(before);
+});
+
+it.each(['unowned','new-date'])('does not prefetch a historical range from %s context',async kind=>{
+ const pair=await checkedPair(),history=kind==='unowned'?pair.history.map(({role,content})=>({role,content})):pair.history;
+ let turns=0;const execute=vi.spyOn(plugin as any,'executeToolCalls');vi.spyOn(LifeOpsAi.prototype,'agentTurnStream').mockImplementation(async()=>{turns++;return{content:'虚构：尚无本轮原文查询结果。',toolCalls:[]};});
+ await plugin.submitAgentMessageStream(kind==='new-date'?'改查2026-11-09到2026-11-12，不沿用旧范围。':'接着这两周的虚构纸样归档继续说。',history,()=>{},{source:'text',selfTest:true});expect(turns).toBe(1);expect(execute).not.toHaveBeenCalled();
+});
+
 it("retains both sides of a prior comparison as dates only, after its read handles are disposed", async () => {
   const other = { from: "2026-10-12", to: "2026-10-25" }, { history } = await checkedPair([other, range]);
   const before = JSON.stringify(history), context = historicalQueryHistoryContext(history, store);

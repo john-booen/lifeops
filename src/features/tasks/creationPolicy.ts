@@ -3,8 +3,10 @@ export function outsideQuotedTaskText(message: string): string {
   return message.replace(/「[^「」]*」|『[^『』]*』|“[^“”]*”|‘[^‘’]*’|"[^"\r\n]*"|'[^'\r\n]*'/gu, '');
 }
 export function taskConfirmationRequested(message: string): boolean {
-  const outside = outsideQuotedTaskText(message).replace(/(?:不用|无需|不必)(?:再)?(?:等我|等待我|等)?确认/gu, '');
-  return /(?:等|待)(?:我|本人)?(?:确认|同意)|(?:确认|同意)(?:后|之后|以后)|先[^。！？\n]{0,12}(?:待确认|确认卡|确认)/u.test(outside);
+  const outside = outsideQuotedTaskText(message)
+    .replace(/(?:不用|无需|不必|不要|不需要)(?:再)?[^，,。；;！？\n]{0,8}确认卡/gu, '')
+    .replace(/(?:不用|无需|不必)(?:再)?(?:等我|等待我|等)?确认/gu, '');
+  return /确认卡|(?:等|待)(?:我|本人)?(?:确认|同意)|(?:确认|同意)(?:后|之后|以后)|先[^。！？\n]{0,12}(?:待确认|确认)/u.test(outside);
 }
 export function taskCreationPolicy(message = ''): {wait: boolean; denied: boolean} {
   const outside = outsideQuotedTaskText(message).trim();
