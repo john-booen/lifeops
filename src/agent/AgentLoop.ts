@@ -31,6 +31,7 @@ import {isLiteralTaskConfirmation} from '../features/tasks/confirmationText';
 import { formatConfirmedPersonalMemoryContext } from "../personalMemoryContext";
 import {selectPersonalMemories} from '../personalMemory';
 import {originalMemoryReply} from './originalMemoryReply';
+import {recoverHistoricalRead} from './historicalReadRecovery';
 import { expandMixedTaskBatch } from "./mixedTaskBatch";
 import { requestedSummaryTopics,requestedTaskTopics } from "./summaryTopicQuery";
 import { requestedSummaryDates } from "./summaryDateRange";
@@ -127,6 +128,7 @@ interface TurnState {
   errorCode?: string;
   textOnlyAnswerAttempted?: boolean;
   taskSubjectHistory?: AgentConversationMessage[];
+  historicalRecoveryCalls?: AiToolCall[];
 }
 
 const MAX_TOOL_ROUNDS = 4;
@@ -396,6 +398,8 @@ export class AgentLoop {
         ?(await titleEditRequest(this.host.store,history.at(-2)!.content))?.edits:undefined;
       const attestedHistoricalReads=input.source==='text'&&!input.voiceBackground
         ?bindHistoricalDateReference([{name:'get_summaries',arguments:{includeOriginals:true}}],input.message,priorQueryDates).filter(call=>call.arguments.level!==undefined):[];
+      if(priorQueryDates.length&&attestedHistoricalReads.length)
+        state.historicalRecoveryCalls=structuredClone(requestedSummaryTopics(requestedTaskTopics(attestedHistoricalReads,input.message),input.message));
       let taskListAnswer: string | undefined;
       for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
         assertPolicy();
@@ -667,6 +671,13 @@ export class AgentLoop {
       state.errorCode = input.signal?.aborted ? providerAbortCode(input.signal)
         : error instanceof ProviderRunFailure ? error.code : "operation_failed";
       if (!state.receipts.size && !state.confirmations.size) {
+        if(input.source==='text'&&!input.voiceBackground&&this.host.assertReadOnlyReplyCurrent&&state.historicalRecoveryCalls?.length
+          &&['response_incomplete','network','timeout','rate_limit'].includes(state.errorCode)
+          &&state.toolCalls.every(call=>call.ok&&(isBackgroundReadTool(call.name)||call.name===LOAD_TOOLS.name))){
+          const current=()=>{assertProviderActive(input.signal);assertPolicy();this.host.assertReadOnlyReplyCurrent!();};
+          const reply=await recoverHistoricalRead(this.host.store,state.historicalRecoveryCalls,input.message,input.now,current,input.signal).catch(()=>undefined);
+          current();if(reply){state.text=reply;input.onText?.(state.text);return this.result(state);}
+        }
         if (input.source === "text" && !input.voiceBackground && this.host.assertReadOnlyReplyCurrent
           && ["response_incomplete", "network", "timeout", "rate_limit"].includes(state.errorCode)
           && state.toolCalls.length && state.toolCalls.every(call => call.ok && ["get_stats", LOAD_TOOLS.name].includes(call.name))) {

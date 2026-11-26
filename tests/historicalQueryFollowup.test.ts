@@ -177,3 +177,39 @@ it.each(['forged','new-range'])('does not automatically renew the old period for
   });
   await plugin.submitAgentMessageStream(kind==='new-range'?'不用这两周，改查2026年11月16日至22日的任务统计。':'接着这两周说明任务统计。',history,()=>{},{source:'text',selfTest:true});expect(turns).toBe(2);
 });
+
+const historicalInterruption=async()=>{
+ const{ProviderRunFailure,providerRunStart}=await import('../src/providerRun');const run=providerRunStart(store.settings.ai);run.status='failed';
+ return new ProviderRunFailure(run,'response_incomplete');
+};
+it('retains fresh owned historical sources and the corrected rule after an empty first provider response, without another model request',async()=>{
+ const runtime=new AgentRuntime({store,refreshViews:async()=>{}});
+ await runtime.executeAiToolCall({id:'fictional-rescue-rule',name:'append_memory_note',arguments:{content:corrected,category:'rules',explicit:true}},'kimi','请记住：'+corrected);
+ const{history}=await checkedPair();const paths=[store.taskDbPath(),store.taskMirrorPath(),store.personalMemoryPath(),store.path(store.settings.folders.aiReports,'Operations','operation-ledger.json')];
+ const before=await Promise.all(paths.map(path=>store.readPath(path)));const error=await historicalInterruption();
+ const model=vi.spyOn(LifeOpsAi.prototype,'agentTurnStream').mockRejectedValue(error);
+ const result=await plugin.submitAgentMessageStream('按刚更正的时间，接着这两周给一条建议，不创建任务。',history,()=>{},{source:'text',selfTest:true});
+ expect(model).toHaveBeenCalledOnce();expect(result.reply).toContain('模型响应未完成');expect(result.reply).toContain('2026-10-26');expect(result.reply).toContain('2026-11-08');
+ expect(result.reply).toContain('12张');expect(result.reply).toContain('19:30');expect(result.reply).not.toContain('09:30');expect(result.reply).toContain('具体建议尚未完成');
+ expect(result.actions).toEqual([]);expect(result.receipts??[]).toEqual([]);expect(await Promise.all(paths.map(path=>store.readPath(path)))).toEqual(before);
+});
+it.each(['unowned','new-dates','privacy','cancel'] as const)('does not reuse old source authority after %s when the provider fails before its first tool',async mode=>{
+ const{history}=await checkedPair();const error=await historicalInterruption(),controller=new AbortController();
+ vi.spyOn(LifeOpsAi.prototype,'agentTurnStream').mockImplementation(async()=>{
+  if(mode==='privacy')store.settings.privacy!.excludedVaultPrefixes=[store.settings.folders.dailyRoot];
+  if(mode==='cancel')controller.abort(new DOMException('Cancelled','AbortError'));
+  throw error;
+ });
+ const message=mode==='new-dates'?'只看2026年11月16日至22日，给一条建议。':'继续这两周的归档回顾。';
+ const before=await Promise.all([store.taskDbPath(),store.personalMemoryPath()].map(path=>store.readPath(path)));
+ await expect(plugin.submitAgentMessageStream(message,mode==='unowned'?structuredClone(history):history,()=>{},{source:'text',selfTest:true,signal:controller.signal})).rejects.toThrow();
+ expect(await Promise.all([store.taskDbPath(),store.personalMemoryPath()].map(path=>store.readPath(path)))).toEqual(before);
+});
+it('never replays an already committed task to recover historical text after a model failure',async()=>{
+ const{history}=await checkedPair(),error=await historicalInterruption();let turns=0;
+ vi.spyOn(LifeOpsAi.prototype,'agentTurnStream').mockImplementation(async()=>{
+  if(++turns===1)return{content:'',toolCalls:[{id:'fictional-once-before-interruption',name:'create_task',arguments:{title:'虚构只保存一次的纸袋任务',date:'今天'}}]};throw error;
+ });
+ const result=await plugin.submitAgentMessageStream('新增虚构只保存一次的纸袋任务，接着这两周的回顾。',history,()=>{},{source:'text',selfTest:true});
+ expect((await store.readTaskDb()).tasks.filter(task=>task.title==='虚构只保存一次的纸袋任务')).toHaveLength(1);expect(result.receipts).toHaveLength(1);expect(result.reply).not.toContain('重新核对的资料');
+});
