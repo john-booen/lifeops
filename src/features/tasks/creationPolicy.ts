@@ -11,13 +11,20 @@ export function taskConfirmationRequested(message: string): boolean {
 export function taskCreationPolicy(message = ''): {wait: boolean; denied: boolean} {
   const outside = outsideQuotedTaskText(message).trim();
   const wait = taskConfirmationRequested(message) || /[?？]$|(?:吗|呢)$/u.test(outside);
-  const example = /(?:这|那)(?:只是|仅是|仅仅是|是)?(?:举个|举的|一个)?(?:例子|示例)|(?:^|[，,。；;\s])(?:例如|比如|举例(?:来说)?|假如|假设|如果|要是)(?:[，,：:\s]|我|明天|今天|后天|下周|你)/u.test(outside);
+  const example = /(?:这|那)(?:只是|仅是|仅仅是|是)?(?:举个|举的|一个)?(?:例子|示例)|(?:^|[，,。；;\s])(?:例如|比如|举例(?:来说)?|假如|假设|如果|要是)(?:[，,：:\s]|我|明天|今天|后天|下周|你|创建|新建|添加|安排|提醒|保存)/u.test(outside);
   const cancelled = /算了|(?:取消(?:了)?|不用了?|不建了)[。！!\s]*$|(?:取消)(?:这(?:个|项|条)?|刚才的)?(?:创建|新建|保存|安排)/u.test(outside);
   const noWrite = /(?:(?:不要|不用|先别|暂不)(?:再)?|(?:^|[，,。；;\s])(?:请(?:你)?|你|还是|千万|务必)?别(?:再)?)(?:创建|新建|建(?:立)?|保存|执行)/u.test(outside);
   return {wait, denied: example || cancelled || !wait && noWrite};
 }
 export function stripTaskWaitSuffix(value: string): string {
-  return value.replace(/[，,；;\s]*(?:(?:等|待)我(?:确认|同意)|(?:先[^。！？\n]{0,12}(?:确认卡|待确认))(?:再保存)?|确认后(?:再)?保存)[。！!\s]*$/u, '').trim();
+  // Remove bounded trailing wait clauses one at a time. A compound request
+  // must not leave "等我" or the preceding card request in the clock's clause.
+  // This only cleans a title/schedule input; the original write guard still
+  // receives the entire request and retains all confirmation requirements.
+  const suffix=/[，,。；;\s]*(?:(?:等|待)我(?:确认|同意)(?:(?:之后|以后|后)?(?:再)?(?:保存|创建|新建|建|执行))?|(?:先[^。！？\n]{0,12}(?:确认卡|待确认))(?:再保存)?|确认后(?:再)?保存)[。！!\s]*$/u;
+  let cleaned=value.trim();
+  for(let i=0;i<4;i++){const next=cleaned.replace(suffix,'').trim();if(next===cleaned)break;cleaned=next;}
+  return cleaned;
 }
 export function taskCreationTitle(title: string, userMessage = ''): string {
   if (!taskConfirmationRequested(userMessage)) return title;

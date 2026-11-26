@@ -50,6 +50,15 @@ beforeEach(async () => {
 });
 afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllGlobals(); await rm(root, {recursive: true, force: true}); });
 const run = (text = message, source: "text" | "voice" = "text") => plugin.submitAgentMessageStream(text, [], (text: string) => published.push(text), {selfTest: true, source});
+it.each(['先给我确认卡，等我确认后再保存','先给我确认卡，等我同意后再创建'])('freezes the same explicit reminder clock after compound wait clauses: %s',async suffix=>{
+  calls=[tool('create_task',{title:'虚构叶宁给纸盒贴标签',date:'2026-11-28',endTime:'15:15'})];
+  const before=await facts(),result=await run(`2026-11-28 15:15，提醒虚构叶宁给纸盒贴标签。${suffix}。`),action=result.actions[0];
+  expect(await facts()).toEqual(before);expect(action?.type).toBe('tool_batch');
+  expect(action.toolBatch[0].arguments.time).toBe('15:15');expect(action.toolBatch[0].arguments.endTime).toBeUndefined();
+  await plugin.executeAgentAction(action);const tasks=(await store.readTaskDb()).tasks;
+  expect(tasks).toHaveLength(1);expect(tasks[0].time).toBe('15:15');expect(tasks[0].endTime??'').toBe('');
+  await plugin.executeAgentAction(action);expect((await store.readTaskDb()).tasks).toEqual(tasks);
+});
 for (const source of ["text", "voice"] as const) {
   it.each(previewMessages)(`uses the actual Main/transport to preview without saving (${source}): %s`, async text => {
     const before = await facts();
@@ -144,7 +153,10 @@ it.each([
 });
 it.each([
   '明天下午3点提醒我交虚构报告 算了不用',
-  '明天下午3点提醒我开虚构会议 这只是举个例子'
+  '明天下午3点提醒我开虚构会议 这只是举个例子',
+  '例如创建虚构纸样任务，等我确认后再保存。',
+  '比如新建虚构纸样任务，先给我确认卡。',
+  '举例来说安排虚构纸样任务，等我确认。'
 ])('F1 rejects cancelled or illustrative creation even when a model requests the write: %s',async message=>{
   calls=[tool('create_task',{title:'虚构不应保存的报告',date:'今天'})];const before=await facts(),result=await run(message);expect(await facts()).toEqual(before);expect(result.actions).toEqual([]);expect(result.receipts??[]).toEqual([]);
 });
