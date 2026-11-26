@@ -1,5 +1,5 @@
 import { recordRevision } from "../operationIdentity";
-import { isLiteralTaskConfirmation } from "../features/tasks/confirmationText";
+import { isLiteralTaskConfirmation, isLiteralTaskCancellation } from "../features/tasks/confirmationText";
 import { isCurrentRequestedToolBatch } from "../toolBatch";
 import type { AgentActionSuggestion, AgentConversationMessage } from "../types";
 
@@ -36,7 +36,7 @@ export function consumeAdjacentTaskPlan(view: PlanView, text: string): AgentActi
 export function consumeAdjacentTaskDecision(view: PlanView, text: string): {action: AgentActionSuggestion; approved: boolean} | undefined {
   const pending = adjacentPlans.get(view); adjacentPlans.delete(view);
   const approved = isLiteralTaskConfirmation(text);
-  const cancelled = /^(?:取消|算了|不用了|先不保存)[。！？.!?]*$/u.test(text.trim());
+  const cancelled = isLiteralTaskCancellation(text);
   if ((!approved && !cancelled) || !pending || view.agentMessages.at(-1) !== pending.message
     || view.pendingAgentActions.length !== 1 || view.pendingAgentActions[0] !== pending.action
     || recordRevision(pending.action) !== pending.revision) return;

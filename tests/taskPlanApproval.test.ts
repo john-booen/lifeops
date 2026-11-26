@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import { recordRevision } from "../src/operationIdentity";
-import { armAdjacentTaskPlan, consumeAdjacentTaskPlan } from "../src/panel/taskPlanApproval";
+import { armAdjacentTaskPlan, consumeAdjacentTaskPlan, consumeAdjacentTaskDecision } from "../src/panel/taskPlanApproval";
+import { isLiteralTaskCancellation } from "../src/features/tasks/confirmationText";
 import type { AgentActionSuggestion, AgentConversationMessage } from "../src/types";
 
 function fixture() {
@@ -19,6 +20,15 @@ it.each(["确认", "确定", "是", " 确定。 "])("binds the exact adjacent ap
 it.each(["不确认", "确认但先别执行", "请解释这份计划", "确认第二份"])("does not interpret %s as the approval protocol", answer => {
   const h = fixture(); expect(consumeAdjacentTaskPlan(h.view, answer)).toBeUndefined();
   expect(consumeAdjacentTaskPlan(h.view, "确定")).toBeUndefined();
+});
+it.each(["取消", "算了", "不用了", "先不保存", " 取消。 "])("shares the original desktop cancellation protocol for %s", answer => {
+  expect(isLiteralTaskCancellation(answer)).toBe(true);
+  const h = fixture(); expect(consumeAdjacentTaskDecision(h.view, answer)).toEqual({action: h.action, approved: false});
+  expect(consumeAdjacentTaskDecision(h.view, answer)).toBeUndefined();
+});
+it.each(["不要取消", "比如说取消", "“取消”", "取消第二项", "取消，然后新建一条"])("does not route %s as a literal card decision", answer => {
+  expect(isLiteralTaskCancellation(answer)).toBe(false);
+  const h = fixture(); expect(consumeAdjacentTaskDecision(h.view, answer)).toBeUndefined();
 });
 it("does not guess among multiple cards or a later unrelated conversation", () => {
   const h = fixture(); h.view.pendingAgentActions.push({ ...h.action, id: "fictional-other" });
