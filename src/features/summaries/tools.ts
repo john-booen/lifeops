@@ -5,7 +5,7 @@ import { ISO_DATE_INTERVAL_PATTERN } from "../stats/stats";
 
 export const SUMMARIES_TOOL: LifeOpsToolDefinition = {
   name: "get_summaries",
-  description: "周月整体回顾、跨周规律或跨期间多领域对照先用本工具，单领域任务数字用get_stats。含各期截至日期through、完成登记口径的任务数和分币种指标；缺项再补同范围统计，摘要缺失时带日记证据。要核对原话可加includeOriginals。",
+  description: "周月整体、跨周规律和多领域对照先用本工具；单领域任务数字用get_stats。含through、完成登记数和分币种指标；缺项补统计，缺摘要带日记。核对原话用includeOriginals。",
   safety: "safe",
   parameters: {
     type: "object", additionalProperties: false, required: ["level", "range"],
