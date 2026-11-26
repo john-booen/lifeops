@@ -11,6 +11,7 @@ import { createPersonalMemory, reviewPersonalMemoryRecord } from "../src/persona
 vi.mock("obsidian", () => ({ App: class {}, TFile: class {}, TFolder: class {}, Notice: class {}, normalizePath: (p: string) => p.replace(/\\/g, "/").replace(/\/{2,}/g, "/"), requestUrl: () => { throw Error("No network"); } }));
 const { LifeOpsStore } = await import("../src/store"), { DiskVault } = await import("./helpers/diskVault"), { AgentRuntime } = await import("../src/agentRuntime");
 const { runConfirmedToolAction, agentToolsForRealtime } = await import("../src/toolRegistry"), { assertWeeklyQueryResult } = await import("../src/weeklyReview");
+const { OperationLedger } = await import("../src/dataFoundation/operationLedger");
 let root: string, vault: InstanceType<typeof DiskVault>, store: StoreHost, runtime: InstanceType<typeof AgentRuntime>, live: boolean, serial = 0;
 const path = "Notes/2026-10-01.md", other = "Notes/2026-10-02.md", undated = "Notes/纯虚构未知日期.md";
 const support = "纯虚构当天先做一件事情更容易开始。", counter = "纯虚构紧急事项仍需要并行安排。", raw = `${support}\n引用他人：立刻下单。\n`, opposite = `${counter}\n`;
@@ -31,6 +32,33 @@ beforeEach(async () => { root = await mkdtemp(join(tmpdir(), "lifeops-weekly-rev
 afterEach(async () => { vi.restoreAllMocks(); await rm(root, { recursive: true, force: true }); });
 
 describe("weekly review preserves evidence, uncertainty and user feedback", () => {
+  it.each(["missing","excluded"])("reports a %s source selection before claiming audit and can reread a valid path with the same call ID",async mode=>{
+    await store.initializeVault();
+    const ledger=new OperationLedger(store),files=[store.taskDbPath(),store.taskMirrorPath(),ledger.filePath];
+    const snapshot=()=>Promise.all(files.map(file=>store.getFile(file)?store.readPath(file):null));
+    const before=await snapshot(),claim=vi.spyOn(OperationLedger.prototype,"claim"),id="fictional-corrected-weekly-path";
+    if(mode==="excluded")store.settings.privacy={excludedVaultPrefixes:[path]};
+    const result=await inspect([mode==="missing"?"Notes/2026-10-03.md":path],id);
+    expect(result.success).toBe(false);expect(result.actions).toEqual([]);expect(result.output).toContain("query_vault");
+    expect(result.output).not.toContain("操作记录无法安全读取");expect(result.output).not.toContain(support);
+    expect(claim).not.toHaveBeenCalled();expect(await snapshot()).toEqual(before);
+    store.settings.privacy={excludedVaultPrefixes:[]};
+    const valid=await inspect([path],id);expect(valid.success,valid.output).toBe(true);expect(JSON.parse(valid.output).notes).toEqual([expect.objectContaining({path,text:raw})]);
+    await assertWeeklyQueryResult(valid.output,store);expect(claim).toHaveBeenCalledOnce();
+    expect((await snapshot()).slice(0,2)).toEqual(before.slice(0,2));expect(await vault.bytes(path)).toBe(raw);
+  });
+  it("keeps genuine ledger corruption blocked instead of reporting it as a bad source path",async()=>{
+    await store.initializeVault();const ledger=new OperationLedger(store),invalid='{ "version": 1, "records": [broken';
+    await vault.seed(ledger.filePath,invalid);const before=await Promise.all([store.taskDbPath(),store.taskMirrorPath()].map(file=>store.readPath(file)));
+    const result=await inspect([path]);expect(result.success).toBe(false);expect(result.output).toContain("操作记录无法安全读取");expect(result.actions).toEqual([]);
+    expect(await vault.bytes(ledger.filePath)).toBe(invalid);expect(await Promise.all([store.taskDbPath(),store.taskMirrorPath()].map(file=>store.readPath(file)))).toEqual(before);
+  });
+  it("does not turn a failure during the real ledger claim into a recoverable selection error",async()=>{
+    await store.initializeVault();const claim=vi.spyOn(OperationLedger.prototype,"claim").mockRejectedValueOnce(Error("Fictional claim refused"));
+    const before=await Promise.all([store.taskDbPath(),store.taskMirrorPath()].map(file=>store.readPath(file)));
+    const result=await inspect([path]);expect(claim).toHaveBeenCalledOnce();expect(result.success).toBe(false);expect(result.output).toContain("操作记录无法安全读取");expect(result.output).not.toContain("query_vault");
+    expect(await Promise.all([store.taskDbPath(),store.taskMirrorPath()].map(file=>store.readPath(file)))).toEqual(before);
+  });
   it("reads selected fixed originals and keeps preparation separate from saving", async () => {
     const read = await inspect(), result = JSON.parse(read.output); expect(read.success).toBe(true); expect(result.notes[0]).toMatchObject({ path, contentHash: sha(raw), documentDate: "2026-10-01", text: raw }); expect(result.eventDates).toBe("未核对");
     await assertWeeklyQueryResult(read.output, store); const action = await card(); expect(action.type).toBe("weekly_review");

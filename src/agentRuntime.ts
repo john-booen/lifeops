@@ -1,4 +1,4 @@
-import { weeklyReviewQueryRevision } from "./weeklyReview";
+import { WeeklyReviewInputError, weeklyReviewQueryRevision } from "./weeklyReview";
 import { noteUnderstandingSourceRevision } from "./noteUnderstandingSource";
 import type { AiToolCall } from "./ai";
 import { createHash, randomUUID } from "node:crypto";
@@ -282,6 +282,11 @@ export class AgentRuntime {
       });
     } catch(error) {
       if (error instanceof UndoRecoveryRequiredError) return { callId: request.callId, success: false, output: error.message, actions: [] };
+      if (tool.name === "inspect_weekly_review_sources" && error instanceof WeeklyReviewInputError) {
+        return {callId:request.callId,success:false,output:error.reason === "range"
+          ? "单份周回顾只读取一至七天。跨周比较请用 get_summaries 查询所需日期和主题，不需要先保存周回顾。"
+          : error.message + " 请先用 query_vault 核对允许范围内实际存在的准确 paths，再重新读取；本次没有提供原文或保存修改。",actions:[]};
+      }
       const queryParameterError=tool.name==="query_vault"&&error instanceof Error&&(error instanceof VaultQueryParameterError||/路径无效|日期无效|关键词为空|date 和 period|该路径|指定路径/.test(error.message))?error.message:undefined;
       return { callId: request.callId, success: false, output: queryParameterError??(tool.name==="query_vault"?"查询原文、选择、个人记忆或权限刚刚变化或暂无法安全核对，已停止本次查询，请重新读取。":tool.name === "query_projects"
         ? "目标与项目或个人记忆暂时无法安全核对，已停止本次查询，请稍后重新查询。"

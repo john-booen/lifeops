@@ -8,6 +8,12 @@ import type { AgentActionSuggestion } from "./types";
 import type { LifeOpsToolDefinition, ToolExecutionContext } from "./toolRegistry";
 
 export const WEEKLY_REVIEW_VERSION = "weekly-review-v1";
+/** Selection failures happen before an audit claim; they do not imply ledger damage. */
+export class WeeklyReviewInputError extends Error {
+  constructor(message: string, readonly reason: "selection" | "range" | "source" = "selection") {
+    super(message); this.name = "WeeklyReviewInputError";
+  }
+}
 export interface WeeklyReviewQuote { path: string; excerpt: string }
 export interface WeeklyReviewHypothesis {
   claim: string; supports: WeeklyReviewQuote[]; counterexamples: WeeklyReviewQuote[]; uncertainties: string[]; question?: string;
@@ -29,17 +35,17 @@ const bytesHash = (value: string) => createHash("sha256").update(value, "utf8").
 const policy = (store: StoreHost) => hash({ folders: store.settings.folders, privacy: store.settings.privacy });
 const readMemories = async (store: StoreHost) => (await import("./personalMemorySources")).readPersonalMemoryWithSources(store);
 function object(value: unknown): Record<string, unknown> { if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("请提供选定日期、原文和可核对的回顾内容。"); return value as Record<string, unknown>; }
-function keys(value: Record<string, unknown>, allowed: string[]) { if (Object.keys(value).some(key => !allowed.includes(key))) throw new Error("周回顾包含不支持的字段，请重新核对。"); }
-function text(value: unknown, max: number): string { if (typeof value !== "string" || !value.trim() || value.trim().length > max) throw new Error("回顾文字为空或过长，请缩小范围。"); return value.trim(); }
+function keys(value: Record<string, unknown>, allowed: string[]) { if (Object.keys(value).some(key => !allowed.includes(key))) throw new WeeklyReviewInputError("周回顾包含不支持的字段，请重新核对。"); }
+function text(value: unknown, max: number): string { if (typeof value !== "string" || !value.trim() || value.trim().length > max) throw new WeeklyReviewInputError("回顾文字为空或过长，请缩小范围。"); return value.trim(); }
 function date(value: unknown, baseDate: string): string {
   const day = typeof value === "string" ? normalizeJournalDate(value, baseDate) : "";
-  if (!day) throw Error("请选择有效的开始和结束日期。");
+  if (!day) throw new WeeklyReviewInputError("请选择有效的开始和结束日期。");
   return day;
 }
 export function weeklyReviewDates(start: unknown, end: unknown): { startDate: string; endDate: string } {
   const today = todayString();
   const startDate = date(start, today), endDate = date(end, today), days = (Date.parse(endDate) - Date.parse(startDate)) / 86400000;
-  if (days < 0 || days > 6) throw new Error("每次周回顾选择一至七天，不会拼接日期冒充长期观察。");
+  if (days < 0 || days > 6) throw new WeeklyReviewInputError("每次周回顾选择一至七天，不会拼接日期冒充长期观察。", "range");
   return { startDate, endDate };
 }
 export interface SelectedWeeklyReviewRequest { startDate: string; endDate: string; paths: string[] }
@@ -78,13 +84,13 @@ export function allowedWeeklyReviewSource(store: StoreHost, path: string): boole
     && !isVaultPathExcluded(path, store.settings.privacy?.excludedVaultPrefixes) && path !== root && !path.startsWith(`${root}/`);
 }
 function paths(value: unknown): string[] {
-  if (!Array.isArray(value) || !value.length || value.length > 6) throw new Error("请明确选择一至六篇原始笔记。");
-  const result = value.map(path => text(path, 300)); if (new Set(result).size !== result.length) throw new Error("原文路径重复，不能把一份记录算作多个依据。"); return result.sort();
+  if (!Array.isArray(value) || !value.length || value.length > 6) throw new WeeklyReviewInputError("请明确选择一至六篇原始笔记。");
+  const result = value.map(path => text(path, 300)); if (new Set(result).size !== result.length) throw new WeeklyReviewInputError("原文路径重复，不能把一份记录算作多个依据。"); return result.sort();
 }
 async function readNote(store: StoreHost, path: string): Promise<string> {
-  if (!allowedWeeklyReviewSource(store, path)) throw new Error("回顾原文缺失、被排除或不是允许范围的原始笔记。");
+  if (!allowedWeeklyReviewSource(store, path)) throw new WeeklyReviewInputError("回顾原文缺失、被排除或不是允许范围的原始笔记。", "source");
   const raw = await store.readPath(path);
-  if (!allowedWeeklyReviewSource(store, path) || Buffer.byteLength(raw, "utf8") > 32768) throw new Error("原文发生变化或过长，请选择更小的笔记范围。"); return raw;
+  if (!allowedWeeklyReviewSource(store, path) || Buffer.byteLength(raw, "utf8") > 32768) throw new WeeklyReviewInputError("原文发生变化或过长，请选择更小的笔记范围。", "source"); return raw;
 }
 async function noPending(store: StoreHost) { if (await (await import("./dataFoundation/factOperation")).hasPendingFactOperation(store)) throw new Error("保存尚未结束，请等待或检查并恢复未完成操作，再整理周回顾。"); }
 async function collect(args: Record<string, unknown>, context: ToolExecutionContext): Promise<Snapshot> {
