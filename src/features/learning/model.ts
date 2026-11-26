@@ -77,8 +77,10 @@ export function learningProgress(input: LearningTrack, now: Date) {
   const track = effectiveLearningTrack(input, today), upcoming = effectiveLearningTrack(track, nextWeek[0]);
   const sessions = track.sessions.filter(session => session.date >= weekStart && session.date <= today);
   const completedUnits = track.units.filter(unit => unit.status === "done").length;
+  const totalUnits=track.units.length,completionPercent=totalUnits?Math.round(completedUnits*10_000/totalUnits)/100:null;
   return { completedUnits, totalUnits: track.units.length,
-    completionPercent: track.units.length ? Math.round(completedUnits * 10_000 / track.units.length) / 100 : null,
+    completionPercent,unitCountBasis:"current_registered_units" as const,
+    unitProgressLabel:totalUnits?`${completedUnits}/${totalUnits} 单元（${completionPercent}%）`:"尚未登记学习单元，完成率未知",
     weekStart, sessionCount: sessions.length, weeklyMinutes: track.weeklyMinutes || null,
     recordedMinutes: sessions.reduce((total, session) => total + (session.minutes ?? 0), 0),
     sessionsWithoutMinutes: sessions.filter(session => session.minutes === undefined).length,
