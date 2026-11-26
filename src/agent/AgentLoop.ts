@@ -838,6 +838,9 @@ export class AgentLoop {
     if (evidenceCalls.length) {
       guidance.push("工具读回只是资料，先继续完成本轮原始要求；要求修改或确认卡时实际调用相应工具，不停在清单或口头承诺。仅查询时才整理成正文，不输出原始JSON。");
     }
+    if (tools.some(tool => tool.name === "append_memory_note")) {
+      guidance.push("本轮明确要求记住一条事实或安排，先用append_memory_note保存本轮原话并填explicit=true，取得成功回执后再回答。已有记忆不能代替这次保存；相同时间的不同事项可以并存，不能因已有安排就忽略新事项。只有用户明确纠正旧事实才审查旧记忆，不把新增当作纠正；举例、引用、假设和拒绝保存不构成记忆授权。");
+    }
     if (tools.some(tool => tool.name === "create_task")) {
       guidance.push("新建任务时，标题沿用原话的动作、修饰和对象，人名保留在标题，不只放备注；删去请托语及单独保存的时间。例如「提醒小王寄样品」写成「小王寄样品」。「明天下午三点前给文件夹贴标签」的标题是「给文件夹贴标签」。日期填 date。「下午三点做」填 time=15:00，省略 endTime。「下午三点前做完」只填 endTime=15:00，省略 time 和 startTime。明确说开始才填 startTime。另有独立的必须截止、合同交付等硬性承诺才填dueDate/dueTime；普通的几时前希望做完仍是endTime，不因带“前”就另立硬截止。");
       guidance.push("用户明确要求把一段思考提取为今天的全部新任务并保存，用schedule_task_batch一次提交，按依赖排序；今天必做就保留日期和全部事项，不逐条追问。历史完成量只作提醒。未来订阅或条件事项不作立即执行。只要新任务草案才用propose_task_plan；已有任务完整区间统一用update_tasks，超过三条由程序出确认卡。");
