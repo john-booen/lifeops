@@ -33,7 +33,7 @@ export const TASK_PLANNING_TOOLS: LifeOpsToolDefinition[] = [
       habitName: { type: "string", description: "只查这一项习惯的补偿时填写习惯名称。" },
       dueStatus: { type: "string", enum: ["overdue", "due_today", "overdue_and_today"], description: "当前记录中逾期、当日硬截止或分别查两组。" },
       directReply: { type: "boolean", description: "兼容旧客户端；查询结果仍交回本轮继续处理。" },
-      answerMode: { type: "string", enum: ["counts", "facts", "continue"], description: "counts只返回总数；facts清单；continue继续处理。" },
+      answerMode: { type: "string", enum: ["counts", "facts", "continue"], description: "counts数量；facts清单、期间、截止；continue解释或操作。" },
       order: { type: "string", enum: ["priority"], description: "用户问最要紧的待办时按优先级排序。" },
       limit: { type: "integer", minimum: 1, maximum: 30, description: "列出几项就填几，不改变返回的总数。" },
       query: { type: "string", description: "按标题连续文字查找；省略日期跨日期，优先列表仍今天。" },

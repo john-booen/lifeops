@@ -1347,6 +1347,22 @@ describe("unified agent loop", () => {
     expect(await store.readPath(store.taskDbPath())).toBe(before);expect(result.receipts).toEqual([]);
   });
 
+  it('offers current task IDs and original times before a spoken follow-up without treating old assistant claims as receipts',async()=>{
+    const rows=[];
+    for(let i=0;i<4;i++)rows.push(await store.createTask({title:'虚构前文续接纸样'+i,date:'2026-11-09',startTime:(19+i)+':00',endTime:(19+i)+':30',note:'虚构不应发出的原备注'}));
+    const before=await store.readPath(store.taskDbPath());
+    responses.push(reply('',[tool('update_tasks',{updates:rows.map(row=>({taskIdOrTitle:row.id,date:'2026-11-15'}))})]));
+    const history=[{role:'user' as const,content:'四项统一挪到周末，原来的时段保留。'},
+      {role:'assistant' as const,content:rows.map(row=>row.title).join('、')+'；（被打断，尚未生成卡）'}];
+    const result=await new AgentLoop(host).run(input({source:'voice',message:'挪到周日吧，周六也有事情。',history}));
+    const system=requests[0][0].content;
+    for(const row of rows){expect(system).toContain(row.id);expect(system).toContain(row.startTime);expect(system).toContain(row.endTime);}
+    expect(system).toContain('expectedRevision');expect(system).not.toContain('虚构不应发出的原备注');
+    expect(result.confirmations).toHaveLength(1);expect(result.confirmations[0].toolBatch).toHaveLength(1);
+    expect(result.confirmations[0].toolBatch![0]).toMatchObject({name:'update_tasks',arguments:{updates:rows.map(row=>({taskIdOrTitle:row.id,date:'2026-11-15'}))}});
+    expect(result.receipts).toEqual([]);expect(await store.readPath(store.taskDbPath())).toBe(before);
+  });
+
   it('loads the original write tools without asking the user and then commits through the original runtime',async()=>{
     responses.push(reply('',[tool('load_more_tools',{})]),reply('',[tool('create_task',{title:'虚构展开后任务',date:formatDate(now)})]),reply('已保存虚构展开后任务。'));
     const result=await new AgentLoop(host).run(input({message:'把想法存成任务'}));

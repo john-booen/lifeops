@@ -65,7 +65,8 @@ import { requiredPlanRepairMessages } from "./requiredPlanRepair";
 import {taskCreationPolicy} from '../features/tasks/creationPolicy';
 import {TaskBatchAvailabilityError, TaskBatchItemError} from './taskBatch';
 import {batchAvailabilityFailure,BATCH_AVAILABILITY_REPAIR,repairedBatchAvailability} from './batchAvailabilityRepair';
-import { taskSubjectConflict } from "./taskSubjectScope";
+import { taskConversationContext, taskSubjectConflict } from "./taskSubjectScope";
+import { createPersonalMemoryContextFilter } from "../personalMemoryContext";
 import {BATCH_ITEM_REPAIR, repairedBatchItems} from './batchItemRepair';
 
 export type WriteReceipt = AgentWriteReceipt;
@@ -342,12 +343,15 @@ export class AgentLoop {
       }
       const history = agentHistoryMessages(input.history, this.host.store, context.memories);
       state.taskSubjectHistory = history.map(entry => ({...entry}));
+      const taskContinuity = !input.voiceBackground && context.memories
+        ? await taskConversationContext(this.host.store, history, createPersonalMemoryContextFilter(context.memories)) : "";
+      assertProviderActive(input.signal); assertPolicy();
       const queryContinuity = context.memories && !input.voiceBackground ? historicalQueryHistoryContext(input.history, this.host.store) : "";
       const priorQueryDates = context.memories && !input.voiceBackground ? historicalQueryHistorySelections(input.history, this.host.store) : [];
       const currentMemory = context.memories && !input.voiceBackground
         ? formatConfirmedPersonalMemoryContext(context.memories, input.message, 4000, 8) : "";
       const messages: ChatMessage[] = [
-        { role: "system", content: [context.text, currentMemory, queryContinuity].filter(Boolean).join("\n\n") },
+        { role: "system", content: [context.text, currentMemory, queryContinuity, taskContinuity].filter(Boolean).join("\n\n") },
         ...history,
         { role: "user", content: input.message }
       ];
@@ -815,7 +819,7 @@ export class AgentLoop {
       }
     }
     if (tools.some(tool => tool.name === "list_tasks")) {
-      guidance.push("只问任务数量填answerMode=counts，不读任务标题；只问逾期填dueStatus=overdue，不附今日到期。查询清单填facts；同句还有解释、建议或修改填continue，继续完成整句要求。");
+      guidance.push("只问任务数量填answerMode=counts，不读任务标题；只问逾期填dueStatus=overdue，不附今日到期。查清单、期间方式、计划日期或独立截止都填facts，答完不追问是否改动。用户另有解释、建议或修改要求才填continue并完成整句。");
       guidance.push("只按名字查找任务而未限定日期时，用query并省略date，查全部日期；用户指定今天或某日时传对应date。逐条使用返回的date/endDate和准确ID，不把跨日期结果当作今天清单；同名对象不明确先核对，不自行选一条改。");
       guidance.push("要求把逾期和今天到期的未完成任务分开时，用 list_tasks 的 dueStatus=overdue_and_today。如另要建议，设 directReply=false。问今天还剩几项和最要紧的 N 项（含今晚未完成提醒）时，用 list_tasks 的 order=priority、limit=N、directReply=true，省略 dueStatus，不用 plan_today。只问今天该先做什么、想知道排序理由或精力影响，用 plan_today，不用 list_tasks。");
     }

@@ -171,11 +171,18 @@ async function receiveAndCheck(page, root, vault, senderVault, captures, expecte
     const rows = await p.deviceInbox.list(), tasks = (await p.store.readTaskDb()).tasks;
     if (p.dataFoundationBootstrap || rows.length !== 2 || tasks.length !== 12
       || rows.some(row => row.status !== "saved" || row.taskBatch?.created !== 5 || row.taskBatch?.existing !== 0)) return false;
-    const heartbeat = await p.store.readJson(p.store.path(p.settings.folders.aiReports, "System", "heartbeat.json"), {});
-    return { rows, tasks, heartbeat, id: p.devices.execution.deviceId, version: p.manifest.version,
-      calls: globalThis.__nativeBatchCalls, canWrite: p.devices.execution.canWriteFacts };
+    return true;
   }, null, { timeout: 30_000, polling: 500 });
-  const state = await received.jsonValue(); await received.dispose();
+  await received.dispose();
+  // Do not carry a polling-world JSHandle into a later CDP serialization.
+  // Re-read the actual committed state; all original assertions still apply.
+  const state = await page.evaluate(async () => {
+    const p = app.plugins.getPlugin("lifeops-assistant");
+    return { rows: await p.deviceInbox.list(), tasks: (await p.store.readTaskDb()).tasks,
+      heartbeat: await p.store.readJson(p.store.path(p.settings.folders.aiReports, "System", "heartbeat.json"), {}),
+      id: p.devices.execution.deviceId, version: p.manifest.version,
+      calls: globalThis.__nativeBatchCalls, canWrite: p.devices.execution.canWriteFacts };
+  });
   assert.equal(state.tasks.length, 12,JSON.stringify({rows:state.rows,calls:state.calls,canWrite:state.canWrite})); assert.equal(state.rows.length, 2); assert.equal(state.calls, 2); assert.equal(state.canWrite, true);
   for (const row of state.rows) { assert.equal(row.status, "saved"); assert.deepEqual(row.taskBatch, { created: 5, existing: 0 }); }
   for (const row of preserved) assert.deepEqual(state.tasks.find(item => item.id === row.id), row);

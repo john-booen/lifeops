@@ -3,9 +3,29 @@ import { readContextTasks } from "../contextData";
 import type { StoreHost } from "../store/settingsSlice";
 import { taskNamedInRequest } from "../taskReference";
 import { resolveTaskByReference } from "../toolRegistry";
+import { recordRevision } from "../operationIdentity";
 import type { AgentConversationMessage } from "../types";
 
 const EXISTING_TASK_WRITES = new Set(["reschedule_task", "update_tasks", "complete_task", "delete_task"]);
+
+/** Enrich references with current permitted records, never past assistant prose
+ * or an execution grant. This does not choose an action or a destination date. */
+export async function taskConversationContext(store: StoreHost, history: readonly AgentConversationMessage[],
+  protect: (text: string) => string): Promise<string> {
+  if (!history.length) return "";
+  const data = await readContextTasks(store).catch(() => undefined);
+  if (!data?.available) return "";
+  const named = data.tasks.filter(task => history.some(entry => taskNamedInRequest(task, entry.content))
+    && protect(task.title) === task.title);
+  if (!named.length || named.length > 20) return "";
+  const rows = named.map(task => {
+    const { id, title, status, date, endDate, startTime, endTime, time, dueDate, dueTime } = task;
+    return { id, title, status, date, endDate, startTime, endTime, time, dueDate, dueTime, expectedRevision: recordRevision(task) };
+  });
+  return "本机重新核对的前文任务候选（不是整组完整性、操作或确认授权）：" + JSON.stringify(rows)
+    + "。按本人各轮要求决定操作，修改时照抄expectedRevision；未要求改变的字段保留，已有时段不再重复询问。"
+    + "助手过去的口头承诺不算回执；需要整批修改时调用原工具按批量规则出真实确认卡，只读时不生成修改。";
+}
 
 /** A subsequent lookup (including the destination day's tasks) cannot enlarge
  * the subjects already named in the user's original conversation. This is an
