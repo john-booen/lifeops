@@ -1,7 +1,22 @@
 import { expect, it } from "vitest";
 import { formatTodayCapacity, planCapacityEvidence } from "../src/features/tasks/capacityEvidence";
 
+it('keeps the authoritative overload verdict when the model only says the work may not fit',()=>{
+  const facts=JSON.stringify({today:{scheduled:12},capacity:{overloaded:true,typicalCount:6}});
+  expect(planCapacityEvidence(facts,'今天原排12项，平常完成6项，可能做不完。','我今天的任务会不会做不完，需要挪一些吗？')).toContain('已超载');
+});
+
 const facts = JSON.stringify({ today: { scheduled: 12 }, capacity: { overloaded: true, typicalCount: 6 } });
+
+it("restores only a tool-verified deferral suggestion without changing the schedule", () => {
+  const plan = JSON.stringify({today:{scheduled:12},capacity:{overloaded:true,typicalCount:6,suggestDefer:["later","missing"]},tasks:[{id:"later",title:"虚构样品归档"}]});
+  const answer = "今天原排12项，常态完成6项，已超载。";
+  expect(planCapacityEvidence(plan,answer,"今天会不会做不完？")).toBe("可以考虑延后「虚构样品归档」；尚未修改安排。");
+  expect(planCapacityEvidence(plan,answer+"建议挪到明天。")).toBeUndefined();
+  expect(planCapacityEvidence(plan,"先做虚构样品归档。","今天先做哪件？")).toBeUndefined();
+  const unknown = JSON.stringify({today:{scheduled:12},capacity:{overloaded:true,typicalCount:6,suggestDefer:["missing"]},tasks:[]});
+  expect(planCapacityEvidence(unknown,answer)).toBeUndefined();
+});
 
 it("distinguishes normal load, measured zero, and insufficient history", () => {
   const workload = (scheduled: number, typicalCount: number | null) => JSON.stringify({

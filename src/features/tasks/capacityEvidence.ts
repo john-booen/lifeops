@@ -13,6 +13,14 @@ interface WorkloadPlan {
   scope?: string;
 }
 
+function deferSuggestion(plan: WorkloadPlan): string | undefined {
+  if (!Array.isArray(plan.tasks) || !Array.isArray(plan.capacity?.suggestDefer)) return;
+  const candidates = plan.capacity.suggestDefer.slice(0, 2)
+    .map(id => plan.tasks?.find(task => task.id === id)?.title)
+    .filter((title): title is string => typeof title === "string" && title.length > 0);
+  if (candidates.length) return `可以考虑延后${candidates.map(title => `「${title}」`).join("、")}。`;
+}
+
 export function formatTodayCapacity(output: string): string | undefined {
   let plan: WorkloadPlan;
   try { plan = JSON.parse(output); } catch { return; }
@@ -25,11 +33,8 @@ export function formatTodayCapacity(output: string): string | undefined {
   } else if (typeof typical === "number" && Number.isFinite(typical) && typical >= 0) {
     const verdict = capacity.overloaded ? "按近期记录，今天的待办已超载。" : "按近期记录，今天的待办仍在常态负荷内。";
     lines.push(`${verdict}今天原排 ${scheduled} 项，常态每天完成约 ${typical} 项。`);
-    if (capacity.overloaded && Array.isArray(plan.tasks) && Array.isArray(capacity.suggestDefer)) {
-      const candidates = capacity.suggestDefer.slice(0, 2).map(id => plan.tasks?.find(task => task.id === id)?.title)
-        .filter((title): title is string => typeof title === "string" && title.length > 0);
-      if (candidates.length) lines.push(`可以考虑延后${candidates.map(title => `「${title}」`).join("、")}。`);
-    }
+    const suggestion = capacity.overloaded ? deferSuggestion(plan) : undefined;
+    if (suggestion) lines.push(suggestion);
   } else return;
   if (plan.scope) lines.push("只统计允许读取的记录。");
   return lines.join("");
@@ -46,8 +51,10 @@ export function planCapacityEvidence(output: string, answer: string, question = 
     || typeof typical !== "number" || !Number.isFinite(typical) || typical < 0) return;
   const counts = new Set([...answer.matchAll(/(?<![\d.])(\d+(?:\.\d+)?)\s*(?:项|个|件)/gu)].map(match => Number(match[1])));
   const scope = result.scope ? "（仅含可读记录）" : "";
-  const verdict = mentionsCapacity ? "" : `按记录，今天的待办已超载${scope}。`;
-  if (counts.has(scheduled) && counts.has(typical)) return verdict || undefined;
-  const comparison = `今天原排 ${scheduled} 项，常态完成 ${typical} 项${scope}。`;
-  return verdict ? verdict + comparison : "核对到的工作量：" + comparison;
+  const verdict = answer.includes('已超载')||answer.includes('已经超载') ? "" : `按记录，今天的待办已超载${scope}。`;
+  const comparison = counts.has(scheduled) && counts.has(typical) ? ""
+    : `${verdict ? "" : "核对到的工作量："}今天原排 ${scheduled} 项，常态完成 ${typical} 项${scope}。`;
+  const suggestion = /延期|推迟|挪|延后|明天|砍/u.test(answer) ? undefined
+    : deferSuggestion(result)?.replace(/。$/u, "；尚未修改安排。");
+  return [verdict, comparison, suggestion].filter(Boolean).join("") || undefined;
 }

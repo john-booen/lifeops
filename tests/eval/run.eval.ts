@@ -22,6 +22,8 @@ import { readJudgeDecision } from "./judgeDecision";
 import { JUDGE_INSTRUCTIONS } from "./judgeInstructions";
 import type { JournalToolRead } from "./journalEvidence";
 import { serializeJudgeEvidence } from "./judgeEvidence";
+import {currentEvaluationRoute} from './routes';
+import {getLifeOpsTool} from '../../src/toolRegistry';
 // @ts-expect-error The deterministic fixture generator shares the evaluation clock and marker.
 import { EVAL_MARKER, EVAL_NOW } from "../../scripts/make-eval-vault.mjs";
 
@@ -307,6 +309,7 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
   let errorCode: string | undefined;
   let errorDetail: string | undefined;
   let phoneInbox: EvalObservation["phoneInbox"];
+  let routeStart:{requests:number;toolIndex:number;tasks:EvalTask[]}|undefined;
   try {
     if (question.fixture === "summary_original_memory") {
       const { extractWeeklyMemories } = await import("../../src/features/memory/summaryMemory");
@@ -348,6 +351,7 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
       evening.setHours(21, 0, 0, 0);
       await runScheduledPunishmentCheck(plugin, store as unknown as StoreHost, evening, () => {});
     }
+    routeStart={requests:(await transport.usage()).requests,toolIndex:tools.length,tasks:(await snapshot(activeRoot)).tasks};
     mainStarted = performance.now();
     judgePhase = "current_turn";
     const onText = (text: string) => {
@@ -371,6 +375,9 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
   const createdTasks = after.tasks.filter((task) => !before.tasks.some((old) => old.id === task.id));
   const createdTrades = after.trades.filter(trade => !before.trades.some(old => old.id === trade.id));
   const usage = await transport.usage();
+  const route=routeStart?currentEvaluationRoute({requestsBefore:routeStart.requests,requestsAfter:usage.requests,
+    toolNames:tools.slice(routeStart.toolIndex).map(tool=>tool.name),before:routeStart.tasks,after:after.tasks,
+    safety:name=>getLifeOpsTool(name)?.safety}):undefined;
   const judge = question.checks.judge && !errorCode ? await judgeAnswer(question.checks.judge, question.input, reply.reply,
     serializeJudgeEvidence(judgeEvidence), new LifeOpsAi(settingsForAgentModel(settings, "fast")), credentials) : undefined;
   const observed: EvalObservation = {
@@ -457,7 +464,7 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
   return { id: question.id, passed: issues.length === 0, issues, inputTokens: usage.inputTokens,
     outputTokens: usage.outputTokens, firstTokenMs, totalMs, models: usage.models,
     tools: tools.map(({ facts: _facts, ...tool }) => tool), requests: usage.requests, judgeReason: judge?.reason, transportFailures: usage.transportFailures,
-    confirmationActions: observed.confirmationActions, errorCode };
+    confirmationActions: observed.confirmationActions, errorCode, route };
 }
 
 it("measures the production conversation entry point against fictional data", async () => {

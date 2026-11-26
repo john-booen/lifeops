@@ -174,7 +174,7 @@ function taskTotals(planned: readonly LifeOpsTask[], completed: readonly Complet
   const completedPlannedCount = planned.filter(task => completedIds.has(task.id)).length;
   const intervals = completed.flatMap(event => event.elapsedMin === null ? [] : [event.elapsedMin]);
   return {
-    plannedCount: planned.length, completedCount: completed.length, completedPlannedCount,
+    plannedCount: planned.length, completedCount: completed.length, completedTaskCount: completedIds.size, completedPlannedCount,
     completionPercent: percent(completedPlannedCount, planned.length),
     overdueCount: planned.filter(task => task.status === "active" && isTaskOverdue(task, today)).length,
     averageCompletionMin: mean(intervals), averageCompletionMinMeaning: COMPLETION_INTERVAL_MEANING,
