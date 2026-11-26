@@ -8,7 +8,7 @@ export async function nativeTaskSubject(page, root, result) {
     const p = app.plugins.getPlugin('lifeops-assistant');
     const h = globalThis.__taskSubject = {before: (await p.store.readTaskDb()).tasks, group: [], receipts: [],
       instance: p.ai.agentTurnStream, prototype: Object.getPrototypeOf(p.ai).agentTurnStream,
-      factory: p.createAgentRuntime, phase: 'history', round: 0, requests: []};
+      factory: p.createAgentRuntime, submit: p.submitAgentMessageStream, phase: 'history', round: 0, requests: []};
     for (let i = 1; i <= 4; i++) h.group.push(await p.store.createTask({title: '虚构原生指代纸样0' + i,
       date: '2026-11-23', startTime: '19:00', endTime: '19:30'}));
     h.other = await p.store.createTask({title: '虚构原生无关邮箱设置', date: '2026-11-28', time: '10:00'});
@@ -43,8 +43,14 @@ export async function nativeTaskSubject(page, root, result) {
       const p = app.plugins.getPlugin('lifeops-assistant'), h = globalThis.__taskSubject;
       const view = app.workspace.getLeavesOfType('lifeops-assistant-view')[0].view;
       const before = await h.facts(); h.phase = 'edit';
-      const response = await p.submitAgentMessage('挪到2026年11月29日周日，周六我有事。', view.agentMessages, {source: 'voice', selfTest: true});
-      h.action = response.actions[0]; view.pendingAgentActions = response.actions; view.refreshAgentSuggestions();
+      // Feed the fictional voice transcript through the actual chat submission,
+      // so its producer response, adjacent history and visible card bind together.
+      p.submitAgentMessageStream = async function(message, history, onText, options) {
+        return h.response = await h.submit.call(this, message, history, onText, {...options, source: 'voice'});
+      };
+      try { view.setAgentInput('挪到2026年11月29日周日，周六我有事。'); await view.sendAgentMessage(); }
+      finally { p.submitAgentMessageStream = h.submit; }
+      const response = h.response; h.action = view.pendingAgentActions[0];
       return {unchanged: JSON.stringify(before) === JSON.stringify(await h.facts()), pending: response.actions.length,
         action: h.action, receipts: h.receipts, fullHistory: h.requests[0].some(row => row.role === 'assistant' && row.content === h.list)};
     });
@@ -62,18 +68,22 @@ export async function nativeTaskSubject(page, root, result) {
       await p.executeAgentAction(h.action).catch(() => undefined); const afterReplay = await h.facts();
       return {same: JSON.stringify(beforeReplay) === JSON.stringify(afterReplay), group: await Promise.all(h.group.map(t => p.store.getTask(t.id))),
         other: await p.store.getTask(h.other.id), expectedOther: h.other,
+        noExtraModel: h.round === 3,
         writes: [...new Map(h.receipts.map(r => [r.operationId, r])).values()].map(r => r.taskEdits?.length)};
     });
-    assert(saved.same); assert.deepEqual(saved.writes, [4]); assert.deepEqual(saved.other, saved.expectedOther);
-    for (const task of saved.group) { assert.equal(task.date, '2026-11-29'); assert.equal(task.startTime, '19:00'); assert.equal(task.endTime, '19:30'); }
     await writeFile(join(root, 'voice-task-subject.json'), JSON.stringify({preview, saved}, null, 2));
+    assert(saved.same && saved.noExtraModel); assert.deepEqual(saved.writes, [4]); assert.deepEqual(saved.other, saved.expectedOther);
+    for (const task of saved.group) { assert.equal(task.date, '2026-11-29'); assert.equal(task.startTime, '19:00'); assert.equal(task.endTime, '19:30'); }
+    result.voiceTaskSubject = {inputSource: 'voice', originalChatEntry: true, noWriteBeforeCard: preview.unchanged,
+      fullHistory: preview.fullHistory, confirmWithoutAnotherModel: saved.noExtraModel, repeatUnchanged: saved.same};
     result.checks.voiceTaskSubjectFullOriginalHistory = true;
     result.checks.voiceWrongTaskStoppedBeforeCanonicalWrite = true;
     result.checks.voiceFourTaskCardConfirmOnceAndReplaySafe = true;
   } finally {
     const cleaned = await page.evaluate(async () => {
       const p = app.plugins.getPlugin('lifeops-assistant'), h = globalThis.__taskSubject;
-      p.createAgentRuntime = h.factory; p.ai.agentTurnStream = h.instance; Object.getPrototypeOf(p.ai).agentTurnStream = h.prototype;
+      p.createAgentRuntime = h.factory; p.submitAgentMessageStream = h.submit;
+      p.ai.agentTurnStream = h.instance; Object.getPrototypeOf(p.ai).agentTurnStream = h.prototype;
       for (const receipt of [...new Map(h.receipts.map(r => [r.operationId, r])).values()].reverse()) await p.createAgentRuntime().undoOperation(receipt.operationId);
       for (const task of [...h.group, h.other]) await p.store.deleteTask(task.id);
       const after = (await p.store.readTaskDb()).tasks, before = h.before; delete globalThis.__taskSubject; return {before, after};
