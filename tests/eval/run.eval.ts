@@ -23,6 +23,7 @@ import { JUDGE_INSTRUCTIONS } from "./judgeInstructions";
 import type { JournalToolRead } from "./journalEvidence";
 import { serializeJudgeEvidence } from "./judgeEvidence";
 import {currentEvaluationRoute} from './routes';
+import { evaluationToolObservation } from "./toolObservation";
 import {getLifeOpsTool} from '../../src/toolRegistry';
 // @ts-expect-error The deterministic fixture generator shares the evaluation clock and marker.
 import { EVAL_MARKER, EVAL_NOW } from "../../scripts/make-eval-vault.mjs";
@@ -278,14 +279,7 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
     if (!result.success && request.toolName === "propose_task_plan" && process.env.LIFEOPS_EVAL_DIAGNOSTICS === "1") {
       process.stdout.write(`${question.id} 虚构草案参数 · ${redactSensitiveText(JSON.stringify(request.arguments), credentials).slice(0, 1200)}\n`);
     }
-    let facts: unknown;
-    const expectedFacts = [...(question.checks.toolFacts ?? []), ...(question.checks.anyToolFacts ?? [])];
-    if (result.success && expectedFacts.some(tool => tool.name === request.toolName)) {
-      try { facts = JSON.parse(result.output); } catch { /* A non-JSON result cannot satisfy the expected tool facts. */ }
-    }
-    tools.push({ name: request.toolName, ok: result.success,
-      ...(facts === undefined ? {} : { facts }),
-      ...(result.success ? {} : { detail: redactSensitiveText(result.output, credentials).slice(0, 180) }) });
+    tools.push(evaluationToolObservation(request.toolName, result, text => redactSensitiveText(text, credentials)));
     writeTrace.push({ name: request.toolName, callId: request.callId, args: request.arguments, ok: result.success });
     if (runningPrelude && question.fixture === "automatic_memory_after_create" && request.toolName === "create_task"
       && result.success && !automaticMemorySaved) {
