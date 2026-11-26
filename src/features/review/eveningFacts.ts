@@ -3,6 +3,11 @@ import type { TaskDashboardData } from "../../types";
 import { isTaskScheduledForDay, isTaskWindow } from "../../taskSchedule";
 import { isHabitRequiredOn } from "../habits/targets";
 
+/** Keep reminder targets identical to the tasks named by the original review. */
+export function eveningTaskCandidates(board: TaskDashboardData) {
+  return [...new Map([...board.today.filter(task => !isTaskWindow(task) || isTaskScheduledForDay(task, board.date)), ...board.overdue].map(task => [task.id, task])).values()];
+}
+
 /** Read the original dashboard projection; never assess or change habits here. */
 export function eveningReason(board: TaskDashboardData): string {
   const context = dashboardContextData(board);
@@ -15,7 +20,7 @@ export function eveningReason(board: TaskDashboardData): string {
   const tradeProgress = trades.map(item => item.habit.name + " " + (item.periodUnavailable ? "暂不可用"
     : item.periodDone + "/" + item.periodTarget + (item.periodUnit ?? "笔"))).join("、");
   const penalties = board.tasks.filter(task => task.status === "active" && task.habitPunishment?.judgedDate === board.date);
-  const tasks = [...new Map([...board.today.filter(task => !isTaskWindow(task) || isTaskScheduledForDay(task, board.date)), ...board.overdue].map(task => [task.id, task])).values()];
+  const tasks = eveningTaskCandidates(board);
   const examples = tasks.slice(0, 3).map(task => task.title).join("、");
   const taskLine = context?.tasks.available === false ? "任务和补偿记录暂不可用。"
     : (context?.tasks.filtered ? "可读任务中还有 " : "还有 ") + tasks.length + " 项今日或逾期任务"
