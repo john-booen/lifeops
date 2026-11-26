@@ -432,7 +432,10 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
       createdTasks: createdTasks.map(task => ({ title: task.title, date: task.date, time: task.time })), preludeCreatedTasks });
     process.stdout.write(`${question.id} 虚构写入与撤销证据 · ${redactSensitiveText(evidence, credentials)}\n`);
   }
-  if (issues.length && process.env.LIFEOPS_EVAL_DIAGNOSTICS === "1") {
+  const selectedDiagnosticReview = process.env.LIFEOPS_EVAL_REVIEW_IDS?.split(",").includes(question.id) === true;
+  // A passing keyword/shape score can still hide swapped period values.
+  // Explicit reviews retain the same redacted evidence for passes and failures.
+  if ((issues.length || selectedDiagnosticReview) && process.env.LIFEOPS_EVAL_DIAGNOSTICS === "1") {
     process.stdout.write(`${question.id} 模型提议（非实际执行） · ${redactSensitiveText(JSON.stringify(modelProposals), credentials)}\n`);
     process.stdout.write(`${question.id} 完整虚构观测 · ${redactSensitiveText(JSON.stringify({ question, observed, judgeEvidence }), credentials)}\n`);
     process.stdout.write(`${question.id} 诊断回复 · ${redactSensitiveText(reply.reply, credentials).slice(0, 900)}\n`);
@@ -440,7 +443,7 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
     if (question.checks.createdTrades) process.stdout.write(`${question.id} 落盘字段 · ${redactSensitiveText(JSON.stringify(createdTrades), credentials).slice(0, 1800)}\n`);
   }
   if (process.env.LIFEOPS_EVAL_DIAGNOSTICS === "1") {
-    if (process.env.LIFEOPS_EVAL_REVIEW_IDS?.split(",").includes(question.id)) {
+    if (selectedDiagnosticReview) {
       process.stdout.write(`${question.id} 语气抽样 · ${redactSensitiveText(reply.reply, credentials).slice(0, 4000)}\n`);
     }
     const qualityPath = (store as unknown as StoreHost).qualityLogPath();

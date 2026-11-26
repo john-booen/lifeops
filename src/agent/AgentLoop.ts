@@ -56,8 +56,9 @@ import { recoverReadOnlyStats, type StatsRecoveryRead } from "./readOnlyStatsRec
 import { resolvedTaskLookup, taskLookupResolution } from "./taskLookupResolution";
 import { holdToolProtocolPrefix, isLeakedToolProtocol, toolProtocolRepairMessages, unavailableToolProtocol, TOOL_PROTOCOL_UNAVAILABLE } from "./toolProtocol";
 import { dailyJournalEvidence, historicalAnswerMessages, historicalEvidenceFallback, historicalOriginalExcerpts, unreadHistoricalDates } from "./historicalAnswer";
+import {summaryMetricConflicts,summaryMetricEvidence} from './summaryMetricReply';
 import {historicalDateConflicts} from './historicalDateConflicts';
-import {futureCalendarConflicts} from './futureCalendar';
+import {futureCalendarConflicts,normalizeAdviceHeadings} from './futureCalendar';
 import { historicalQueryHistoryContext, historicalQueryHistorySelections } from "../personalMemoryHistory";
 import { bindHistoricalDateReference } from "./historicalDateReference";
 import { requestedMemoryLookup,memoryLookupTool } from "./memoryLookup";
@@ -866,7 +867,7 @@ export class AgentLoop {
     }
     if (input.voiceBackground) guidance.push("这是只读的后台分析。核对所需资料后直接回答原问题，避免添加无关建议。");
     if (tools.some(tool => tool.name === "get_summaries")) {
-      guidance.push("周月整体表现、复盘或同句中多领域的跨期比较，先用get_summaries，按所问期间分别给level与range。只对照数字时用metrics选择所问指标，保留每份through；缺项再补同范围统计或原文，不推算未结束的整月。整句仅查单领域任务数字才首选get_stats。当前日记、待办或继续安排只有用户要求时才补，不混入纯跨期对照。");
+      guidance.push("周月整体表现、复盘或同句中多领域的跨期比较，先用get_summaries，按所问期间分别给level与range。整句只对照数字时才用metrics选择所问指标；要求解释或改进时省略metrics以保留完整回顾依据。保留每份through；缺项再补同范围统计或原文，不推算未结束的整月。整句仅查单领域任务数字才首选get_stats。当前日记、待办或继续安排只有用户要求时才补，不混入纯跨期对照。");
       guidance.push("围绕某个目标或习惯找跨周规律时，get_summaries传所问日期范围、includeOriginals=true和该主题的连续关键词query，读取定位原文；不能只用日记开头的无关片段。");
       guidance.push("query的多个词必须同时命中，只传所查活动主题；不要把登记指标、被质疑的结论或处置建议混入主题条件。活动主题不确定就省略query，读取所问范围内的原文核对，不把未命中当成没发生。");
     }
@@ -997,22 +998,26 @@ export class AgentLoop {
       });
       let answer = await this.callModel(input, state, "deep", finalMessages, [], true, false, undefined, { reasoning: "disabled", finite: true });
       current();
+      answer={...answer,content:normalizeAdviceHeadings(answer.content)};
       const inventedDates=unreadHistoricalDates(messages,answer.content,input.message,input.now.toISOString());
       const dateConflicts=historicalDateConflicts(messages,answer.content,input.message);
       const futureConflicts=futureCalendarConflicts(answer.content,input.now.toISOString());
-      if(inventedDates.length||dateConflicts.length||futureConflicts.length){
+      const metricConflicts=summaryMetricConflicts(messages,answer.content,input.message,input.now);
+      if(inventedDates.length||dateConflicts.length||futureConflicts.length||metricConflicts.length){
         // Correct the interpretation only; never repeat the original reads or
         // permit a tool call because a generated date was ungrounded.
         const repair=inventedDates.length?"上一稿在历史部分引入了本轮原文、查询范围及原问题都未提供的绝对日期。请只用已核对读回的range和来源日期重写，不能把当前周或下周当成所问历史范围。未来建议另起「下一步（建议）」段，不混成历史事实。未核对日期为："+JSON.stringify(inventedDates):'';
         const attribution=dateConflicts.length?'事件日期列或日期分组标题与其所引原句的日历参照不一致或漏了引用对应的日期。逐条重读相应原文，先核叙述时点，再区分实际事件日与计划日；没有完成记录的计划必须保留计划身份并列计划日，不能改成已完成，也不能因未完成而删掉可核对的计划日期。不能直接把笔记当天当成昨晚。若原文另有明确日期或引用，按原叙述时点；不确定则说明未知，不猜测。这些是待核对的冲突，不是额外事件证据：'+JSON.stringify(dateConflicts):'';
         const future=futureConflicts.length?'未来建议中的下周星期与绝对日期不一致。只用已提供的本轮日历参照重写建议，不能从回顾区间末日计算下周；不创建任务或更改记录。待核对：'+JSON.stringify(futureConflicts):'';
-        answer=await this.callModel(input,state,"deep",[...finalMessages,{role:"user",content:[repair,attribution,future].filter(Boolean).join('\n')}],[],true,false,undefined,{reasoning:"disabled",finite:true});
+        answer=await this.callModel(input,state,"deep",[...finalMessages,{role:"user",content:[repair,attribution,future,metricConflicts.length?'上一稿把数字与所属期间或指标混淆，或遗漏所选指标。只按以下原工具数字核对，使用明确的期间表头与指标行，不转置币种/月份；不能用未知补零。冲突：'+JSON.stringify(metricConflicts)+'\n'+summaryMetricEvidence(messages,input.message):''].filter(Boolean).join('\n')}],[],true,false,undefined,{reasoning:"disabled",finite:true});
         current();
+        answer={...answer,content:normalizeAdviceHeadings(answer.content)};
       }
       if (!answer.content.trim() || answer.toolCalls.length || answer.content === TOOL_PROTOCOL_UNAVAILABLE
         || unreadHistoricalDates(messages,answer.content,input.message,input.now.toISOString()).length
         || historicalDateConflicts(messages,answer.content,input.message).length
-        || futureCalendarConflicts(answer.content,input.now.toISOString()).length) {
+        || futureCalendarConflicts(answer.content,input.now.toISOString()).length
+        || summaryMetricConflicts(messages,answer.content,input.message,input.now).length) {
         state.errorCode = "response_incomplete";
         needsEvidenceFallback = true;
       } else state.text = [answer.content,historicalOriginalExcerpts(messages,input.message)||dailyJournalEvidence(messages)].filter(Boolean).join("\n\n");
@@ -1031,7 +1036,7 @@ export class AgentLoop {
       // A failed local recheck may omit numbers, but cancellation or changed
       // sources must still discard the whole reply rather than leak old facts.
       current();
-      state.text = [stats, historicalEvidenceFallback(messages,{question:input.message,currentPlanningNotes})].filter(Boolean).join("\n\n");
+      state.text = [stats, summaryMetricEvidence(messages,input.message), historicalEvidenceFallback(messages,{question:input.message,currentPlanningNotes})].filter(Boolean).join("\n\n");
     }
     state.firstTokenMs ??= performance.now() - state.started;
     input.onText?.(state.text);

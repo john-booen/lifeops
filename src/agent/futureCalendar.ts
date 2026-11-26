@@ -1,6 +1,16 @@
 import {addDays,formatDate,normalizeJournalDate,startOfWeek} from '../date';
 
 export const NEXT_STEP_HEADING=/(?:^|\n)\s*(?:#{1,6}\s+)?(?:\*\*)?下一步(?:[（(]建议[）)])?/u;
+/** Keep generated advice under the heading used by the calendar and history
+ * guards. Quoted source text and code blocks retain their original wording. */
+export function normalizeAdviceHeadings(answer:string):string{
+ let fence='';return answer.split('\n').map(line=>{
+  const marker=line.trim().match(/^(`{3,}|~{3,})/u)?.[1];if(marker){if(!fence)fence=marker;else if(fence[0]===marker[0]&&marker.length>=fence.length&&!line.trim().slice(marker.length).trim())fence='';return line;}
+  if(fence||/^\s*>/u.test(line))return line;
+  return line.replace(/^(\s*)(#{1,6}\s+|\*\*)(?:改进(?:[（(]有依据[）)])?|建议)(?=\*\*|\s*[：:]|\s*$)/u,'$1$2下一步（建议）')
+    .replace(/^(\s*)(?:改进(?:[（(]有依据[）)])?|建议)([：:])/u,'$1下一步（建议）$2');
+ }).join('\n');
+}
 const weekdays=['一','二','三','四','五','六','日'] as const;
 
 /** Calendar data only: no availability, plan, historical fact or write authority. */

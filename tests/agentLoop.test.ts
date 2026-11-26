@@ -3725,3 +3725,18 @@ it.each([false,true])('checks the calendar of next-week advice once without repe
   if(fails)expect(result.text).toContain('暂不作原因');else expect(result.text).toContain('2026-11-18');
   expect(result.toolCalls.filter(call=>call.name==='get_summaries')).toHaveLength(1);expect(result.receipts).toEqual([]);expect(result.confirmations).toEqual([]);expect(await store.readPath(store.taskDbPath())).toBe(before);
 });
+
+it.each([false,true])('checks numeric period attribution once, withholding swapped currency columns without repeating reads (repair fails:%s)',async fails=>{
+  const{readSummaryScope,renderSummary,summaryPath}=await import('../src/features/summaries/notes'),{summaryPeriod}=await import('../src/features/summaries/periods');
+  const scope=await readSummaryScope(store);
+  for(const row of [{date:'2026-10-01',through:'2026-10-31',complete:true,count:60,cny:5,usd:15},{date:'2026-11-01',through:'2026-11-12',complete:false,count:46,cny:180,usd:120}]){
+    const period=summaryPeriod('month',row.date);await store.ensureFolder(store.settings.folders.aiReports+'/摘要/月');
+    await store.app.vault.create(summaryPath(store,period),renderSummary(period,row.through,scope.hash,{tasksCompleted:row.count,taskCompletionPercent:null,energy:null,tradePnlCny:row.cny,tradePnlUsd:row.usd},0,row.complete,'local','虚构摘要原文。'));
+  }
+  const table=(usd:string[])=>'| 指标 | 2026-10 | 2026-11 |\n|---|---:|---:|\n| 任务完成数 | 60 | 46 |\n| 人民币净盈亏 | 5 | 180 |\n| 美元净盈亏 | '+usd.join(' | ')+' |',bad=table(['120','15']),good=table(['15','120']);
+  responses.push(reply('',[tool('get_summaries',{level:'month',range:{from:'2026-10-01',to:'2026-11-12'},metrics:['tasksCompleted','tradePnlCny','tradePnlUsd']},'fictional-original-period-metrics')]),reply('虚构未发布草稿'),reply(bad),reply(fails?bad:good));
+  const before=await store.readPath(store.taskDbPath()),streamed:string[]=[];
+  const result=await new AgentLoop(host).run(input({message:'比较2026年10月和11月截至12日的任务完成数及人民币、美元净盈亏，不修改。',onText:text=>streamed.push(text)}));
+  expect(requests).toHaveLength(4);expect(catalogs.at(-1)).toEqual([]);expect(toolChoices.at(-1)).toBe('none');expect(result.toolCalls.filter(c=>c.name==='get_summaries')).toHaveLength(1);expect(JSON.stringify(requests.at(-1))).toContain('tradePnlUsd');expect(JSON.stringify(requests.at(-1))).toContain('120');expect(result.text).not.toContain('| 美元净盈亏 | 120 | 15 |');expect(streamed.join('')).not.toContain('| 美元净盈亏 | 120 | 15 |');expect(result.receipts).toEqual([]);expect(result.confirmations).toEqual([]);expect(await store.readPath(store.taskDbPath())).toBe(before);
+  if(fails){expect(result.text).toContain('| 美元净盈亏（USD） | 15 | 120 |');expect(result.text).toContain('历史分析未完成');}else expect(result.text).toBe(good);
+});
