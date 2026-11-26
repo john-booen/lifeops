@@ -622,17 +622,8 @@ export class AgentLoop {
           return this.localAnswer(input, state, results[0].output);
         }
         const single = calls.length === 1 && results[0]?.success ? results[0] : undefined;
-        taskListAnswer = !input.voiceBackground && !state.requestedTaskConfirmation && !state.receipts.size && !state.confirmations.size && !state.errorCode
-          && single && call.name === "list_tasks" && call.arguments.category === undefined
-          && !(call.arguments.answerMode === "facts" && typeof call.arguments.query === "string" && call.arguments.query.trim())
-          && call.arguments.directReply !== false && (["facts", "counts"].includes(String(call.arguments.answerMode)) || call.arguments.directReply === true
-            || call.arguments.dueStatus === "overdue_and_today" || call.arguments.order === "priority" && Number.isInteger(call.arguments.limit))
-          ? formatTaskListReply(single.output, formatDate(input.now)) : undefined;
-        if (taskListAnswer && !await mayFinishRead(taskListAnswer)) taskListAnswer = undefined;
-        if (taskListAnswer && !exactTitleEdits && !requiredTool && !attestedHistoricalReads.length && !this.needsHistoricalAnswer(input, state)) {
-          assertPolicy(); this.host.assertReadOnlyReplyCurrent?.();
-          return this.localAnswer(input, state, taskListAnswer);
-        }
+        // Keep the existing narrow, explicit pure lookup ahead of any
+        // model-declared completion hint. Compound requests fail this guard.
         if (input.source === "text" && !input.voiceBackground && single && call.name === "list_tasks"
           && call.arguments.category === undefined && call.arguments.directReply !== false
           && !state.receipts.size && !state.confirmations.size && !state.errorCode
@@ -644,6 +635,17 @@ export class AgentLoop {
             state.text = reply; state.firstTokenMs ??= performance.now() - state.started;
             input.onText?.(reply); break;
           }
+        }
+        taskListAnswer = !input.voiceBackground && !state.requestedTaskConfirmation && !state.receipts.size && !state.confirmations.size && !state.errorCode
+          && single && call.name === "list_tasks" && call.arguments.category === undefined
+          && !(call.arguments.answerMode === "facts" && typeof call.arguments.query === "string" && call.arguments.query.trim())
+          && call.arguments.directReply !== false && (["facts", "counts"].includes(String(call.arguments.answerMode)) || call.arguments.directReply === true
+            || call.arguments.dueStatus === "overdue_and_today" || call.arguments.order === "priority" && Number.isInteger(call.arguments.limit))
+          ? formatTaskListReply(single.output, formatDate(input.now)) : undefined;
+        if (taskListAnswer && !await mayFinishRead(taskListAnswer)) taskListAnswer = undefined;
+        if (taskListAnswer && !exactTitleEdits && !requiredTool && !attestedHistoricalReads.length && !this.needsHistoricalAnswer(input, state)) {
+          assertPolicy(); this.host.assertReadOnlyReplyCurrent?.();
+          return this.localAnswer(input, state, taskListAnswer);
         }
         if (single) {
           let reply: string | undefined;

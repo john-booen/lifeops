@@ -321,10 +321,10 @@ it('separates one required-tool repair from one invalid-argument repair without 
  const result=await new AgentLoop(host).run(input({message:'给明天安排一份草案。'}));expect(requests).toHaveLength(4);expect(requests.at(-1)?.filter(row=>row.role==='tool').map(row=>row.content).join('\n')).toContain('priority');expect(result.confirmations).toHaveLength(1);expect(prepare).toHaveBeenCalledOnce();expect(result.receipts).toEqual([]);expect((await store.readTaskDb()).tasks).toEqual([]);
 });
 
-it.each(["查一下虚构蓝盒相关未完成任务，不限定日期，先不要修改。", "查一下虚构蓝盒相关未完成任务，不限定日期。"])("finishes a simple named task lookup with verified dates and no second model request (%s)", async message => {
+it.each(["查一下虚构蓝盒相关未完成任务，不限定日期，先不要修改。", "查一下虚构蓝盒相关未完成任务，不限定日期。"].flatMap(message=>[undefined,true].map(directReply=>[message,directReply]as const)))("finishes a simple named task lookup with verified dates and no second model request (%s, directReply=%s)", async (message,directReply) => {
   await store.createTask({ title: "虚构蓝盒贴标签", date: "2026-11-13", time: "15:15" });
   await store.createTask({ title: "虚构蓝盒核对编号", date: "2026-11-14", time: "16:00" });
-  responses.push(reply("", [tool("list_tasks", { query: "虚构蓝盒" })]), new Error("Must not ask another model to restate an already verified list"));
+  responses.push(reply("", [tool("list_tasks", { query: "虚构蓝盒",...(directReply===undefined?{}:{directReply}) })]), new Error("Must not ask another model to restate an already verified list"));
   const before = await store.readPath(store.taskDbPath()), streamed: string[] = [];
   const result = await new AgentLoop(host).run(input({ message, onText: text => streamed.push(text) }));
   expect(requests).toHaveLength(1); expect(result.text).toContain("所有日期");
