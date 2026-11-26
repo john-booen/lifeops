@@ -1342,7 +1342,8 @@ describe("unified agent loop", () => {
     responses.push(reply('',[tool('list_tasks',{date:formatDate(now)})]),reply('已核对今天剩余的虚构事项。'));
     const result=await new AgentLoop(host).run(input({message:'今天还有啥没做完？'}));
     expect(result.toolCalls).toEqual([{name:'list_tasks',ok:true}]);expect(requests).toHaveLength(2);
-    for(const catalog of catalogs)expect(catalog).toEqual(expect.arrayContaining(['list_tasks','create_task','undo_latest_operation','schedule_task_batch','load_more_tools']));
+    for(const catalog of catalogs)expect(catalog).toEqual(expect.arrayContaining(['list_tasks','create_task','undo_latest_operation','schedule_task_batch','load_more_tools',
+      'update_tasks','reschedule_task','complete_task','delete_task','create_habit','complete_habit','miss_habit','delete_habit','append_journal_entry','append_memory_note']));
     expect(await store.readPath(store.taskDbPath())).toBe(before);expect(result.receipts).toEqual([]);
   });
 

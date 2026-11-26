@@ -146,7 +146,11 @@ const QUICK_TOOLS = new Set([
   "create_habit", "complete_habit", "miss_habit", "delete_habit", "append_journal_entry",
   "append_memory_note", "query_vault", "undo_latest_operation", "propose_task_plan", "deep_analysis", "inspect_trade_review"
 ]);
-const FAST_TEXT_TOOLS = new Set(['list_tasks','plan_today','get_stats','get_summaries','query_vault','schedule_task_batch','create_task','undo_latest_operation']);
+const FAST_TEXT_TOOLS = new Set([
+  "list_tasks", "plan_today", "get_stats", "get_summaries", "query_vault", "undo_latest_operation",
+  "create_task", "schedule_task_batch", "update_tasks", "reschedule_task", "complete_task", "delete_task",
+  "create_habit", "complete_habit", "miss_habit", "delete_habit", "append_journal_entry", "append_memory_note"
+]);
 const VOICE_QUICK_TOOLS = new Set([
   "list_tasks", "plan_today", "get_stats", "get_summaries", "learning_progress", "query_vault",
   "start_quiz",
