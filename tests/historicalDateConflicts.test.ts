@@ -63,3 +63,11 @@ it('checks literal narrative dates across the year boundary without extending in
  expect(historicalDateConflicts(messages,'# 2027-01-01\n- 原文“'+text+'”。')).toMatchObject([{calendarDate:'2026-12-31'}]);
  expect(historicalDateConflicts(messages,'# 2026-12-31\n- 原文“'+text+'”。\n## 下一步（建议）\n- 可参考原文“'+text+'”。')).toEqual([]);
 });
+
+it.each(['- **2026-11-03**','  * **2026-11-03**'])('checks a nested source quote under the real failing list-date layout: %s',heading=>{
+ const messages=read([{date:'2026-11-05',path,text:quote+'。'}]);
+ const answer=heading+'\n  - 黄纸袋标记：22:10完成。\n    - 来源：`2026-11-05早.md` 原文“'+quote+'”。';
+ expect(historicalDateConflicts(messages,answer)).toMatchObject([{reportedDate:'2026-11-03',calendarDate:'2026-11-04',sourcePath:path}]);
+ expect(historicalDateConflicts(messages,answer.replace('2026-11-03','2026-11-04'))).toEqual([]);
+ expect(historicalDateConflicts(messages,heading+'\n  - 未经逐字引用的转述。')).toEqual([]);
+});

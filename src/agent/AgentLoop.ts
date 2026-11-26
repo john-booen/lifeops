@@ -906,11 +906,12 @@ export class AgentLoop {
     };
     state.textOnlyAnswerAttempted = true;
     let needsEvidenceFallback = false;
+    let currentPlanningContext = '';
     try {
       current();
       const memories = await readPersonalMemoryWithSources(store);
       current();
-      const currentPlanningContext = formatConfirmedPersonalMemoryContext(memories.records, input.message, 4000, 8);
+      currentPlanningContext = formatConfirmedPersonalMemoryContext(memories.records, input.message, 4000, 8);
       const finalMessages = historicalAnswerMessages(messages, {
         question: input.message, currentPlanningContext, asOf: input.now.toISOString()
       });
@@ -950,7 +951,7 @@ export class AgentLoop {
       // A failed local recheck may omit numbers, but cancellation or changed
       // sources must still discard the whole reply rather than leak old facts.
       current();
-      state.text = [stats, historicalEvidenceFallback(messages)].filter(Boolean).join("\n\n");
+      state.text = [stats, historicalEvidenceFallback(messages,{question:input.message,currentPlanningContext})].filter(Boolean).join("\n\n");
     }
     state.firstTokenMs ??= performance.now() - state.started;
     input.onText?.(state.text);

@@ -109,3 +109,19 @@ it('states only the actual current-turn summary ranges beside the final interpre
   const question='接着这两周给一条建议。',messages:ChatMessage[]=[{role:'user',content:'旧问题'},{role:'assistant',content:'旧答案',tool_calls:[{id:'old-scope',type:'function',function:{name:'get_summaries',arguments:'{}'}}]},{role:'tool',tool_call_id:'old-scope',content:JSON.stringify({range:{from:'2039-01-01',to:'2039-01-14'}})},{role:'user',content:question},{role:'assistant',content:'中途猜测本周',tool_calls:[{id:'fresh-scope',type:'function',function:{name:'get_summaries',arguments:'{}'}}]},{role:'tool',tool_call_id:'fresh-scope',content:JSON.stringify({range:{from:'2026-10-26',to:'2026-11-08'},originalEvidence:{query:'纸样'}})}];
   const result=historicalAnswerMessages(messages,{question});const scope=result.find(m=>m.content.startsWith('本轮已核对的历史查询范围'))!;expect(scope).toBeDefined();expect(scope.content).toContain('2026-10-26');expect(scope.content).toContain('2026-11-08');expect(scope.content).toContain('纸样');expect(scope.content).not.toContain('2039');expect(JSON.stringify(result)).not.toContain('中途猜测');
 });
+
+it('keeps fallback reads and permitted dates scoped to the latest identical question',async()=>{
+ const {unreadHistoricalDates}=await import('../src/agent/historicalAnswer');
+ const question='回顾这两周的原文',read=(id:string,date:string,text:string):ChatMessage[]=>[
+  {role:'assistant',content:'',tool_calls:[{id,type:'function',function:{name:'get_summaries',arguments:'{}'}}]},
+  {role:'tool',tool_call_id:id,content:JSON.stringify({range:{from:date,to:date},summaries:[],originalEvidence:{notes:[{date,path:`Journal/${date}.md`,text}]}})}
+ ];
+ const messages:ChatMessage[]=[{role:'user',content:question},...read('old','2026-10-21','虚构上轮已失效的内容'),
+  {role:'user',content:question},...read('new','2026-11-04','虚构本轮核对的内容')];
+ const answer=historicalEvidenceFallback(messages,{question,currentPlanningContext:'当前只在周三19:30可用，先用25分钟整理。'});
+ expect(answer).toContain('虚构本轮核对的内容');expect(answer).not.toContain('虚构上轮已失效的内容');
+ expect(answer).toContain('样本有限');expect(answer).toContain('19:30');expect(answer).toContain('25分钟');expect(answer).toContain('不代表历史发生时刻');
+ expect(unreadHistoricalDates(messages,'2026-10-21 整理纸样。',question)).toEqual(['2026-10-21']);
+ expect(unreadHistoricalDates(messages,'2026-11-04 整理纸样。',question)).toEqual([]);
+ expect(historicalEvidenceFallback(messages,{question})).not.toContain('19:30');
+});

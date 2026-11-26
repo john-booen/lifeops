@@ -2,22 +2,21 @@ import type { ChatMessage } from "../ai";
 import { textOnlyEvidenceMessages } from "./toolProtocol";
 import {futureCalendarReference,NEXT_STEP_HEADING} from './futureCalendar';
 
+interface HistoricalAnswerContext {question?:string;currentPlanningContext?:string;asOf?:string}
+function currentTurnEvidence(messages:ChatMessage[],question?:string):ChatMessage[]{
+  if(question)for(let index=messages.length-1;index>=0;index--)
+    if(messages[index].role==='user'&&messages[index].content===question)return messages.slice(index);
+  return messages;
+}
+
 /** Rebuild from the request and actual reads, without the unverified draft. */
-export function historicalAnswerMessages(messages: ChatMessage[], context: {
-  question?: string;
-  currentPlanningContext?: string;
-  asOf?: string;
-} = {}): ChatMessage[] {
+export function historicalAnswerMessages(messages: ChatMessage[], context: HistoricalAnswerContext = {}): ChatMessage[] {
   // Preserve call identities for the checked tool readback, but never promote
   // an assistant's pre-read guesses or earlier interpretation into evidence.
-  let start = 0;
-  if (context.question) for (let index = messages.length - 1; index >= 0; index--) {
-    if (messages[index].role === "user" && messages[index].content === context.question) { start = index; break; }
-  }
   // The resident system context mixes present-day facts with historical material.
   // A final historical answer receives only this turn's request/readbacks;
   // freshly checked present-day memory is a separate, explicitly scoped input.
-  const checked = messages.slice(Math.max(0, start)).filter(message => message.role !== "system")
+  const checked = currentTurnEvidence(messages,context.question).filter(message => message.role !== "system")
     .map(message => message.role === "assistant" ? { ...message, content: "" } : message);
   const calls=new Map(checked.flatMap(message=>message.tool_calls??[]).map(call=>[call.id,call.function.name]));
   const ranges=new Map<string,unknown>();
@@ -83,13 +82,14 @@ export function dailyJournalEvidence(messages:ChatMessage[]):string {
  * suggestions have their own explicit section and are not history evidence. */
 export function unreadHistoricalDates(messages:ChatMessage[],answer:string,question='',asOf=''):string[] {
   const dates=(text:string)=>text.match(/\b\d{4}-\d{2}-\d{2}(?!\d)/gu)??[];
-  const allowed=new Set(dates([question,asOf,...messages.filter(m=>m.role==='tool').map(m=>m.content)].join('\n')));
+  const allowed=new Set(dates([question,asOf,...currentTurnEvidence(messages,question).filter(m=>m.role==='tool').map(m=>m.content)].join('\n')));
   const historical=answer.split(NEXT_STEP_HEADING)[0];
   return [...new Set(dates(historical).filter(date=>!allowed.has(date)))];
 }
 
 /** An unavailable interpretation must not resurrect a rejected model draft. */
-export function historicalEvidenceFallback(messages: ChatMessage[]): string {
+export function historicalEvidenceFallback(messages: ChatMessage[],context:HistoricalAnswerContext={}): string {
+  messages=currentTurnEvidence(messages,context.question);
   const ids = new Set(messages.flatMap(message => message.tool_calls ?? [])
     .filter(call => call.function.name === "get_summaries").map(call => call.id));
   const journalIds = new Set(messages.flatMap(message => message.tool_calls ?? []).filter(call => {
@@ -139,5 +139,7 @@ export function historicalEvidenceFallback(messages: ChatMessage[]): string {
       }
     } catch { /* A malformed tool result cannot become historical evidence. */ }
   }
-  return ["历史分析未完成，暂不作原因或整周表现的判断。以下仅保留本轮已读取的来源与片段；没登记或没找到日记都不等于没做。", ...pieces].join("\n\n");
+  return ["历史分析未完成，暂不作原因或整周表现的判断。以下仅保留本轮已读取的来源与片段；没登记或没找到日记都不等于没做。已读样本有限，不能据此断言整周表现或因果。", ...pieces,
+    context.currentPlanningContext?.trim() ? '下一步（当前已确认约束）\n以下资料刚在本轮重新核对，仅供后续安排参考；不代表历史发生时刻，也没有创建任务或生成新安排。\n> '+literal(context.currentPlanningContext) : ''
+  ].filter(Boolean).join("\n\n");
 }

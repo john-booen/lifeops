@@ -32,8 +32,8 @@ export function historicalDateConflicts(messages:ChatMessage[],answer:string,que
   let dateCell='',narrative=false;const trimmed=line.trim();
   if(!trimmed.startsWith('|')){
    dateColumn=-1;
-   if(/^(?:#{1,6}\s+|\*\*)/u.test(trimmed)){
-    const label=trimmed.replace(/^#{1,6}\s+/u,'').replace(/^\*\*|\*\*$/gu,'');
+   if(/^(?:#{1,6}\s+|(?:[-*+]\s+)?\*\*)/u.test(trimmed)){
+    const label=trimmed.replace(/^#{1,6}\s+/u,'').replace(/^[-*+]\s+(?=\*\*)/u,'').replace(/^\*\*|\*\*$/gu,'');
     const date=/^(\d{4}-\d{2}-\d{2})(?:\s*[（(][^()（）\n]{1,12}[）)])?$/u.exec(label)?.[1];
     sectionDate=date&&normalizeJournalDate(date)===date?date:undefined;continue;
    }
