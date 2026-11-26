@@ -32,6 +32,7 @@ import { formatConfirmedPersonalMemoryContext } from "../personalMemoryContext";
 import {selectPersonalMemories} from '../personalMemory';
 import {originalMemoryReply} from './originalMemoryReply';
 import {recoverHistoricalRead} from './historicalReadRecovery';
+import type {SummaryQueryScope} from './summaryQueryScope';
 import { expandMixedTaskBatch } from "./mixedTaskBatch";
 import { requestedSummaryTopics,requestedTaskTopics } from "./summaryTopicQuery";
 import { requestedSummaryDates } from "./summaryDateRange";
@@ -97,6 +98,7 @@ export interface AgentLoopHost {
   offlineFallback: (input: AgentTurnInput) => Promise<AgentResponse | null>;
   onContext?: (context: ResidentContext) => void;
   assertReadOnlyReplyCurrent?: () => void;
+  onRecoveredSummaryScopes?: (scopes:readonly SummaryQueryScope[]) => void;
 }
 
 interface TurnState {
@@ -675,8 +677,8 @@ export class AgentLoop {
           &&['response_incomplete','network','timeout','rate_limit'].includes(state.errorCode)
           &&state.toolCalls.every(call=>call.ok&&(isBackgroundReadTool(call.name)||call.name===LOAD_TOOLS.name))){
           const current=()=>{assertProviderActive(input.signal);assertPolicy();this.host.assertReadOnlyReplyCurrent!();};
-          const reply=await recoverHistoricalRead(this.host.store,state.historicalRecoveryCalls,input.message,input.now,current,input.signal).catch(()=>undefined);
-          current();if(reply){state.text=reply;input.onText?.(state.text);return this.result(state);}
+          const recovered=await recoverHistoricalRead(this.host.store,state.historicalRecoveryCalls,input.message,input.now,current,input.signal).catch(()=>undefined);
+          current();if(recovered){this.host.onRecoveredSummaryScopes?.(recovered.scopes);state.text=recovered.text;input.onText?.(state.text);return this.result(state);}
         }
         if (input.source === "text" && !input.voiceBackground && this.host.assertReadOnlyReplyCurrent
           && ["response_incomplete", "network", "timeout", "rate_limit"].includes(state.errorCode)

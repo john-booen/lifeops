@@ -213,3 +213,25 @@ it('never replays an already committed task to recover historical text after a m
  const result=await plugin.submitAgentMessageStream('新增虚构只保存一次的纸袋任务，接着这两周的回顾。',history,()=>{},{source:'text',selfTest:true});
  expect((await store.readTaskDb()).tasks.filter(task=>task.title==='虚构只保存一次的纸袋任务')).toHaveLength(1);expect(result.receipts).toHaveLength(1);expect(result.reply).not.toContain('重新核对的资料');
 });
+
+it('keeps only owned dates after recovery so the next follow-up rereads edited originals',async()=>{
+ const{history}=await checkedPair(),error=await historicalInterruption();
+ const question='继续这两周的归档回顾。';
+ const model=vi.spyOn(LifeOpsAi.prototype,'agentTurnStream').mockRejectedValue(error);
+ const recovered=await plugin.submitAgentMessageStream(question,history,()=>{},{source:'text',selfTest:true});
+ const user:AgentConversationMessage={role:'user',content:question},assistant:AgentConversationMessage={role:'assistant',content:recovered.reply};
+ // The UI can retain just the final pair after clipping older conversation.
+ bindAgentHistoryResponse(recovered,user,assistant);history.splice(0,history.length,user,assistant);
+ const context=historicalQueryHistoryContext(history,store);
+ expect(context).toContain(range.from);expect(context).toContain(range.to);
+ expect(context).not.toContain('完成12张');
+ const note=vault.getMarkdownFiles().find(file=>file.path.endsWith('2026-10-28晚.md'))!;
+ await vault.modify(note,(await vault.read(note)).replaceAll('完成12张','完成17张'));
+ const paths=[store.taskDbPath(),store.personalMemoryPath()];const before=await Promise.all(paths.map(path=>store.readPath(path)));
+ model.mockRejectedValue(await historicalInterruption());
+ const next=await plugin.submitAgentMessageStream('接着刚才这两周继续，不修改任务。',history,()=>{},{source:'text',selfTest:true});
+ expect(next.reply).toContain('完成17张');expect(next.reply).toContain('2026\\-11\\-04');
+ expect(next.actions).toEqual([]);expect(next.receipts??[]).toEqual([]);expect(model).toHaveBeenCalledTimes(2);
+ expect(await Promise.all(paths.map(path=>store.readPath(path)))).toEqual(before);
+ const copied=history.map(({role,content})=>({role,content}));expect(historicalQueryHistoryContext(copied,store)).toBe('');
+});

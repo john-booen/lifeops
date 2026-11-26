@@ -9,11 +9,12 @@ import {readPersonalMemoryWithSources} from '../personalMemorySources';
 import {createPersonalMemoryContextFilter,personalMemoryContextRevision} from '../personalMemoryContext';
 import {selectPersonalMemories} from '../personalMemory';
 import {historicalOriginalExcerpts} from './historicalAnswer';
+import {captureSummaryQueryScope,type SummaryQueryScope} from './summaryQueryScope';
 
 /** Host-owned date selections only. Provider failure grants no write or model
  * retry authority; reread permitted sources rather than reuse old prose. */
 export async function recoverHistoricalRead(store:StoreHost,calls:readonly AiToolCall[],question:string,now:Date,
-  assertCurrent:()=>void,signal?:AbortSignal):Promise<string|undefined>{
+  assertCurrent:()=>void,signal?:AbortSignal):Promise<{text:string;scopes:SummaryQueryScope[]}|undefined>{
   if(!calls.length||calls.length>2||calls.some(call=>call.name!=='get_summaries'))return;
   const settings=recordRevision(store.settings),reads:VaultQueryRead[]=[];
   const current=()=>{assertProviderActive(signal);assertCurrent();if(recordRevision(store.settings)!==settings)throw Error('查询设置已变化。');};
@@ -48,6 +49,9 @@ export async function recoverHistoricalRead(store:StoreHost,calls:readonly AiToo
       ...coverage,evidence||'这次没有取得可引用的本人原文片段；不能据此判断没有行动。',
       ...(notes.length?['后续安排参考（当前已确认记录，不代表历史发生时刻）：',...notes.map(note=>'> '+literal(note))]:[])
     ].join('\n\n');
-    current();return createPersonalMemoryContextFilter(latest.records)(reply)===reply?reply:undefined;
+    current();if(createPersonalMemoryContextFilter(latest.records)(reply)!==reply)return;
+    const scopes=reads.map(read=>captureSummaryQueryScope(store,read));
+    if(scopes.some(scope=>!scope))return;
+    return{text:reply,scopes:scopes as SummaryQueryScope[]};
   }finally{for(const read of reads)read.dispose();}
 }

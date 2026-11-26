@@ -42,6 +42,7 @@ export async function runAgentTurn(this: AgentTurnHost, message: string, history
   const queryScopes: SummaryQueryScope[] = [];
   const loop = new AgentLoop({
     settings, store,
+    onRecoveredSummaryScopes: scopes => {queryScopes.push(...scopes);},
     assertReadOnlyReplyCurrent: () => {
       assertProviderActive(request.signal);
       if (this.unloaded || (this.store as unknown as StoreHost) !== store
