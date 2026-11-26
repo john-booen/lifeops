@@ -30,6 +30,12 @@ it("plans all five without a history limit, after now, and with 10 minute buffer
   expect(plan.notes.join()).toContain("无法据此判断能力上限");
   expect((await store.readTaskDb()).tasks).toEqual([]);
 });
+it.each(['today','TODAY',' 今天 '])('keeps all five tasks on the turn date when the provider date is %s',async value=>{
+  const plan=await planTaskBatch(store,call({date:value}),now);
+  expect(plan.calls).toHaveLength(5);expect(plan.calls.every(row=>row.arguments.date===date)).toBe(true);
+  expect((await store.readTaskDb({readOnly:true})).tasks).toEqual([]);
+});
+
 it("does not turn measured zero historical completions into a one-task hard cap", async () => {
   await store.createTask({ title: "虚构历史未完成", date: addDays(date, -2) });
   const plan = await planTaskBatch(store, call(), now);

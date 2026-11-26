@@ -56,6 +56,10 @@ describe("Chinese calendar dates", () => {
     expect(normalizeJournalDate(input, base)).toBe(expected);
   });
 
+  it.each([['today','2026-12-31'],[' Tomorrow ','2027-01-01'],['yesterday','2026-12-30'],['TODAY','2026-12-31'],['today tomorrow',''],['sometoday',''],['today at 10','']])('normalizes the whole provider date argument %s against the same local base', (value,expected)=>{
+    expect(normalizeJournalDate(value,'2026-12-31')).toBe(expected);
+  });
+
   it("resolves both statistics boundaries and rejects invalid or reversed ranges", () => {
     const now = new Date(2026, 10, 12, 12);
     expect(resolveStatsRange({ from: "这周一", to: "月底" }, now)).toEqual({ from: "2026-11-09", to: "2026-11-30" });

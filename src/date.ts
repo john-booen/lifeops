@@ -7,6 +7,8 @@ const relativeDays: Readonly<Record<string, number>> = {
   昨天: -1, 昨日: -1, 昨晚: -1, 昨夜: -1, 昨早: -1,
   前天: -2, 大前天: -3, 明天: 1, 明日: 1, 明早: 1, 明晚: 1, 后天: 2, 大后天: 3
 };
+// Provider argument aliases, not additional natural-language intent routing.
+const toolRelativeDays:Readonly<Record<string,number>>={today:0,tomorrow:1,yesterday:-1};
 const weekdays = "一二三四五六日";
 const digits = "〇一二三四五六七八九";
 const dayNumberPattern = "[0-9０-９一二三四五六七八九十]{1,3}";
@@ -46,6 +48,7 @@ export function normalizeJournalDate(value: string, baseDate = todayString()): s
   if (validLocalDay(text)) return text;
   if (!validLocalDay(baseDate)) return "";
   if (Object.hasOwn(relativeDays, text)) return addDays(baseDate, relativeDays[text]);
+  if (Object.hasOwn(toolRelativeDays,text.toLowerCase())) return addDays(baseDate,toolRelativeDays[text.toLowerCase()]);
   const week = weekDay.exec(text);
   if (week) {
     const day = week[2] === "天" ? 6 : /^\d$/.test(week[2]) ? Number(week[2]) - 1 : weekdays.indexOf(week[2]);
