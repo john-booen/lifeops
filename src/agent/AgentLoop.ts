@@ -677,7 +677,8 @@ export class AgentLoop {
           &&['response_incomplete','network','timeout','rate_limit'].includes(state.errorCode)
           &&state.toolCalls.every(call=>call.ok&&(isBackgroundReadTool(call.name)||call.name===LOAD_TOOLS.name))){
           const current=()=>{assertProviderActive(input.signal);assertPolicy();this.host.assertReadOnlyReplyCurrent!();};
-          const recovered=await recoverHistoricalRead(this.host.store,state.historicalRecoveryCalls,input.message,input.now,current,input.signal).catch(()=>undefined);
+          const stats=[...state.statsReads?.values()??[]].filter(read=>['tasks','trades','habits'].includes(String(read.arguments.domain)));
+          const recovered=await recoverHistoricalRead(this.host.store,state.historicalRecoveryCalls,input.message,input.now,current,input.signal,stats).catch(()=>undefined);
           current();if(recovered){this.host.onRecoveredSummaryScopes?.(recovered.scopes);state.text=recovered.text;input.onText?.(state.text);return this.result(state);}
         }
         if (input.source === "text" && !input.voiceBackground && this.host.assertReadOnlyReplyCurrent

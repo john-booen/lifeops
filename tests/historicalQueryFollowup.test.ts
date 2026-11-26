@@ -235,3 +235,64 @@ it('keeps only owned dates after recovery so the next follow-up rereads edited o
  expect(await Promise.all(paths.map(path=>store.readPath(path)))).toEqual(before);
  const copied=history.map(({role,content})=>({role,content}));expect(historicalQueryHistoryContext(copied,store)).toBe('');
 });
+
+it('keeps freshly recomputed task counts alongside original notes when a follow-up model stops after its statistics read',async()=>{
+ const one=await store.createTask({title:'虚构第一周纸袋',date:'2026-10-28'});
+ await store.updateTask(one.id,row=>({...row,status:'completed',completedAt:'2026-10-28T20:00:00+08:00'}));
+ const two=await store.createTask({title:'虚构第二周纸盒',date:'2026-11-04'});
+ const{history}=await checkedPair(),error=await historicalInterruption();let turns=0;
+ const paths=[store.taskDbPath(),store.taskMirrorPath(),store.personalMemoryPath(),store.path(store.settings.folders.aiReports,'Operations','operation-ledger.json')];let afterEdit:string[]=[];
+ vi.spyOn(LifeOpsAi.prototype,'agentTurnStream').mockImplementation(async()=>{
+  if(++turns===1)return{content:'',toolCalls:[{id:'fictional-history-and-task-counts',name:'get_stats',arguments:{domain:'tasks',range}}]};
+  // Another legitimate local edit finished after the model's statistics read.
+  await store.updateTask(two.id,row=>({...row,status:'completed',completedAt:'2026-11-04T20:00:00+08:00'}));afterEdit=await Promise.all(paths.map(path=>store.readPath(path)));throw error;
+ });
+ const result=await plugin.submitAgentMessageStream('接着这两周的归档回顾，保留任务完成数，不修改任务。',history,()=>{},{source:'text',selfTest:true});
+ expect(result.reply).toContain('完成12张');expect(result.reply).toContain('计划 2 项，计划内完成 2 项');
+ expect(result.reply).toContain('计划完成率 100%');expect(result.reply).not.toContain('计划完成率 50%');
+ expect(result.reply).toContain('未登记情况未知');expect(result.actions).toEqual([]);expect(result.receipts??[]).toEqual([]);expect(turns).toBe(2);
+ expect((await store.readTaskDb()).tasks).toHaveLength(2);
+ expect(await Promise.all(paths.map(path=>store.readPath(path)))).toEqual(afterEdit);
+});
+
+it('withholds unstable counts while keeping freshly read originals during interrupted historical recovery',async()=>{
+ const one=await store.createTask({title:'虚构已完成纸袋',date:'2026-10-28'});
+ await store.updateTask(one.id,row=>({...row,status:'completed',completedAt:'2026-10-28T20:00:00+08:00'}));
+ const two=await store.createTask({title:'虚构同步更新纸盒',date:'2026-11-04'});
+ const{history}=await checkedPair(),error=await historicalInterruption();let turns=0,armed=false,changed='';
+ const read=vault.read.bind(vault);vi.spyOn(vault,'read').mockImplementation(async file=>{
+  const text=await read(file);
+  if(armed&&file.path.endsWith('2026-10-28晚.md')){
+   armed=false;await store.updateTask(two.id,row=>({...row,status:'completed',completedAt:'2026-11-04T20:00:00+08:00'}));changed=await store.readPath(store.taskDbPath());
+  }return text;
+ });
+ vi.spyOn(LifeOpsAi.prototype,'agentTurnStream').mockImplementation(async()=>{
+  if(++turns===1)return{content:'',toolCalls:[{id:'fictional-history-stats-race',name:'get_stats',arguments:{domain:'tasks',range}}]};armed=true;throw error;
+ });
+ const result=await plugin.submitAgentMessageStream('接着这两周回顾原文和任务完成数，不修改任务。',history,()=>{},{source:'text',selfTest:true});
+ expect(changed).not.toBe('');expect(result.reply).toContain('完成12张');expect(result.reply).toContain('登记统计尚未稳定核对完成');
+ expect(result.reply).not.toContain('计划完成率');expect(result.actions).toEqual([]);expect(result.receipts??[]).toEqual([]);expect(turns).toBe(2);
+ expect(await store.readPath(store.taskDbPath())).toBe(changed);
+});
+
+it('retains checked habit samples and separate-currency trade counts with the recovered historical notes',async()=>{
+ const selected={from:'2026-11-02',to:'2026-11-08'};
+ const habit=await store.createHabit({name:'虚构纸样整理',frequencyUnit:'week',frequencyInterval:1,targetCount:4,startDate:selected.from});
+ await store.recordHabitStatus(habit.id,'done',selected.from);
+ const runtime=new AgentRuntime({store,refreshViews:async()=>{}});
+ const saved=await runtime.executeAiToolCall({id:'fictional-history-currencies',name:'record_trade',arguments:{trades:[
+  {market:'A股',symbol:'FICT-CNY',direction:'long',openedAt:'2026-11-04',pnl:120},
+  {market:'美股',symbol:'FICT-USD',direction:'long',openedAt:'2026-11-05',pnl:-30},
+  {market:'美股',symbol:'FICT-UNKNOWN',direction:'long',openedAt:'2026-11-06'}
+ ]}},'kimi');expect(saved.success,saved.output).toBe(true);
+ const{tradeDatabasePath}=await import('../src/features/trading/persistence');
+ const paths=[store.habitDbPath(),tradeDatabasePath(store.settings.folders),store.taskDbPath()];const before=await Promise.all(paths.map(path=>store.readPath(path)));
+ const{history}=await checkedPair(),error=await historicalInterruption();let turns=0;
+ vi.spyOn(LifeOpsAi.prototype,'agentTurnStream').mockImplementation(async()=>{
+  if(++turns===1)return{content:'',toolCalls:['habits','trades'].map(domain=>({id:'fictional-history-'+domain,name:'get_stats',arguments:{domain,range}}))};throw error;
+ });
+ const result=await plugin.submitAgentMessageStream('接着这两周原文回顾，也保留习惯与交易登记，不创建任务。',history,()=>{},{source:'text',selfTest:true});
+ for(const value of ['完成12张','虚构纸样整理','25%','120 元','-30 美元','另 1 笔盈亏未知'])expect(result.reply).toContain(value);
+ expect(result.reply).not.toContain('净盈亏 90');expect(result.actions).toEqual([]);expect(result.receipts??[]).toEqual([]);expect(turns).toBe(2);
+ expect(await Promise.all(paths.map(path=>store.readPath(path)))).toEqual(before);
+});
