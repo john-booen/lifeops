@@ -833,8 +833,8 @@ export class AgentLoop {
     }
     if (tools.some(tool => tool.name === "get_stats")) {
       guidance.push("整句只询问指标含义，例如怎么算、什么口径或是否实测工时，才用get_stats(domain=tasks,directReply=task_meaning)读回定义。问实际完成数或完成率只查数，不返回口径说明；同句还有其他查询、建议、修改或确认卡时省略task_meaning并继续完成整句。");
-      guidance.push("评价或批评这周表现，先用 get_stats(domain=habits,range=this_week) 查达标次数和漏做日期。");
-      guidance.push("单独查询任务完成数用get_stats(domain=tasks)和所问范围，含已结束周/月及追问纠正；只问数量设directReply=completed_tasks，只问任务完成概况设task_summary。分组、任务多区间对照、建议或写入省略这两项并继续。跨周/月同时比较任务、交易等多个领域属于整体对照，按各期间先读get_summaries，缺项再补同范围get_stats；不能拿单个领域代替整份对照。只查任务数字仍以统计为准。");
+      guidance.push("习惯表现按用户所问范围用get_stats(domain=habits)查达标次数和漏做日期；本周才填this_week，不能覆盖上周等明确范围。整周回顾先读同范围摘要，再补缺项统计。");
+      guidance.push("单独查询任务完成数用get_stats(domain=tasks)和所问范围，含已结束周/月及追问纠正；只问数量设directReply=completed_tasks，只问任务完成概况设task_summary。分组、任务多区间对照、建议或写入省略这两项并继续。周/月整体回顾（例如做得怎么样并给改进）以及跨期多领域对照，均先按所问期间读get_summaries，缺项再补同范围get_stats；不以单个领域代替整份回顾。只查任务数字仍以统计为准。给改进只列一条有依据的「下一步」，不追加创建或调整邀请；本人另有修改要求才继续执行。");
       guidance.push("设备睡眠时长、步数、体重等用 get_stats(domain=health)。整句只问设备睡眠天数/小时，设directReply=device_sleep，只报设备记录，不补日记。日记里的主观睡眠、情绪或精力用 get_stats(domain=journal)。只问睡得怎么样时先查同一时段的健康记录，按需要补充日记感受并标明来源。最近三天用 range=last_3d。要找情绪原因、原话或具体事件时，用query_vault查询并读取同一范围的日记正文，不能用数字或摘要代替核对。");
     }
     if (evidenceCalls.length) {

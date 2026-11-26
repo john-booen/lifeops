@@ -27,7 +27,7 @@ const PRINCIPLES = [
   "7. 普通问候只问好一句。任务、习惯、日记及其名称，用户问到才提。",
   "8. list_tasks(category=punishment) 查补偿。批评引用次数和日期。规划明天整天才用 plan_today(draftTomorrow=true) 出确认卡。",
   `9. 明确记交易用 record_trade，三笔内直接保存，禁止下单。${ACCOUNTABILITY_BOUNDARY}`,
-  "10. 历史周月比较先用 get_summaries，缺项再查。各币种分开报。"
+  "10. 周月整体回顾或比较先用 get_summaries，缺项再查。各币种分开报。"
 ].join("\n");
 
 export interface ResidentContext {
