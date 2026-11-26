@@ -821,7 +821,7 @@ export class AgentLoop {
     if (tools.some(tool => tool.name === "get_stats")) {
       guidance.push("整句只询问指标含义，例如怎么算、什么口径或是否实测工时，才用get_stats(domain=tasks,directReply=task_meaning)读回定义。问实际完成数或完成率只查数，不返回口径说明；同句还有其他查询、建议、修改或确认卡时省略task_meaning并继续完成整句。");
       guidance.push("评价或批评这周表现，先用 get_stats(domain=habits,range=this_week) 查达标次数和漏做日期。");
-      guidance.push("完成任务数用get_stats(domain=tasks)和所问范围，含已结束周/月及追问纠正；整句只问数量时设directReply=completed_tasks，只问完成情况概况时设directReply=task_summary，直接读回登记数字，不附未问的间隔、原因判断或继续追问。分组、多区间对照、同句有建议或写入时省略这两个选项并继续。历史事件、原因或复盘用get_summaries核对原文，不能用摘要代替任务统计。");
+      guidance.push("单独查询任务完成数用get_stats(domain=tasks)和所问范围，含已结束周/月及追问纠正；只问数量设directReply=completed_tasks，只问任务完成概况设task_summary。分组、任务多区间对照、建议或写入省略这两项并继续。跨周/月同时比较任务、交易等多个领域属于整体对照，按各期间先读get_summaries，缺项再补同范围get_stats；不能拿单个领域代替整份对照。只查任务数字仍以统计为准。");
       guidance.push("设备睡眠时长、步数、体重等用 get_stats(domain=health)。整句只问设备睡眠天数/小时，设directReply=device_sleep，只报设备记录，不补日记。日记里的主观睡眠、情绪或精力用 get_stats(domain=journal)。只问睡得怎么样时先查同一时段的健康记录，按需要补充日记感受并标明来源。最近三天用 range=last_3d。要找情绪原因、原话或具体事件时，用query_vault查询并读取同一范围的日记正文，不能用数字或摘要代替核对。");
     }
     if (evidenceCalls.length) {
@@ -849,7 +849,7 @@ export class AgentLoop {
     }
     if (input.voiceBackground) guidance.push("这是只读的后台分析。核对所需资料后直接回答原问题，避免添加无关建议。");
     if (tools.some(tool => tool.name === "get_summaries")) {
-      guidance.push("问上周、上月的整体表现或复盘，先用 get_summaries，分别传 level=week 和 range=last_week，或 level=month 和 range=last_month。包括问做得怎么样或要一条改进。只问完成数、完成率或计划数，包括已结束时段及追问纠正，用get_stats，不以摘要代替统计。");
+      guidance.push("周月整体表现、复盘或跨期间多领域比较，先用get_summaries，按所问期间分别给level与range，保留每份through；缺项补同范围统计或原文，不推算未结束的整月。单独任务完成数、完成率、计划数用get_stats，不用摘要替代。当前日记、待办或继续安排只有用户要求时才补，不混入纯跨期对照。");
       guidance.push("围绕某个目标或习惯找跨周规律时，get_summaries传所问日期范围、includeOriginals=true和该主题的连续关键词query，读取定位原文；不能只用日记开头的无关片段。");
       guidance.push("query的多个词必须同时命中，只传所查活动主题；不要把登记指标、被质疑的结论或处置建议混入主题条件。活动主题不确定就省略query，读取所问范围内的原文核对，不把未命中当成没发生。");
     }
