@@ -1,17 +1,23 @@
 # 版本记录
 
-## 0.5.133
+## 0.5.134
 
-- Anchor next-week advice to the current calendar and reject inconsistent weekday/date pairs before publishing an interpretation.
+- 新增任务草案与已有任务更名共用一张确认卡，查询和规划阶段不提前改旧任务；确认后在同一事务保存，失败整批回滚，重复确认不重复写入，可一次撤销整批。
+- 跨周回答核对列表日期分组中的原文时间；分析失败仍保留本轮来源、样本限制和当前已确认的后续安排约束，不借旧轮记录补事实。
 
-- Recheck uniquely sourced literal event quotations under date headings as well as date tables, preserving explicit plan dates and year boundaries.
+- 后续建议中的“下周”以本轮当前日期计算，星期与绝对日期矛盾时先核对再显示。
 
-- Accept a bounded JSON representation of an existing read-only date range, retaining the original date and permission checks; keep activity topics separate from registration and proposed changes, and quote verified original preferences without repeating rejected generated claims.
+- 日期标题与事件表统一核对可唯一定位的原文引用，保留计划日期、未完成身份与跨年日历。
 
-- Preserve the existing reminder-title form when keeping literal action words after a planned completion time.
+- 只读查询兼容有界的日期范围格式，沿用日期与权限校验；活动主题与打卡、拟议修改分开，记忆偏好引用已核对原文。
+
+- 保留明确完成时刻后的任务动作原文，并兼容现有提醒标题。
 
 - 明确完成时刻后创建任务时保留完整动作原话；同区间摘要补查不改写程序给出的统计口径，同周跨日完成仍计为周计划内。历史事件表校对没有具体时刻的相对日期，保留未完成计划的计划日期与未完成状态。
 - 整批新建遇到模型生成的字段格式错误时，保存前最多核对一次；任务标题、数量、顺序、日期、有效估时和独立截止冻结，不借格式纠正改变清单。
+
+## 0.5.133
+
 - 语音连续对话沿用文字聊天的最近十二条上下文，保留任务清单和被打断前的整组要求，避免短句改期时丢失原对象。
 - 修改、完成或删除已有任务前，核对原对话中的任务范围；后续查询到的无关任务不能自行进入修改。冲突时整份提议先停止，再按原要求核对。
 - 旧批量改期入口统一绑定准确编号、原任务版本和出卡时的绝对日期，一张卡确认；期间跨度保留，独立必须截止不随计划日期移动。
