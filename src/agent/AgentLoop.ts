@@ -436,11 +436,12 @@ export class AgentLoop {
         const availableTools = final ? [] : requiredTool === "query_vault" ? tools.filter(tool=>tool.name===requiredTool).map(memoryLookupTool) : requiredTool === "propose_task_plan" ? tools.filter(tool => tool.name === requiredTool) : remainingTools;
         const lookupResolution = !final && !requiredTool && !input.voiceBackground && !exactTitleEdits && !taskListAnswer
           && !state.receipts.size && !state.confirmations.size ? taskLookupResolution(messages, state.results, availableTools, formatDate(input.now), state.requestedTaskConfirmation) : undefined;
-        let response = await this.callModel(input, state, responseRole, messages, availableTools, final,
+        let response = lookupResolution?.force ? resolvedTaskLookup(await this.callModel(input,state,"main",
+          lookupResolution.messages,[lookupResolution.tool],false,false,lookupResolution.tool.name),lookupResolution) : await this.callModel(input, state, responseRole, messages, availableTools, final,
           requiredTool !== "propose_task_plan" && requiredTool !== "query_vault" && !state.taskContentCalls?.size && !exactTitleEdits && !taskListAnswer && !lookupResolution
           && !this.needsHistoricalAnswer(input, state)&&!attestedHistoricalReads.length&&!state.requestedTaskConfirmation, requiredTool, titlesSaved || required?.name === "propose_task_plan" && required.retry ? { reasoning: "disabled", finite: true } : {});
         assertPolicy();
-        if (!response.toolCalls.length && lookupResolution) response = resolvedTaskLookup(await this.callModel(input, state, "main",
+        if (!response.toolCalls.length && lookupResolution && !lookupResolution.force) response = resolvedTaskLookup(await this.callModel(input, state, "main",
           lookupResolution.messages, [lookupResolution.tool], false, false, lookupResolution.tool.name), lookupResolution);
         assertPolicy();
         if(contentTitleEdits)response={...response,toolCalls:bindTitleEditContent(response.toolCalls,contentTitleEdits)};
@@ -604,6 +605,7 @@ export class AgentLoop {
         }
         const single = calls.length === 1 && results[0]?.success ? results[0] : undefined;
         taskListAnswer = !input.voiceBackground && !state.requestedTaskConfirmation && single && call.name === "list_tasks" && call.arguments.category === undefined
+          && !(call.arguments.answerMode === "facts" && typeof call.arguments.query === "string" && call.arguments.query.trim())
           && call.arguments.directReply !== false && (["facts", "counts"].includes(String(call.arguments.answerMode)) || call.arguments.directReply === true
             || call.arguments.dueStatus === "overdue_and_today" || call.arguments.order === "priority" && Number.isInteger(call.arguments.limit))
           ? formatTaskListReply(single.output, formatDate(input.now)) : undefined;

@@ -236,13 +236,14 @@ it("reads the requested multi-day journal originals instead of spending rounds l
   expect(await store.readPath(store.taskDbPath())).toBe(before);
 });
 
-it.each(["facts", "continue"] as const)("honors the model-selected %s mode for a period lookup", async answerMode => {
+it.each(["facts", "continue"] as const)("rechecks named facts scope and preserves %s period lookup results", async answerMode => {
   await store.createTask({ title: "虚构水杉卡片归档", date: "2026-11-06", endDate: "2026-11-12", estimateMin: 600 });
   const before = await store.readPath(store.taskDbPath());
   responses.push(reply("", [tool("list_tasks", { query: "虚构水杉卡片归档", status: "all", answerMode })]));
   if(answerMode === "continue")responses.push(reply("虚构完整解释，保留后续请求。"));
+  else responses.push(reply("",[tool("resolve_task_lookup",{kind:"read_only",reply:"已核对所问的期间字段。"})]));
   const result = await new AgentLoop(host).run(input({ message: "查一下虚构水杉卡片归档的安排。这是这段日期内分次完成的任务，请告诉我是期间任务还是明天必须全部做完、计划哪天结束，有没有另设必须截止日期。不要修改或新建任何记录。" }));
-  expect(requests).toHaveLength(answerMode === "facts" ? 1 : 2);
+  expect(requests).toHaveLength(2);
   expect(result.usage.model).toBe("synthetic-model");
   if (answerMode === "facts") {
     expect(result.text).toContain("期间任务"); expect(result.text).toContain("计划完成：2026-11-12"); expect(result.text).toContain("必须截止：未另设");
@@ -250,6 +251,26 @@ it.each(["facts", "continue"] as const)("honors the model-selected %s mode for a
   expect(result.text).not.toMatch(/[？?]/u); expect(result.confirmations).toEqual([]); expect(result.receipts).toEqual([]);
   expect(await store.readPath(store.taskDbPath())).toBe(before);
 });
+it("continues a named single-task move despite an incorrect facts hint and preserves unrelated tasks",async()=>{
+  const row=await store.createTask({title:"虚构周报改期",date:"2026-11-12",startTime:"16:00",endTime:"16:30",dueDate:"2026-11-15"});
+  const other=await store.createTask({title:"虚构独立邮箱",date:"2026-11-12",time:"09:00"}),unchanged=await store.getTask(other.id);
+  responses.push(reply("",[tool("list_tasks",{query:row.title,answerMode:"facts"})]),
+    reply("",[tool("resolve_task_lookup",{kind:"prepare_updates",coversAllRequested:true,updates:[{taskIdOrTitle:row.id,date:"明天"}]} )]),reply("改期已保存。"));
+  const result=await new AgentLoop(host).run(input({message:`把「${row.title}」改到明天。`}));
+  expect(toolChoices[1]).toEqual({type:"function",function:{name:"resolve_task_lookup"}});
+  expect(result.receipts).toHaveLength(1);expect(result.confirmations).toEqual([]);
+  expect(await store.getTask(row.id)).toMatchObject({id:row.id,date:"2026-11-13",startTime:"16:00",endTime:"16:30",dueDate:"2026-11-15"});
+  expect(await store.getTask(other.id)).toEqual(unchanged);
+});
+
+it.each(["read_only","unclear"])("does not grant a named lookup write authority after semantic disposition %s",async kind=>{
+  const row=await store.createTask({title:"虚构只查原日期",date:"2026-11-12"}),before=await store.readPath(store.taskDbPath());
+  responses.push(reply("",[tool("list_tasks",{query:row.title,answerMode:"facts"})]),reply("",[tool("resolve_task_lookup",{kind,reply:"只回答当前记录。"})]));
+  const result=await new AgentLoop(host).run(input({message:`只查「${row.title}」原日期，取消修改，不要保存。`}));
+  expect(result.receipts).toEqual([]);expect(result.confirmations).toEqual([]);expect(await store.readPath(store.taskDbPath())).toBe(before);
+  expect(result.toolCalls).toEqual([{name:"list_tasks",ok:true}]);expect(result.text).toContain("2026-11-12");
+});
+
 it("does not let an early facts hint stop a requested four-task modification", async () => {
   const rows=[];for(let i=0;i<4;i++)rows.push(await store.createTask({title:`虚构整批事实${i}`,date:"2026-11-12",startTime:"16:00",endTime:"16:30"}));
   const before=await store.readPath(store.taskDbPath());
