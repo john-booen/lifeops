@@ -45,3 +45,21 @@ it('excludes earlier identical questions and refuses malformed or invalid source
  for(const notes of [[{date:'2026-11-31',path,text:quote}],[{date:'2026-11-05',path:4,text:quote}],[{date:'2026-11-05',path,text:null}]])expect(historicalDateConflicts(read(notes),table())).toEqual([]);
  const broken=read([]);broken[1].content='{';expect(historicalDateConflicts(broken,table())).toEqual([]);
 });
+it.each(['**2026-11-05（周四）**','## 2026-11-05'])('checks a uniquely sourced literal quote under a date heading: %s',heading=>{
+ const messages=read([{date:'2026-11-05',path,text:quote+'。'}]);
+ const answer=heading+'\n- 完成标记（原文“'+quote+'”，来自11-05早的笔记）。';
+ expect(historicalDateConflicts(messages,answer)).toMatchObject([{reportedDate:'2026-11-05',calendarDate:'2026-11-04',sourcePath:path}]);
+ expect(historicalDateConflicts(messages,answer.replaceAll('2026-11-05','2026-11-04'))).toEqual([]);
+});
+it('does not invent a narrative source identity, completion date or event-date section',()=>{
+ const plan='明天计划整理虚构纸样',messages=read([{date:'2026-11-05',path,text:plan+'，尚未完成。'}]);
+ expect(historicalDateConflicts(messages,'**2026-11-05**\n- 原文“'+plan+'”，指11-06，仅计划，尚未完成。')).toEqual([]);
+ expect(historicalDateConflicts(messages,'**笔记日期2026-11-05**\n- 原文“'+plan+'”。')).toEqual([]);
+ const ambiguous=read([{date:'2026-11-05',path,text:quote},{date:'2026-11-06',path:'Journal/2026-11-06早.md',text:quote}]);
+ expect(historicalDateConflicts(ambiguous,'**2026-11-05**\n- 原文“'+quote+'”。')).toEqual([]);
+});
+it('checks literal narrative dates across the year boundary without extending into advice',()=>{
+ const text='昨晚23:15整理虚构纸样',messages=read([{date:'2027-01-01',path:'Journal/2027-01-01早.md',text}]);
+ expect(historicalDateConflicts(messages,'# 2027-01-01\n- 原文“'+text+'”。')).toMatchObject([{calendarDate:'2026-12-31'}]);
+ expect(historicalDateConflicts(messages,'# 2026-12-31\n- 原文“'+text+'”。\n## 下一步（建议）\n- 可参考原文“'+text+'”。')).toEqual([]);
+});

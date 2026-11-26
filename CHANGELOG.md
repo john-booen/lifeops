@@ -2,6 +2,8 @@
 
 ## 0.5.133
 
+- Recheck uniquely sourced literal event quotations under date headings as well as date tables, preserving explicit plan dates and year boundaries.
+
 - Accept a bounded JSON representation of an existing read-only date range, retaining the original date and permission checks; keep activity topics separate from registration and proposed changes, and quote verified original preferences without repeating rejected generated claims.
 
 - Preserve the existing reminder-title form when keeping literal action words after a planned completion time.

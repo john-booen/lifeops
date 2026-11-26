@@ -3492,3 +3492,16 @@ it.each([false,true])('repairs an unsupported historical date once without repea
   responses.push(reply('',[tool('get_summaries',{level:'day',range:{from:'2026-11-02',to:'2026-11-08'},includeOriginals:true})]),reply('虚构未发布草稿'),reply('历史范围是2039-09-30。'),reply(fails?'又猜历史日期2039-10-01。':'已核对2026-11-02至2026-11-08的原文。'));
   const result=await new AgentLoop(host).run(input({message:'回顾2026-11-02至2026-11-08的虚构纸样原文，不修改。'}));expect(requests).toHaveLength(4);expect(catalogs.at(-1)).toEqual([]);expect(toolChoices.at(-1)).toBe('none');expect(result.toolCalls.filter(c=>c.name==='get_summaries')).toHaveLength(1);expect(result.text).not.toContain('2039');expect(result.receipts).toEqual([]);expect(result.confirmations).toEqual([]);if(fails)expect(result.text).toContain('暂不作原因');else expect(result.text).toContain('2026-11-02');
 });
+it.each([false,true])('rechecks a literal event under a wrong date heading once, preserving read-only fallback (%s)',async fails=>{
+  const quote='昨晚22:10完成虚构标记',wrong='## 2026-11-05\n- 原文“'+quote+'”。';
+  await store.appendDaily('2026-11-05','日记',quote+'。','早',quote+'。');
+  const before=await store.readPath(store.taskDbPath());
+  responses.push(reply('',[tool('get_summaries',{level:'day',range:{from:'2026-11-02',to:'2026-11-08'},includeOriginals:true})]),reply('虚构未发布草稿'),reply(wrong),reply(fails?wrong:wrong.replace('2026-11-05','2026-11-04')));
+  const result=await new AgentLoop(host).run(input({message:'按原始日记整理2026-11-02至2026-11-08的事件实际日期，不修改记录。'}));
+  expect(requests).toHaveLength(4);expect(catalogs.at(-1)).toEqual([]);expect(toolChoices.at(-1)).toBe('none');
+  expect(JSON.stringify(requests.at(-1))).toContain('2026-11-04');
+  expect(result.toolCalls.filter(call=>call.name==='get_summaries')).toHaveLength(1);
+  expect(result.text).not.toContain('## 2026-11-05');
+  if(fails)expect(result.text).toContain('暂不作原因');else expect(result.text).toContain('## 2026-11-04');
+  expect(result.receipts).toEqual([]);expect(result.confirmations).toEqual([]);expect(await store.readPath(store.taskDbPath())).toBe(before);
+});

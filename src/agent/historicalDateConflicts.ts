@@ -27,20 +27,39 @@ export function historicalDateConflicts(messages:ChatMessage[],answer:string,que
    }catch{/* A failed call cannot define source identity. */}
   }
  }
- const conflicts=new Map<string,HistoricalDateConflict>();let dateColumn=-1;
+ const conflicts=new Map<string,HistoricalDateConflict>();let dateColumn=-1,sectionDate:string|undefined;
  for(const line of answer.split('\n')){
-  if(!line.trim().startsWith('|')){dateColumn=-1;continue;}
-  const cells=line.trim().split('|').slice(1,-1).map(cell=>cell.trim());
-  const heading=cells.findIndex(cell=>/(?:事件.*日期|发生.*日期)/u.test(cell));if(heading>=0){dateColumn=heading;continue;}
-  if(dateColumn<0)continue;const dateCell=cells[dateColumn]??'';
+  let dateCell='',narrative=false;const trimmed=line.trim();
+  if(!trimmed.startsWith('|')){
+   dateColumn=-1;
+   if(/^(?:#{1,6}\s+|\*\*)/u.test(trimmed)){
+    const label=trimmed.replace(/^#{1,6}\s+/u,'').replace(/^\*\*|\*\*$/gu,'');
+    const date=/^(\d{4}-\d{2}-\d{2})(?:\s*[（(][^()（）\n]{1,12}[）)])?$/u.exec(label)?.[1];
+    sectionDate=date&&normalizeJournalDate(date)===date?date:undefined;continue;
+   }
+   if(!sectionDate||!/^\s*(?:[-*+]\s+|\d+[.)、]\s*)/u.test(line))continue;
+   dateCell=sectionDate;narrative=true;
+  }else{
+   const cells=trimmed.split('|').slice(1,-1).map(cell=>cell.trim());
+   const heading=cells.findIndex(cell=>/(?:事件.*日期|发生.*日期)/u.test(cell));if(heading>=0){dateColumn=heading;continue;}
+   if(dateColumn<0)continue;dateCell=cells[dateColumn]??'';
+  }
   const dates=dateCell.match(/\b(?:\d{4}-)?\d{2}-\d{2}\b|\d{1,2}月\d{1,2}[日号]/gu)??[];
   if(dates.length>1||/[至到→—~～]/u.test(dateCell.replace(dates[0]??'', '')))continue;
   for(const source of sources){
-   const name=source.path.split('/').at(-1)!.replace(/\.md$/iu,'');if(!line.includes(source.path)&&!line.includes(name))continue;
+   const name=source.path.split('/').at(-1)!.replace(/\.md$/iu,''),named=line.includes(source.path)||line.includes(name);
+   if(!narrative&&!named)continue;
    const calendar=noteCalendar(source.date);
    for(const match of source.text.matchAll(/(昨晚|昨天|今早|今天凌晨|今天|明天)(?:\s*\d{1,2}:\d{2})?[^，。；！？\n“”‘’"']{0,80}/gu)){
     const quote=match[0].trim(),calendarDate=calendar.relativeWords[match[1] as keyof typeof calendar.relativeWords];
     if(!line.includes(quote))continue;
+    if(narrative){
+     // Exact quotation bytes may identify one checked source even when a
+     // bullet abbreviates its filename. Ambiguous quotations supply no identity.
+     if(!named&&new Set(sources.filter(row=>row.text.includes(quote)).map(row=>row.path)).size!==1)continue;
+     const inlineDates=line.match(/\b(?:\d{4}-)?\d{2}-\d{2}\b|\d{1,2}月\d{1,2}[日号]/gu)??[];
+     if(inlineDates.some(token=>normalizeJournalDate(token.length===5&&token[2]==='-'?calendarDate.slice(0,5)+token:token,calendarDate)===calendarDate))continue;
+    }
     // A shorthand month/day still refers to a calendar date. A plan with no
     // completion date must keep its reference date separately from completion.
     const token=dates[0],reportedDate=token
