@@ -134,13 +134,14 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
   PROJECT_WORK_PLAN_TOOL,
   {
     name: "append_memory_note",
-    description: "保存稳定事实、计划或偏好，明确说记住时保留原话，可撤销。同时间不同事项分别保存。category仅是分类，保存到「关于我」个人记忆，不创建同名文件。不存引用、猜测、临时情绪或拒存内容；纠正用审查工具。",
+    description: "保存稳定事实、计划或偏好，明确说记住时保留原话，可撤销。同时间不同事项分别保存。用户指定记忆分类时按其指定，不因内容像偏好就改存画像。category仅是分类，保存到「关于我」个人记忆，不创建同名文件。不存引用、猜测、临时情绪或拒存内容；纠正用审查工具。",
     safety: "direct-write",
     parameters: {
       type: "object", additionalProperties: false,
       properties: {
         content: { type: "string" },
-        category: { type: "string", enum: Object.keys(memoryCategories), description: "枚举依次为画像、状态（默认）、目标、管家规则、交易纪律。" },
+        category: { type: "string", enum: Object.keys(memoryCategories), description: Object.entries(memoryCategories)
+          .map(([key,file])=>key+"="+file.replace(/\.md$/u,"")).join("；") + "。用户明确指定的分类优先于内容推测；未指定时按内容选择，省略默认state。" },
         explicit: { type: "boolean", description: "本轮用户直接要求记住才填 true，自动保存时省略。" }
       },
       required: ["content"]
