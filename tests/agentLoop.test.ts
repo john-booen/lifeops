@@ -484,6 +484,25 @@ it("keeps task interval numbers and their meaning before compact voice output is
   expect(evidence).toContain("不是实测工作工时");expect(evidence).toContain("只显示已查结果的前部");
   expect(result.receipts).toEqual([]);
 });
+
+it("keeps canonical metric definitions when a meaning lookup is accompanied by the same period's summary", async () => {
+  const task = await store.createTask({title: "虚构同周隔天样本", date: "2026-11-03"});
+  await store.updateTask(task.id, row => ({...row, createdAt: "2026-11-03T08:00:00+08:00", status: "completed", completedAt: "2026-11-04T17:00:00+08:00"}));
+  responses.push(reply("", [tool("get_stats", {domain: "tasks", range: "2026-11-02..2026-11-08", directReply: "task_meaning"}),
+    tool("get_summaries", {level: "week", range: "2026-11-02..2026-11-08"}, "same-period-summary")]), new Error("Canonical meaning needs no model rewrite"));
+  const result = await new AgentLoop(host).run(input({message: "复盘这周的任务完成口径与登记到完成的间隔，只查记录。"}));
+  expect(requests).toHaveLength(1); expect(result.text).toContain("同周隔天完成仍属该周计划内完成");
+  expect(result.text).toContain("1980"); expect(result.text).toContain("计划完成率 100%"); expect(result.text).toContain("不是实测工作工时");
+  expect(result.receipts).toEqual([]); expect(result.confirmations).toEqual([]);
+});
+
+it("retains normal analysis when a metric meaning read and summary refer to different periods", async () => {
+  responses.push(reply("", [tool("get_stats", {domain: "tasks", range: "2026-11-02..2026-11-08", directReply: "task_meaning"}),
+    tool("get_summaries", {level: "week", range: "2026-10-26..2026-11-01"}, "other-period-summary")]),
+    reply("两个范围分别核对，不能把一周的定义当作另一周的数字。"), reply("两个范围分别核对，原始资料不足的地方仍然未知。"));
+  await new AgentLoop(host).run(input({message: "比较这两个区间的记录和统计口径，只查记录。"}));
+  expect(requests.length).toBeGreaterThan(1);
+});
 function input(overrides: Partial<AgentTurnInput> = {}): AgentTurnInput {
   return { message: "请创建任务 纯虚构循环任务。", history: [], source: "text", now, ...overrides };
 }

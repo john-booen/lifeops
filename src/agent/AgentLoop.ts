@@ -544,7 +544,14 @@ export class AgentLoop {
         const meaningCall = calls.find(call => call.name === "get_stats" && call.arguments.domain === "tasks" && call.arguments.directReply === "task_meaning");
         const meaningResult = meaningCall && results.find(result => result.callId === meaningCall.id && result.success);
         if (!input.voiceBackground && !state.receipts.size && !state.confirmations.size && meaningResult
-          && calls.every(call => call.name === "get_stats" && call.arguments.domain === "tasks")) {
+          && calls.every(call => {
+            if (call.name === "get_stats") return call.arguments.domain === "tasks";
+            if (call.name !== "get_summaries") return false;
+            try {
+              const range = resolveStatsRange(call.arguments.range, input.now), original = JSON.parse(meaningResult.output).range;
+              return range.from === original.from && range.to === original.to;
+            } catch { return false; }
+          })) {
           const reply = taskMetricMeaning(meaningResult.output);
           assertProviderActive(input.signal); assertPolicy();
           if (reply) return this.localAnswer(input, state, reply);

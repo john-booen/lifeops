@@ -13,7 +13,7 @@ export const TASK_METRIC_DEFINITIONS = {
   },
   completionPercent: {
     numerator: "completedPlannedCount", denominator: "plannedCount",
-    description: "按本次统计区间的计划日期和完成记录计算；隔天完成不等于周或月计划外，分日结果不能替代整个区间的计划完成率。"
+    description: "按本次统计区间的计划日期和完成记录计算；计划日期与完成日期都在本区间内，就计为区间计划内完成。同周隔天完成仍属该周计划内完成，同月跨天完成仍属该月计划内完成。隔天完成不等于周或月计划外，分日结果不能替代整个区间的计划完成率。"
   },
   plannedTime: {
     fields: ["estimateMin", "startTime", "endTime"], isWorkingTime: false,
