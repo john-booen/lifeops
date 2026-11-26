@@ -1009,7 +1009,7 @@ export class AgentLoop {
         const repair=inventedDates.length?"上一稿在历史部分引入了本轮原文、查询范围及原问题都未提供的绝对日期。请只用已核对读回的range和来源日期重写，不能把当前周或下周当成所问历史范围。未来建议另起「下一步（建议）」段，不混成历史事实。未核对日期为："+JSON.stringify(inventedDates):'';
         const attribution=dateConflicts.length?'事件日期列或日期分组标题与其所引原句的日历参照不一致或漏了引用对应的日期。逐条重读相应原文，先核叙述时点，再区分实际事件日与计划日；没有完成记录的计划必须保留计划身份并列计划日，不能改成已完成，也不能因未完成而删掉可核对的计划日期。不能直接把笔记当天当成昨晚。若原文另有明确日期或引用，按原叙述时点；不确定则说明未知，不猜测。这些是待核对的冲突，不是额外事件证据：'+JSON.stringify(dateConflicts):'';
         const future=futureConflicts.length?'未来建议中的下周星期与绝对日期不一致。只用已提供的本轮日历参照重写建议，不能从回顾区间末日计算下周；不创建任务或更改记录。待核对：'+JSON.stringify(futureConflicts):'';
-        answer=await this.callModel(input,state,"deep",[...finalMessages,{role:"user",content:[repair,attribution,future,metricConflicts.length?'上一稿把数字与所属期间或指标混淆，或遗漏所选指标。只按以下原工具数字核对，使用明确的期间表头与指标行，不转置币种/月份；不能用未知补零。冲突：'+JSON.stringify(metricConflicts)+'\n'+summaryMetricEvidence(messages,input.message):''].filter(Boolean).join('\n')}],[],true,false,undefined,{reasoning:"disabled",finite:true});
+        answer=await this.callModel(input,state,"deep",[...finalMessages,{role:"user",content:[repair,attribution,future,metricConflicts.length?'上一稿把数字与所属期间或指标混淆，或遗漏所选指标。只按以下原工具数字核对，使用明确的期间表头与指标行，不转置币种/月份；不能用未知补零。冲突：'+JSON.stringify(metricConflicts)+'\n'+summaryMetricEvidence(messages,input.message):''].filter(Boolean).join('\n')+'\n只给用户最终正文，不转述上一稿、校验过程、内部冲突列表或修复经过。'}],[],true,false,undefined,{reasoning:"disabled",finite:true});
         current();
         answer={...answer,content:normalizeAdviceHeadings(answer.content)};
       }
