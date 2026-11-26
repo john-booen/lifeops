@@ -5,7 +5,7 @@ import { MEMORY_CONTEXT_OMISSION } from "../../personalMemoryContext";
 import { isVaultPathExcluded } from "../../privacy";
 import type { StoreHost } from "../../store/settingsSlice";
 import { produceVaultQueryRead } from "../../vaultQueryRead";
-import { readSummary, readSummaryScope, summaryPath, summaryPathAllowed } from "./notes";
+import { readSummary, readSummaryScope, summaryPath, summaryPathAllowed, summaryMetricNames, type SummaryMetrics } from "./notes";
 import { resolveSummaryRange, summaryLevels, summaryPeriod, summaryPeriodsInRange, type SummaryLevel } from "./periods";
 import { evidenceCoverage } from "./evidenceCoverage";
 import { noteCalendar } from "./noteCalendar";
@@ -16,8 +16,15 @@ export async function readSummaryQueryWithSources(store: StoreHost, args: Record
   const level = args.level as SummaryLevel;
   if (!summaryLevels.includes(level)) throw Error("请选择日、周或月摘要。");
   if (args.includeOriginals !== undefined && typeof args.includeOriginals !== "boolean") throw Error("原文读取选项需要是开或关。");
+  const metrics = args.metrics;
+  if (metrics !== undefined && (!Array.isArray(metrics) || !metrics.length || metrics.length > summaryMetricNames.length
+    || new Set(metrics).size !== metrics.length || !metrics.every(key => summaryMetricNames.includes(key as keyof SummaryMetrics)))) {
+    throw Error("摘要指标需要选择有效、不重复的指标字段。");
+  }
+  const selectedMetrics = metrics as readonly (keyof SummaryMetrics)[] | undefined;
   if (args.query !== undefined && (typeof args.query !== "string" || !args.query.trim() || args.query.length>120)) throw Error("请提供一段不超过120字的主题关键词。");
   const query = typeof args.query === "string" ? args.query.trim() : undefined;
+  const allowOriginals = !selectedMetrics || args.includeOriginals === true || query !== undefined;
   const terms = query?.toLocaleLowerCase().split(/\s+/u).sort((a,b)=>b.length-a.length) ?? [];
   if (terms.length>8) throw Error("一次最多用8个主题关键词。");
   const range = resolveSummaryRange(args.range as Parameters<typeof resolveSummaryRange>[0], new Date());
@@ -39,7 +46,7 @@ export async function readSummaryQueryWithSources(store: StoreHost, args: Record
   const read = await produceVaultQueryRead(store, () => [
     ...selectedPeriods.map(period => summaryPath(store, period)).filter(path=>summaryPathAllowed(store,path))
       .map(path=>({path,version:JSON.stringify(store.getFile(path)?.stat??"absent")})),
-    ...journalFiles().map(({file})=>({path:file.path,version:JSON.stringify(file.stat)}))
+    ...(allowOriginals ? journalFiles().map(({file})=>({path:file.path,version:JSON.stringify(file.stat)})) : [])
   ], async reader => {
     const summaries = [], missingPeriods: string[] = [];
     for (const period of selectedPeriods) {
@@ -47,8 +54,9 @@ export async function readSummaryQueryWithSources(store: StoreHost, args: Record
       if (!note) { missingPeriods.push(period.key); continue; }
       const item = {
         period: period.key, from: period.from, through: note.properties.through, complete: note.properties.complete,
-        generatedBy: note.properties.generatedBy, edited: note.edited, inputCount: note.properties.inputCount, metrics: note.properties.metrics,
-        summary: scope.protect(note.text).slice(0,1600), path: note.path
+        generatedBy: note.properties.generatedBy, edited: note.edited, inputCount: note.properties.inputCount,
+        metrics: selectedMetrics ? Object.fromEntries(selectedMetrics.map(key=>[key,note.properties.metrics[key]??null])) : note.properties.metrics,
+        ...(!selectedMetrics ? {summary: scope.protect(note.text).slice(0,1600)} : {}), path: note.path
       };
       reader.dependOn(note.path,note.revision);reader.contributed(note.path,JSON.stringify(item));
       summaries.push(item);
@@ -59,7 +67,7 @@ export async function readSummaryQueryWithSources(store: StoreHost, args: Record
       ? "部分周期没有可读取的摘要，可以按 missingPeriods 查原始记录。"
       : "这个区间没有可读取的摘要，可以查原始记录。");
     let originalEvidence;
-    if (missingPeriods.length || args.includeOriginals === true || query) {
+    if (allowOriginals && (missingPeriods.length || args.includeOriginals === true || query)) {
       const wantsDate = (date:string) => args.includeOriginals===true || query!==undefined || missingPeriods.includes(summaryPeriod(level,date).key);
       const files = journalFiles().filter(({date})=>wantsDate(date));
       const selected = files.slice(-28), limit = Math.min(1600,Math.floor(12000/Math.max(1,selected.length)));
@@ -98,7 +106,7 @@ export async function readSummaryQueryWithSources(store: StoreHost, args: Record
     }
     await noPending();
     if ((await readSummaryScope(store)).hash!==scope.hash) throw Error("摘要可读取的资料范围有变化，请重试。");
-    return JSON.stringify({level,range,summaries,recordScope:RECORDED_DATA_SCOPE,metricDefinitions:SUMMARY_TASK_METRIC_DEFINITIONS,
+    return JSON.stringify({level,range,summaries,...(selectedMetrics?{requestedMetrics:selectedMetrics}:{}),recordScope:RECORDED_DATA_SCOPE,metricDefinitions:SUMMARY_TASK_METRIC_DEFINITIONS,
       interpretationBoundary:{summary:"模型或本地生成的二手总结，不是直接事件证明；edited表示生成后有编辑，不能仅凭它认定原文已核对。",
         complete:"周期完成标记，不是原始记录齐全的证明。",inputCount:"已完成的子摘要份数，不是日记篇数或有行为的天数。",
         dates:"原文中的相对日期以该段叙述的时点理解，笔记日期与事件日期分开；不能改为当前读取日。",

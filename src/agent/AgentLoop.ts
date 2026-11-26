@@ -866,7 +866,7 @@ export class AgentLoop {
     }
     if (input.voiceBackground) guidance.push("这是只读的后台分析。核对所需资料后直接回答原问题，避免添加无关建议。");
     if (tools.some(tool => tool.name === "get_summaries")) {
-      guidance.push("周月整体表现、复盘或跨期间多领域比较，先用get_summaries，按所问期间分别给level与range，保留每份through；缺项补同范围统计或原文，不推算未结束的整月。单独任务完成数、完成率、计划数用get_stats，不用摘要替代。当前日记、待办或继续安排只有用户要求时才补，不混入纯跨期对照。");
+      guidance.push("周月整体表现、复盘或同句中多领域的跨期比较，先用get_summaries，按所问期间分别给level与range。只对照数字时用metrics选择所问指标，保留每份through；缺项再补同范围统计或原文，不推算未结束的整月。整句仅查单领域任务数字才首选get_stats。当前日记、待办或继续安排只有用户要求时才补，不混入纯跨期对照。");
       guidance.push("围绕某个目标或习惯找跨周规律时，get_summaries传所问日期范围、includeOriginals=true和该主题的连续关键词query，读取定位原文；不能只用日记开头的无关片段。");
       guidance.push("query的多个词必须同时命中，只传所查活动主题；不要把登记指标、被质疑的结论或处置建议混入主题条件。活动主题不确定就省略query，读取所问范围内的原文核对，不把未命中当成没发生。");
     }

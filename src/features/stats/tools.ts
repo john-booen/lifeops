@@ -17,7 +17,7 @@ const rangeParameter = (names: readonly string[]) => ({ anyOf: [{ type: "string"
 
 export const STATS_TOOL: LifeOpsToolDefinition = {
   name: "get_stats",
-  description: "单领域数字用本工具；周月整体及多领域对照先get_summaries，缺项再补。完成数按登记日期去重。设备health、主观睡眠journal、交易目标habits/today；明确要折美元才combineUsd。",
+  description: "整句只查单领域数字才首选；跨周月任务与交易对照先get_summaries、缺项再补。完成数按登记日去重；设备health、主观journal、目标habits/today；明确折美元才combineUsd。",
   safety: "safe",
   parameters: {
     type: "object", additionalProperties: false,

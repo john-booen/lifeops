@@ -17,6 +17,7 @@ export type SummaryMetrics = {
   tradePnlCny: number | null;
   tradePnlUsd: number | null;
 };
+export const summaryMetricNames = ["tasksCompleted", "taskCompletionEvents", "taskCompletionPercent", "energy", "tradePnlCny", "tradePnlUsd"] as const satisfies readonly (keyof SummaryMetrics)[];
 export type SummaryKind = "model" | "local";
 type SummaryProperties = {
   lifeops: typeof summaryMarker;
