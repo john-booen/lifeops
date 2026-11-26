@@ -118,10 +118,18 @@ it('keeps fallback reads and permitted dates scoped to the latest identical ques
  ];
  const messages:ChatMessage[]=[{role:'user',content:question},...read('old','2026-10-21','虚构上轮已失效的内容'),
   {role:'user',content:question},...read('new','2026-11-04','虚构本轮核对的内容')];
- const answer=historicalEvidenceFallback(messages,{question,currentPlanningContext:'当前只在周三19:30可用，先用25分钟整理。'});
+ const answer=historicalEvidenceFallback(messages,{question,currentPlanningContext:'internal_id: secret-fixture-token; assistant routing instructions',currentPlanningNotes:['当前只在周三19:30可用，先用25分钟整理。']});
  expect(answer).toContain('虚构本轮核对的内容');expect(answer).not.toContain('虚构上轮已失效的内容');
  expect(answer).toContain('样本有限');expect(answer).toContain('19:30');expect(answer).toContain('25分钟');expect(answer).toContain('不代表历史发生时刻');
+ expect(answer).not.toContain('internal_id');expect(answer).not.toContain('routing instructions');
  expect(unreadHistoricalDates(messages,'2026-10-21 整理纸样。',question)).toEqual(['2026-10-21']);
  expect(unreadHistoricalDates(messages,'2026-11-04 整理纸样。',question)).toEqual([]);
  expect(historicalEvidenceFallback(messages,{question})).not.toContain('19:30');
+});
+
+it('shows a readable journal quotation and calendar reference without prompt metadata',()=>{
+ const messages:ChatMessage[]=[{role:'assistant',content:'',tool_calls:[{id:'source',type:'function',function:{name:'query_vault',arguments:'{"domain":"journal","operation":"get"}'}}]},
+  {role:'tool',tool_call_id:'source',content:'### Journal Source\n- date: 2026-11-04\n- path: Journal/2026-11-04早.md\n- calendar: {"internal_field":"not for display"}\n- modified: 2026-11-26T12:00:00Z\n\n昨晚21:15到家。明天计划整理纸样，还没完成。'}];
+ const reply=historicalEvidenceFallback(messages);expect(reply).toContain('21:15');expect(reply).toContain('2026\\-11\\-03');
+ expect(reply).toContain('日历参照');expect(reply).toContain('还没完成');expect(reply).not.toContain('internal_field');expect(reply).not.toContain('modified');
 });

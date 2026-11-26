@@ -29,6 +29,7 @@ import { agentHistoryMessages, buildResidentContext, clipBytes, type ResidentCon
 import { titleEditRequest,confirmedTitleEdits,completeTitleEditCalls,bindTitleEditContent,titleEditCall,taskConfirmationRequested } from "./explicitTitleEdits";
 import {isLiteralTaskConfirmation} from '../features/tasks/confirmationText';
 import { formatConfirmedPersonalMemoryContext } from "../personalMemoryContext";
+import {selectPersonalMemories} from '../personalMemory';
 import { expandMixedTaskBatch } from "./mixedTaskBatch";
 import { requestedSummaryTopics,requestedTaskTopics } from "./summaryTopicQuery";
 import { requestedSummaryDates } from "./summaryDateRange";
@@ -907,11 +908,18 @@ export class AgentLoop {
     state.textOnlyAnswerAttempted = true;
     let needsEvidenceFallback = false;
     let currentPlanningContext = '';
+    let currentPlanningNotes: string[] = [];
     try {
       current();
       const memories = await readPersonalMemoryWithSources(store);
       current();
       currentPlanningContext = formatConfirmedPersonalMemoryContext(memories.records, input.message, 4000, 8);
+      let remaining=4000;
+      for(const record of selectPersonalMemories(memories.records,input.message,memories.records.length,input.now)
+        .sort((a,b)=>Number(b.kind==='user_rule')-Number(a.kind==='user_rule'))){
+        if(!record.confirmedAt||currentPlanningNotes.length>=8||record.content.length>remaining)continue;
+        remaining-=record.content.length;currentPlanningNotes.push(record.content);
+      }
       const finalMessages = historicalAnswerMessages(messages, {
         question: input.message, currentPlanningContext, asOf: input.now.toISOString()
       });
@@ -945,13 +953,13 @@ export class AgentLoop {
     current();
     if (needsEvidenceFallback) {
       const reads = [...state.statsReads?.values() ?? []]
-        .filter(read => ["tasks", "trades"].includes(String(read.arguments.domain)));
+        .filter(read => ["tasks", "trades", "habits"].includes(String(read.arguments.domain)));
       const stats = this.host.assertReadOnlyReplyCurrent && reads.length
         ? await recoverReadOnlyStats(store, reads, input.now, current, input.signal).catch(() => undefined) : undefined;
       // A failed local recheck may omit numbers, but cancellation or changed
       // sources must still discard the whole reply rather than leak old facts.
       current();
-      state.text = [stats, historicalEvidenceFallback(messages,{question:input.message,currentPlanningContext})].filter(Boolean).join("\n\n");
+      state.text = [stats, historicalEvidenceFallback(messages,{question:input.message,currentPlanningNotes})].filter(Boolean).join("\n\n");
     }
     state.firstTokenMs ??= performance.now() - state.started;
     input.onText?.(state.text);

@@ -7,6 +7,7 @@ import { hasPendingFactOperation, waitForFactOperations } from "../dataFoundatio
 import { readPersonalMemoryWithSources } from "../personalMemorySources";
 import { createPersonalMemoryContextFilter, personalMemoryContextRevision } from "../personalMemoryContext";
 import { TASK_CATEGORIES } from "../features/tasks/capacity";
+import {formatWeeklyHabits} from '../features/stats/habitEvidence';
 
 export interface StatsRecoveryRead { arguments: Record<string, unknown>; output: string }
 type Row = Record<string, unknown>;
@@ -47,6 +48,7 @@ function tradeLines(row: Row): string[] | undefined {
   return lines;
 }
 function formatStats(data: Row, args: Record<string, unknown>): string | undefined {
+  if(data.domain==='habits')return formatWeeklyHabits(JSON.stringify(data));
   const range = rangeOf(data);
   if (!range) return;
   const lines: string[] = [`${range.from} 至 ${range.to} · ${data.domain === "tasks" ? "任务" : "交易"}`];
@@ -89,7 +91,7 @@ function formatStats(data: Row, args: Record<string, unknown>): string | undefin
  * provider request, or replay a business write after generation failed. */
 export async function recoverReadOnlyStats(store: StoreHost, reads: StatsRecoveryRead[], now: Date,
   assertCurrent: () => void, signal?: AbortSignal): Promise<string | undefined> {
-  if (!reads.length || reads.some(read => !["tasks", "trades"].includes(String(read.arguments.domain))
+  if (!reads.length || reads.some(read => !["tasks", "trades", "habits"].includes(String(read.arguments.domain))
     || read.arguments.combineUsd === true || read.arguments.rankByNetPnl === true)) return;
   const settings = recordRevision(store.settings);
   const current = () => {

@@ -30,7 +30,7 @@ async function mixedTaskBatchScenario(page,root,result,readPlan) {
     const view = app.workspace.getLeavesOfType("lifeops-assistant-view")[0].view;
     view.agentMessages = []; view.pendingAgentActions = []; view.agentMode = "text"; await view.navigateSteward("chat");
     const ledgerPath=p.store.path(p.settings.folders.aiReports,'Operations','operation-ledger.json');
-    globalThis.__mixedBatchNative.mutations=async()=>JSON.parse(await p.store.readPath(ledgerPath)||'{"records":[]}').records.filter(r=>['create_task','update_tasks','confirm_task_batch'].includes(r.toolName));
+    globalThis.__mixedBatchNative.mutations=async()=>JSON.parse(await p.store.readPath(ledgerPath)||'{"records":[]}').records.filter(r=>['create_task','update_tasks','confirm_task_batch'].includes(r.toolName)).sort((a,b)=>a.operationId.localeCompare(b.operationId));
     return { tasks, rows,mutations:await globalThis.__mixedBatchNative.mutations() };
   },readPlan);
   const input = page.locator("textarea.lifeops-agent-input").last();

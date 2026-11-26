@@ -26,3 +26,13 @@ it('keeps calendar reference separate from original evidence and current persona
  expect(JSON.parse(calendar.content.slice(calendar.content.indexOf('\n')+1))).toMatchObject({scope:'future_calendar_reference_only',today:'2026-11-12'});
  expect(calendar.content).not.toContain('25分钟');expect(calendar.content).toContain('不是历史证据');
 });
+
+it.each(['## 下一步（建议）','### **下一步（建议）**'])('accepts Markdown advice headings without promoting dates into historical evidence: %s',async heading=>{
+ const {unreadHistoricalDates}=await import('../src/agent/historicalAnswer');
+ const answer='历史来源2026-11-04。\n'+heading+'\n建议下周三（2026-11-18）19:30做25分钟。';
+ const messages=[{role:'user' as const,content:'回顾2026-11-04，给出下一步建议。'}];
+ expect(unreadHistoricalDates(messages,answer,messages[0].content,now)).toEqual([]);
+ expect(futureCalendarConflicts(answer,now)).toEqual([]);
+ expect(futureCalendarConflicts(answer.replace('2026-11-18','2026-11-11'),now)).toMatchObject([{calendarDate:'2026-11-18'}]);
+ expect(unreadHistoricalDates(messages,'历史事实2026-11-18。\n'+heading+'\n建议归档。',messages[0].content,now)).toEqual(['2026-11-18']);
+});

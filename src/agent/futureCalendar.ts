@@ -1,6 +1,6 @@
 import {addDays,formatDate,normalizeJournalDate,startOfWeek} from '../date';
 
-export const NEXT_STEP_HEADING=/(?:^|\n)\s*(?:\*\*)?下一步(?:[（(]建议[）)])?/u;
+export const NEXT_STEP_HEADING=/(?:^|\n)\s*(?:#{1,6}\s+)?(?:\*\*)?下一步(?:[（(]建议[）)])?/u;
 const weekdays=['一','二','三','四','五','六','日'] as const;
 
 /** Calendar data only: no availability, plan, historical fact or write authority. */

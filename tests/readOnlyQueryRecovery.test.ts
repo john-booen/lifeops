@@ -280,3 +280,15 @@ it("replaces an incomplete streamed fragment with fresh facts instead of appendi
   expect(snapshots.at(-1)).toBe(result.reply); expect(result.reply).not.toContain("9999");
   expect(result.reply).toContain("计划完成率 100%"); expect(ctx.model).toHaveBeenCalledTimes(2);
 });
+
+it('retains freshly rechecked habit rates and missed dates when model analysis is interrupted',async()=>{
+ const calls=[{id:'fictional-habit-recovery',name:'get_stats',arguments:{domain:'habits',range:{from:'2026-11-09',to:'2026-11-12'}}}];
+ const ctx=await scenario({calls});
+ const habit=await ctx.store.createHabit({name:'虚构跑步',frequencyUnit:'week',frequencyInterval:1,targetCount:4,startDate:'2026-11-09'});
+ const daily=await ctx.store.createHabit({name:'虚构攒钱',frequencyUnit:'day',frequencyInterval:1,targetCount:1,startDate:'2026-11-09',target:{kind:'number',unit:'元',perDay:10}});
+ await ctx.store.recordHabitStatus(habit.id,'done','2026-11-09');await ctx.store.recordHabitStatus(daily.id,'done','2026-11-09',undefined,10,'元');
+ const before=await ctx.store.readPath(ctx.store.habitDbPath());const result=await ctx.run();
+ expect(result.reply).toContain('虚构跑步');expect(result.reply).toContain('25%');expect(result.reply).toContain('虚构攒钱');
+ expect(result.reply).toContain('11-10');expect(result.reply).toContain('11-11');expect(result.reply).toContain('未登记情况未知');
+ expect(await ctx.store.readPath(ctx.store.habitDbPath())).toBe(before);expect(result.actions).toEqual([]);expect(result.receipts??[]).toEqual([]);
+});

@@ -1,8 +1,10 @@
 import type { ChatMessage } from "../ai";
 import { textOnlyEvidenceMessages } from "./toolProtocol";
 import {futureCalendarReference,NEXT_STEP_HEADING} from './futureCalendar';
+import {normalizeJournalDate} from '../date';
+import {noteCalendar} from '../features/summaries/noteCalendar';
 
-interface HistoricalAnswerContext {question?:string;currentPlanningContext?:string;asOf?:string}
+interface HistoricalAnswerContext {question?:string;currentPlanningContext?:string;currentPlanningNotes?:readonly string[];asOf?:string}
 function currentTurnEvidence(messages:ChatMessage[],question?:string):ChatMessage[]{
   if(question)for(let index=messages.length-1;index>=0;index--)
     if(messages[index].role==='user'&&messages[index].content===question)return messages.slice(index);
@@ -44,6 +46,17 @@ function literal(text: string): string {
   return text.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
     .replace(/[&<>]/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[character]!)
     .replace(/[\\`*_{}\[\]()#+.!|~$=-]/g, "\\$&").replace(/\r\n?/g, "\n").replace(/\n/g, "\n> ");
+}
+
+function journalEvidenceExcerpt(content:string):string|undefined{
+  if(!content.startsWith('### Journal Source\n'))return;
+  const end=content.indexOf('\n\n');if(end<0)return;
+  const header=content.slice(0,end),date=header.match(/^- date: (\d{4}-\d{2}-\d{2})$/mu)?.[1],path=header.match(/^- path: (.+)$/mu)?.[1];
+  if(!date||normalizeJournalDate(date)!==date||!path)return;
+  const body=content.slice(end+2).split('### Journal Source\n',1)[0].trim();if(!body)return;
+  const reference=Object.entries(noteCalendar(date).relativeWords).map(([word,day])=>word+'='+day).join('；');
+  return '> 来源：'+literal(path)+'；笔记日期：'+literal(date)+'\n> 日历参照（不是完成证明）：'+literal(reference)
+    +'\n> '+literal([...body].slice(0,1600).join(''))+'\n> （原文片段，尚未作原因判断；事件日仍须以原叙述时点核对。）';
 }
 
 /** Daily status keeps a short literal source beside interpretation. Statistics
@@ -104,7 +117,7 @@ export function historicalEvidenceFallback(messages: ChatMessage[],context:Histo
     if (message.role !== "tool") continue;
     if (journalIds.has(message.tool_call_id ?? "")) {
       if(message.content.startsWith('### Journal Source\n')&&!journalReadbacks.has(message.content)&&journalReadbacks.size<28){
-        journalReadbacks.add(message.content);pieces.push('> 本轮日记工具读回（原文片段，尚未作原因判断）：\n> '+literal([...message.content].slice(0,1600).join('')));continue;
+        journalReadbacks.add(message.content);const excerpt=journalEvidenceExcerpt(message.content);if(excerpt)pieces.push(excerpt);continue;
       }
       try {
         const data = JSON.parse(message.content);
@@ -140,6 +153,6 @@ export function historicalEvidenceFallback(messages: ChatMessage[],context:Histo
     } catch { /* A malformed tool result cannot become historical evidence. */ }
   }
   return ["历史分析未完成，暂不作原因或整周表现的判断。以下仅保留本轮已读取的来源与片段；没登记或没找到日记都不等于没做。已读样本有限，不能据此断言整周表现或因果。", ...pieces,
-    context.currentPlanningContext?.trim() ? '下一步（当前已确认约束）\n以下资料刚在本轮重新核对，仅供后续安排参考；不代表历史发生时刻，也没有创建任务或生成新安排。\n> '+literal(context.currentPlanningContext) : ''
+    context.currentPlanningNotes?.length ? '下一步（当前已确认约束）\n以下资料刚在本轮重新核对，仅供后续安排参考；不代表历史发生时刻，也没有创建任务或生成新安排。\n'+context.currentPlanningNotes.map(note=>'> '+literal(note)).join('\n\n') : ''
   ].filter(Boolean).join("\n\n");
 }
