@@ -3,7 +3,7 @@ import { noteUnderstandingSourceRevision } from "./noteUnderstandingSource";
 import type { AiToolCall } from "./ai";
 import { createHash, randomUUID } from "node:crypto";
 import { ensureToolCallId, isSafeOperationId, isSafeRuntimeOperationId, UndoRecoveryRequiredError, INVALID_OPERATION_ID_MESSAGE, MAX_CONFIRMATION_ACTION_ID_LENGTH, MAX_TOOL_CALL_ID_LENGTH } from "./operationIdentity";
-import { OperationLedger, operationFingerprint, operationTrigger, type OperationClaim, type OperationLedgerDocument, type OperationResultSnapshot } from "./dataFoundation/operationLedger";
+import { OperationLedger, operationFingerprint, operationTrigger, type OperationClaim, type OperationLedgerDocument, type OperationResultSnapshot, type OperationLedgerHost } from "./dataFoundation/operationLedger";
 import type { GuardedFileChange } from "./dataFoundation/factOperation";
 import { getLifeOpsTool, getRecordedUndoEvidence, getTaskOverloadSignal, performRecordedToolOperation, undoRecordedOperation, type ToolExecutionContext } from "./toolRegistry";
 import { tradingContextRevision } from "./tradingTools";
@@ -261,6 +261,18 @@ export class AgentRuntime {
       if(tool.name === "query_trading_research") {queryTradingRevision=await tradingContextRevision(this.context.store);operationId+=`:trading:${queryTradingRevision}`;}
       if (tool.name === "inspect_weekly_review_sources") { queryWeeklyRevision = await weeklyReviewQueryRevision(this.context.store, request.arguments); operationId += `:weekly:${queryWeeklyRevision}`; }
       if (tool.name === "inspect_note_understanding_source") { queryNoteRevision = await noteUnderstandingSourceRevision(this.context.store, request.arguments); operationId += `:note:${queryNoteRevision}`; }
+      // A requested preview may read context, but even read-audit entries must
+      // leave the original task-operation ledger unchanged until confirmation.
+      // Keep the same owned read and permission checks; only omit its audit/cache.
+      if(tool.safety==='safe'&&taskCreationPolicy(request.userMessage).wait){
+        control?.assertCurrent();this.context.assertCurrent?.();
+        await (this.context.store as StoreHost & OperationLedgerHost).assertOperationClaimAllowed?.({operationId,toolName:request.toolName,source:request.source,arguments:request.arguments});
+        control?.assertCurrent();this.context.assertCurrent?.();
+        const output=preparedQuery??await tool.execute(request.arguments,this.context,{operationId,source:request.source,
+          userMessage:request.userMessage,signal:control?.signal,assertCurrent:control?.assertCurrent});
+        if(queryRead)await queryRead.assertSourcesCurrent();
+        return deliverRead({callId:request.callId,...output});
+      }
       claim = await this.operationLedger.claim({
         operationId,
         toolName: request.toolName,

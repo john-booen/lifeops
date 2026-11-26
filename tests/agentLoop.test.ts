@@ -251,6 +251,31 @@ it.each(["facts", "continue"] as const)("rechecks named facts scope and preserve
   expect(result.text).not.toMatch(/[？?]/u); expect(result.confirmations).toEqual([]); expect(result.receipts).toEqual([]);
   expect(await store.readPath(store.taskDbPath())).toBe(before);
 });
+it.each([
+  ['plan_today',{draftTomorrow:true}],['list_tasks',{}],['get_stats',{domain:'tasks',range:'this_week'}],['learning_progress',{trackId:'english'}]
+] as const)('keeps the original task files and ledger untouched when preview context is read through %s',async(toolName,args)=>{
+  const message='明天下午3点提醒我给虚构等待卡贴标签，等我确认后再保存。';
+  const paths=[store.taskDbPath(),store.taskMirrorPath(),new OperationLedger(store).filePath];
+  const before=await Promise.all(paths.map(path=>store.readPath(path)));
+  const read=await runtime.executeToolCall({callId:'fictional-waiting-context',source:'kimi',toolName,arguments:args,userMessage:message});
+  expect(read.success,read.output).toBe(true);expect(read.receipt).toBeUndefined();
+  expect(await Promise.all(paths.map(path=>store.readPath(path)))).toEqual(before);
+  const preview=await runtime.executeToolCall({callId:'fictional-context-create',source:'kimi',toolName:'create_task',arguments:{title:'给虚构等待卡贴标签',date:'2026-11-13',time:'15:00'},userMessage:message});
+  expect(preview.success).toBe(true);expect(preview.actions).toHaveLength(1);
+  expect(await Promise.all(paths.map(path=>store.readPath(path)))).toEqual(before);
+  const card=preview.actions[0];await executeConfirmedToolBatch(card,runtime,()=>{});
+  const saved=await Promise.all(paths.map(path=>store.readPath(path)));
+  expect((await store.readTaskDb({readOnly:true})).tasks.filter(row=>row.title==='给虚构等待卡贴标签')).toHaveLength(1);
+  await executeConfirmedToolBatch(card,runtime,()=>{});expect(await Promise.all(paths.map(path=>store.readPath(path)))).toEqual(saved);
+});
+
+it('does not bypass the original execution guard when a preview omits read audit',async()=>{
+  const paths=[store.taskDbPath(),store.taskMirrorPath(),new OperationLedger(store).filePath],before=await Promise.all(paths.map(path=>store.readPath(path)));
+  const guard=vi.spyOn(store as StoreHost & {assertOperationClaimAllowed:()=>Promise<void>},'assertOperationClaimAllowed').mockRejectedValueOnce(Error('虚构：原写入权限已停用'));
+  const result=await runtime.executeToolCall({callId:'fictional-blocked-preview-read',source:'kimi',toolName:'plan_today',arguments:{draftTomorrow:true},userMessage:'创建明天的虚构任务，等我确认再保存。'});
+  expect(result.success).toBe(false);expect(guard).toHaveBeenCalledOnce();expect(await Promise.all(paths.map(path=>store.readPath(path)))).toEqual(before);
+});
+
 it("continues a named single-task move despite an incorrect facts hint and preserves unrelated tasks",async()=>{
   const row=await store.createTask({title:"虚构周报改期",date:"2026-11-12",startTime:"16:00",endTime:"16:30",dueDate:"2026-11-15"});
   const other=await store.createTask({title:"虚构独立邮箱",date:"2026-11-12",time:"09:00"}),unchanged=await store.getTask(other.id);
