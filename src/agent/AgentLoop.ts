@@ -15,6 +15,7 @@ import { asksForTodayCapacity, formatTodayCapacity, planCapacityEvidence } from 
 import { completedTasksReply } from "../features/stats/completedTasksReply";
 import {taskSummaryReply} from '../features/stats/taskSummaryReply';
 import {taskReadBatchReply} from './taskReadBatchReply';
+import { bindTaskMoveDate } from "./taskMoveDate";
 import { weekendClarification } from "../features/tasks/weekendClarification";
 import { phoneInboxCall, phoneInboxRequest, phoneInboxToolDefinitions } from "../features/phoneInbox/agent";
 import { phoneInboxOperationId, type PhoneInboxTurn } from "../features/phoneInbox/model";
@@ -492,7 +493,8 @@ export class AgentLoop {
         const requested = priority ? [priority] : response.toolCalls;
         const originalReads = input.source === "text" && !input.voiceBackground
           ? preferJournalOriginalReads(requested, input.message, input.now, history) : requested;
-        const grounded = bindHistoricalDateReference(requestedSummaryDates(originalReads, input.message, input.now, history), input.message, priorQueryDates,input.now);
+        const grounded = await bindTaskMoveDate(this.host.store, bindHistoricalDateReference(requestedSummaryDates(originalReads, input.message, input.now, history), input.message, priorQueryDates,input.now), input.message, input.now);
+        assertProviderActive(input.signal); assertPolicy();
         // A date-only continuity receipt survives a memory correction, but its
         // old prose does not. Renew that read when the model selects only safe
         // facts from another domain; an empty task list cannot replace diaries.
@@ -820,6 +822,7 @@ export class AgentLoop {
     }
     if (tools.some(tool => tool.name === "list_tasks")) {
       guidance.push("只问任务数量填answerMode=counts，不读任务标题；只问逾期填dueStatus=overdue，不附今日到期。查清单、期间方式、计划日期或独立截止都填facts，答完不追问是否改动。用户另有解释、建议或修改要求才填continue并完成整句。");
+      guidance.push("用户给周几或相对日期时，任务工具date直接照填原日期词，由程序按本轮日历解析；不要自行心算成绝对日期。未要求改变的时段、期间跨度和独立必须截止保留。");
       guidance.push("只按名字查找任务而未限定日期时，用query并省略date，查全部日期；用户指定今天或某日时传对应date。逐条使用返回的date/endDate和准确ID，不把跨日期结果当作今天清单；同名对象不明确先核对，不自行选一条改。");
       guidance.push("要求把逾期和今天到期的未完成任务分开时，用 list_tasks 的 dueStatus=overdue_and_today。如另要建议，设 directReply=false。问今天还剩几项和最要紧的 N 项（含今晚未完成提醒）时，用 list_tasks 的 order=priority、limit=N、directReply=true，省略 dueStatus，不用 plan_today。只问今天该先做什么、想知道排序理由或精力影响，用 plan_today，不用 list_tasks。");
     }

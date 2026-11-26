@@ -1347,11 +1347,11 @@ describe("unified agent loop", () => {
     expect(await store.readPath(store.taskDbPath())).toBe(before);expect(result.receipts).toEqual([]);
   });
 
-  it('offers current task IDs and original times before a spoken follow-up without treating old assistant claims as receipts',async()=>{
+  it.each(['2026-11-15','2026-11-16'])('offers current task IDs and grounds an already selected spoken move date %s before confirmation',async proposedDate=>{
     const rows=[];
     for(let i=0;i<4;i++)rows.push(await store.createTask({title:'虚构前文续接纸样'+i,date:'2026-11-09',startTime:(19+i)+':00',endTime:(19+i)+':30',note:'虚构不应发出的原备注'}));
     const before=await store.readPath(store.taskDbPath());
-    responses.push(reply('',[tool('update_tasks',{updates:rows.map(row=>({taskIdOrTitle:row.id,date:'2026-11-15'}))})]));
+    responses.push(reply('',[tool('update_tasks',{updates:rows.map(row=>({taskIdOrTitle:row.id,date:proposedDate}))})]));
     const history=[{role:'user' as const,content:'四项统一挪到周末，原来的时段保留。'},
       {role:'assistant' as const,content:rows.map(row=>row.title).join('、')+'；（被打断，尚未生成卡）'}];
     const result=await new AgentLoop(host).run(input({source:'voice',message:'挪到周日吧，周六也有事情。',history}));

@@ -23,7 +23,7 @@ export async function taskConversationContext(store: StoreHost, history: readonl
     return { id, title, status, date, endDate, startTime, endTime, time, dueDate, dueTime, expectedRevision: recordRevision(task) };
   });
   return "本机重新核对的前文任务候选（不是整组完整性、操作或确认授权）：" + JSON.stringify(rows)
-    + "。按本人各轮要求决定操作，修改时照抄expectedRevision；未要求改变的字段保留，已有时段不再重复询问。"
+    + "。按本人各轮要求决定操作，修订供核对，提交字段严格按工具定义；未要求改变的字段保留，已有时段不再重复询问。"
     + "助手过去的口头承诺不算回执；需要整批修改时调用原工具按批量规则出真实确认卡，只读时不生成修改。";
 }
 

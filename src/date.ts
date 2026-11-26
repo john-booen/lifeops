@@ -12,7 +12,7 @@ const digits = "〇一二三四五六七八九";
 const dayNumberPattern = "[0-9０-９一二三四五六七八九十]{1,3}";
 const weekPrefixPattern = "这周|本周|下周";
 const weekNumberPattern = "[一二三四五六日天1-7１-７]";
-const weekDay = new RegExp(`^(${weekPrefixPattern})(${weekNumberPattern})$`, "u");
+const weekDay = new RegExp(`^(${weekPrefixPattern}|周)(${weekNumberPattern})$`, "u");
 const monthDay = new RegExp(`^(?:(${dayNumberPattern})月)?(${dayNumberPattern})[日号]$`, "u");
 const thisWeekend = ["周末", "本周末", "这周末", "这个周末"];
 const nextWeekend = ["下周末", "下个周末"];
@@ -22,7 +22,7 @@ const monthEnd = ["月底", "本月底", "这个月底"];
 export const journalDateToken = [
   String.raw`[0-9０-９]{4}[-－][0-9０-９]{2}[-－][0-9０-９]{2}`,
   `(?:${dayNumberPattern}月)?${dayNumberPattern}[日号]`,
-  `(?:${weekPrefixPattern})${weekNumberPattern}`,
+  `(?:${weekPrefixPattern}|周)${weekNumberPattern}`,
   ...[...Object.keys(relativeDays), ...thisWeekend, ...nextWeekend, ...monthEnd].sort((a, b) => b.length - a.length)
 ].join("|");
 
@@ -39,7 +39,8 @@ function dateNumber(text: string): number {
   return (tens ? digits.indexOf(tens) : 1) * 10 + (ones ? digits.indexOf(ones) : 0);
 }
 
-/** Empty means unspecified or invalid. Bare month/day expressions use the base year/month. */
+/** Empty means unspecified or invalid. Bare month/day uses the base year/month;
+ * a bare weekday uses this week, consistently with an explicit 本周 prefix. */
 export function normalizeJournalDate(value: string, baseDate = todayString()): string {
   const text = value.trim().normalize("NFKC");
   if (validLocalDay(text)) return text;
