@@ -42,6 +42,7 @@ import { requestedSummaryTopics,requestedTaskTopics } from "./summaryTopicQuery"
 import { requestedSummaryDates } from "./summaryDateRange";
 import { recurringScheduleAnswer } from "./recurringSchedule";
 import { explicitRecentTaskTimeChange, previousSavedTask, unverifiedTaskTimeChanges, type SavedTaskReference } from "./taskTimeCorrection";
+import { RECORDED_METRIC_REPLY_GUIDANCE } from "../features/stats/definitions";
 import { explicitRunningCheckin, explicitSingleTimedTask } from "./offlineFallback";
 import { memorySourcePolicy, readPersonalMemoryWithSources } from "../personalMemorySources";
 import { agentModelRole, settingsForAgentModel, type AgentModelRole } from "./models";
@@ -896,6 +897,9 @@ export class AgentLoop {
     }
     if (evidenceCalls.some(call => call.name === "get_stats" && call.args?.domain === "habits")) {
       guidance.push("评价习惯时引用对应日期区间的次数和遗漏日期（missedDates）。交易笔数未达标只说明数量，不能推断纪律或建议增加交易。批评具体行为，不推断因果、健康状态或人格。");
+    }
+    if (evidenceCalls.some(call => call.name === "get_summaries" || call.name === "get_stats" && call.args?.domain === "tasks")) {
+      guidance.push(RECORDED_METRIC_REPLY_GUIDANCE);
     }
     if (evidenceCalls.some(call => call.name === "get_stats" && call.args?.domain === "trades" && call.args?.groupBy === "market")) {
       guidance.push("用户问各市场时，逐一列出统计 groups 中有记录的市场，名称沿用 key。胜率用各市场对应币种的 winPercent，遇到多种币种就分开列。");

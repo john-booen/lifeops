@@ -99,6 +99,18 @@ it("keeps missing completion intervals unknown instead of reporting zero work", 
     metricDefinitions: { averageCompletionMin: { isWorkingTime: false } } });
 });
 
+it("separates cross-month completion registration from the plan month in the readback contract", () => {
+  const tasks = [task({ id: "fictional-last-month-plan", date: "2026-01-30", status: "completed",
+    completedAt: "2026-02-01", completionLog: [{completedAt:"2026-01-31",note:""},{completedAt:"2026-02-01",note:""},{completedAt:"2026-02-02",note:""}] }),
+  task({id:"fictional-current-plan",date:"2026-02-02",status:"completed",completedAt:"2026-02-02"})];
+  const january = getStats({domain:"tasks",range:"last_month"},{tasks},now);
+  const february = getStats({domain:"tasks",range:"this_month"},{tasks},now);
+  expect(january).toMatchObject({range:{from:"2026-01-01",to:"2026-01-31"},completedTaskCount:1,plannedCount:1});
+  expect(february).toMatchObject({completedTaskCount:2,completedCount:3,plannedCount:1,completedPlannedCount:1,
+    metricDefinitions:{completedTaskCount:{dateBasis:"completion_registration_date",identity:"taskId"},
+      completedCount:{dateBasis:"completion_registration_date"},plannedCount:{dateBasis:"planned_date"}}});
+});
+
 describe("habit statistics", () => {
   it("returns no habits for an empty database", () => {
     expect(getStats({ domain: "habits", range: "this_week" }, {}, now)).toMatchObject({ habits: [] });

@@ -4,6 +4,7 @@ import {futureCalendarReference,NEXT_STEP_HEADING} from './futureCalendar';
 import {normalizeJournalDate} from '../date';
 import {noteCalendar} from '../features/summaries/noteCalendar';
 import {journalOriginalText} from '../features/journal/entry';
+import {RECORDED_METRIC_REPLY_GUIDANCE} from '../features/stats/definitions';
 
 interface HistoricalAnswerContext {question?:string;currentPlanningContext?:string;currentPlanningNotes?:readonly string[];asOf?:string}
 function currentTurnEvidence(messages:ChatMessage[],question?:string):ChatMessage[]{
@@ -31,6 +32,7 @@ export function historicalAnswerMessages(messages: ChatMessage[], context: Histo
     }catch{ /* A failed or malformed read cannot define the range. */ }
   }
   if(ranges.size)checked.push({role:'user',content:'本轮已核对的历史查询范围（工具读回数据，不是当前周或下周；指代这两周时沿用此范围）：\n'+JSON.stringify([...ranges.values()].slice(0,16))});
+  checked.push({role:'user',content:RECORDED_METRIC_REPLY_GUIDANCE});
   // The same dates may have a topic search and a broader follow-up read.
   // Their returned-note counts belong to separate query scopes.
   checked.push({ role: "user", content: "读回口径：同范围的主题检索与全量读回分别计数。回答主题时，用该query下的counts说明命中天数、未命中天数和返回主题片段篇数；若另报无query的全量篇数，明确标成全量，不得替代主题片段数。情绪主题也须区分记录内容与原因：原文未明确交代原因时直接说明「已读原文未说明具体原因」，同时出现的作息、任务、分数不能补成焦虑原因。此说明不提供额外事实。" });

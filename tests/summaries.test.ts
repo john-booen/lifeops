@@ -65,6 +65,25 @@ async function saved(level: "day" | "week" | "month", date: string) {
   return readSummary(store, summaryPeriod(level, date), (await readSummaryScope(store)).hash);
 }
 
+it("keeps cross-year task completion metrics and their registration basis together without rewriting tasks", async () => {
+  vi.useFakeTimers({toFake:["Date"]});vi.setSystemTime(new Date("2026-12-30T10:00:00+08:00"));
+  const prior = await store.createTask({title:"虚构跨年纸盒",date:"2026-12-31"});
+  const current = await store.createTask({title:"虚构元月纸片",date:"2027-01-01"});
+  vi.setSystemTime(new Date("2027-01-01T14:00:00+08:00"));
+  await store.completeTask(prior.id);await store.completeTask(current.id);
+  vi.setSystemTime(new Date("2027-01-02T10:00:00+08:00"));
+  const paths=[store.taskDbPath(),store.taskMirrorPath()],before=await Promise.all(paths.map(path=>vault.bytes(path)));
+  await generatePeriodSummary(host,summaryPeriod("month","2027-01-02"),new Date());
+  const query=await runtime.executeAiToolCall({name:"get_summaries",arguments:{level:"month",range:"this_month"}},"kimi");
+  expect(query.success,query.output).toBe(true);
+  expect(JSON.parse(query.output)).toMatchObject({
+    summaries:[{period:"2027-01",through:"2027-01-02",metrics:{tasksCompleted:2,taskCompletionEvents:2,taskCompletionPercent:100}}],
+    metricDefinitions:{tasksCompleted:{dateBasis:"completion_registration_date",identity:"taskId"},
+      taskCompletionEvents:{dateBasis:"completion_registration_date"},taskCompletionPercent:{denominator:"plannedCount"}}
+  });
+  expect(await Promise.all(paths.map(path=>vault.bytes(path)))).toEqual(before);
+});
+
 it("generates an idempotent daily summary from code metrics, signals and only user conversation, with undo", async () => {
   const date = "2026-11-12";
   const path = store.path(store.settings.folders.dailyRoot, "2026", "11", date + "晚.md");

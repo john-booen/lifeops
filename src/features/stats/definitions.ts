@@ -8,12 +8,16 @@ export const COMPLETION_INTERVAL_MEANING = "任务登记到完成的经过时间
 
 export const TASK_METRIC_DEFINITIONS = {
   completedTaskCount: {
-    unit: "tasks", identity: "taskId",
-    description: "完成记录落在所问区间的任务编号去重数。同名不同编号仍分别计算；同一任务在多个日期完成，不把分日个数相加作区间总数。"
+    unit: "tasks", identity: "taskId", dateBasis: "completion_registration_date",
+    description: "按完成登记日期落在所问区间的任务编号去重数，与计划日期无关。同名不同编号仍分别计算；同一任务在多个日期完成，不把分日个数相加作区间总数。"
   },
   completedCount: {
-    unit: "completion_events",
+    unit: "completion_events", dateBasis: "completion_registration_date",
     description: "所问区间的完成登记次数；同一任务可以登记多次，不能将次数当成不同任务个数。"
+  },
+  plannedCount: {
+    unit: "tasks", dateBasis: "planned_date",
+    description: "计划日期落在所问区间的任务数；不能用它筛选区间内登记完成的任务个数。跨月计划的任务在本月完成，仍计入本月完成数。"
   },
   averageCompletionMin: {
     unit: "minutes", from: "createdAt", to: "completedAt", isWorkingTime: false,
@@ -28,3 +32,12 @@ export const TASK_METRIC_DEFINITIONS = {
     description: "任务估时与计划起止时段属于计划信息，均不是实测工作工时；本统计没有实际工作计时数据。"
   }
 } as const;
+
+/** Summary names are aliases of the same computed metrics, never a new basis. */
+export const SUMMARY_TASK_METRIC_DEFINITIONS = {
+  tasksCompleted: TASK_METRIC_DEFINITIONS.completedTaskCount,
+  taskCompletionEvents: TASK_METRIC_DEFINITIONS.completedCount,
+  taskCompletionPercent: TASK_METRIC_DEFINITIONS.completionPercent
+} as const;
+
+export const RECORDED_METRIC_REPLY_GUIDANCE = "数字口径：completedTaskCount和tasksCompleted均按完成登记日期、任务编号去重，与计划日期无关；completedCount/taskCompletionEvents是登记次数。计划日期只用于计划数及计划完成率，不把完成数称为按计划日期统计。各期间分别使用其range/through，不把本月截至目前说成整月。按用户所问指标、币种和分组简短对照；工具附带其他字段不代表需要全部汇报。只问数字时不附计划量、完成率、盈亏原因、收益评价或补记/修改邀请；明确要求分析或建议时才按证据补充。";
