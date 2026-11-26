@@ -24,11 +24,18 @@ it("retains file discovery, quoted instructions and limited-note requests as the
     expect(preferJournalOriginalReads([call], q, now)[0]).toBe(call);
 });
 it("does not discard specific paths, topic filters, pagination or another domain", () => {
-  for (const a of [{ path: "journal.md" }, { query: "蓝盒" }, { offset: 8 }, { domain: "note" }, { operation: "get" }, { limit: 0 }, { limit: 101 }, { limit: "40" }, { sort: "unknown" }, { range: "year" }, { unknown: true }, { range: { from: "2026-11-02", to: "2026-11-08" } }]) {
+  for (const a of [{ path: "journal.md" }, { query: "蓝盒" }, { offset: 8 }, { domain: "note" }, { operation: "get" }, { limit: 0 }, { limit: 101 }, { limit: "40" }, { sort: "unknown" }, { range: "year" }, { unknown: true }, { range: { from: "2026-11-03", to: "2026-11-04" } }, {range:{from:"2026-11-02",to:"2026-11-08",extra:true}}, {range:'{"from":"2026-11-02"}'}, {range:"2026-11-08/2026-11-02"}]) {
     const specific = { ...call, arguments: { ...call.arguments, ...a } };
     expect(preferJournalOriginalReads([specific], question, now)[0]).toBe(specific);
   }
   const other = { ...call, name: "list_tasks" }; expect(preferJournalOriginalReads([other], question, now)[0]).toBe(other);
+});
+it.each(["list","search"].flatMap(operation=>[
+  {from:"2026-11-02",to:"2026-11-08"},JSON.stringify({from:"2026-11-02",to:"2026-11-08"}),"2026-11-02/2026-11-08","2026-11-02..2026-11-08"
+].map(range=>[operation,range]as const)))("reads an equivalent explicit interval from %s %j without losing the topic or broadening scope",(operation,range)=>{
+  const chosen={...call,arguments:{domain:"journal",operation,range,...(operation==="search"?{query:"纸样"}:{})}},before=JSON.stringify(chosen);
+  expect(preferJournalOriginalReads([chosen],question,now)).toEqual([{id:call.id,name:"get_summaries",arguments:{level:"day",range:{from:"2026-11-02",to:"2026-11-08"},includeOriginals:true,...(operation==="search"?{query:"纸样"}:{})}}]);
+  expect(JSON.stringify(chosen)).toBe(before);
 });
 it("retains the literal window and topic when an original-reading request is routed as a journal search", () => {
   const search = { ...call, arguments: { domain: "journal", operation: "search", query: "纸样", limit: 10 } };

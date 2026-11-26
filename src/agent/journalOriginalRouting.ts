@@ -1,5 +1,21 @@
 import type { AiToolCall, ChatMessage } from "../ai";
 import { addDays, formatDate, normalizeJournalDate } from "../date";
+import { ISO_DATE_INTERVAL_PATTERN, resolveStatsRange, type StatsRange } from "../features/stats/stats";
+import { serializedDateRange } from "../features/stats/rangeInput";
+
+const interval = new RegExp(ISO_DATE_INTERVAL_PATTERN);
+function compatibleRange(value: unknown, requested: {from:string;to:string}, now: Date): boolean {
+  if (value === undefined || ["today","week","month","all"].includes(String(value))) return true;
+  try {
+    const decoded = serializedDateRange(value) ?? value;
+    if (typeof decoded === "string") { if (!interval.test(decoded)) return false; }
+    else if (!decoded || typeof decoded !== "object" || Array.isArray(decoded)
+      || Object.keys(decoded).sort().join(",") !== "from,to"
+      || typeof (decoded as Record<string,unknown>).from !== "string" || typeof (decoded as Record<string,unknown>).to !== "string") return false;
+    const range = resolveStatsRange(decoded as StatsRange,now);
+    return range.from === requested.from && range.to === requested.to;
+  } catch { return false; }
+}
 
 const token = String.raw`(?:\d{4}年)?\d{1,2}月\d{1,2}[日号]|\d{4}-\d{2}-\d{2}`;
 function literalRange(message: string, now: Date, history: Pick<ChatMessage, "role" | "content">[]) {
@@ -36,14 +52,14 @@ export function preferJournalOriginalReads(calls: AiToolCall[], message: string,
     if (call.name === "query_vault" && a.domain === "journal" && a.operation === "search"
       && typeof a.query === "string" && a.query.trim() && a.query.length <= 120
       && Object.keys(a).every(key => allowed.has(key) || key === "query")
-      && (a.range === undefined || ["today", "week", "month", "all"].includes(String(a.range)))
+      && compatibleRange(a.range,range,now)
       && (a.limit === undefined || Number.isInteger(a.limit) && Number(a.limit) >= 1 && Number(a.limit) <= 100)
       && (a.sort === undefined || ["newest", "oldest"].includes(String(a.sort)))) {
       return { ...call, name: "get_summaries", arguments: { level: "day", range, includeOriginals: true, query: a.query } };
     }
     if (call.name !== "query_vault" || a.domain !== "journal" || a.operation !== "list"
       || Object.keys(a).some(key => !allowed.has(key))
-      || a.range !== undefined && !["today", "week", "month", "all"].includes(String(a.range))
+      || !compatibleRange(a.range,range,now)
       || a.limit !== undefined && (!Number.isInteger(a.limit) || Number(a.limit) < 1 || Number(a.limit) > 100)
       || a.sort !== undefined && !["newest", "oldest"].includes(String(a.sort))) return call;
     return { ...call, name: "get_summaries", arguments: { level: "day", range, includeOriginals: true } };

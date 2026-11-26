@@ -221,10 +221,15 @@ async function historicalFixture(): Promise<AiChatResult> {
   return reply("", [tool("get_summaries", { level: "week", range: { from: "2026-11-02", to: "2026-11-08" }, includeOriginals: true })]);
 }
 
-it("reads the requested multi-day journal originals instead of spending rounds listing the current week", async () => {
+it.each([
+  {range:"week",date:"2026-11-02",limit:40},
+  {range:"2026-11-02/2026-11-08"},
+  {range:{from:"2026-11-02",to:"2026-11-08"}},
+  {range:JSON.stringify({from:"2026-11-02",to:"2026-11-08"})}
+])("reads the requested multi-day journal originals instead of spending rounds listing the current week (%j)", async choice => {
   await store.appendDaily("2026-11-04", "日记", "昨晚21:15到家，23:40开始，今早00:20结束整理，08:00起床。", "早");
   await store.appendDaily("2026-11-05", "日记", "昨晚22:10完成黄纸袋标记，今早07:30起床。青色纸盒编号是今天计划，尚未完成。", "早");
-  responses.push(reply("", [tool("query_vault", { domain: "journal", operation: "list", range: "week", date: "2026-11-02", limit: 40 })]),
+  responses.push(reply("", [tool("query_vault", { domain: "journal", operation: "list", ...choice })]),
     reply("虚构未核对草稿"), reply("来源11月4日早、11月5日早；11月3日21:15到家，23:40开始；11月4日00:20结束、08:00起床、22:10标记；11月5日07:30起床，青色纸盒编号仅计划。"));
   const before = await store.readPath(store.taskDbPath());
   const result = await new AgentLoop(host).run(input({ message: "请只查2026年11月2日至11月8日的原始日记，按事件实际发生日期列出到家、整理、标记与起床，给出来源，不修改任务。" }));
