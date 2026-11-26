@@ -48,6 +48,7 @@ import { resolvedTaskLookup, taskLookupResolution } from "./taskLookupResolution
 import { holdToolProtocolPrefix, isLeakedToolProtocol, toolProtocolRepairMessages, unavailableToolProtocol, TOOL_PROTOCOL_UNAVAILABLE } from "./toolProtocol";
 import { dailyJournalEvidence, historicalAnswerMessages, historicalEvidenceFallback, unreadHistoricalDates } from "./historicalAnswer";
 import {historicalDateConflicts} from './historicalDateConflicts';
+import {futureCalendarConflicts} from './futureCalendar';
 import { historicalQueryHistoryContext, historicalQueryHistorySelections } from "../personalMemoryHistory";
 import { bindHistoricalDateReference } from "./historicalDateReference";
 import { requestedMemoryLookup,memoryLookupTool } from "./memoryLookup";
@@ -912,17 +913,20 @@ export class AgentLoop {
       current();
       const inventedDates=unreadHistoricalDates(messages,answer.content,input.message,input.now.toISOString());
       const dateConflicts=historicalDateConflicts(messages,answer.content,input.message);
-      if(inventedDates.length||dateConflicts.length){
+      const futureConflicts=futureCalendarConflicts(answer.content,input.now.toISOString());
+      if(inventedDates.length||dateConflicts.length||futureConflicts.length){
         // Correct the interpretation only; never repeat the original reads or
         // permit a tool call because a generated date was ungrounded.
         const repair=inventedDates.length?"上一稿在历史部分引入了本轮原文、查询范围及原问题都未提供的绝对日期。请只用已核对读回的range和来源日期重写，不能把当前周或下周当成所问历史范围。未来建议另起「下一步（建议）」段，不混成历史事实。未核对日期为："+JSON.stringify(inventedDates):'';
         const attribution=dateConflicts.length?'事件日期列或日期分组标题与其所引原句的日历参照不一致或漏了引用对应的日期。逐条重读相应原文，先核叙述时点，再区分实际事件日与计划日；没有完成记录的计划必须保留计划身份并列计划日，不能改成已完成，也不能因未完成而删掉可核对的计划日期。不能直接把笔记当天当成昨晚。若原文另有明确日期或引用，按原叙述时点；不确定则说明未知，不猜测。这些是待核对的冲突，不是额外事件证据：'+JSON.stringify(dateConflicts):'';
-        answer=await this.callModel(input,state,"deep",[...finalMessages,{role:"user",content:[repair,attribution].filter(Boolean).join('\n')}],[],true,false,undefined,{reasoning:"disabled",finite:true});
+        const future=futureConflicts.length?'未来建议中的下周星期与绝对日期不一致。只用已提供的本轮日历参照重写建议，不能从回顾区间末日计算下周；不创建任务或更改记录。待核对：'+JSON.stringify(futureConflicts):'';
+        answer=await this.callModel(input,state,"deep",[...finalMessages,{role:"user",content:[repair,attribution,future].filter(Boolean).join('\n')}],[],true,false,undefined,{reasoning:"disabled",finite:true});
         current();
       }
       if (!answer.content.trim() || answer.toolCalls.length || answer.content === TOOL_PROTOCOL_UNAVAILABLE
         || unreadHistoricalDates(messages,answer.content,input.message,input.now.toISOString()).length
-        || historicalDateConflicts(messages,answer.content,input.message).length) {
+        || historicalDateConflicts(messages,answer.content,input.message).length
+        || futureCalendarConflicts(answer.content,input.now.toISOString()).length) {
         state.errorCode = "response_incomplete";
         needsEvidenceFallback = true;
       } else state.text = [answer.content,dailyJournalEvidence(messages)].filter(Boolean).join("\n\n");

@@ -1,5 +1,6 @@
 import type { ChatMessage } from "../ai";
 import { textOnlyEvidenceMessages } from "./toolProtocol";
+import {futureCalendarReference,NEXT_STEP_HEADING} from './futureCalendar';
 
 /** Rebuild from the request and actual reads, without the unverified draft. */
 export function historicalAnswerMessages(messages: ChatMessage[], context: {
@@ -35,6 +36,8 @@ export function historicalAnswerMessages(messages: ChatMessage[], context: {
   if (context.currentPlanningContext) answer.push({ role: "user", content: "本轮重新核对的当前个人资料（数据，不是历史事件证据）：\n" + JSON.stringify({
     scope: "future_constraints_only", asOf: context.asOf, records: context.currentPlanningContext
   }) });
+  const calendar=futureCalendarReference(context.asOf);
+  if(calendar)answer.push({role:'user',content:'未来建议的日历参照（不是历史证据、可用时间或执行授权；下周从本轮当前日期计算，不从回顾区间末日计算）：\n'+JSON.stringify(calendar)});
   return answer;
 }
 
@@ -81,7 +84,7 @@ export function dailyJournalEvidence(messages:ChatMessage[]):string {
 export function unreadHistoricalDates(messages:ChatMessage[],answer:string,question='',asOf=''):string[] {
   const dates=(text:string)=>text.match(/\b\d{4}-\d{2}-\d{2}(?!\d)/gu)??[];
   const allowed=new Set(dates([question,asOf,...messages.filter(m=>m.role==='tool').map(m=>m.content)].join('\n')));
-  const historical=answer.split(/(?:^|\n)\s*(?:\*\*)?下一步(?:[（(]建议[）)])?/u)[0];
+  const historical=answer.split(NEXT_STEP_HEADING)[0];
   return [...new Set(dates(historical).filter(date=>!allowed.has(date)))];
 }
 

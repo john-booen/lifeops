@@ -3505,3 +3505,13 @@ it.each([false,true])('rechecks a literal event under a wrong date heading once,
   if(fails)expect(result.text).toContain('暂不作原因');else expect(result.text).toContain('## 2026-11-04');
   expect(result.receipts).toEqual([]);expect(result.confirmations).toEqual([]);expect(await store.readPath(store.taskDbPath())).toBe(before);
 });
+it.each([false,true])('checks the calendar of next-week advice once without repeating reads or writing a task (%s)',async fails=>{
+  await store.appendDaily('2026-11-03','日记','虚构纸样归档12张。','早','虚构纸样归档12张。');
+  const before=await store.readPath(store.taskDbPath()),wrong='已核对两周原文。\n下一步（建议）：下周三（2026-11-11）19:30整理虚构纸样。';
+  responses.push(reply('',[tool('get_summaries',{level:'day',range:{from:'2026-11-02',to:'2026-11-08'},includeOriginals:true})]),reply('虚构未发布草稿'),reply(wrong),reply(fails?wrong:wrong.replace('2026-11-11','2026-11-18')));
+  const result=await new AgentLoop(host).run(input({now:new Date('2026-11-12T04:00:00Z'),message:'回顾2026-11-02至2026-11-08原文后给一条下周建议，不创建任务。'}));
+  expect(requests).toHaveLength(4);expect(catalogs.at(-1)).toEqual([]);expect(toolChoices.at(-1)).toBe('none');
+  expect(JSON.stringify(requests.at(-1))).toContain('2026-11-18');expect(result.text).not.toContain('2026-11-11');
+  if(fails)expect(result.text).toContain('暂不作原因');else expect(result.text).toContain('2026-11-18');
+  expect(result.toolCalls.filter(call=>call.name==='get_summaries')).toHaveLength(1);expect(result.receipts).toEqual([]);expect(result.confirmations).toEqual([]);expect(await store.readPath(store.taskDbPath())).toBe(before);
+});

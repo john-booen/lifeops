@@ -2,6 +2,8 @@
 
 ## 0.5.133
 
+- Anchor next-week advice to the current calendar and reject inconsistent weekday/date pairs before publishing an interpretation.
+
 - Recheck uniquely sourced literal event quotations under date headings as well as date tables, preserving explicit plan dates and year boundaries.
 
 - Accept a bounded JSON representation of an existing read-only date range, retaining the original date and permission checks; keep activity topics separate from registration and proposed changes, and quote verified original preferences without repeating rejected generated claims.
