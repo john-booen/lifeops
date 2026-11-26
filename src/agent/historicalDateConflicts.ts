@@ -32,16 +32,23 @@ export function historicalDateConflicts(messages:ChatMessage[],answer:string,que
   if(!line.trim().startsWith('|')){dateColumn=-1;continue;}
   const cells=line.trim().split('|').slice(1,-1).map(cell=>cell.trim());
   const heading=cells.findIndex(cell=>/(?:事件.*日期|发生.*日期)/u.test(cell));if(heading>=0){dateColumn=heading;continue;}
-  if(dateColumn<0)continue;const dates=cells[dateColumn]?.match(/\b\d{4}-\d{2}-\d{2}\b/gu)??[];
-  if(dates.length!==1||/[至到→—~～]/u.test(cells[dateColumn].replace(dates[0],'')))continue;
-  const reportedDate=dates[0];
+  if(dateColumn<0)continue;const dateCell=cells[dateColumn]??'';
+  const dates=dateCell.match(/\b(?:\d{4}-)?\d{2}-\d{2}\b|\d{1,2}月\d{1,2}[日号]/gu)??[];
+  if(dates.length>1||/[至到→—~～]/u.test(dateCell.replace(dates[0]??'', '')))continue;
   for(const source of sources){
    const name=source.path.split('/').at(-1)!.replace(/\.md$/iu,'');if(!line.includes(source.path)&&!line.includes(name))continue;
    const calendar=noteCalendar(source.date);
-   for(const match of source.text.matchAll(/(昨晚|昨天|今早|今天凌晨|今天|明天)\s*\d{1,2}:\d{2}[^，。；！？\n“”‘’"']{0,80}/gu)){
+   for(const match of source.text.matchAll(/(昨晚|昨天|今早|今天凌晨|今天|明天)(?:\s*\d{1,2}:\d{2})?[^，。；！？\n“”‘’"']{0,80}/gu)){
     const quote=match[0].trim(),calendarDate=calendar.relativeWords[match[1] as keyof typeof calendar.relativeWords];
-    if(!line.includes(quote)||reportedDate===calendarDate)continue;
-    const value={sourcePath:source.path,noteDate:source.date,quote,reportedDate,calendarDate,basis:calendar.basis};conflicts.set(JSON.stringify(value),value);
+    if(!line.includes(quote))continue;
+    // A shorthand month/day still refers to a calendar date. A plan with no
+    // completion date must keep its reference date separately from completion.
+    const token=dates[0],reportedDate=token
+      ?normalizeJournalDate(token.length===5&&token[2]==='-'?calendarDate.slice(0,5)+token:token,calendarDate):'未列出引用的日历参照';
+    if(reportedDate===calendarDate)continue;
+    const value={sourcePath:source.path,noteDate:source.date,quote,reportedDate,calendarDate,
+      basis:calendar.basis+' 仅校对原句相对词的日历日期；计划仍是计划，没有完成记录时不得改写为已完成。'};
+    conflicts.set(JSON.stringify(value),value);
    }
   }
  }

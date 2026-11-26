@@ -15,6 +15,19 @@ it('supports month boundaries and exact quoted fragments without converting plan
  expect(historicalDateConflicts(read([{date:'2027-01-01',path:source,text}]),table('2027-01-01','事件日期',text,source))[0].calendarDate).toBe('2026-12-31');
  expect(historicalDateConflicts(read([{date:'2026-11-05',path,text:'明天09:00计划整理虚构纸样'}]),table('2026-11-05','事件日期','明天09:00计划整理虚构纸样'))[0].calendarDate).toBe('2026-11-06');
 });
+it('keeps a quoted untimed plan date even when completion is unknown',()=>{
+ const quote='明天计划给虚构青色纸盒编号',messages=read([{date:'2026-11-05',path,text:quote+'，但还没有做。'}]);
+ const conflict=historicalDateConflicts(messages,table('无完成记录','事件实际日期',quote));
+ expect(conflict).toMatchObject([{calendarDate:'2026-11-06',reportedDate:'未列出引用的日历参照',quote}]);
+ expect(conflict[0].basis).toContain('不得改写为已完成');
+ for(const label of ['2026-11-06（计划，未完成）','11-06（计划，未完成）','11月6日（计划，未完成）'])
+  expect(historicalDateConflicts(messages,table(label,'事件实际日期',quote))).toEqual([]);
+});
+it('validates shorthand event dates against the quoted note calendar across a year boundary',()=>{
+ const source='Journal/2027-01-01早.md',quote='昨晚23:15整理虚构纸样',messages=read([{date:'2027-01-01',path:source,text:quote}]);
+ expect(historicalDateConflicts(messages,table('12-31','事件实际日期',quote,source))).toEqual([]);
+ expect(historicalDateConflicts(messages,table('01-01','事件实际日期',quote,source))).toMatchObject([{calendarDate:'2026-12-31'}]);
+});
 it('does not infer dates for unquoted paraphrases, note-date tables, ranges or unrelated sources',()=>{
  const messages=read([{date:'2026-11-05',path,text:quote}]);
  for(const answer of [table('2026-11-05','笔记日期'),table('2026-11-05','事件日期','昨晚完成了虚构标记'),table('2026-11-05','事件日期',quote,'Journal/other.md'),table('2026-11-04至2026-11-05')])expect(historicalDateConflicts(messages,answer)).toEqual([]);
