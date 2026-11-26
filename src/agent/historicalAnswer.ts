@@ -33,6 +33,7 @@ export function historicalAnswerMessages(messages: ChatMessage[], context: Histo
   }
   if(ranges.size)checked.push({role:'user',content:'本轮已核对的历史查询范围（工具读回数据，不是当前周或下周；指代这两周时沿用此范围）：\n'+JSON.stringify([...ranges.values()].slice(0,16))});
   checked.push({role:'user',content:RECORDED_METRIC_REPLY_GUIDANCE});
+  checked.push({role:'user',content:'逐项核对本轮问题所列事项及其原文依据，不能漏掉原文明确写出的起止时刻后再说没有记录。同一句中省略日期的后续动作，先核对是否沿用前文叙述时点；遇到明确的新时点再切换，不能用句末时点覆盖前面的动作。若确有歧义，逐字引用并保留未知，不补猜日期、完成状态或原因。'});
   // The same dates may have a topic search and a broader follow-up read.
   // Their returned-note counts belong to separate query scopes.
   checked.push({ role: "user", content: "读回口径：同范围的主题检索与全量读回分别计数。回答主题时，用该query下的counts说明命中天数、未命中天数和返回主题片段篇数；若另报无query的全量篇数，明确标成全量，不得替代主题片段数。情绪主题也须区分记录内容与原因：原文未明确交代原因时直接说明「已读原文未说明具体原因」，同时出现的作息、任务、分数不能补成焦虑原因。此说明不提供额外事实。" });

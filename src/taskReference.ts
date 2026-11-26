@@ -45,13 +45,14 @@ export function explicitScheduledTaskTitle(title: string, userMessage = ""): str
  * end time. Explicit starts, deadlines, ranges and other requests stay intact. */
 export function explicitReminderClock(userMessage = ""): string | undefined {
   const message = userMessage.trim().replace(/[。！!]$/u, "");
-  if (/[，,。；;！？!?\r\n]/u.test(message)) return;
   const clocks = clockMatches(message);
   if (clocks.length !== 1) return;
   const [clock] = clocks;
   const before = message.slice(0, clock.index).trim();
-  const after = message.slice(clock.index! + clock[0].length).trim();
-  if (!/^(?:请(?:帮我)?|帮我)?\s*(?:今天|今日|明天|后天|大后天|(?:这|本|下)周[一二三四五六日天1-7]|\d{4}-\d{2}-\d{2})\s*$/u.test(before)
+  // One comma between the explicit clock and reminder is a clause boundary,
+  // not a deadline. Punctuation elsewhere or multiple clocks remain ambiguous.
+  const after = message.slice(clock.index! + clock[0].length).trim().replace(/^[，,]\s*/u, '');
+  if (/[，,。；;！？!?\r\n]/u.test(after)||!/^(?:请(?:帮我)?|帮我)?\s*(?:今天|今日|明天|后天|大后天|(?:这|本|下)周[一二三四五六日天1-7]|\d{4}-\d{2}-\d{2})\s*$/u.test(before)
     || !reminderBody.test(after)) return;
   return clockFromMatch(clock) ?? undefined;
 }
