@@ -20,10 +20,10 @@ function rangeOf(data: Row) {
   return { from: range.from, to: range.to };
 }
 function taskLine(row: Row, interval = false): string | undefined {
-  const { plannedCount: planned, completedPlannedCount: completed, completedCount: total, completionPercent: percent } = row;
-  if (!count(planned) || !count(completed) || completed > planned || !count(total)
+  const { plannedCount: planned, completedPlannedCount: completed, completedTaskCount: total, completedCount: events, completionPercent: percent } = row;
+  if (!count(planned) || !count(completed) || completed > planned || !count(total) || !count(events) || completed > total || total > events
     || !(percent === null && planned === 0 || finite(percent) && percent >= 0 && percent <= 100)) return;
-  const summary = `计划 ${planned} 项，计划内完成 ${completed} 项，${percent === null ? "无计划样本，无法计算完成率" : `计划完成率 ${percent}%`}；区间内登记完成 ${total} 项。`;
+  const summary = `计划 ${planned} 项，计划内完成 ${completed} 项，${percent === null ? "无计划样本，无法计算完成率" : `计划完成率 ${percent}%`}；区间内登记完成 ${total} 个任务${total !== events ? `（共 ${events} 次完成记录）` : ""}。`;
   if (!interval) return summary;
   if (row.averageCompletionMin === null && row.completionIntervalSampleCount === 0) return summary + "无有效完成间隔样本。";
   if (!finite(row.averageCompletionMin) || row.averageCompletionMin < 0 || !count(row.completionIntervalSampleCount) || !row.completionIntervalSampleCount) return;
@@ -67,6 +67,9 @@ function formatStats(data: Row, args: Record<string, unknown>): string | undefin
     const grouping: Record<string, string> = { day: "逐日", week: "按周（从下列日期开始，限所问区间）", month: "按月",
       category: "按分类", market: "按市场", symbol: "按品种", model: "按模型", direction: "按方向" };
     lines.push(grouping[String(args.groupBy)] ?? "分组");
+    if (data.domain === "tasks" && ["day", "week", "month"].includes(String(args.groupBy))) {
+      lines.push("分组内分别去重，同一任务可出现在多组；总任务数不按分组相加。");
+    }
     const detail: string[] = [];
     for (const row of groups) {
       if (!row || typeof row !== "object") return;

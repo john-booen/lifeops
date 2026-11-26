@@ -359,7 +359,7 @@ it.each(["network", "empty", "native-call", "protocol"])("retains locally rechec
   const result = await new AgentLoop(host).run(input({ message: "回顾11月2日到8日原文与任务完成情况，不修改。", onText: value => streamed.push(value) }));
   expect(result.text).toContain("历史分析未完成"); expect(result.text).toContain("虚构紫纸已整理10张");
   expect(result.text).toContain("2026-11-02 至 2026-11-08");
-  expect(result.text).toContain("计划 1 项，计划内完成 1 项"); expect(result.text).toContain("区间内登记完成 1 项");
+  expect(result.text).toContain("计划 1 项，计划内完成 1 项"); expect(result.text).toContain("区间内登记完成 1 个任务。");
   expect(result.text).toContain("不是实测工时"); expect(result.text).not.toContain("错误草稿"); expect(result.text).not.toContain("DSML");
   expect(requests).toHaveLength(3); expect(result.receipts).toEqual([]); expect(result.confirmations).toEqual([]);
   expect(streamed.join("")).toBe(result.text); expect(await store.readPath(store.taskDbPath())).toBe(before);
@@ -392,6 +392,24 @@ it.each(["privacy", "cancel", "store", "source"])("discards historical fallback 
   await expect(new AgentLoop(host).run(input({ message: "回顾上周原文与任务统计，不修改。", signal: controller.signal,
     onText: value => streamed.push(value) }))).rejects.toMatchObject({ name: "AbortError" });
   expect(touched).toBe(true); expect(requests).toHaveLength(3); expect(streamed.join("")).toBe("");
+});
+
+it('keeps repeated completion events separate from distinct tasks in a recovered cross-week answer',async()=>{
+  const task=await store.createTask({title:'虚构重复完成的纸样',date:'2026-11-03'});
+  await store.updateTask(task.id,row=>({...row,createdAt:'2026-11-03T09:00:00+08:00',completionLog:[
+    {completedAt:'2026-11-03T10:00:00+08:00',note:''},{completedAt:'2026-11-04T11:00:00+08:00',note:''}]}));
+  host.assertReadOnlyReplyCurrent=()=>{};
+  const summary=await historicalFixture(),range={from:'2026-11-02',to:'2026-11-08'};
+  responses.push(reply('',[...summary.toolCalls,tool('get_stats',{domain:'tasks',range,groupBy:'day'},'fictional-repeat-count')]),
+    reply('虚构未采纳草稿：完成2个不同任务。'),new Error('fictional interrupted analysis'));
+  const before=await store.readPath(store.taskDbPath()),streamed:string[]=[];
+  const result=await new AgentLoop(host).run(input({message:'核对这周原文、逐日完成情况和总任务数，不修改。',onText:text=>streamed.push(text)}));
+  expect(result.text).toContain('区间内登记完成 1 个任务（共 2 次完成记录）');
+  for(const date of ['2026-11-03','2026-11-04'])expect(result.text).toContain(date+'：计划');
+  expect(result.text).toContain('分组内分别去重');expect(result.text).not.toContain('完成2个不同任务');
+  expect(result.text).toContain('虚构紫纸已整理10张');expect(requests).toHaveLength(3);
+  expect(streamed.join('')).toBe(result.text);expect(result.receipts).toEqual([]);expect(result.confirmations).toEqual([]);
+  expect(await store.readPath(store.taskDbPath())).toBe(before);
 });
 
 it("keeps historical originals without inventing numbers when local statistic recovery is unavailable", async () => {
