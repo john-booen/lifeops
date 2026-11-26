@@ -1,6 +1,6 @@
 import type {AiToolCall,ChatMessage} from '../ai';
 import type {StoreHost} from '../store/settingsSlice';
-import type {VaultQueryRead} from '../vaultQueryRead';
+import {VaultQuerySourcesChangedError,type VaultQueryRead} from '../vaultQueryRead';
 import {readStoredQueryWithSources} from '../storedQueryRead';
 import {recordRevision} from '../operationIdentity';
 import {assertProviderActive} from '../providerRun';
@@ -27,7 +27,16 @@ export async function recoverHistoricalRead(store:StoreHost,calls:readonly AiToo
     current();
     const messages:ChatMessage[]=[{role:'user',content:question}],coverage:string[]=[];
     for(const [index,call]of structuredClone(calls).entries()){
-      current();const read=await readStoredQueryWithSources(store,'get_summaries',call.arguments);reads.push(read);
+      current();let read:VaultQueryRead;
+      try { read=await readStoredQueryWithSources(store,'get_summaries',call.arguments); }
+      catch(error){
+        // A concurrent local save may invalidate the first snapshot. Renew the
+        // same read once; permissions, cancellation and a second edit still fail.
+        if(!(error instanceof VaultQuerySourcesChangedError))throw error;
+        current();await waitForFactOperations(store,{signal,assertCurrent:current});current();
+        read=await readStoredQueryWithSources(store,'get_summaries',call.arguments);
+      }
+      reads.push(read);
       current();await read.assertSourcesCurrent();read.assertCurrent();
       const id='recovered-history:'+index;
       messages.push({role:'assistant',content:'',tool_calls:[{id,type:'function',function:{name:'get_summaries',arguments:JSON.stringify(call.arguments)}}]},

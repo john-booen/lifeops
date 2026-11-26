@@ -192,7 +192,7 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
   },
   {
     name: "query_vault",
-    description: "只读查日记、笔记、交易、健康、记忆、任务和习惯。日记上周last_week、上月last_month；week是date锚定整周。整天日记省略period读早晚；任务默认未完成。",
+    description: "只读查日记、笔记、交易、健康、记忆、任务和习惯。日记上周last_week、上月last_month；week是date锚定整周。整天省略period读早晚；同轮续查沿用所选日期，全局用all。任务默认未完成。",
     safety: "safe",
     parameters: {
       type: "object",
@@ -201,7 +201,7 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
         operation: { type: "string", enum: ["get", "list", "search"], description: "get读原文，list列信息，search搜词；memory仅有效记忆。" },
         query: { type: "string", description: "search填连续关键词；list筛文件名；日记get用日期、时段或路径。" },
         date: { type: "string", description: "日记单日或today/week锚点；不与其他range同填。" },
-        range: { ...dateRangeParameter(['week',...statsNamedRanges]), description: "日记按范围读；任务习惯仅today/week。" },
+        range: { ...dateRangeParameter(['all','week',...statsNamedRanges]), description: "日记不限定日期用all；任务习惯仅today/week。" },
         period: { type: "string", enum: ["早", "晚"], description: "日记时段。用户问昨晚、晚间时填晚，问晨间时填早；省略且指定日期时返回同日各篇。" },
         path: { type: "string", description: "准确库内Markdown路径，缺失不替代；排除生成/隐私内容，memory不用。" },
         vault: { type: "string", description: "默认全部。local 只搜日用库，或填外部库名。外部来源注明原私人库。" },

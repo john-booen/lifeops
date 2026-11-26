@@ -13,7 +13,8 @@ import type { AgentConversationMessage, AgentResponse, AgentSubmissionOptions } 
 import { AgentLoop } from "./AgentLoop";
 import { settingsForAgentModel } from "./models";
 import { assertProviderActive } from "../providerRun";
-import { captureSummaryQueryScope, type SummaryQueryScope } from "./summaryQueryScope";
+import { captureSummaryQueryScope,summaryQuerySelections, type SummaryQueryScope } from "./summaryQueryScope";
+import {isOwnedVaultQueryRead} from '../vaultQuery';
 
 export interface AgentTurnHost {
   activeProviderRequests: LifeOpsPlugin["activeProviderRequests"];
@@ -43,6 +44,7 @@ export async function runAgentTurn(this: AgentTurnHost, message: string, history
   const loop = new AgentLoop({
     settings, store,
     onRecoveredSummaryScopes: scopes => {queryScopes.push(...scopes);},
+    currentQuerySelections:()=>summaryQuerySelections(store,queryScopes),
     assertReadOnlyReplyCurrent: () => {
       assertProviderActive(request.signal);
       if (this.unloaded || (this.store as unknown as StoreHost) !== store
@@ -56,9 +58,12 @@ export async function runAgentTurn(this: AgentTurnHost, message: string, history
     executeTools: (calls, userMessage, signal, onResult) => this.executeToolCalls(calls, userMessage, signal, inbox?.assertLineCurrent,
       async (call, result) => {
         onResult(call, result);
-        if (call.name === "get_summaries" && result.success && lastQuery?.text === result.output) {
+        if ((call.name==='get_summaries'||call.name==='query_vault') && result.success && lastQuery?.text === result.output) {
           const scope = captureSummaryQueryScope(store, lastQuery);
-          if (scope) queryScopes.push(scope);
+          if (scope) {
+            const key=JSON.stringify(summaryQuerySelections(store,[scope]));
+            if(!queryScopes.some(prior=>JSON.stringify(summaryQuerySelections(store,[prior]))===key))queryScopes.push(scope);
+          }else if(call.name==='query_vault'&&call.arguments.domain==='journal'&&call.arguments.range==='all'&&isOwnedVaultQueryRead(store,lastQuery))queryScopes.length=0;
         }
       }, [], undefined, (_result, read) => {
         lastQuery?.dispose();

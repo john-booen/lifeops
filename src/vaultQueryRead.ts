@@ -4,6 +4,9 @@ import { captureContextSources, contextSourceHash, isContextSourcePath, type Cap
 import { personalMemoriesToMarkdown } from "./personalMemory";
 import { isVaultPathExcluded } from "./privacy";
 
+/** A read was invalidated by a source edit, distinct from permission or disposal. */
+export class VaultQuerySourcesChangedError extends Error {}
+
 export interface VaultQueryRead {
   readonly text: string;
   readonly revision: string;
@@ -89,10 +92,10 @@ export async function produceVaultQueryRead(
     // A mutation that depends on this read must still use the observed versions.
     async assertSourcesCurrent() {
       assertCurrent();
-      if (JSON.stringify(catalog()) !== capturedCatalog) throw Error("查询范围已变化，请重新读取后再操作。");
+      if (JSON.stringify(catalog()) !== capturedCatalog) throw new VaultQuerySourcesChangedError("查询范围已变化，请重新读取后再操作。");
       for (const [path, hash] of hashes) {
         if (!allowed(path) || store.getFile(path)?.path !== path || contextSourceHash(await store.readPath(path)) !== hash) {
-          throw Error("查询原文已变化，请重新读取后再操作。");
+          throw new VaultQuerySourcesChangedError("查询原文已变化，请重新读取后再操作。");
         }
         assertCurrent();
       }

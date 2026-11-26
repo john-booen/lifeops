@@ -3,7 +3,7 @@ import {resolveStatsRange,serializedDateRange,type DayRange,type StatsRange} fro
 
 /** Parameter failures can be repaired without implying a source or ledger failure. */
 export class VaultQueryParameterError extends Error {}
-export type JournalQueryRange=StatsRange|'week';
+export type JournalQueryRange=StatsRange|'week'|'all';
 
 /** Resolve once before either vault is opened. This parses tool parameters only;
  * it neither classifies user intent nor chooses a tool, source, or write action. */
@@ -11,7 +11,7 @@ export function resolveVaultQueryDateRange(input:{domain:string;date?:string;ran
  const fail=(text:string):never=>{throw new VaultQueryParameterError(text);};
  if(input.domain!=='journal'){
   if(input.range!==undefined&&(!(input.domain==='task'||input.domain==='habit')||!['today','week'].includes(String(input.range))))
-   fail('range 日期范围仅用于日记；任务/习惯仅支持 today、week，跨期数字请用 get_stats。');
+   fail('range 仅适用于日记、任务与习惯；任务/习惯仅支持 today、week，跨期数字请用 get_stats。');
   return;
  }
  if(input.date!==undefined&&typeof input.date!=='string')fail('日记日期无效，请填写有效日期。');
@@ -19,6 +19,7 @@ export function resolveVaultQueryDateRange(input:{domain:string;date?:string;ran
  if(rawDate&&!date)fail('日记日期无效：'+rawDate+'。请提供有效日期后再读取。');
  if(input.range===undefined)return date?{from:date,to:date}:undefined;
  if(!Number.isFinite(now.getTime()))fail('日记查询范围的基准日期无效。');
+ if(input.range==='all'){if(rawDate)fail('全部日记范围 all 不能同时填写 date。');return;}
  const anchor=date??formatDate(now);
  if(input.range==='today')return{from:anchor,to:anchor};
  // Retain the original whole-week API, including an explicit anchor and Sunday.

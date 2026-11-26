@@ -275,6 +275,22 @@ it('withholds unstable counts while keeping freshly read originals during interr
  expect(await store.readPath(store.taskDbPath())).toBe(changed);
 });
 
+it.each(['second-edit','privacy'] as const)('stops historical recovery after %s instead of retrying indefinitely',async mode=>{
+ const task=await store.createTask({title:'虚构并发更新纸袋',date:'2026-10-28'});
+ const{history}=await checkedPair(),error=await historicalInterruption();let turns=0,armed=false,edits=0;
+ const read=vault.read.bind(vault);vi.spyOn(vault,'read').mockImplementation(async file=>{
+  const text=await read(file);
+  if(armed&&file.path.endsWith('2026-10-28晚.md')){
+   edits++;await store.updateTask(task.id,row=>({...row,title:'虚构并发更新纸袋'+edits}));
+   if(mode==='privacy')store.settings.privacy!.excludedVaultPrefixes=[store.settings.folders.dailyRoot];
+  }return text;
+ });
+ vi.spyOn(LifeOpsAi.prototype,'agentTurnStream').mockImplementation(async()=>{turns++;armed=true;throw error;});
+ await expect(plugin.submitAgentMessageStream('接着这两周核对归档原文，不修改任务。',history,()=>{},{source:'text',selfTest:true})).rejects.toThrow();
+ expect(edits).toBe(mode==='privacy'?1:2);expect(turns).toBe(1);
+ expect((await store.readTaskDb()).tasks).toHaveLength(1);
+});
+
 it('retains checked habit samples and separate-currency trade counts with the recovered historical notes',async()=>{
  const selected={from:'2026-11-02',to:'2026-11-08'};
  const habit=await store.createHabit({name:'虚构纸样整理',frequencyUnit:'week',frequencyInterval:1,targetCount:4,startDate:selected.from});

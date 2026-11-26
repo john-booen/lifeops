@@ -36,7 +36,7 @@ import { formatConfirmedPersonalMemoryContext } from "../personalMemoryContext";
 import {selectPersonalMemories} from '../personalMemory';
 import {originalMemoryReply} from './originalMemoryReply';
 import {recoverHistoricalRead} from './historicalReadRecovery';
-import type {SummaryQueryScope} from './summaryQueryScope';
+import {continueJournalQueryDates,type SummaryQueryScope,type SummaryQueryRange} from './summaryQueryScope';
 import { expandMixedTaskBatch } from "./mixedTaskBatch";
 import { requestedSummaryTopics,requestedTaskTopics } from "./summaryTopicQuery";
 import { requestedSummaryDates } from "./summaryDateRange";
@@ -107,6 +107,7 @@ export interface AgentLoopHost {
   onContext?: (context: ResidentContext) => void;
   assertReadOnlyReplyCurrent?: () => void;
   onRecoveredSummaryScopes?: (scopes:readonly SummaryQueryScope[]) => void;
+  currentQuerySelections?:()=>SummaryQueryRange[];
 }
 
 interface TurnState {
@@ -499,7 +500,8 @@ export class AgentLoop {
         const requested = priority ? [priority] : response.toolCalls;
         const originalReads = input.source === "text" && !input.voiceBackground
           ? preferJournalOriginalReads(requested, input.message, input.now, history) : requested;
-        const grounded = await bindTaskMoveDate(this.host.store, bindHistoricalDateReference(requestedSummaryDates(originalReads, input.message, input.now, history), input.message, priorQueryDates,input.now), input.message, input.now);
+        const continuedReads=continueJournalQueryDates(originalReads,this.host.currentQuerySelections?.()??[]);
+        const grounded = await bindTaskMoveDate(this.host.store, bindHistoricalDateReference(requestedSummaryDates(continuedReads, input.message, input.now, history), input.message, priorQueryDates,input.now), input.message, input.now);
         assertProviderActive(input.signal); assertPolicy();
         // A date-only continuity receipt survives a memory correction, but its
         // old prose does not. Renew that read when the model selects only safe
