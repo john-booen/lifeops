@@ -55,9 +55,10 @@ import { simpleReadOnlyTaskLookup } from "./readOnlyTaskLookup";
 import { preferJournalOriginalReads } from "./journalOriginalRouting";
 import { requiredPlanRepairMessages } from "./requiredPlanRepair";
 import {taskCreationPolicy} from '../features/tasks/creationPolicy';
-import {TaskBatchAvailabilityError} from './taskBatch';
+import {TaskBatchAvailabilityError, TaskBatchItemError} from './taskBatch';
 import {batchAvailabilityFailure,BATCH_AVAILABILITY_REPAIR,repairedBatchAvailability} from './batchAvailabilityRepair';
 import { taskSubjectConflict } from "./taskSubjectScope";
+import {BATCH_ITEM_REPAIR, repairedBatchItems} from './batchItemRepair';
 
 export type WriteReceipt = AgentWriteReceipt;
 export interface AgentTurnInput {
@@ -489,12 +490,12 @@ export class AgentLoop {
           &&availableTools.some(tool=>tool.name===TASK_BATCH_TOOL.name)&&!state.receipts.size&&!state.confirmations.size&&!taskCreationPolicy(input.message).denied){
           try{await planTaskBatch(this.host.store,calls[0],input.now);}
           catch(error){
-            if(error instanceof TaskBatchAvailabilityError){
+            if(error instanceof TaskBatchAvailabilityError || error instanceof TaskBatchItemError){
               const rejected=calls[0],failure=batchAvailabilityFailure(rejected,error.message);
               this.recordResult(input,state,TASK_BATCH_TOOL.name,{callId:rejected.id!,success:false,output:error.message,actions:[]});
-              const repaired=await this.callModel(input,state,'main',[...messages,failure,{role:'system',content:BATCH_AVAILABILITY_REPAIR}],
+              const repaired=await this.callModel(input,state,'main',[...messages,failure,{role:'system',content:error instanceof TaskBatchAvailabilityError ? BATCH_AVAILABILITY_REPAIR : BATCH_ITEM_REPAIR}],
                 availableTools.filter(tool=>tool.name===TASK_BATCH_TOOL.name),false,false,TASK_BATCH_TOOL.name,{reasoning:'disabled',finite:true});
-              assertPolicy();const corrected=repairedBatchAvailability(rejected,repaired.toolCalls);
+              assertPolicy();const corrected=(error instanceof TaskBatchAvailabilityError ? repairedBatchAvailability : repairedBatchItems)(rejected,repaired.toolCalls);
               if(!corrected)return this.localAnswer(input,state,error.message+' 自动核对未完成，原清单没有保存。');
               calls=this.scopedCalls([corrected],state.id,round+MAX_TOOL_ROUNDS+1);
               messages.push(failure,{role:'assistant',content:repaired.content,tool_calls:calls.map(call=>({id:call.id!,type:'function',function:{name:call.name,arguments:JSON.stringify(call.arguments)}}))});

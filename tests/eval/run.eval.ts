@@ -212,6 +212,11 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
   const confirmationBefore = question.checks.requestedCreationPreview ? await confirmationSnapshot() : undefined;
   let lookupResolutionRequested = false;
   const actualTurn = LifeOpsAi.prototype.agentTurnStream;
+  const modelProposals: import("../../src/ai").AiToolCall[][] = [];
+  const modelTrace = process.env.LIFEOPS_EVAL_DIAGNOSTICS === "1" && !["task_lookup_prose", "malformed_tool_protocol"].includes(question.fixture ?? "")
+    ? vi.spyOn(LifeOpsAi.prototype, "agentTurnStream").mockImplementation(async function (this: InstanceType<typeof LifeOpsAi>, ...args: Parameters<typeof actualTurn>) {
+      const result = await actualTurn.apply(this, args); modelProposals.push(structuredClone(result.toolCalls)); return result;
+    }) : undefined;
   let injectedTurns = 0;
   const lookupProse = question.fixture === "task_lookup_prose" ? vi.spyOn(LifeOpsAi.prototype, "agentTurnStream").mockImplementation(async function (this: InstanceType<typeof LifeOpsAi>, messages, onText, options) {
     if (injectedTurns++ === 0) return { content: "", toolCalls: [{ name: "list_tasks", arguments: { query: "虚构区间纸样", date: formatDate(fixedNow) } }] };
@@ -427,6 +432,7 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
     process.stdout.write(`${question.id} 虚构写入与撤销证据 · ${redactSensitiveText(evidence, credentials)}\n`);
   }
   if (issues.length && process.env.LIFEOPS_EVAL_DIAGNOSTICS === "1") {
+    process.stdout.write(`${question.id} 模型提议（非实际执行） · ${redactSensitiveText(JSON.stringify(modelProposals), credentials)}\n`);
     process.stdout.write(`${question.id} 完整虚构观测 · ${redactSensitiveText(JSON.stringify({ question, observed, judgeEvidence }), credentials)}\n`);
     process.stdout.write(`${question.id} 诊断回复 · ${redactSensitiveText(reply.reply, credentials).slice(0, 900)}\n`);
     if (question.checks.mustSpeak) process.stdout.write(`${question.id} 实际口语稿 · ${redactSensitiveText(reply.voiceSpeech ?? "", credentials).slice(0, 900)}\n`);
@@ -445,6 +451,7 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
   }
   lookupProse?.mockRestore();
   malformedProtocol?.mockRestore();
+  modelTrace?.mockRestore();
   await rm(activeRoot, { recursive: true, force: true });
   activeRoot = "";
   return { id: question.id, passed: issues.length === 0, issues, inputTokens: usage.inputTokens,

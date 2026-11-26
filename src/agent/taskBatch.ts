@@ -16,6 +16,7 @@ export interface TaskBatchPlan {
 const clock = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 const key = (title: string) => title.trim().normalize("NFKC");
 export class TaskBatchAvailabilityError extends Error {}
+export class TaskBatchItemError extends Error {}
 
 /** Only structured tool arguments choose this path; no text pattern routes user intent. */
 export async function planTaskBatch(store: StoreHost, call: AiToolCall, now: Date,
@@ -45,7 +46,7 @@ export async function planTaskBatch(store: StoreHost, call: AiToolCall, now: Dat
       || typeof task.title !== "string" || !task.title.trim() || task.title.length > 1000
       || task.category !== undefined && (typeof task.category !== "string" || task.category === "punishment")
       || task.estimateMin !== undefined && (typeof task.estimateMin !== "number" || !Number.isInteger(task.estimateMin)
-        || task.estimateMin < 1 || task.estimateMin > 720)) throw Error("任务名称、分类或分钟估算无效；尚未保存。");
+        || task.estimateMin < 1 || task.estimateMin > 720)) throw new TaskBatchItemError("任务名称、分类或分钟估算无效；尚未保存。");
     if (titles.has(key(task.title))) throw Error("本批存在同名任务，请合并重复项；尚未保存。");
     titles.add(key(task.title));
     return { title: task.title.trim(), estimateMin: (task.estimateMin as number | undefined) ?? 30,

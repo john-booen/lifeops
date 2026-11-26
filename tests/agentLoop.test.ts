@@ -2522,6 +2522,29 @@ describe("complete batch task scheduling", () => {
   const tasks = () => Array.from({ length: 5 }, (_, i) => ({ title: `虚构纸样流程${i}`, estimateMin: 30 }));
   const batch = (args: Record<string, unknown> = {}) => tool("schedule_task_batch", { date: "今天", tasks: tasks(), ...args });
 
+  it('repairs malformed generated item fields once before saving all five tasks', async () => {
+    const broken = tasks().map(row => ({...row, estimateMin: String(row.estimateMin), category: null, priority: 'medium'}));
+    responses.push(reply('', [batch({tasks: broken})]), reply('', [batch()]));
+    const result = await new AgentLoop(host).run(input({message: '五项虚构工作按原顺序今天全部创建。'}));
+    expect(requests).toHaveLength(2); expect(result.receipts).toHaveLength(5);
+    expect(toolChoices[1]).toEqual({type: 'function', function: {name: 'schedule_task_batch'}});
+    expect((await store.readTaskDb()).tasks.map(row => row.title)).toEqual(tasks().map(row => row.title));
+    expect((await store.readTaskDb()).tasks.every(row => row.estimateMin === 30)).toBe(true);
+  });
+  it('keeps explicit confirmation after generated item-format repair', async () => {
+    responses.push(reply('', [batch({tasks: tasks().map(row => ({...row, priority: 'medium'}))})]), reply('', [batch()]));
+    const result = await new AgentLoop(host).run(input({message: '五项都排今天，先给确认卡，等我确认。'}));
+    expect(requests).toHaveLength(2); expect(result.confirmations).toHaveLength(1); expect(result.receipts).toEqual([]);
+    expect((await store.readTaskDb()).tasks).toEqual([]);
+  });
+  it('does not accept a reduced or rescheduled task list as an item-format repair', async () => {
+    const before = await store.readPath(new OperationLedger(store).filePath);
+    responses.push(reply('', [batch({tasks: tasks().map(row => ({...row, priority: 'medium'}))})]), reply('', [batch({date: '明天', tasks: tasks().slice(0, 4)})]));
+    const result = await new AgentLoop(host).run(input({message: '五项虚构工作今天全部创建。'}));
+    expect(requests).toHaveLength(2); expect(result.receipts).toEqual([]); expect((await store.readTaskDb()).tasks).toEqual([]);
+    expect(await store.readPath(new OperationLedger(store).filePath)).toBe(before);
+  });
+
   it('repairs invalid availability once before any write and keeps the complete original task list',async()=>{
     responses.push(reply('',[batch({availableStart:'现在'})]),reply('',[batch({availableStart:'13:00'})]));
     const result=await new AgentLoop(host).run(input({message:'五项虚构工作按原顺序今天全部创建。'}));
