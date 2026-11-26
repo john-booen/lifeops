@@ -1374,6 +1374,23 @@ describe("unified agent loop", () => {
     expect(result.text).not.toContain('需要我');expect(result.receipts).toEqual([]);expect(result.confirmations).toEqual([]);expect(await store.readPath(store.taskDbPath())).toBe(before);
   });
 
+  it('composes a factual week overview and the current overdue list without letting a second model invent historical status',async()=>{
+    vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(now);
+    try{
+      const task=await store.createTask({title:'虚构上周完成纸袋',date:'2026-11-04'});
+      await store.updateTask(task.id,row=>({...row,status:'completed',completedAt:'2026-11-04T20:00:00+08:00'}));
+      await store.createTask({title:'虚构目前过期纸盒',date:'2026-11-10'});
+      const before=await store.readPath(store.taskDbPath());
+      responses.push(reply('',[tool('get_stats',{domain:'tasks',range:'last_week',directReply:'task_summary'},'fictional-week-summary'),
+        tool('list_tasks',{dueStatus:'overdue_and_today',answerMode:'facts'},'fictional-current-overdue')]),new Error('Do not reinterpret numeric facts'));
+      const result=await new AgentLoop(host).run(input({message:'给我上周任务完成概况，再列目前过期的任务，只查数字和清单。'}));
+      expect(requests).toHaveLength(1);expect(result.text).toContain('2026-11-02 至 2026-11-08');expect(result.text).toContain('区间计划内完成 1 项');
+      expect(result.text).toContain('不是该区间结束时');expect(result.text).toContain('虚构目前过期纸盒');
+      expect(result.text).not.toContain('收尾做得干净');expect(result.text).not.toContain('需要我');
+      expect(result.receipts).toEqual([]);expect(result.confirmations).toEqual([]);expect(await store.readPath(store.taskDbPath())).toBe(before);
+    }finally{vi.useRealTimers();}
+  });
+
   it('does not let the last count hint discard an earlier comparison interval',async()=>{
     const before=await store.readPath(store.taskDbPath());
     const first={from:'2026-10-01',to:'2026-10-31'},second={from:'2026-11-01',to:'2026-11-12'};

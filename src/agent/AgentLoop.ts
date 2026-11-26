@@ -14,6 +14,7 @@ import { asksForTodayPriorities, formatHabitCompensationReply, formatTaskComplet
 import { asksForTodayCapacity, formatTodayCapacity, planCapacityEvidence } from "../features/tasks/capacityEvidence";
 import { completedTasksReply } from "../features/stats/completedTasksReply";
 import {taskSummaryReply} from '../features/stats/taskSummaryReply';
+import {taskReadBatchReply} from './taskReadBatchReply';
 import { weekendClarification } from "../features/tasks/weekendClarification";
 import { phoneInboxCall, phoneInboxRequest, phoneInboxToolDefinitions } from "../features/phoneInbox/agent";
 import { phoneInboxOperationId, type PhoneInboxTurn } from "../features/phoneInbox/model";
@@ -560,6 +561,15 @@ export class AgentLoop {
           assertProviderActive(input.signal);
           assertPolicy();
           if (reply) return this.localAnswer(input, state, reply);
+        }
+        if(input.source==='text'&&!input.voiceBackground&&!state.receipts.size&&!state.confirmations.size
+          &&!state.requestedTaskConfirmation&&!exactTitleEdits&&!requiredTool&&!state.errorCode
+          &&!attestedHistoricalReads.length&&!this.needsHistoricalAnswer(input,state)){
+          const reads=state.toolCalls.filter(call=>call.name!==LOAD_TOOLS.name);
+          if(reads.length===calls.length&&reads.every(call=>call.ok)){
+            const reply=taskReadBatchReply(calls,results,formatDate(input.now));
+            if(reply){assertProviderActive(input.signal);assertPolicy();this.host.assertReadOnlyReplyCurrent?.();return this.localAnswer(input,state,reply);}
+          }
         }
         const meaningCall = calls.find(call => call.name === "get_stats" && call.arguments.domain === "tasks" && call.arguments.directReply === "task_meaning");
         const meaningResult = meaningCall && results.find(result => result.callId === meaningCall.id && result.success);
