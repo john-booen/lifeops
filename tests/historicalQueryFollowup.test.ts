@@ -296,3 +296,19 @@ it('retains checked habit samples and separate-currency trade counts with the re
  expect(result.reply).not.toContain('净盈亏 90');expect(result.actions).toEqual([]);expect(result.receipts??[]).toEqual([]);expect(turns).toBe(2);
  expect(await Promise.all(paths.map(path=>store.readPath(path)))).toEqual(before);
 });
+
+it('keeps cross-week statistics on the owned dates when the model invents a newer range',async()=>{
+ const one=await store.createTask({title:'虚构前周已完成纸袋',date:'2026-10-28'});
+ await store.updateTask(one.id,row=>({...row,status:'completed',completedAt:'2026-10-28T20:00:00+08:00'}));
+ await store.createTask({title:'虚构后周未完成纸盒',date:'2026-11-04'});
+ const{history}=await checkedPair(),error=await historicalInterruption();let turns=0;
+ vi.spyOn(LifeOpsAi.prototype,'agentTurnStream').mockImplementation(async()=>{
+  if(++turns===1)return{content:'',toolCalls:[{id:'fictional-statistics-newer-dates',name:'get_stats',arguments:{domain:'tasks',range:{from:'2026-11-02',to:'2026-11-12'}}}]};throw error;
+ });
+ const result=await plugin.submitAgentMessageStream('接着这两周的原文和任务完成数，给我一份回顾，不修改任务。',history,()=>{},{source:'text',selfTest:true});
+ expect(result.reply).toContain('完成12张');expect(result.reply).toContain('计划 2 项，计划内完成 1 项');expect(result.reply).toContain('计划完成率 50%');
+ expect(result.reply).not.toContain('2026-11-12');expect(result.reply).not.toContain('计划完成率 0%');expect(turns).toBe(2);
+ const ledger=JSON.parse(await store.readPath(store.path(store.settings.folders.aiReports,'Operations','operation-ledger.json')));
+ const stats=ledger.records.filter((row:{toolName:string})=>row.toolName==='get_stats');expect(stats).toHaveLength(1);expect(JSON.parse(stats[0].result.output).range).toEqual(range);
+ expect(result.actions).toEqual([]);expect(result.receipts??[]).toEqual([]);expect((await store.readTaskDb()).tasks).toHaveLength(2);
+});

@@ -399,7 +399,7 @@ export class AgentLoop {
         &&history.at(-2)?.role==='user'&&history.at(-1)?.role==='assistant'
         ?(await titleEditRequest(this.host.store,history.at(-2)!.content))?.edits:undefined;
       const attestedHistoricalReads=input.source==='text'&&!input.voiceBackground
-        ?bindHistoricalDateReference([{name:'get_summaries',arguments:{includeOriginals:true}}],input.message,priorQueryDates).filter(call=>call.arguments.level!==undefined):[];
+        ?bindHistoricalDateReference([{name:'get_summaries',arguments:{includeOriginals:true}}],input.message,priorQueryDates,input.now).filter(call=>call.arguments.level!==undefined):[];
       if(priorQueryDates.length&&attestedHistoricalReads.length)
         state.historicalRecoveryCalls=structuredClone(requestedSummaryTopics(requestedTaskTopics(attestedHistoricalReads,input.message),input.message));
       let taskListAnswer: string | undefined;
@@ -477,14 +477,14 @@ export class AgentLoop {
         const requested = priority ? [priority] : response.toolCalls;
         const originalReads = input.source === "text" && !input.voiceBackground
           ? preferJournalOriginalReads(requested, input.message, input.now, history) : requested;
-        const grounded = bindHistoricalDateReference(requestedSummaryDates(originalReads, input.message, input.now, history), input.message, priorQueryDates);
+        const grounded = bindHistoricalDateReference(requestedSummaryDates(originalReads, input.message, input.now, history), input.message, priorQueryDates,input.now);
         // A date-only continuity receipt survives a memory correction, but its
         // old prose does not. Renew that read when the model selects only safe
         // facts from another domain; an empty task list cannot replace diaries.
         const continuityReads = !input.voiceBackground && !state.toolCalls.some(call => call.name === "get_summaries")
           && !grounded.some(call => call.name === "get_summaries")
           && grounded.every(call => getLifeOpsTool(call.name)?.safety === "safe")
-          ? bindHistoricalDateReference([{ name:"get_summaries", arguments:{includeOriginals:true} }],input.message,priorQueryDates)
+          ? bindHistoricalDateReference([{ name:"get_summaries", arguments:{includeOriginals:true} }],input.message,priorQueryDates,input.now)
             .filter(call => call.arguments.level !== undefined) : [];
         let calls = this.scopedCalls([...continuityReads,...requestedSummaryTopics(requestedTaskTopics(grounded,input.message), input.message)], state.id, round);
         const mixed = !input.voiceBackground ? await expandMixedTaskBatch(this.host.store, calls, input.now) : undefined;
