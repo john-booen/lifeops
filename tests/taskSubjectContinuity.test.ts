@@ -176,3 +176,10 @@ it("preserves an independent deadline when directly moving an explicitly named p
   expect(response.success).toBe(true);
   expect(await store.getTask(ongoing.id)).toMatchObject({date: "2026-11-23", endDate: "2026-11-29", dueDate: "2026-12-05", dueTime: "17:00"});
 });
+
+it("keeps the original action words when a model-selected create omits a leading part of the action", async () => {
+  const result = await runtime.executeAiToolCall(call("create_task", {title: "虚构蓝鲸盒贴标签", date: "2026-11-27", endTime: "15:00"}),
+    "kimi", "明天下午三点前给虚构蓝鲸盒贴标签。");
+  expect(result.success).toBe(true);
+  expect((await store.readTaskDb()).tasks).toMatchObject([{title: "给虚构蓝鲸盒贴标签", date: "2026-11-27", endTime: "15:00"}]);
+});

@@ -1,4 +1,5 @@
 import { clockFromMatch, clockMatches } from "./clockText";
+import { journalDateToken, normalizeJournalDate } from "./date";
 
 export function taskNamedInRequest(task: { id: string; title: string }, request: string): boolean {
   const words = request.normalize("NFKC");
@@ -18,8 +19,21 @@ export function isTaskIdentifierReference(reference: string): boolean {
 export function explicitScheduledTaskTitle(title: string, userMessage = ""): string {
   const match = /^(?:请(?:帮我)?|帮我)?\s*(?:创建|新建|添加|建)(?:一[个条项])?(?:任务|待办)[：:\s]*([^，,。；;！？!?\r\n]+)[，,]\s*(?:安排在|定在|时间是)[^，,。；;！？!?\r\n]+[。！!]*$/u.exec(userMessage.trim());
   const original = match?.[1].trim();
-  if (!original || /^(?:标题|任务名|[「『“"'‘])/u.test(original)) return title;
-  return original.replace(/\s+/gu, "").endsWith(title.replace(/\s+/gu, "")) ? original : title;
+  if (original) {
+    if (/^(?:标题|任务名|[「『“"'‘])/u.test(original)) return title;
+    return original.replace(/\s+/gu, "").endsWith(title.replace(/\s+/gu, "")) ? original : title;
+  }
+  // Content preservation after the model has already chosen create_task.
+  // Use the existing date/clock parsers; this does not route or authorize a write.
+  const message = userMessage.trim().replace(/[。！!]$/u, ""), prefix = new RegExp("^(?:" + journalDateToken + ")\\s*", "u").exec(message)?.[0];
+  if (!prefix || !normalizeJournalDate(prefix.trim())) return title;
+  const timed = message.slice(prefix.length), clocks = clockMatches(timed);
+  if (clocks.length !== 1 || clocks[0].index !== 0 || !clockFromMatch(clocks[0])) return title;
+  const tail = timed.slice(clocks[0][0].length);
+  if (!tail.startsWith("前")) return title;
+  const body = tail.slice(1).trim();
+  return body.length <= 1000 && !/[，,。；;！？!?\r\n]/u.test(body) && title.trim()
+    && body.replace(/\s+/gu, "").endsWith(title.replace(/\s+/gu, "")) ? body : title;
 }
 
 /** A reminder at one named time can correct an identical model-proposed
