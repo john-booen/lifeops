@@ -40,4 +40,4 @@ export const SUMMARY_TASK_METRIC_DEFINITIONS = {
   taskCompletionPercent: TASK_METRIC_DEFINITIONS.completionPercent
 } as const;
 
-export const RECORDED_METRIC_REPLY_GUIDANCE = "数字口径：completedTaskCount和tasksCompleted均按完成登记日期、任务编号去重，与计划日期无关；completedCount/taskCompletionEvents是登记次数。计划日期只用于计划数及计划完成率，不把完成数称为按计划日期统计。各期间分别使用其range/through，不把本月截至目前说成整月。按用户所问指标、币种和分组简短对照；工具附带其他字段不代表需要全部汇报。只问数字时不附计划量、完成率、胜负笔数、规则遵守率、盈亏原因、收益评价或补记/修改邀请；明确要求分析或建议时才按证据补充。";
+export const RECORDED_METRIC_REPLY_GUIDANCE = "数字口径：completedTaskCount和tasksCompleted均按完成登记日期、任务编号去重，与计划日期无关；completedCount/taskCompletionEvents是登记次数。计划日期只用于计划数及计划完成率，不把完成数称为按计划日期统计。各期间分别使用其range/through，不把本月截至目前说成整月。按用户所问指标、币种和分组简短对照；工具附带其他字段不代表需要全部汇报。只问数字时不附计划量、完成率、胜负笔数、规则遵守率、盈亏原因、收益评价或补记/修改邀请；明确要求分析或建议时才按证据补充。习惯、任务和项目等名称保留本轮记录中的原标签，解释含义时仍带原名，不能只换成同义词。批评和建议也受证据限制：原因没有登记就说明未核对，不用睡眠、情绪或完成率推断动机、精力取舍或因果。";
