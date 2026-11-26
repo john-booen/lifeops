@@ -148,6 +148,9 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
   const app = createFsApp(activeRoot);
   const store = new LifeOpsStore(app, structuredClone(settings));
   await store.initializeVault();
+  if (question.fixture === "task_subject_continuity") {
+    await (await import("./taskSubjectFixture")).prepareTaskSubjectFixture(store as unknown as StoreHost);
+  }
   if (question.fixture === "period_completion_window") {
     await store.writeTaskDb({ ...await store.readTaskDb(), tasks: [] });
     await store.createTask({ title: "虚构水杉卡片归档", date: "2026-11-06", endDate: "2026-11-12", startTime: "16:15", endTime: "16:45", estimateMin: 600 });

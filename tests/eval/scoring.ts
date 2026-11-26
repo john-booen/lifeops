@@ -46,6 +46,7 @@ interface EvalChecks {
   updatedTasks?: Array<{ fromTitleIncludes: string; title: string }>;
   requestedTaskPreview?: { fromTitle: string; title: string };
   requestedCreationPreview?: {titleIncludes: string};
+  rescheduledTaskPreview?: { titles: string[]; date: string };
   plannedTaskChanges?: { titlePrefix: string; count: number; fromHour: number; date: string };
   mixedTaskOutcome?: { edits: Array<{ from: string; to: string }>; createdTitles: string[]; date: string };
   createdOrClarify?: { titleIncludes: string; dates: string[]; clarify: string[] };
@@ -69,7 +70,7 @@ export interface EvalQuestion {
   mode: "text" | "voice";
   input: string;
   history: { role: "user" | "assistant"; content: string }[];
-  fixture?: "without_quiz_cards" | "scheduled_compensation_after_prelude" | "automatic_memory_after_create" | "task_already_undone" | "one_overdue_task" | "device_sleep" | "cross_week_after_correction" | "eleven_task_plans" | "mixed_title_batch" | "sparse_legacy_summary" | "task_interval_meaning" | "source_relative_dates" | "summary_original_memory" | "task_lookup_prose" | "bound_memory_restatement" | "malformed_tool_protocol" | "quoted_diary_memory" | "historical_followup_correction" | "deferred_title_confirmation" | "crowded_historical_followup" | "crowded_named_memory" | "period_completion_window" | "single_task_preview";
+  fixture?: "task_subject_continuity" | "without_quiz_cards" | "scheduled_compensation_after_prelude" | "automatic_memory_after_create" | "task_already_undone" | "one_overdue_task" | "device_sleep" | "cross_week_after_correction" | "eleven_task_plans" | "mixed_title_batch" | "sparse_legacy_summary" | "task_interval_meaning" | "source_relative_dates" | "summary_original_memory" | "task_lookup_prose" | "bound_memory_restatement" | "malformed_tool_protocol" | "quoted_diary_memory" | "historical_followup_correction" | "deferred_title_confirmation" | "crowded_historical_followup" | "crowded_named_memory" | "period_completion_window" | "single_task_preview";
   prelude?: string[];
   afterPreludeHistory?: { role: "user" | "assistant"; content: string }[];
   phoneCaptureDate?: string;
@@ -178,6 +179,19 @@ export function scoreEvaluationCase(question: EvalQuestion, observed: EvalObserv
       ||calls.length!==1||calls[0].name!=="update_tasks"||originals.length!==1||rows.length!==1
       ||rows[0].taskIdOrTitle!==originals[0].id||rows[0].title!==request.title||rows[0].expectedRevision!==recordRevision(originals[0])
       ||Object.keys(rows[0]).some(key=>!["taskIdOrTitle","title","expectedRevision"].includes(key)))issues.push("单条修改未在绑定原任务版本的确认卡中保留，或确认前发生写入");
+  }
+  if (checks.rescheduledTaskPreview) {
+    const plan = checks.rescheduledTaskPreview;
+    const originals = observed.preparedTasks?.filter(row => plan.titles.includes(row.title)) ?? [];
+    const calls = observed.proposedTaskChanges ?? [], updates = calls[0]?.arguments.updates;
+    const rows = Array.isArray(updates) ? updates as Array<Record<string, unknown>> : [];
+    if (calls.length !== 1 || calls[0].name !== "update_tasks" || originals.length !== plan.titles.length || rows.length !== originals.length
+      || originals.some(before => {
+        const matches = rows.filter(row => row.taskIdOrTitle === before.id), row = matches[0];
+        return matches.length !== 1 || row.date !== plan.date || row.expectedRevision !== recordRevision(before)
+          || Object.keys(row).some(key => !["taskIdOrTitle", "date", "expectedRevision", "time", "startTime", "endTime", "endDate"].includes(key))
+          || (["time", "startTime", "endTime", "endDate"] as const).some(key => row[key] !== undefined && row[key] !== (before[key] ?? ""));
+      })) issues.push("改期确认卡未准确绑定前文整组原任务，或夹带了其他修改");
   }
   if (checks.plannedTaskChanges) {
     const plan = checks.plannedTaskChanges;

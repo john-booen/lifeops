@@ -2117,5 +2117,31 @@
       },
       "requestedCreationPreview": {"titleIncludes": "虚构青色样本"}
     }
+  },
+  {
+    "id": "voice-task-subject-continuity-86",
+    "milestone": "M6",
+    "domain": "voice-correction",
+    "mode": "voice",
+    "fixture": "task_subject_continuity",
+    "history": [
+      {"role":"user","content":"本周有哪些逾期任务没完成？"},
+      {"role":"assistant","content":"11月9日逾期四项：虚构连续改期纸样01（19:00–19:30）、虚构连续改期纸样02（20:00–20:30）、虚构连续改期纸样03（21:00–21:30）、虚构连续改期纸样04（22:00–22:30）。"},
+      {"role":"user","content":"四项统一安排到周末。"},
+      {"role":"assistant","content":"（被打断）"},
+      {"role":"user","content":"工作日没空，原来的时段保留。"},
+      {"role":"assistant","content":"这四项你选周六还是周日？"}
+    ],
+    "input": "挪到周日吧，周六也有事情。",
+    "checks": {
+      "minConfirmations": 1,
+      "maxConfirmations": 1,
+      "maxReplyChars": 1600,
+      "expectWrites": {"tasks.created":0,"tasks.deleted":0,"tasks.rescheduled":0,"tasks.timeChanged":0},
+      "rescheduledTaskPreview": {
+        "titles":["虚构连续改期纸样01","虚构连续改期纸样02","虚构连续改期纸样03","虚构连续改期纸样04"],
+        "date":"2026-11-15"
+      }
+    }
   }
 ]

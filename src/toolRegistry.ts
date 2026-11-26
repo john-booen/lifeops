@@ -11,7 +11,8 @@ import { createdTaskForUndo, taskSavedByReceipt, rebaseTaskRecordUndo } from "./
 import type { FactOperationOptions, GuardedFileChange } from "./dataFoundation/factOperation";
 import { addDays, normalizeJournalDate, todayString } from "./date";
 import { isVaultPathExcluded } from "./privacy";
-import { shiftTaskDates, taskCompletionDay, taskScheduleLabel, timeMinutes, validateTaskSchedule } from "./taskSchedule";
+import { taskCompletionDay, taskScheduleLabel, timeMinutes, validateTaskSchedule } from "./taskSchedule";
+import { rescheduledTaskPlan } from "./features/tasks/rescheduleInput";
 import { TASK_DEADLINE_PROPERTIES, taskDeadlineLabel } from "./features/tasks/deadlineInput";
 import {taskScheduleInput} from "./features/tasks/scheduleInput";
 import { createPersonalMemory, findMemorySuppression, personalMemorySourceAssessment, personalMemoryReadSnapshot, reviewPersonalMemoryRecord, upsertPersonalMemoryRecord, type PersonalMemoryKind } from "./personalMemory";
@@ -344,13 +345,7 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
       if (nextDate === task.date && (time === undefined || time === task[clockField])) {
         return toolReply(`「${task.title}」已在 ${when}。`);
       }
-      const dayShift = nextDate === task.date ? 0 :
-        (Date.parse(nextDate + "T00:00:00Z") - Date.parse((task.date || todayString()) + "T00:00:00Z")) / 86_400_000;
-      if (!Number.isSafeInteger(dayShift)) return toolError("原任务日期无法核对，已保留原安排。");
-      const dates = nextDate === task.date ? {} : shiftTaskDates(task, dayShift);
-      const clocks = time === undefined ? {} : { [clockField]: time };
-      const next = { ...task, ...dates, ...clocks };
-      validateTaskSchedule(next);
+      const next = { ...task, ...rescheduledTaskPlan(task, args) };
       await store.updateTask(task.id, current => {
         if (recordRevision(current) !== recordRevision(task)) throw Error("这条任务刚发生变化，请核对最新安排后再改。");
         return next;
@@ -1323,7 +1318,7 @@ type ReferenceResolution<T> =
   | { kind: "ambiguous"; candidates: T[] }
   | { kind: "not_found" };
 
-async function resolveTaskByReference(store: StoreHost, ref: string, readOnly = false): Promise<ReferenceResolution<LifeOpsTask>> {
+export async function resolveTaskByReference(store: StoreHost, ref: string, readOnly = false): Promise<ReferenceResolution<LifeOpsTask>> {
   const reference = ref.trim();
   if (!reference) return { kind: "not_found" };
   const database = readOnly ? await store.readTaskDb({ readOnly: true }) : await store.getTaskDashboard();

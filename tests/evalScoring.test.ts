@@ -24,6 +24,20 @@ const task = { id: "synthetic", title: "见客户", date: "2026-11-13", time: "1
 const observed: EvalObservation = { reply: "已建好", tools: [], writes: { "tasks.created": 1 }, createdTasks: [task],
   tasks: [task], confirmations: 0, confirmationActions: [], receipts: 1, preludeCreatedTasks: 0 };
 
+it("requires the exact original group, date, revisions and unchanged clocks in a reschedule preview", () => {
+  const originals = [1, 2, 3, 4].map(i => ({ id: `fictional-subject-${i}`, title: `虚构纸样${i}`, date: "2026-11-09", startTime: "19:00", endTime: "19:30" }));
+  const question: EvalQuestion = { id: "fictional-subject-scoring", milestone: "M6", domain: "tasks", mode: "voice", input: "挪到周日", history: [],
+    checks: { rescheduledTaskPreview: { titles: originals.map(t => t.title), date: "2026-11-15" } } };
+  const updates = originals.map(row => ({ taskIdOrTitle: row.id, date: "2026-11-15", expectedRevision: recordRevision(row) }));
+  const result = (rows: Record<string, unknown>[]) => ({ ...observed, preparedTasks: originals,
+    proposedTaskChanges: [{ name: "update_tasks", arguments: { updates: rows } }] });
+  expect(scoreEvaluationCase(question, result(updates))).toEqual([]);
+  for (const rows of [updates.slice(1), [...updates, updates[0]], updates.map((row, i) => i ? row : { ...row, taskIdOrTitle: "fictional-other" }),
+    updates.map((row, i) => i ? row : { ...row, date: "2026-11-14" }), updates.map((row, i) => i ? row : { ...row, expectedRevision: "stale" }),
+    updates.map((row, i) => i ? row : { ...row, startTime: "18:00" })])
+    expect(scoreEvaluationCase(question, result(rows))).not.toEqual([]);
+});
+
 const weekQuestion = questions.find(row => row.id === "previous-week-summary-37")! as EvalQuestion;
 const improvementObservation: EvalObservation = { ...observed, reply: "上周完成26项。\n**一条改进建议（建议，不是已定规则）**：给阅读定一个固定落点，提前留出三十分钟。",
   tools: [{ name: "get_summaries", ok: true, facts: { level: "week", summaries: [{ period: "2026-W45", metrics: { tasksCompleted: 26 }, complete: true }] } }],
