@@ -10,6 +10,7 @@ import type { tradeStats } from "../stats/trades";
 import { readSummary, summaryPathAllowed, type SummaryMetrics } from "./notes";
 import { summaryPeriodsInRange, type SummaryPeriod } from "./periods";
 import { journalSignalCoverage } from "./journalCoverage";
+import { taskSummaryMetrics, type TaskMetrics } from "./metrics";
 
 export function conversationUserTurns(raw: string, protect: (text: string) => string): string[] {
   const headers = /^## \d{1,2}:\d{2}:\d{2}[^\S\r\n]*\r?\n\s*?### 我\r?\n([\s\S]*?)(?=\r?\n### LifeOps Agent\r?\n)/gm;
@@ -56,13 +57,6 @@ export async function collectChildSummaries(store: StoreHost, period: SummaryPer
 
 const numeric = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : null;
 type TradeTotals = Pick<SummaryMetrics, "tradePnlCny" | "tradePnlUsd">;
-type TaskMetrics = Pick<SummaryMetrics, "tasksCompleted" | "taskCompletionEvents" | "taskCompletionPercent">;
-
-function taskSummaryMetrics(stats: { completedTaskCount?: unknown; completedCount?: unknown; completionPercent?: unknown } | null): TaskMetrics {
-  return { tasksCompleted: numeric(stats?.completedTaskCount), taskCompletionEvents: numeric(stats?.completedCount),
-    taskCompletionPercent: numeric(stats?.completionPercent) };
-}
-
 function tradeSummaryTotals(stats: ReturnType<typeof tradeStats> | null): TradeTotals {
   return {
     tradePnlCny: numeric(stats?.byCurrency.CNY.totalPnl),

@@ -5,7 +5,8 @@ import { MEMORY_CONTEXT_OMISSION } from "../../personalMemoryContext";
 import { isVaultPathExcluded } from "../../privacy";
 import type { StoreHost } from "../../store/settingsSlice";
 import { produceVaultQueryRead } from "../../vaultQueryRead";
-import { readSummary, readSummaryScope, summaryPath, summaryPathAllowed, summaryMetricNames, type SummaryMetrics } from "./notes";
+import { readSummary, readSummaryScope, summaryPath, summaryPathAllowed, summaryMetricNames, SUMMARY_TASK_METRIC_BASIS, type SummaryMetrics } from "./notes";
+import { legacySummaryTaskMetricReader, summaryTaskMetricNames } from "./legacyTaskMetrics";
 import { resolveSummaryRange, summaryLevels, summaryPeriod, summaryPeriodsInRange, type SummaryLevel } from "./periods";
 import { evidenceCoverage } from "./evidenceCoverage";
 import { noteCalendar } from "./noteCalendar";
@@ -22,15 +23,17 @@ export async function readSummaryQueryWithSources(store: StoreHost, args: Record
     throw Error("摘要指标需要选择有效、不重复的指标字段。");
   }
   const selectedMetrics = metrics as readonly (keyof SummaryMetrics)[] | undefined;
+  const needsTaskMetrics = !selectedMetrics || selectedMetrics.some(key => summaryTaskMetricNames.includes(key as typeof summaryTaskMetricNames[number]));
   if (args.query !== undefined && (typeof args.query !== "string" || !args.query.trim() || args.query.length>120)) throw Error("请提供一段不超过120字的主题关键词。");
   const query = typeof args.query === "string" ? args.query.trim() : undefined;
   const allowOriginals = !selectedMetrics || args.includeOriginals === true || query !== undefined;
   const terms = query?.toLocaleLowerCase().split(/\s+/u).sort((a,b)=>b.length-a.length) ?? [];
   if (terms.length>8) throw Error("一次最多用8个主题关键词。");
-  const range = resolveSummaryRange(args.range as Parameters<typeof resolveSummaryRange>[0], new Date());
+  const now = new Date();
+  const range = resolveSummaryRange(args.range as Parameters<typeof resolveSummaryRange>[0], now);
   const periods = summaryPeriodsInRange(level, range), selectedPeriods = periods.slice(-14);
   const scope = await readSummaryScope(store);
-  const through = [range.to, formatDate(new Date())].sort()[0];
+  const through = [range.to, formatDate(now)].sort()[0];
   const from = [range.from, addDays(through, -27)].sort().at(-1)!;
   const journalFiles = () => store.app.vault.getMarkdownFiles().flatMap(file => {
     if (!summaryPathAllowed(store, file.path) || !store.isManagedSourcePath(file.path)
@@ -46,16 +49,24 @@ export async function readSummaryQueryWithSources(store: StoreHost, args: Record
   const read = await produceVaultQueryRead(store, () => [
     ...selectedPeriods.map(period => summaryPath(store, period)).filter(path=>summaryPathAllowed(store,path))
       .map(path=>({path,version:JSON.stringify(store.getFile(path)?.stat??"absent")})),
+    ...(needsTaskMetrics ? [store.taskDbPath(),store.taskMirrorPath()].filter(path=>summaryPathAllowed(store,path))
+      .map(path=>({path,version:JSON.stringify(store.getFile(path)?.stat??"absent")})) : []),
     ...(allowOriginals ? journalFiles().map(({file})=>({path:file.path,version:JSON.stringify(file.stat)})) : [])
   ], async reader => {
     const summaries = [], missingPeriods: string[] = [];
+    const legacyMetrics = legacySummaryTaskMetricReader(store,reader,now);
     for (const period of selectedPeriods) {
       const note = await readSummary(store, period, scope.hash);
       if (!note) { missingPeriods.push(period.key); continue; }
+      const upgrade = needsTaskMetrics && note.properties.taskMetricBasis !== SUMMARY_TASK_METRIC_BASIS
+        ? await legacyMetrics(note,period) : undefined;
+      const numericMetrics = { ...note.properties.metrics, ...upgrade?.metrics };
       const item = {
         period: period.key, from: period.from, through: note.properties.through, complete: note.properties.complete,
         generatedBy: note.properties.generatedBy, edited: note.edited, inputCount: note.properties.inputCount,
-        metrics: selectedMetrics ? Object.fromEntries(selectedMetrics.map(key=>[key,note.properties.metrics[key]??null])) : note.properties.metrics,
+        metrics: selectedMetrics ? Object.fromEntries(selectedMetrics.map(key=>[key,numericMetrics[key]??null])) : numericMetrics,
+        ...(upgrade ? { taskMetricBasis: upgrade.taskMetricBasis, taskMetricsSource: upgrade.taskMetricsSource }
+          : note.properties.taskMetricBasis ? {taskMetricBasis:note.properties.taskMetricBasis} : {}),
         ...(!selectedMetrics ? {summary: scope.protect(note.text).slice(0,1600)} : {}), path: note.path
       };
       reader.dependOn(note.path,note.revision);reader.contributed(note.path,JSON.stringify(item));
@@ -108,6 +119,7 @@ export async function readSummaryQueryWithSources(store: StoreHost, args: Record
     if ((await readSummaryScope(store)).hash!==scope.hash) throw Error("摘要可读取的资料范围有变化，请重试。");
     return JSON.stringify({level,range,summaries,...(selectedMetrics?{requestedMetrics:selectedMetrics}:{}),recordScope:RECORDED_DATA_SCOPE,metricDefinitions:SUMMARY_TASK_METRIC_DEFINITIONS,
       interpretationBoundary:{summary:"模型或本地生成的二手总结，不是直接事件证明；edited表示生成后有编辑，不能仅凭它认定原文已核对。",
+        metrics:"任务完成数按完成登记日及任务编号去重，完成登记次数另列；此口径只用于任务，交易盈亏分别按币种统计。taskMetricsSource若标记只读重算，以返回metrics为准，旧正文中的任务数字不能覆盖它；unknown/null不能当成零。",
         complete:"周期完成标记，不是原始记录齐全的证明。",inputCount:"已完成的子摘要份数，不是日记篇数或有行为的天数。",
         dates:"原文中的相对日期以该段叙述的时点理解，笔记日期与事件日期分开；不能改为当前读取日。",
         suggestions:"建议不等于事实、已定计划或修改现有目标与规则的授权。"},...(missingPeriods.length?{missingPeriods}:{}),

@@ -1,4 +1,4 @@
-import type{ChatMessage}from'../ai';import{formatDate,addDays}from'../date';import{summaryPeriod}from'../features/summaries/periods';import{summaryMetricNames,type SummaryMetrics}from'../features/summaries/notes';
+import type{ChatMessage}from'../ai';import{formatDate,addDays}from'../date';import{summaryPeriod}from'../features/summaries/periods';import{summaryMetricNames,type SummaryMetrics}from'../features/summaries/metrics';
 type Metric=keyof SummaryMetrics;
 type Row={period:string;from:string;through:string;metrics:Partial<SummaryMetrics>;selected:boolean;conflicted?:boolean};
 export type SummaryMetricConflict={period:string;metric:string;expected?:number|null;reported?:string;reason:string};

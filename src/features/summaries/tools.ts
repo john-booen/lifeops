@@ -2,7 +2,7 @@ import type { LifeOpsToolDefinition } from "../../toolRegistry";
 import { summaryLevels } from "./periods";
 import { executeStoredQuery } from "../../storedQueryRead";
 import { ISO_DATE_INTERVAL_PATTERN } from "../stats/stats";
-import { summaryMetricNames } from "./notes";
+import { summaryMetricNames } from "./metrics";
 
 export const SUMMARIES_TOOL: LifeOpsToolDefinition = {
   name: "get_summaries",

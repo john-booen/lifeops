@@ -6,18 +6,10 @@ import { isVaultPathExcluded } from "../../privacy";
 import { isContextSourcePath } from "../../sourceReferences";
 import type { StoreHost } from "../../store/settingsSlice";
 import { summaryFolders, type SummaryPeriod } from "./periods";
+import { SUMMARY_TASK_METRIC_BASIS, type SummaryMetrics } from "./metrics";
+export { SUMMARY_TASK_METRIC_BASIS, summaryMetricNames, type SummaryMetrics } from "./metrics";
 
 const summaryMarker = "lifeops-summary";
-export type SummaryMetrics = {
-  taskCompletionPercent: number | null;
-  tasksCompleted: number | null;
-  /** Absent on legacy summaries; never infer distinct task IDs from events. */
-  taskCompletionEvents?: number | null;
-  energy: number | null;
-  tradePnlCny: number | null;
-  tradePnlUsd: number | null;
-};
-export const summaryMetricNames = ["tasksCompleted", "taskCompletionEvents", "taskCompletionPercent", "energy", "tradePnlCny", "tradePnlUsd"] as const satisfies readonly (keyof SummaryMetrics)[];
 export type SummaryKind = "model" | "local";
 type SummaryProperties = {
   lifeops: typeof summaryMarker;
@@ -30,6 +22,7 @@ type SummaryProperties = {
   inputRevision?: string;
   complete: boolean;
   generatedBy: SummaryKind;
+  taskMetricBasis?: string;
   metrics: SummaryMetrics;
 };
 export type SavedSummary = {
@@ -88,7 +81,7 @@ export function renderSummary(period: SummaryPeriod, through: string, sourceScop
   const text = body.trim();
   const properties: SummaryProperties = {
     lifeops: summaryMarker, level: period.level, from: period.from, to: period.to, through,
-    sourceScope, inputCount, complete, generatedBy: kind, metrics
+    sourceScope, inputCount, complete, generatedBy: kind, taskMetricBasis: SUMMARY_TASK_METRIC_BASIS, metrics
   };
   const header = "---\n" + stringifyYaml(properties).trimEnd() + "\n---\n";
   const bodyText = (inputRevision ? "<!-- LifeOps 摘要输入 " + inputRevision + " -->\n" : "") + "\n" + text + "\n";
