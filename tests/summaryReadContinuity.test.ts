@@ -194,7 +194,8 @@ it("delivers the refreshed original through the production conversation entry wi
   refreshOnDirectRead(async (_raw, count) => { if (count === 1) await vault.seed(path, latest); });
   const streamed: string[] = [];
   const result = await plugin.submitAgentMessageStream("查看2026年11月2日至8日的原始日记，给一条基于原话的归档建议，不修改记录。", [], (text: string) => streamed.push(text), { source: "text", selfTest: true });
-  expect(result.reply).toBe(answer); expect(streamed.at(-1)).toBe(answer); expect(streamed.join("")).not.toContain("虚构未发布草稿");
+  const expected = answer + "\n\n原文核对片段（仅供核对，不代表完整记录或已完成）：\n\n笔记日期：2026\\-11\\-04；来源：" + path.replace(/[-.]/g, "\\$&") + "\n> 虚构蓝纸归档：完成12张。\n> 虚构补充原话：黄纸已整理7张。";
+  expect(result.reply).toBe(expected); expect(streamed.at(-1)).toBe(expected); expect(streamed.join("")).not.toContain("虚构未发布草稿");
   expect(turns).toBe(3); expect(execute).toHaveBeenCalledTimes(2);
   expect(result.actions).toEqual([]); expect(result.receipts).toEqual([]); expect(await vault.bytes(store.taskDbPath())).toBe(before);
   expect(await vault.bytes(path)).toBe(latest);
