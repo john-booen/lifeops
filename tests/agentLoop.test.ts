@@ -1354,7 +1354,7 @@ describe("unified agent loop", () => {
       const before=await store.readPath(store.taskDbPath());
       responses.push(reply('',[tool('get_stats',{domain:'tasks',range:'today',directReply:'completed_tasks'})]),new Error('Must not restate verified count'));
       const result=await new AgentLoop(host).run(input({message:'数一下已经做完的事情。'}));
-      expect(result.text).toBe('今天已完成 1 个任务。');expect(requests).toHaveLength(1);
+      expect(result.text).toBe('按登记，今天已完成 1 个任务。');expect(requests).toHaveLength(1);
       expect(result.receipts).toEqual([]);expect(await store.readPath(store.taskDbPath())).toBe(before);
     }finally{vi.useRealTimers();}
   });
@@ -1384,8 +1384,15 @@ describe("unified agent loop", () => {
       reply('',[tool('create_task',{title:'虚构先确认的纸袋',date:formatDate(now)})]));
     const result=await new AgentLoop(host).run(input({message:'新建任务“虚构先确认的纸袋”先给确认卡，同时解释任务统计口径，等我确认后再保存。'}));
     expect(requests).toHaveLength(2);expect(result.confirmations).toHaveLength(1);expect(result.receipts).toEqual([]);
-    expect(result.toolCalls).toEqual([{name:'get_stats',ok:true},{name:'create_task',ok:true}]);
+    expect(result.toolCalls).toEqual([{name:'get_stats',ok:true},{name:'tool_batch',ok:true}]);
+    expect(result.confirmations[0].type).toBe('tool_batch');
+    expect(result.confirmations[0].toolBatch).toHaveLength(1);
+    expect(result.confirmations[0].toolBatch![0]).toMatchObject({name:'create_task',arguments:{title:'虚构先确认的纸袋',date:formatDate(now)}});
     expect(await store.readPath(store.taskDbPath())).toBe(before);
+    await executeConfirmedToolBatch(result.confirmations[0],runtime,()=>{});
+    expect((await store.readTaskDb()).tasks.filter(task=>task.title==='虚构先确认的纸袋')).toHaveLength(1);
+    await executeConfirmedToolBatch(result.confirmations[0],runtime,()=>{});
+    expect((await store.readTaskDb()).tasks.filter(task=>task.title==='虚构先确认的纸袋')).toHaveLength(1);
   });
 
   it("returns the exact habit name from the delete confirmation without another model call", async () => {

@@ -14,5 +14,5 @@ export function completedTasksReply(output: string, today: string): string | und
   const when=from===to?(from===today?'今天':from):`${from} 至 ${to}`;
   const repeated=events!==count?`（共 ${events} 次完成记录）`:'';
   const scope=value.scope?'仅统计本轮允许读取的登记记录。':'';
-  return `${when}已完成 ${count} 个任务${repeated}。${scope}`;
+  return `按登记，${when}已完成 ${count} 个任务${repeated}。${count===0?'未登记情况未知，不能据此判断没有行动。':''}${scope}`;
 }
