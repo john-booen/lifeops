@@ -314,6 +314,21 @@ it("keeps the Sunday task count current when a weekly summary is still a draft",
   expect(await withWeeklySummary(store, [weekly])).toMatchObject([{ summaryPath: undefined, reason: expect.stringContaining("本周摘要暂未生成。") }]);
 });
 
+it("counts distinct task IDs in the Sunday reminder while keeping repeat registration events separate", async () => {
+  const point=now(15,20),first=await store.createTask({title:"虚构同名纸盒",date:"2026-11-12"}),
+    second=await store.createTask({title:"虚构同名纸盒",date:"2026-11-13"});
+  await store.updateTask(first.id,row=>({...row,completionLog:[
+    {completedAt:now(12,10).toISOString(),note:""},{completedAt:now(13,10).toISOString(),note:""}
+  ]}));
+  await store.updateTask(second.id,row=>({...row,status:"completed",completedAt:now(14,10).toISOString()}));
+  const paths=[store.taskDbPath(),store.taskMirrorPath()],before=await Promise.all(paths.map(path=>vault.bytes(path)));
+  const candidates=await collectStewardCandidates(store,emptyProactivePolicyState(),point,undefined);
+  const reason=candidates.find(row=>row.kind==="weekly_review")?.reason;
+  expect(reason).toContain("本周已完成 2 项任务（共 3 次完成记录）。");
+  expect(reason).not.toContain("本周已完成 3 项任务");
+  expect(await Promise.all(paths.map(path=>vault.bytes(path)))).toEqual(before);
+});
+
 it.each(["excluded", "malformed"] as const)("delivers both Sunday reminders with %s learning data", async (condition) => {
   const point = now(15, 21), path = learningPath(store);
   await seedCompletedTask(12);

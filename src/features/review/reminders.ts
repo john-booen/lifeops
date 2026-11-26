@@ -123,8 +123,9 @@ async function weeklyPlan(store: StoreHost, now: Date) {
   const learning = !doc ? "下周学习计划暂时无法读取。"
     : plans ? "下周学习计划：" + plans + "。可以在学习页调整。" : "下周学习时长还没有设置，可以在学习页安排。";
   const taskStats = tasks.success ? JSON.parse(tasks.output) : undefined;
-  const summary = typeof taskStats?.completedCount === "number"
-    ? (taskStats.scope ? "本周可读记录中已完成 " : "本周已完成 ") + taskStats.completedCount + " 项任务。"
+  const summary = typeof taskStats?.completedTaskCount === "number"
+    ? (taskStats.scope ? "本周可读记录中已完成 " : "本周已完成 ") + taskStats.completedTaskCount + " 项任务"
+      + (taskStats.completedCount !== taskStats.completedTaskCount ? `（共 ${taskStats.completedCount} 次完成记录）` : "") + "。"
     : "本周任务数据暂不可用。";
   return {
     text: summary + (report ? weeklySummaryStatus(report) : "本周摘要预计 21:30 生成。") + learning,
