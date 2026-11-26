@@ -498,6 +498,26 @@ export class AgentRuntime {
     }
   }
 
+  /** Host-only task card: original handlers share one Fact/Ledger/Undo boundary. */
+  async executeConfirmedTaskBatch(calls: AiToolCall[], operationId: string, assertCurrent: () => void): Promise<ToolCallResult> {
+    const frozen = structuredClone(calls), guard = taskContentWriteGuard(this.context.store);
+    const current = () => { assertCurrent(); guard(); this.context.assertCurrent?.(); };
+    if (!this.context.store.runFactOperation || !frozen.length || frozen.length > 21
+      || frozen.some(call => !['create_task','update_tasks'].includes(call.name)))
+      throw Error('整批任务须使用受保护的原任务处理器。');
+    return this.executeLocalOperation('confirm_task_batch', {toolBatch:frozen}, async store => {
+      for (const [index,call] of frozen.entries()) {
+        current();
+        const tool = getLifeOpsTool(call.name)!;
+        const result = await tool.execute(call.arguments, {...this.context,store,refreshViews:async()=>{}}, {
+          operationId:`${operationId}:${index}`,source:'system',confirmedByUser:true,userMessage:'',assertCurrent:current
+        });
+        if (!result.success || result.actions.length) throw Error(result.output);
+      }
+      current();
+    },operationId,{assertCurrent:current});
+  }
+
   async undoOperation(operationId: string): Promise<boolean> {
     await undoRecordedOperation(operationId, this.context);
     return true;

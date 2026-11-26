@@ -66,8 +66,15 @@ export async function executeConfirmedToolBatch(action: AgentActionSuggestion, r
   const calls = structuredClone(action.toolBatch ?? []);
   const count = countWrites(calls), total = action.batchWriteCount ?? count;
   const requested = isCurrentRequestedToolBatch(action);
+  if(requestedPreviews.has(action)&&!requested)throw Error('批量修改内容无效：确认卡已变化或已取消，请重新核对；本批尚未保存。');
   if (!calls.length || !Number.isSafeInteger(total) || total < count || (total <= 3 && !requested)
     || calls.some(call => getLifeOpsTool(call.name)?.safety !== "direct-write" || call.name === "undo_latest_operation")) throw new Error("批量修改内容无效，请重新提出。");
+  if(calls.some(call=>call.name==='create_task')&&calls.some(call=>call.name==='update_tasks')
+    &&calls.every(call=>['create_task','update_tasks'].includes(call.name))){
+    const result=await runtime.executeConfirmedTaskBatch(calls,`confirmed:${actionId}:tasks`,current);
+    if(!result.success)throw Error(`整批尚未保存：${result.output}`);
+    return `已保存整批 ${count} 项任务安排，并完成读回检查；可在最近操作中整批撤销。`;
+  }
   const outputs: string[] = [];
   const original = batchJournalOriginals.get(action);
   for (let i = 0; i < calls.length; i++) {

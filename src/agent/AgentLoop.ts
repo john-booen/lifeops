@@ -422,7 +422,10 @@ export class AgentLoop {
         if(contentTitleEdits)response={...response,toolCalls:bindTitleEditContent(response.toolCalls,contentTitleEdits)};
         if(!requiredTool&&!final&&exactTitleEdits&&!state.taskContentCalls?.size){
           const proposed=!response.toolCalls.length&&!state.receipts.size&&!state.confirmations.size?[titleEditCall(exactTitleEdits)]:response.toolCalls;
-          response={...response,toolCalls:completeTitleEditCalls(proposed,exactTitleEdits)};
+          // A fresh request's read phase has no mutation authority. Keep proven
+          // adjacent confirmation behavior, then complete the actual proposal.
+          if(!titleRequest || !proposed.length || !proposed.every(call=>getLifeOpsTool(call.name)?.safety==='safe'))
+            response={...response,toolCalls:completeTitleEditCalls(proposed,exactTitleEdits)};
         }
         const missingRequiredCall = () => response.toolCalls.length !== 1 || response.toolCalls[0].name !== requiredTool || requiredTool==="query_vault"&&(response.toolCalls[0].arguments.domain!=="memory"||response.toolCalls[0].arguments.operation!=="get"||typeof response.toolCalls[0].arguments.query!=="string"||!String(response.toolCalls[0].arguments.query).trim());
         if (required?.name === "propose_task_plan" && !required.retry && missingRequiredCall()) {
@@ -436,6 +439,8 @@ export class AgentLoop {
           state.text = requiredTool === "query_vault" ? "本轮尚未取得按主题读取记忆的结果，不能确定记录不存在，请重新查询。" : requiredTool === "advance_idea" ? "想法推进还没生成确认卡，请再试一次。" : "明日安排还没生成确认卡，请再试一次。";
           break;
         }
+        if(requiredTool==='propose_task_plan'&&exactTitleEdits&&!state.taskContentCalls?.size)
+          response={...response,toolCalls:completeTitleEditCalls(response.toolCalls,exactTitleEdits)};
         if (!response.toolCalls.length) {
           if(attestedHistoricalReads.length&&!state.receipts.size&&!state.confirmations.size
             &&!state.toolCalls.some(call=>call.name==='get_summaries')&&state.toolCalls.every(call=>isBackgroundReadTool(call.name)||call.name===LOAD_TOOLS.name)){
@@ -480,9 +485,9 @@ export class AgentLoop {
           this.recordResult(input, state, TASK_BATCH_TOOL.name, { ...mixed.error, success: false, actions: [] });
           state.text = mixed.error.output; break;
         }
-        if (mixed) { calls = mixed.calls; state.taskBatchNotes = mixed.notes; }
+        if (mixed) { calls = mixed.calls; state.taskBatchNotes = mixed.notes; if(mixed.confirmationRequested)state.requestedTaskConfirmation=true; }
         if (fastVoice) for (const call of calls) this.compactVoiceRead(call);
-        if (requiredTool === "propose_task_plan") calls[0].arguments.capacityAware = true;
+        if (requiredTool === "propose_task_plan" && !mixed) calls[0].arguments.capacityAware = true;
         if (required?.name === "advance_idea") calls[0].arguments = { id: required.ideaId };
         messages.push({ role: "assistant", content: response.content, tool_calls: calls.map(call => ({
           id: call.id!, type: "function", function: { name: call.name, arguments: JSON.stringify(call.arguments) }
@@ -507,7 +512,7 @@ export class AgentLoop {
         const requestedPreview = state.requestedTaskConfirmation && results.find(result => result.success
           && result.actions.some(action => action.type === "tool_batch"));
         if (requestedPreview) return this.localAnswer(input, state, [requestedPreview.output,
-          ...requestedPreview.actions.map(action => action.content), ...results.filter(result => !result.success).map(result => result.output),
+          ...requestedPreview.actions.map(action => action.content), ...(state.taskBatchNotes??[]), ...results.filter(result => !result.success).map(result => result.output),
           "确认后保存；原任务尚未修改。"].join("\n"));
         if (round === 0 && input.source === "text" && calls.length === 1
           && calls[0].name === "undo_latest_operation" && results[0]?.priorQueryUnverified

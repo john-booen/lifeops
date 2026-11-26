@@ -208,11 +208,12 @@ it.each([false, true])("stops excluded permissions before/during editing (mid-sa
   expect(result.success).toBe(false); expect(await store.readPath(store.taskDbPath())).toBe(before);
 });
 
-async function run(calls: AiToolCall[], message: string, history: Parameters<InstanceType<typeof AgentLoop>["run"]>[0]["history"] = [], lookupFirst = false) {
+async function run(calls: AiToolCall[], message: string, history: Parameters<InstanceType<typeof AgentLoop>["run"]>[0]["history"] = [], lookupFirst: boolean | 'plan' = false) {
   let turns = 0;
   const model = vi.fn(async () => {
     const turn = ++turns;
-    if (lookupFirst && turn === 1) return { content: "", toolCalls: [{ id: "fictional-lookup-first", name: "list_tasks", arguments: { date, directReply: true } }] };
+    if (lookupFirst && turn === 1) return { content: "", toolCalls: [{ id: "fictional-lookup-first", name: "list_tasks", arguments: { date, directReply: true } },
+      ...(lookupFirst==='plan'?[{id:'fictional-plan-first',name:'plan_today',arguments:{draftTomorrow:true}}]:[])] };
     return turn === (lookupFirst ? 2 : 1) ? { content: "", toolCalls: calls }
       : { content: "模型的额外确认要求不作为保存回执。", toolCalls: [] };
   });
@@ -238,7 +239,7 @@ it.each(["both", "partial", "read-only-call", "prose", "blocked-extra"])("keeps 
   '把「虚构旧纸样0」改为「虚构新纸样甲」，把「虚构旧纸样1」改为「虚构新纸样乙」。先给我确认卡，等我确认。');
  expect(result.receipts).toEqual([]);
  expect(result.confirmations).toHaveLength(1);
- expect(model).toHaveBeenCalledOnce();
+  expect(model).toHaveBeenCalledTimes(mode === 'read-only-call' ? 2 : 1);
  expect(result.text).toContain("尚未修改");
  if (mode === "blocked-extra") expect(result.text).toContain("没有核对到");
  expect(await store.readPath(store.taskDbPath())).toBe(before);
@@ -279,14 +280,14 @@ it("snapshots a requested mixed card before its first asynchronous write", async
  await seed();
  const { result } = await run([{ name: "schedule_task_batch", arguments: { date, tasks: [{ title: "虚构快照新增任务" }] } }],
   '把「虚构旧纸样0」改为「虚构新纸样甲」，把「虚构旧纸样1」改为「虚构新纸样乙」。再安排虚构快照新增任务。先给我确认卡，等我确认。');
- const action = result.confirmations[0], actionId = action.id, original = runtime.executeToolCall.bind(runtime), callIds: string[] = [];
- vi.spyOn(runtime, "executeToolCall").mockImplementation(async (...args) => {
-  callIds.push(args[0].callId!);
-  if (callIds.length === 1) { action.id = "fictional-later-mutated-id"; action.toolBatch![1].arguments.title = "虚构迟到篡改标题"; }
+ const action = result.confirmations[0], actionId = action.id, original = runtime.executeLocalOperation.bind(runtime), callIds: string[] = [];
+ vi.spyOn(runtime, "executeLocalOperation").mockImplementation(async (...args) => {
+  callIds.push(args[3]!);
+  action.id = "fictional-later-mutated-id"; action.toolBatch![1].arguments.title = "虚构迟到篡改标题";
   return original(...args);
  });
  await executeAgentAction.call({ unloaded: false, lifecycleGeneration: 0, createAgentRuntime: () => runtime } as unknown as AgentHost, action);
- expect(callIds).toEqual([`confirmed:${actionId}:0`, `confirmed:${actionId}:1`]);
+ expect(callIds).toEqual([`confirmed:${actionId}:tasks`]);
  expect((await store.readTaskDb()).tasks.map(row => row.title)).toEqual(["虚构新纸样甲", "虚构新纸样乙", "虚构快照新增任务"]);
 });
 
@@ -471,4 +472,49 @@ it("still requires one real confirmation for four edits and preserves that gate 
   expect((await store.readTaskDb()).tasks).toEqual(rows);
   await executeConfirmedToolBatch(result.confirmations[0], runtime, () => {});
   expect((await store.readTaskDb()).tasks.map(row => row.title)).toEqual(rows.map((_, i) => `虚构新纸样${i}`));
+});
+
+const mixedMessage='把「虚构旧纸样0」改为「虚构新纸样甲」，把「虚构旧纸样1」改为「虚构新纸样乙」。再规划五项纸袋任务，给一份完整确认卡。';
+const fivePlan=()=>({name:'propose_task_plan',arguments:{capacityAware:true,tasks:Array.from({length:5},(_,i)=>({
+ title:`虚构混批新增纸袋${i}`,date,endDate:'2066-01-17',scheduleMode:'window',startTime:'09:00',endTime:'09:20',dueDate:'2066-01-18',dueTime:'17:30'
+}))}});
+const taskFacts=async()=>{
+ const raw=await store.readPath(new (await import('../src/dataFoundation/operationLedger')).OperationLedger(store).filePath);
+ const {getLifeOpsTool}=await import('../src/toolRegistry');
+ // Read receipts remain auditable; only task mutations must be absent before approval.
+ const records=(raw?JSON.parse(raw).records:[]).filter((r:any)=>getLifeOpsTool(r.toolName)?.safety==='direct-write'||r.toolName==='confirm_task_batch');
+ return{db:await store.readPath(store.taskDbPath()),mirror:await store.readPath(store.taskMirrorPath()),ledger:JSON.stringify({records})};
+};
+it.each([false,true,'plan'] as const)('holds old edits and all new plan rows in one real card after the read phase: %s',async lookup=>{
+ const rows=await seed(),before=await taskFacts();
+ const {result}=await run([fivePlan()],mixedMessage,[],lookup);
+ expect(await taskFacts()).toEqual(before);expect(result.receipts).toEqual([]);expect(result.confirmations).toHaveLength(1);
+ const card=result.confirmations[0];expect(card.type).toBe('tool_batch');expect(card.content.split('\n')).toHaveLength(7);
+ expect(card.content).toContain('虚构新纸样乙');expect(card.content).toContain('虚构混批新增纸袋4');expect(card.content).toContain('必须截止2066-01-18 17:30');
+ await executeConfirmedToolBatch(card,runtime,()=>{});const after=await taskFacts();
+ expect((await store.readTaskDb()).tasks).toHaveLength(7);
+ expect(await store.getTask(rows[0].id)).toMatchObject({...rows[0],title:'虚构新纸样甲',updatedAt:expect.any(String)});
+ expect((await store.readTaskDb()).tasks.slice(2)).toEqual(expect.arrayContaining([expect.objectContaining({title:'虚构混批新增纸袋4',date,endDate:'2066-01-17',scheduleMode:'window',dueDate:'2066-01-18',dueTime:'17:30'})]));
+ await executeConfirmedToolBatch(card,runtime,()=>{});expect(await taskFacts()).toEqual(after);
+ const ledger=JSON.parse(after.ledger);expect(ledger.records.filter((r:any)=>r.status==='verified'&&r.toolName==='confirm_task_batch')).toHaveLength(1);
+ await runtime.undoLatestOperation();expect(await store.readPath(store.taskDbPath())).toBe(before.db);expect(await store.readPath(store.taskMirrorPath())).toBe(before.mirror);
+});
+it.each(['failure','stale','cancel'] as const)('preserves the whole original mixed batch on %s',async mode=>{
+ const rows=await seed(),{result}=await run([fivePlan()],mixedMessage,[],true),card=result.confirmations[0];
+ if(mode==='stale')await store.updateTask(rows[1].id,t=>({...t,note:'虚构外部更正'}));
+ if(mode==='cancel')(await import('../src/toolBatch')).dismissRequestedToolBatch(card);
+ const before=await taskFacts();
+ if(mode==='failure'){
+  const original=LifeOpsStore.prototype.createTask;let n=0;
+  vi.spyOn(LifeOpsStore.prototype,'createTask').mockImplementation(async function(this:InstanceType<typeof LifeOpsStore>,...args){
+   const result=await original.apply(this,args);if(++n===3)throw Error('虚构第三项保存失败');return result;
+  });
+ }
+ await expect(executeConfirmedToolBatch(card,runtime,()=>{})).rejects.toThrow();
+ expect(await store.readPath(store.taskDbPath())).toBe(before.db);expect(await store.readPath(store.taskMirrorPath())).toBe(before.mirror);
+ if(mode==='cancel')expect(await taskFacts()).toEqual(before);
+});
+it('does not partially edit when a mixed project plan cannot share the task-only transaction',async()=>{
+ await seed();const before=await taskFacts(),plan=fivePlan();Object.assign(plan.arguments,{projectId:'fictional-project'});
+ const {result}=await run([plan],mixedMessage,[],true);expect(await taskFacts()).toEqual(before);expect(result.confirmations).toEqual([]);expect(result.text).toContain('尚未保存');
 });

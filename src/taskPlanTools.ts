@@ -6,7 +6,7 @@ import type { ProjectJobArguments } from "./projectJobRepository";
 import type { StoreHost } from "./store/settingsSlice";
 import { isTaskWindow } from "./taskSchedule";
 
-async function draftCapacityNotice(store: StoreHost, tasks: Array<Partial<ProjectJobArguments>>): Promise<string> {
+export async function draftCapacityNotice(store: StoreHost, tasks: Array<Partial<ProjectJobArguments>>): Promise<string> {
   const [{ readContextTasks }, { taskCapacity, taskDraftRoom }] = await Promise.all([
     import("./contextData"), import("./features/tasks/capacity")
   ]);
@@ -29,6 +29,31 @@ async function draftCapacityNotice(store: StoreHost, tasks: Array<Partial<Projec
   return notices.join(" ");
 }
 
+/** Shared validation for the original plan card and a mixed task-only card. */
+export function taskPlanDraft(args: Record<string, unknown>): Array<Partial<ProjectJobArguments> & {title:string}> {
+  const unknown = Object.keys(args).filter(key => !["tasks", "projectId", "capacityAware"].includes(key));
+  if (unknown.length) throw Error(`propose_task_plan 不接受字段 ${unknown.join("、")}；顶层只保留 tasks、可选 projectId 和 capacityAware。每项任务使用 title、可选 date、time、category、计划区间和独立必须截止字段。`);
+  if (args.capacityAware !== undefined && typeof args.capacityAware !== "boolean"
+    || args.projectId !== undefined && typeof args.projectId !== "string"
+    || !Array.isArray(args.tasks) || !args.tasks.length || args.tasks.length > 8) throw Error("请提供一至八项具体任务安排及可选已有项目。");
+  return args.tasks.map(value => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw Error("每项安排须有具体任务名称。");
+    const item = value as Record<string, unknown>;
+    const unsupported = Object.keys(item).filter(key => !["title", "category", ...TASK_PLAN_FIELDS].includes(key));
+    if (unsupported.length) throw Error('安排包含未支持的字段：'+unsupported.join('、')+'。请按工具字段定义修正，保留任务与已明确日期/时刻，不保存。');
+    const wrongType = Object.keys(item).filter(key => typeof item[key] !== 'string');
+    if (wrongType.length) throw Error('安排字段须为文字：'+wrongType.join('、')+'；未填写的可选字段请省略，不使用null或数字。尚未保存。');
+    if (typeof item.title !== 'string' || !item.title.trim()) throw Error('每项安排须有具体任务名称。');
+    const task = structuredClone(item) as Partial<ProjectJobArguments> & {title:string};
+    if (task.date) {
+      const date = normalizeJournalDate(task.date);
+      if (!date) throw Error("草案包含无法识别的日期，请先核对。");
+      task.date = date;
+    }
+    return task;
+  });
+}
+
 export const TASK_PLAN_TOOL: LifeOpsToolDefinition = {
   name: "propose_task_plan", safety: "ui-confirm",
   description: "用户要求先看草案或确认卡时，提出完整多步安排，点击一次保存全部。明确要求直接排程并保存多项新任务用 schedule_task_batch。历史常态量仅作提醒，不限制任务数量。",
@@ -41,28 +66,8 @@ export const TASK_PLAN_TOOL: LifeOpsToolDefinition = {
     }, required: ["title"] } } }, required: ["tasks"] },
   prepareConfirmation: async (args, context, request) => {
     try {
-      const unknown = Object.keys(args).filter(key => !["tasks", "projectId", "capacityAware"].includes(key));
-      if (unknown.length) throw Error(`propose_task_plan 不接受字段 ${unknown.join("、")}；顶层只保留 tasks、可选 projectId 和 capacityAware。每项任务使用 title、可选 date、time、category、计划区间和独立必须截止字段。`);
-      if (args.capacityAware !== undefined && typeof args.capacityAware !== "boolean"
-        || args.projectId !== undefined && typeof args.projectId !== "string"
-        || !Array.isArray(args.tasks) || !args.tasks.length || args.tasks.length > 8) throw Error("请提供一至八项具体任务安排及可选已有项目。");
+      const tasks = taskPlanDraft(args);
       if (!context.prepareTaskPlan || !request.userMessage?.trim()) throw Error("请在当前对话提出安排，并使用可见确认卡核对。");
-      const tasks = args.tasks.map(value => {
-        if (!value || typeof value !== "object" || Array.isArray(value)) throw Error("每项安排须有具体任务名称。");
-        const item = value as Record<string, unknown>;
-        const unsupported=Object.keys(item).filter(key=>!["title","category",...TASK_PLAN_FIELDS].includes(key));
-        if(unsupported.length)throw Error('安排包含未支持的字段：'+unsupported.join('、')+'。请按工具字段定义修正，保留任务与已明确日期/时刻，不保存。');
-        const wrongType=Object.keys(item).filter(key=>typeof item[key]!=='string');
-        if(wrongType.length)throw Error('安排字段须为文字：'+wrongType.join('、')+'；未填写的可选字段请省略，不使用null或数字。尚未保存。');
-        if(typeof item.title!=='string'||!item.title.trim())throw Error('每项安排须有具体任务名称。');
-        const task = structuredClone(item) as Partial<ProjectJobArguments> & { title: string };
-        if (task.date) {
-          const date = normalizeJournalDate(task.date);
-          if (!date) throw Error("草案包含无法识别的日期，请先核对。");
-          task.date = date;
-        }
-        return task;
-      });
       const notice = args.capacityAware === true ? await draftCapacityNotice(context.store, tasks) : "";
       const action = await context.prepareTaskPlan(tasks, request.userMessage, request.operationId, typeof args.projectId === "string" ? args.projectId : undefined);
       return { success: true, output: "完整安排已生成确认卡；尚未保存任何任务，请核对后点击确认。" + notice, actions: [action] };
