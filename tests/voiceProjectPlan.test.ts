@@ -29,6 +29,7 @@ let runner: InstanceType<typeof ProjectJobRunner>, registry: InstanceType<typeof
 const message = "给纯虚构项目安排明天09:30核对银杏清单，下一步改为核对纯虚构蓝色清单。先给我完整卡。";
 const clock = () => new Date("2026-10-06T03:00:00Z");
 beforeEach(async () => {
+  vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(clock());
   vi.stubGlobal("window", globalThis);
   root = await mkdtemp(join(tmpdir(), "lifeops-voice-project-plan-")); vault = new DiskVault(root);
   const app = { vault, workspace: { getLeavesOfType: vi.fn(() => []) } } as unknown as App;
@@ -53,7 +54,7 @@ beforeEach(async () => {
     refreshViews: vi.fn(async () => {}), projectJobRunner: runner, taskPlanReviews: registry,
     unloaded: false, lifecycleGeneration: 0 });
 });
-afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllGlobals(); await rm(root, { recursive: true, force: true }); });
+afterEach(async () => { vi.restoreAllMocks(); vi.useRealTimers(); vi.unstubAllGlobals(); await rm(root, { recursive: true, force: true }); });
 function viewFor(transcript = message) {
   const runtime = new VoiceSessionController({ provider: "offline-synthetic" }); runtime.connect(); runtime.connected();
   runtime.beginTurn({ route: "e2e", transcript }); runtime.transitionTurn("routing", "test"); runtime.transitionTurn("generating", "test");

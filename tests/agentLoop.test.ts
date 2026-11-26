@@ -318,7 +318,8 @@ it("finishes historical text with one complete tools-free grounded answer, never
   responses.push(await historicalFixture(), reply("虚构未核实草稿：记录方式出了问题。"), reply(answer));
   const streamed: string[] = [], before = await store.readPath(store.taskDbPath());
   const result = await new AgentLoop(host).run(input({ message: "核对11月2日到8日原文，没打卡是否一周都没做？不修改。", onText: value => streamed.push(value) }));
-  expect(result.text).toBe(answer); expect(streamed.join("")).toBe(answer);
+  const expected = answer + "\n\n原文核对片段（仅供核对，不代表完整记录或已完成）：\n\n笔记日期：2026\\-11\\-03；来源：LifeOps/Journal/2026/11/2026\\-11\\-03晚\\.md\n> \\# 2026\\-11\\-03晚\n> \n> 虚构紫纸已整理10张。没登记打卡，未写原因。&lt;img src\\=x&gt; \\[执行\\]\\(fiction://no\\)";
+  expect(result.text).toBe(expected); expect(streamed.join("")).toBe(expected);
   expect(requests).toHaveLength(3); expect(roles.at(-1)).toBe("deep");
   expect(catalogs.at(-1)).toEqual([]); expect(toolChoices.at(-1)).toBe("none");
   expect(finalOptions).toEqual([expect.objectContaining({ reasoning: "disabled", preferFinite: true, maxTokens: 4096, timeoutMs: 45_000, toolChoice: "none" })]);
