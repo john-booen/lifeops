@@ -1366,6 +1366,14 @@ describe("unified agent loop", () => {
     expect((await store.readTaskDb({readOnly:true})).tasks).toContainEqual(expect.objectContaining({title:'虚构统计后新增'}));
   });
 
+  it('returns a model-selected completion overview without a speculative second reply or follow-up question',async()=>{
+    const before=await store.readPath(store.taskDbPath());
+    responses.push(reply('',[tool('get_stats',{domain:'tasks',range:'last_week',directReply:'task_summary'})]),new Error('Do not invent an interpretation'));
+    const result=await new AgentLoop(host).run(input({message:'查一下上周任务完成情况。'}));
+    expect(requests).toHaveLength(1);expect(result.text).toContain('任务完成登记');expect(result.text).toContain('不是每天按时完成率');
+    expect(result.text).not.toContain('需要我');expect(result.receipts).toEqual([]);expect(result.confirmations).toEqual([]);expect(await store.readPath(store.taskDbPath())).toBe(before);
+  });
+
   it('does not let the last count hint discard an earlier comparison interval',async()=>{
     const before=await store.readPath(store.taskDbPath());
     const first={from:'2026-10-01',to:'2026-10-31'},second={from:'2026-11-01',to:'2026-11-12'};

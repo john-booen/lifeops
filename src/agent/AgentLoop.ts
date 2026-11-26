@@ -13,6 +13,7 @@ import { resolveStatsRange } from "../features/stats/stats";
 import { asksForTodayPriorities, formatHabitCompensationReply, formatTaskCompletionRate, formatTaskListReply, formatTaskPriorities, formatVoiceTaskPriorities, habitCompensationQuestion, repeatedTaskListPriority, taskCompletionRateQuestion, todayTaskListQuestion, voiceTaskPriorityTool } from "../features/tasks/planTools";
 import { asksForTodayCapacity, formatTodayCapacity, planCapacityEvidence } from "../features/tasks/capacityEvidence";
 import { completedTasksReply } from "../features/stats/completedTasksReply";
+import {taskSummaryReply} from '../features/stats/taskSummaryReply';
 import { weekendClarification } from "../features/tasks/weekendClarification";
 import { phoneInboxCall, phoneInboxRequest, phoneInboxToolDefinitions } from "../features/phoneInbox/agent";
 import { phoneInboxOperationId, type PhoneInboxTurn } from "../features/phoneInbox/model";
@@ -623,12 +624,12 @@ export class AgentLoop {
             && call.arguments.domain === "health" && call.arguments.directReply === "device_sleep") {
             reply = deviceHealthAnswer(single.output, "sleepHours");
           } else if (input.source === "text" && !input.voiceBackground && call.name === "get_stats"
-            && call.arguments.domain === "tasks" && call.arguments.directReply === "completed_tasks"
+            && call.arguments.domain === "tasks" && ['completed_tasks','task_summary'].includes(String(call.arguments.directReply))
             && call.arguments.groupBy === undefined && !state.receipts.size && !state.confirmations.size && !state.requestedTaskConfirmation
             && !exactTitleEdits && !state.errorCode && !attestedHistoricalReads.length && !this.needsHistoricalAnswer(input,state)
             && state.statsReads?.size===1 && !requiredTool
             && state.toolCalls.every(tool=>tool.ok&&(tool.name==='get_stats'||tool.name===LOAD_TOOLS.name))) {
-            reply = completedTasksReply(single.output, formatDate(input.now));
+            reply = call.arguments.directReply==='task_summary'?taskSummaryReply(single.output,formatDate(input.now)):completedTasksReply(single.output, formatDate(input.now));
           } else if (round === 0 && fastVoice && call.name === "get_stats") reply = formatVoiceStats(single.output, call.arguments);
           else if (round === 0 && fastVoice && call.name === "plan_today") reply = formatVoiceTaskPriorities(single.output, call.arguments);
           else if (input.source === "text" && single.actions.length === 1
@@ -810,7 +811,7 @@ export class AgentLoop {
     if (tools.some(tool => tool.name === "get_stats")) {
       guidance.push("整句只询问指标含义，例如怎么算、什么口径或是否实测工时，才用get_stats(domain=tasks,directReply=task_meaning)读回定义。问实际完成数或完成率只查数，不返回口径说明；同句还有其他查询、建议、修改或确认卡时省略task_meaning并继续完成整句。");
       guidance.push("评价或批评这周表现，先用 get_stats(domain=habits,range=this_week) 查达标次数和漏做日期。");
-      guidance.push("完成任务数用get_stats(domain=tasks)和所问范围，含已结束周/月及追问纠正；整句只问数量时可设directReply=completed_tasks，不另报没问的清单或完成率。只问任务完成情况时简报计划、完成数、完成率及逾期，不附未问的登记到完成间隔，不追加是否继续的追问。历史事件、原因或复盘用get_summaries核对原文，不能用摘要代替任务统计。");
+      guidance.push("完成任务数用get_stats(domain=tasks)和所问范围，含已结束周/月及追问纠正；整句只问数量时设directReply=completed_tasks，只问完成情况概况时设directReply=task_summary，直接读回登记数字，不附未问的间隔、原因判断或继续追问。分组、多区间对照、同句有建议或写入时省略这两个选项并继续。历史事件、原因或复盘用get_summaries核对原文，不能用摘要代替任务统计。");
       guidance.push("设备睡眠时长、步数、体重等用 get_stats(domain=health)。整句只问设备睡眠天数/小时，设directReply=device_sleep，只报设备记录，不补日记。日记里的主观睡眠、情绪或精力用 get_stats(domain=journal)。只问睡得怎么样时先查同一时段的健康记录，按需要补充日记感受并标明来源。最近三天用 range=last_3d。要找情绪原因、原话或具体事件时，用query_vault查询并读取同一范围的日记正文，不能用数字或摘要代替核对。");
     }
     if (evidenceCalls.length) {
