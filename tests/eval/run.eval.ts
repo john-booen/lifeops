@@ -18,6 +18,7 @@ import { EvalTransport } from "./liveTransport";
 import { correctionHistory, attestedCorrectionHistory } from "./correctionHistory";
 import { scoreEvaluationCase, shouldRepeatLatencyMeasurement, type EvalCheckin, type EvalObservation, type EvalQuestion, type EvalTask } from "./scoring";
 import { writeEvaluationReport, type EvalResult } from "./report";
+import {paraphraseCases,paraphraseReport} from './paraphrases';
 import { readJudgeDecision } from "./judgeDecision";
 import { JUDGE_INSTRUCTIONS } from "./judgeInstructions";
 import type { JournalToolRead } from "./journalEvidence";
@@ -465,12 +466,18 @@ async function executeQuestion(question: EvalQuestion, settings: typeof DEFAULT_
 }
 
 it("measures the production conversation entry point against fictional data", async () => {
-  const all = JSON.parse(await readFile("tests/eval/questions.json", "utf8")) as EvalQuestion[];
+  const questionBytes=await readFile("tests/eval/questions.json", "utf8");
+  const all = JSON.parse(questionBytes) as EvalQuestion[];
+  const paraphrases=process.env.LIFEOPS_EVAL_PARAPHRASES==='1';
+  if(paraphrases&&(process.env.LIFEOPS_EVAL_GATE||process.env.LIFEOPS_EVAL_IDS||process.env.LIFEOPS_EVAL_REVIEW_FILE
+   ||process.env.LIFEOPS_EVAL_REVIEW_OUTPUT))throw Error('Paraphrase diagnostics cannot replace original release evaluation');
+  const sidecarBytes=paraphrases?await readFile('tests/eval/paraphrases.json','utf8'):undefined;
+  const variants=sidecarBytes?paraphraseCases(all,JSON.parse(sidecarBytes)):undefined;
   const selected = process.env.LIFEOPS_EVAL_IDS?.split(",").map(id => id.trim()).filter(Boolean);
   if (selected && (process.env.LIFEOPS_EVAL_GATE || !selected.length || selected.some(id => !all.some(question => question.id === id)))) {
     throw Error("定向评测编号无效，或试图用定向结果发布");
   }
-  const questions = selected ? all.filter(question => selected.includes(question.id)) : all;
+  const questions = variants?variants.map(row=>row.question):selected ? all.filter(question => selected.includes(question.id)) : all;
   const { settings, transport } = await settingsAndTransport();
   vi.stubGlobal("window", globalThis);
   vi.stubGlobal("fetch", transport.fetch);
@@ -501,7 +508,7 @@ it("measures the production conversation entry point against fictional data", as
   for (const question of questions) {
     vi.setSystemTime(fixedNow);
     let result = await executeQuestion(question, settings, transport);
-    if (shouldRepeatLatencyMeasurement(question, result)) {
+    if (!paraphrases&&shouldRepeatLatencyMeasurement(question, result)) {
       const { firstTokenMs, totalMs, issues } = result;
       process.stdout.write(`${question.id} · 首次传输失败 · 首字 ${firstTokenMs ?? "未知"}ms · ${issues.join("，")} · 用新副本重测一次\n`);
       result = { ...await executeQuestion(question, settings, transport), firstTransportMeasurement: { firstTokenMs, totalMs, issues } };
@@ -510,7 +517,16 @@ it("measures the production conversation entry point against fictional data", as
     process.stdout.write(`${result.id} · ${result.passed ? "通过" : "未通过"} · 首字 ${result.firstTokenMs ?? "未知"}ms / 总 ${result.totalMs}ms · 输入 ${result.inputTokens ?? "未知"} · ${result.issues.join("，")}\n`);
   }
   vi.useRealTimers();
-  if (!selected) await writeEvaluationReport(questions, results);
+  if(variants){
+    expect(await readFile('tests/eval/questions.json','utf8')).toBe(questionBytes);
+    expect(await readFile('tests/eval/paraphrases.json','utf8')).toBe(sidecarBytes);
+    const report=paraphraseReport(variants,results);
+    const digest=(text:string)=>createHash('sha256').update(text).digest('hex');
+    await writeFile('paraphrase-report.json',JSON.stringify({report:report.data,inputFilesUnchanged:true,
+      questionsSha256:digest(questionBytes),sidecarSha256:digest(sidecarBytes!)},null,2)+'\n',{flag:'wx'});
+    await writeFile('paraphrase-report.md',report.text,{flag:'wx'});
+    process.stdout.write(`改写诊断 ${results.filter(row=>row.passed).length}/72；不写原发布基线。\n`);
+  }else if (!selected) await writeEvaluationReport(questions, results);
   else process.stdout.write(`定向诊断通过 ${results.filter(result => result.passed).length}/${results.length}，不写发布报告。\n`);
   expect(results).toHaveLength(questions.length);
 }, 900_000);
