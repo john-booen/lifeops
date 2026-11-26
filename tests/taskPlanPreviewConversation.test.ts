@@ -263,3 +263,13 @@ it('F1 does not mistake 分别保存 for 别保存 in a legitimate period creati
 it.each(['别创建虚构纸盒。','请你别保存虚构纸盒。','这次先别创建虚构纸盒。'])('F1 preserves actual negative imperatives: %s',async message=>{
   calls=[tool('create_task',{title:'虚构纸盒'})];const before=await facts(),result=await run(message);expect(await facts()).toEqual(before);expect(result.actions).toEqual([]);
 });
+
+it('previews and persists an explicit estimate in the original durable task plan',async()=>{
+ calls=[tool('propose_task_plan',{tasks:[{title,date:'今天',estimateMin:25,dueDate:'明天',dueTime:'17:00'}]})];
+ const before=await facts(),result=await run();expect(await facts()).toEqual(before);expect(result.actions[0].content).toContain('25分钟');
+ await plugin.executeAgentAction(result.actions[0]);expect((await store.readTaskDb()).tasks).toMatchObject([{title,estimateMin:25,dueTime:'17:00'}]);
+});
+it.each([0,-1,'20',null])('refuses an invalid plan estimate without any task write: %s',async estimateMin=>{
+ calls=[tool('propose_task_plan',{tasks:[{title,date:'今天',estimateMin}]})];const before=await facts();
+ const result=await run();expect(await facts()).toEqual(before);expect(result.actions).toEqual([]);
+});

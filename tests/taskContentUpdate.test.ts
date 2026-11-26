@@ -476,7 +476,7 @@ it("still requires one real confirmation for four edits and preserves that gate 
 
 const mixedMessage='把「虚构旧纸样0」改为「虚构新纸样甲」，把「虚构旧纸样1」改为「虚构新纸样乙」。再规划五项纸袋任务，给一份完整确认卡。';
 const fivePlan=()=>({name:'propose_task_plan',arguments:{capacityAware:true,tasks:Array.from({length:5},(_,i)=>({
- title:`虚构混批新增纸袋${i}`,date,endDate:'2066-01-17',scheduleMode:'window',startTime:'09:00',endTime:'09:20',dueDate:'2066-01-18',dueTime:'17:30'
+ title:`虚构混批新增纸袋${i}`,estimateMin:20,date,endDate:'2066-01-17',scheduleMode:'window',startTime:'09:00',endTime:'09:20',dueDate:'2066-01-18',dueTime:'17:30'
 }))}});
 const taskFacts=async()=>{
  const raw=await store.readPath(new (await import('../src/dataFoundation/operationLedger')).OperationLedger(store).filePath);
@@ -494,7 +494,7 @@ it.each([false,true,'plan'] as const)('holds old edits and all new plan rows in 
  await executeConfirmedToolBatch(card,runtime,()=>{});const after=await taskFacts();
  expect((await store.readTaskDb()).tasks).toHaveLength(7);
  expect(await store.getTask(rows[0].id)).toMatchObject({...rows[0],title:'虚构新纸样甲',updatedAt:expect.any(String)});
- expect((await store.readTaskDb()).tasks.slice(2)).toEqual(expect.arrayContaining([expect.objectContaining({title:'虚构混批新增纸袋4',date,endDate:'2066-01-17',scheduleMode:'window',dueDate:'2066-01-18',dueTime:'17:30'})]));
+ expect((await store.readTaskDb()).tasks.slice(2)).toEqual(expect.arrayContaining([expect.objectContaining({title:'虚构混批新增纸袋4',estimateMin:20,date,endDate:'2066-01-17',scheduleMode:'window',dueDate:'2066-01-18',dueTime:'17:30'})]));
  await executeConfirmedToolBatch(card,runtime,()=>{});expect(await taskFacts()).toEqual(after);
  const ledger=JSON.parse(after.ledger);expect(ledger.records.filter((r:any)=>r.status==='verified'&&r.toolName==='confirm_task_batch')).toHaveLength(1);
  await runtime.undoLatestOperation();expect(await store.readPath(store.taskDbPath())).toBe(before.db);expect(await store.readPath(store.taskMirrorPath())).toBe(before.mirror);

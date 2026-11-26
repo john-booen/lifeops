@@ -22,7 +22,7 @@ async function mixedTaskBatchScenario(page,root,result,readPlan) {
       if(readPlan&&turn===1)return{content:'',toolCalls:[{id:'fictional-mixed-read',name:'list_tasks',arguments:{query:'虚构混批旧纸样',answerMode:'continue'}},
         {id:'fictional-mixed-capacity',name:'plan_today',arguments:{draftTomorrow:true}}]};
       if(turn===(readPlan?2:1))return{content:'',toolCalls:[{id:'fictional-mixed-batch-new',name:readPlan?'propose_task_plan':'schedule_task_batch',arguments:readPlan
-        ?{tasks:Array.from({length:5},(_,i)=>({title:'虚构混批新增纸袋'+i,date,startTime:'10:00',endTime:'10:20',dueDate:date,dueTime:'18:00'}))}
+        ?{tasks:Array.from({length:5},(_,i)=>({title:'虚构混批新增纸袋'+i,date,startTime:'10:00',endTime:'10:20',estimateMin:20,dueDate:date,dueTime:'18:00'}))}
         :{date,tasks:Array.from({length:5},(_,i)=>({title:'虚构混批新增纸袋'+i,estimateMin:20}))}}]};
       return{content:'确认卡已准备，尚未保存。',toolCalls:[]};
     };
@@ -52,6 +52,7 @@ async function mixedTaskBatchScenario(page,root,result,readPlan) {
   const saved = await page.evaluate(async () => ({ tasks: (await app.plugins.getPlugin("lifeops-assistant").store.readTaskDb()).tasks,
     pending: app.workspace.getLeavesOfType("lifeops-assistant-view")[0].view.pendingAgentActions.length, calls: globalThis.__mixedBatchNative.calls }));
   assert.equal(saved.pending, 0); assert.equal(saved.calls, preview.calls); assert.equal(saved.tasks.length, baseline.tasks.length + 7);
+  if(readPlan){assert(saved.tasks.filter(task=>task.title.startsWith('虚构混批新增纸袋')).every(task=>task.estimateMin===20));result.checks.mixedReadPlanEstimatesPreserved=true;}
   for (const [i, row] of baseline.rows.entries()) assert.deepEqual({ ...saved.tasks.find(task => task.id === row.id), updatedAt: row.updatedAt },
     { ...row, title: i ? "虚构混批新纸样乙" : "虚构混批新纸样甲" });
   result.checks[readPlan?'mixedReadPlanBareConfirmationSavesAllSeven':'mixedBatchBareConfirmationSavesAllSevenWithoutAnotherModelRound'] = true;

@@ -3,6 +3,7 @@ import { textOnlyEvidenceMessages } from "./toolProtocol";
 import {futureCalendarReference,NEXT_STEP_HEADING} from './futureCalendar';
 import {normalizeJournalDate} from '../date';
 import {noteCalendar} from '../features/summaries/noteCalendar';
+import {journalOriginalText} from '../features/journal/entry';
 
 interface HistoricalAnswerContext {question?:string;currentPlanningContext?:string;currentPlanningNotes?:readonly string[];asOf?:string}
 function currentTurnEvidence(messages:ChatMessage[],question?:string):ChatMessage[]{
@@ -57,6 +58,25 @@ function journalEvidenceExcerpt(content:string):string|undefined{
   const reference=Object.entries(noteCalendar(date).relativeWords).map(([word,day])=>word+'='+day).join('；');
   return '> 来源：'+literal(path)+'；笔记日期：'+literal(date)+'\n> 日历参照（不是完成证明）：'+literal(reference)
     +'\n> '+literal([...body].slice(0,1600).join(''))+'\n> （原文片段，尚未作原因判断；事件日仍须以原叙述时点核对。）';
+}
+
+/** Short, literal readback alongside an interpretation; omissions in prose
+ * must not hide the original times or turn plans into completed events. */
+export function historicalOriginalExcerpts(messages:ChatMessage[],question=''):string{
+  messages=currentTurnEvidence(messages,question);
+  const calls=new Map(messages.flatMap(message=>message.tool_calls??[]).map(call=>[call.id,call.function.name]));
+  const rows=new Map<string,{date:string;path:string;text:string}>();
+  for(const message of messages){
+    if(message.role!=='tool'||calls.get(message.tool_call_id??'')!=='get_summaries')continue;
+    try{for(const row of JSON.parse(message.content).originalEvidence?.notes??[]){
+      if(typeof row.date!=='string'||normalizeJournalDate(row.date)!==row.date||typeof row.path!=='string'||typeof row.text!=='string')continue;
+      const text=journalOriginalText(row.text).trim();if(text)rows.set(JSON.stringify([row.date,row.path]),{...row,text});
+    }}catch{/* Failed reads cannot supply quotations. */}
+  }
+  if(!rows.size)return '';
+  return ['原文核对片段（仅供核对，不代表完整记录或已完成）：',...[...rows.values()].slice(0,4).map(row=>
+    '笔记日期：'+literal(row.date)+'；来源：'+literal(row.path)+'\n> '+literal([...row.text].slice(0,400).join(''))
+    +(row.text.length>400?'\n> （后文已省略）':''))].join('\n\n');
 }
 
 /** Daily status keeps a short literal source beside interpretation. Statistics

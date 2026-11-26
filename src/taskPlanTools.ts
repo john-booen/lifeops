@@ -39,9 +39,10 @@ export function taskPlanDraft(args: Record<string, unknown>): Array<Partial<Proj
   return args.tasks.map(value => {
     if (!value || typeof value !== "object" || Array.isArray(value)) throw Error("每项安排须有具体任务名称。");
     const item = value as Record<string, unknown>;
-    const unsupported = Object.keys(item).filter(key => !["title", "category", ...TASK_PLAN_FIELDS].includes(key));
+    const unsupported = Object.keys(item).filter(key => !["title", "category", "estimateMin", ...TASK_PLAN_FIELDS].includes(key));
     if (unsupported.length) throw Error('安排包含未支持的字段：'+unsupported.join('、')+'。请按工具字段定义修正，保留任务与已明确日期/时刻，不保存。');
-    const wrongType = Object.keys(item).filter(key => typeof item[key] !== 'string');
+    if(item.estimateMin!==undefined&&(typeof item.estimateMin!=='number'||!Number.isFinite(item.estimateMin)||item.estimateMin<=0))throw Error('预计用时须为大于零的分钟数，本批尚未保存。');
+    const wrongType = Object.keys(item).filter(key => key!=='estimateMin'&&typeof item[key] !== 'string');
     if (wrongType.length) throw Error('安排字段须为文字：'+wrongType.join('、')+'；未填写的可选字段请省略，不使用null或数字。尚未保存。');
     if (typeof item.title !== 'string' || !item.title.trim()) throw Error('每项安排须有具体任务名称。');
     const task = structuredClone(item) as Partial<ProjectJobArguments> & {title:string};
@@ -61,6 +62,7 @@ export const TASK_PLAN_TOOL: LifeOpsToolDefinition = {
     projectId: { type: "string", description: "可省略；整份安排所属已有项目的精确ID，先query_projects取得。" }, tasks: { type: "array", minItems: 1, maxItems: 8,
     items: { type: "object", additionalProperties: false, properties: {
       title: { type: "string", description: "具体任务名称；用户给出名称时逐字保留。" },
+      estimateMin:{type:'number',exclusiveMinimum:0,description:'用户明确提供的预计分钟数；与安排区间、独立必须截止分别保留。'},
       date: { type: "string", description: "明确日期或中文相对日期，生成预览时固定到具体日期。" },
       time: { type: "string", pattern: "^(?:(?:[01]\\d|2[0-3]):[0-5]\\d)?$", description: "单个开始时间 HH:mm，可省略。" }, category: { type: "string", description: "任务分类，可省略。" }, endDate:{type:"string",description:"跨天或期间计划完成日期，和必须截止独立。"}, startTime:{type:"string",description:"明确的计划开始HH:mm，不猜测。"}, endTime:{type:"string",description:"计划结束或希望做完HH:mm；不是必须截止。"}, scheduleMode:{type:"string",enum:["fixed","window"],description:"window为期间分次完成，fixed为固定安排。"}, ...TASK_DEADLINE_PROPERTIES
     }, required: ["title"] } } }, required: ["tasks"] },
@@ -93,13 +95,7 @@ export const PROJECT_WORK_PLAN_TOOL: LifeOpsToolDefinition = {
       const next=args.nextStep as Record<string,unknown>;
       if(Object.keys(next).some(key=>!["text","sourcePath"].includes(key))||typeof next.text!=="string"||!next.text.trim()
         ||next.sourcePath!==undefined&&typeof next.sourcePath!=="string")throw Error("请提供下一步原文和可选已核对来源。");
-      const tasks=args.tasks.map(value=>{
-        if(!value||typeof value!=="object"||Array.isArray(value))throw Error("每项任务须有具体名称。");
-        const item=value as Record<string,unknown>;
-        if(Object.keys(item).some(key=>!["title","category",...TASK_PLAN_FIELDS].includes(key))||typeof item.title!=="string"||!item.title.trim()
-          ||Object.values(item).some(v=>typeof v!=="string"))throw Error("任务包含未支持字段，未生成安排。");
-        return structuredClone(item) as Partial<ProjectJobArguments>&{title:string};
-      });
+      const tasks=taskPlanDraft({tasks:args.tasks});
       const action=await context.prepareProjectWorkPlan(tasks,request.userMessage,request.operationId,args.projectId,
         {text:next.text,...(typeof next.sourcePath==="string"?{sourcePath:next.sourcePath}:{})});
       return{success:true,output:"关联任务与项目下一步已生成完整确认卡；尚未保存，请核对后点击确认。",actions:[action]};

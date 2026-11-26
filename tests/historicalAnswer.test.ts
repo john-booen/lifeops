@@ -133,3 +133,20 @@ it('shows a readable journal quotation and calendar reference without prompt met
  const reply=historicalEvidenceFallback(messages);expect(reply).toContain('21:15');expect(reply).toContain('2026\\-11\\-03');
  expect(reply).toContain('日历参照');expect(reply).toContain('还没完成');expect(reply).not.toContain('internal_field');expect(reply).not.toContain('modified');
 });
+
+it('retains original event times beside an incomplete interpretation, without borrowing old-round evidence',async()=>{
+ const{historicalOriginalExcerpts}=await import('../src/agent/historicalAnswer');const question='回顾这两篇原文';
+ const read=(id:string,date:string,text:string):ChatMessage[]=>[{role:'assistant',content:'',tool_calls:[{id,type:'function',function:{name:'get_summaries',arguments:'{}'}}]},
+ {role:'tool',tool_call_id:id,content:JSON.stringify({originalEvidence:{notes:[{date,path:`Journal/${date}.md`,text}]}})}];
+ const messages:ChatMessage[]=[{role:'user',content:question},...read('old','2026-10-01','旧轮虚构失效内容'),{role:'user',content:question},
+ ...read('new','2026-11-04','昨晚23:40开始整理纸样，今天凌晨00:20结束，今早08:00起床。明天的编号还没有做。')];
+ const reply=historicalOriginalExcerpts(messages,question);expect(reply).toContain('08:00');expect(reply).toContain('00:20');expect(reply).toContain('还没有做');
+ expect(reply).not.toContain('失效内容');expect(reply).toContain('不代表完整记录或已完成');expect(reply).toContain('2026\\-11\\-04');
+});
+
+it('quotes the author section rather than the generated section of a read diary',async()=>{
+ const{historicalOriginalExcerpts}=await import('../src/agent/historicalAnswer');
+ const messages:ChatMessage[]=[{role:'assistant',content:'',tool_calls:[{id:'notes',type:'function',function:{name:'get_summaries',arguments:'{}'}}]},
+ {role:'tool',tool_call_id:'notes',content:JSON.stringify({originalEvidence:{notes:[{date:'2026-11-04',path:'Journal/source.md',text:'# 日记\n\n## 整理\n\n虚构模型误写了习惯。\n\n## 原话\n\n今早08:00起床，今晚的任务还没做。'}]}})}];
+ const reply=historicalOriginalExcerpts(messages);expect(reply).toContain('08:00');expect(reply).toContain('还没做');expect(reply).not.toContain('模型误写');
+});

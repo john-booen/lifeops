@@ -48,7 +48,7 @@ import { planTaskBatch, TASK_BATCH_TOOL, taskBatchOutput } from "./taskBatch";
 import { recoverReadOnlyStats, type StatsRecoveryRead } from "./readOnlyStatsRecovery";
 import { resolvedTaskLookup, taskLookupResolution } from "./taskLookupResolution";
 import { holdToolProtocolPrefix, isLeakedToolProtocol, toolProtocolRepairMessages, unavailableToolProtocol, TOOL_PROTOCOL_UNAVAILABLE } from "./toolProtocol";
-import { dailyJournalEvidence, historicalAnswerMessages, historicalEvidenceFallback, unreadHistoricalDates } from "./historicalAnswer";
+import { dailyJournalEvidence, historicalAnswerMessages, historicalEvidenceFallback, historicalOriginalExcerpts, unreadHistoricalDates } from "./historicalAnswer";
 import {historicalDateConflicts} from './historicalDateConflicts';
 import {futureCalendarConflicts} from './futureCalendar';
 import { historicalQueryHistoryContext, historicalQueryHistorySelections } from "../personalMemoryHistory";
@@ -948,7 +948,7 @@ export class AgentLoop {
         || futureCalendarConflicts(answer.content,input.now.toISOString()).length) {
         state.errorCode = "response_incomplete";
         needsEvidenceFallback = true;
-      } else state.text = [answer.content,dailyJournalEvidence(messages)].filter(Boolean).join("\n\n");
+      } else state.text = [answer.content,historicalOriginalExcerpts(messages,input.message)||dailyJournalEvidence(messages)].filter(Boolean).join("\n\n");
     } catch (error) {
       current();
       state.usageKnown = false;

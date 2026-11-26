@@ -9,7 +9,7 @@ import { validateTaskSchedule } from "./taskSchedule";
 
 export type ProjectJobStatus = "queued" | "running" | "completed" | "failed" | "cancelled" | "timed_out";
 export type ProjectJobArguments = { title: string; date: string; time: string; category: string }
-  & Pick<LifeOpsTaskInput,"endDate"|"startTime"|"endTime"|"scheduleMode"|"dueDate"|"dueTime">;
+  & Pick<LifeOpsTaskInput,"endDate"|"startTime"|"endTime"|"scheduleMode"|"dueDate"|"dueTime"|"estimateMin">;
 export interface ProjectJobProjectBinding {
   projectId: string; title: string; goalId: string; goalTitle: string;
   state: "suggested" | "agreed" | "started"; initialProjectHash: string;
@@ -104,7 +104,7 @@ function validProjectBinding(value: unknown): value is ProjectJobProjectBinding 
 }
 function validArguments(value: unknown): value is ProjectJobArguments {
   if (!(object(value) && ["title", "date", "time", "category"].every(key => Object.hasOwn(value,key))
-    && Object.keys(value).every(key => ["title", "date", "time", "category", "endDate", "startTime", "endTime", "scheduleMode", "dueDate", "dueTime"].includes(key))
+    && Object.keys(value).every(key => ["title", "date", "time", "category", "endDate", "startTime", "endTime", "scheduleMode", "dueDate", "dueTime", "estimateMin"].includes(key))
     && typeof value.title === "string" && Boolean(value.title.trim()) && value.title === value.title.trim() && !/[\r\n]/.test(value.title)
     && date(value.date) && typeof value.time === "string" && (value.time === "" || /^([01]\d|2[0-3]):[0-5]\d$/.test(value.time))
     && typeof value.category === "string" && value.category === value.category.trim() && !/[\r\n·]/.test(value.category))) return false;

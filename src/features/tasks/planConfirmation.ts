@@ -42,7 +42,7 @@ export async function bindTaskPlanConfirmation(store: StoreHost, batch: ToolCall
         const other=Object.fromEntries(Object.entries(call.arguments).filter(([key])=>!['date','time','endDate','startTime','endTime','scheduleMode','dueDate','dueTime','estimateMin'].includes(key)));
         call.arguments={...other,...schedule};
         const task=buildTaskFromInput({title:call.arguments.title as string,...call.arguments},instant);
-        preview.push(`新建「${task.title}」：${[task.date||'未安排日期',taskScheduleLabel(task),taskDeadlineLabel(task)].filter(Boolean).join('；')}`);continue;
+        preview.push(`新建「${task.title}」：${[task.date||'未安排日期',taskScheduleLabel(task),taskDeadlineLabel(task),task.estimateMin!==undefined?'预计用时'+task.estimateMin+'分钟':''].filter(Boolean).join('；')}`);continue;
       }
       if (call.name !== "update_tasks") {
         preview.push(call.name === "create_task" ? `新建「${String(call.arguments.title ?? "")}」${call.arguments.date ? `，${call.arguments.date}` : ""}`
