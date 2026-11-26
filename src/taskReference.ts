@@ -1,6 +1,8 @@
 import { clockFromMatch, clockMatches } from "./clockText";
 import { journalDateToken, normalizeJournalDate } from "./date";
 
+const reminderBody = /^提醒\S/u;
+
 export function taskNamedInRequest(task: { id: string; title: string }, request: string): boolean {
   const words = request.normalize("NFKC");
   return words.includes(task.id) || words.includes(task.title.normalize("NFKC"));
@@ -32,6 +34,9 @@ export function explicitScheduledTaskTitle(title: string, userMessage = ""): str
   const tail = timed.slice(clocks[0][0].length);
   if (!tail.startsWith("前")) return title;
   const body = tail.slice(1).trim();
+  // Keep the existing reminder-title contract: request words are not missing
+  // action content. This check never selects a tool or authorizes a write.
+  if (reminderBody.test(body)) return title;
   return body.length <= 1000 && !/[，,。；;！？!?\r\n]/u.test(body) && title.trim()
     && body.replace(/\s+/gu, "").endsWith(title.replace(/\s+/gu, "")) ? body : title;
 }
@@ -47,7 +52,7 @@ export function explicitReminderClock(userMessage = ""): string | undefined {
   const before = message.slice(0, clock.index).trim();
   const after = message.slice(clock.index! + clock[0].length).trim();
   if (!/^(?:请(?:帮我)?|帮我)?\s*(?:今天|今日|明天|后天|大后天|(?:这|本|下)周[一二三四五六日天1-7]|\d{4}-\d{2}-\d{2})\s*$/u.test(before)
-    || !/^提醒\S/u.test(after)) return;
+    || !reminderBody.test(after)) return;
   return clockFromMatch(clock) ?? undefined;
 }
 
