@@ -57,6 +57,7 @@ import { requiredPlanRepairMessages } from "./requiredPlanRepair";
 import {taskCreationPolicy} from '../features/tasks/creationPolicy';
 import {TaskBatchAvailabilityError} from './taskBatch';
 import {batchAvailabilityFailure,BATCH_AVAILABILITY_REPAIR,repairedBatchAvailability} from './batchAvailabilityRepair';
+import { taskSubjectConflict } from "./taskSubjectScope";
 
 export type WriteReceipt = AgentWriteReceipt;
 export interface AgentTurnInput {
@@ -121,6 +122,7 @@ interface TurnState {
   journalOriginalRead?: boolean;
   errorCode?: string;
   textOnlyAnswerAttempted?: boolean;
+  taskSubjectHistory?: AgentConversationMessage[];
 }
 
 const MAX_TOOL_ROUNDS = 4;
@@ -323,13 +325,14 @@ export class AgentLoop {
         }
       }
       const history = agentHistoryMessages(input.history, this.host.store, context.memories);
+      state.taskSubjectHistory = history.map(entry => ({...entry}));
       const queryContinuity = context.memories && !input.voiceBackground ? historicalQueryHistoryContext(input.history, this.host.store) : "";
       const priorQueryDates = context.memories && !input.voiceBackground ? historicalQueryHistorySelections(input.history, this.host.store) : [];
       const currentMemory = context.memories && !input.voiceBackground
         ? formatConfirmedPersonalMemoryContext(context.memories, input.message, 4000, 8) : "";
       const messages: ChatMessage[] = [
         { role: "system", content: [context.text, currentMemory, queryContinuity].filter(Boolean).join("\n\n") },
-        ...(fastVoice ? history.slice(-4).map(entry => ({ ...entry, content: clipBytes(entry.content, 450) })) : history),
+        ...history,
         { role: "user", content: input.message }
       ];
       const registered = agentToolsForChat({ compact: true }).map(tool => {
@@ -1088,6 +1091,15 @@ export class AgentLoop {
   private async executeTools(input: AgentTurnInput, state: TurnState, calls: AiToolCall[], context: string,
     offered: AiToolDefinition[]): Promise<ToolCallResult[]> {
     assertProviderActive(input.signal);
+    const subjectConflict = !input.voiceBackground && await taskSubjectConflict(this.host.store, calls,
+      input.message, state.taskSubjectHistory ?? []);
+    if (subjectConflict) {
+      // Reject the whole proposal, including mixed creates, before preview or
+      // the first mutation. Reading a new list never replaces the frozen scope.
+      const results = calls.map(call => ({ callId: call.id!, success: false, output: subjectConflict, actions: [] }));
+      for (const [i, result] of results.entries()) this.recordResult(input, state, calls[i].name, result);
+      return results;
+    }
     if (calls.some(call => call.name === TASK_BATCH_TOOL.name)) {
       const call = calls.find(call => call.name === TASK_BATCH_TOOL.name)!;
       let output: string, success = false;

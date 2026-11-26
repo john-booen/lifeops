@@ -1004,7 +1004,7 @@ async function sendRoutedLifeOpsVoiceTurn(
 ): Promise<void> {
   const isCurrent = captureVoicePresentationGuard(view);
   if (!isCurrent()) return;
-  const history = view.agentMessages.slice(0, -2).slice(-6);
+  const history = view.agentMessages.slice(0, -2).slice(-12);
   const runtime: VoiceSessionController | undefined = view.agentVoiceRuntime;
   const snapshot = runtime?.snapshot();
   const turn = snapshot?.currentTurn;

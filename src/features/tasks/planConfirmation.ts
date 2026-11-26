@@ -10,14 +10,31 @@ import {buildTaskFromInput} from '../../vaultApi';
 import {explicitReminderClock} from '../../taskReference';
 import {stripTaskWaitSuffix} from './creationPolicy';
 import {formatDate} from '../../date';
+import {rescheduledTaskPlan} from './rescheduleInput';
+import {resolveTaskByReference} from '../../toolRegistry';
 
 /** Freeze the exact existing records shown in a batch's confirmation preview. */
 export async function bindTaskPlanConfirmation(store: StoreHost, batch: ToolCallResult,userMessage=''): Promise<void> {
   const action = batch.actions[0], calls = action?.toolBatch;
-  if (action?.type !== "tool_batch" || !calls?.some(call => ['update_tasks','create_task'].includes(call.name))) return;
+  if (action?.type !== "tool_batch" || !calls?.some(call => ['update_tasks','create_task','reschedule_task'].includes(call.name))) return;
   try {
     const instant=new Date(),baseDate=formatDate(instant);
-    const { tasks } = await readContextTasks(store), frozen = structuredClone(calls), preview: string[] = [];
+    const { tasks } = await readContextTasks(store), original = structuredClone(calls), preview: string[] = [];
+    // Legacy single-point moves share the canonical batch executor and its
+    // version binding. Do not leave raw title/date calls on a confirmation card.
+    const moves: Record<string, unknown>[] = [];
+    for (const call of original.filter(call => call.name === 'reschedule_task')) {
+      const ref = call.arguments.taskIdOrTitle;
+      const found = typeof ref === 'string' ? await resolveTaskByReference(store, ref, true) : undefined;
+      if (found?.kind !== 'match' || !tasks.some(task => task.id === found.item.id)) throw Error('改期对象无法唯一核对，原安排保留。');
+      moves.push({taskIdOrTitle: found.item.id, ...rescheduledTaskPlan(found.item, call.arguments, baseDate)});
+    }
+    let inserted = false;
+    const frozen = original.flatMap(call => {
+      if (call.name !== 'reschedule_task') return [call];
+      if (inserted) return [];
+      inserted = true; return [{...call, name: 'update_tasks', arguments: {updates: moves}}];
+    });
     for (const call of frozen) {
       if(call.name==='create_task'){
         if(typeof call.arguments.title!=='string'||!call.arguments.title.trim())throw Error('新任务缺少具体标题，尚未保存。');
