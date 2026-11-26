@@ -30,6 +30,7 @@ import { titleEditRequest,confirmedTitleEdits,completeTitleEditCalls,bindTitleEd
 import {isLiteralTaskConfirmation} from '../features/tasks/confirmationText';
 import { formatConfirmedPersonalMemoryContext } from "../personalMemoryContext";
 import {selectPersonalMemories} from '../personalMemory';
+import {originalMemoryReply} from './originalMemoryReply';
 import { expandMixedTaskBatch } from "./mixedTaskBatch";
 import { requestedSummaryTopics,requestedTaskTopics } from "./summaryTopicQuery";
 import { requestedSummaryDates } from "./summaryDateRange";
@@ -643,6 +644,10 @@ export class AgentLoop {
       }
       assertPolicy();
       if (input.source === "text" && !state.receipts.size && !state.confirmations.size && !state.errorCode) {
+        const original=await originalMemoryReply(this.host.store,messages,state.text,input.message,input.now,()=>{
+          assertProviderActive(input.signal);assertPolicy();this.host.assertReadOnlyReplyCurrent?.();
+        });
+        if(original){state.text=original;input.onText?.(state.text);}
         const evidence = messages.flatMap(message => message.tool_calls ?? []).reverse().map(call => {
           const result = state.results.get(call.id);
           if (!result?.success) return;
