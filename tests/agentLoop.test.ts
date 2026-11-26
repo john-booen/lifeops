@@ -523,15 +523,99 @@ function reply(content: string, toolCalls: AiToolCall[] = []): AiChatResult {
     providerRun: { requestedProvider: "custom", requestedModel: "synthetic-model", actualModel: "synthetic-model",
       status: "success", fallbackUsed: false, attempts: [], responseUsage: usage } };
 }
+function readDone(disposition: "complete" | "continue" = "complete"): AiChatResult {
+  return reply("", [tool("verify_read_completion", {disposition}, "synthetic-read-completion")]);
+}
+
+it.each(["facts","counts"].flatMap(mode=>["text","voice"].map(source=>[mode,source] as const)))("continues from an incorrect %s hint and saves the whole requested batch in %s",async(answerMode,source)=>{
+  vi.useFakeTimers({toFake:["Date"]});vi.setSystemTime(now);
+  try {
+    const original=await store.createTask({title:"虚构保留的旧纸袋",date:formatDate(now),startTime:"09:00",endTime:"09:30",dueDate:"2026-11-18"});
+    const originalRow=await store.getTask(original.id),before=await store.readPath(store.taskDbPath());
+    const titles=["虚构橘袋编号","虚构绿夹装订","虚构灰盒回访","虚构墨纸统计","虚构木片复核"],minutes=[25,35,10,20,15];
+    responses.push(reply("",[tool("list_tasks",{date:"today",answerMode})]),readDone("continue"),
+      reply("",[tool("schedule_task_batch",{date:formatDate(now),availableStart:"13:00",availableEnd:"18:00",tasks:titles.map((title,index)=>({title,estimateMin:minutes[index]}))})]));
+    const real=host.aiForRole;
+    host.aiForRole=role=>({agentTurnStream:async(messages,onText,options)=>{
+      if(options?.tools?.some(t=>t.name==="verify_read_completion"))expect(await store.readPath(store.taskDbPath())).toBe(before);
+      return real(role).agentTurnStream(messages,onText,options);
+    }});
+    const chunks:string[]=[],result=await new AgentLoop(host).run(input({source:source as "text"|"voice",message:"先查今天原有安排，再一次安排并创建这五项今天必须做的事情："+titles.map((t,i)=>t+minutes[i]+"分钟").join("；")+"。13点到18点有空，不要逐项问。",onText:t=>chunks.push(t)}));
+    expect(requests).toHaveLength(3);expect(catalogs[1]).toEqual(["verify_read_completion"]);expect(toolChoices[1]).toEqual({type:"function",function:{name:"verify_read_completion"}});
+    expect(result.receipts).toHaveLength(5);expect(result.confirmations).toEqual([]);
+    const created=(await store.readTaskDb({readOnly:true})).tasks.filter(t=>titles.includes(t.title));expect(created).toHaveLength(5);
+    expect(created.map(t=>t.title)).toEqual(titles);expect(created.every(t=>t.date===formatDate(now)&&typeof t.startTime==="string"&&t.startTime>="13:00"&&typeof t.endTime==="string"&&t.endTime<="18:00")).toBe(true);
+    expect(await store.getTask(original.id)).toEqual(originalRow);expect(result.text).toContain(titles[4]);
+    expect(chunks.join("")).not.toContain("本轮查询只完成了部分请求");expect(result.toolCalls.some(t=>t.name==="verify_read_completion")).toBe(false);
+  } finally {vi.useRealTimers();}
+});
+
+it.each(["completed_tasks","task_meaning"])("continues a later creation after an incorrect %s statistics hint",async directReply=>{
+  responses.push(reply("",[tool("get_stats",{domain:"tasks",range:"today",directReply})]),readDone("continue"),
+    reply("",[tool("create_task",{title:"虚构统计之后的纸夹"})]),reply("虚构统计之后的纸夹已保存。"));
+  const result=await new AgentLoop(host).run(input({message:"先查今天任务登记数和含义，再新建待办“虚构统计之后的纸夹”，不安排时间。"}));
+  expect(requests).toHaveLength(4);expect(result.receipts).toHaveLength(1);expect((await store.readTaskDb({readOnly:true})).tasks.map(t=>t.title)).toEqual(["虚构统计之后的纸夹"]);
+  expect(catalogs.filter(c=>c.includes("verify_read_completion"))).toHaveLength(1);
+});
+
+it("does not let a composed batch of factual reads swallow a requested follow-up",async()=>{
+  responses.push(reply("",[tool("get_stats",{domain:"tasks",range:"last_week",directReply:"task_summary"}),tool("list_tasks",{dueStatus:"overdue",answerMode:"counts"},"synthetic-overdue-read")]),
+    readDone("continue"),reply("",[tool("create_task",{title:"虚构两次查询后的收尾"})]),reply("虚构收尾已保存。"));
+  const result=await new AgentLoop(host).run(input({message:"查上周任务概况和现在过期数量，再新建“虚构两次查询后的收尾”，不安排时间。"}));
+  expect(result.receipts).toHaveLength(1);expect(requests).toHaveLength(4);expect(result.toolCalls.filter(t=>t.name==="get_stats")).toHaveLength(1);
+  expect(result.toolCalls.filter(t=>t.name==="list_tasks")).toHaveLength(1);expect((await store.readTaskDb({readOnly:true})).tasks.map(t=>t.title)).toEqual(["虚构两次查询后的收尾"]);
+});
+
+it("continues an explanation after a counts hint without creating tasks or requesting confirmation",async()=>{
+  const before=await store.readPath(store.taskDbPath());responses.push(reply("",[tool("list_tasks",{date:"today",answerMode:"counts"})]),readDone("continue"),reply("只有数量还不能判断优先级；尚未核对各任务的截止日期。"));
+  const result=await new AgentLoop(host).run(input({message:"查一下今天任务数，并解释这些数量能否决定先做哪件；只讨论，不保存。"}));
+  expect(result.text).toContain("尚未核对各任务的截止日期");expect(requests).toHaveLength(3);expect(result.receipts).toEqual([]);expect(result.confirmations).toEqual([]);expect(await store.readPath(store.taskDbPath())).toBe(before);
+});
+
+it.each(["plain","write","extra-field","two-calls","unknown","network"])("does not grant completion or execute the checker response when it is %s",async mode=>{
+  const before=await store.readPath(store.taskDbPath());let checked:AiChatResult|Error;
+  if(mode==="plain")checked=reply("已经完成全部请求。");
+  else if(mode==="write")checked=reply("",[tool("create_task",{title:"虚构核对阶段不应写入"})]);
+  else if(mode==="extra-field")checked=reply("",[tool("verify_read_completion",{disposition:"complete",create:true})]);
+  else if(mode==="two-calls")checked=reply("",[tool("verify_read_completion",{disposition:"complete"}),tool("create_task",{title:"虚构核对阶段不应写入"},"second-check-call")]);
+  else if(mode==="unknown")checked=reply("",[tool("verify_read_completion",{disposition:"maybe"})]);
+  else checked=Error("虚构核对传输失败");
+  responses.push(reply("",[tool("list_tasks",{date:"today",answerMode:"counts"})]),checked,reply("本次只核对登记数量，没有保存修改。"));
+  const result=await new AgentLoop(host).run(input({message:"只查今天任务数量，不修改。"}));
+  expect(requests).toHaveLength(3);expect(result.text).toContain("没有保存修改");expect(result.receipts).toEqual([]);expect(result.confirmations).toEqual([]);
+  expect(result.toolCalls).toEqual([{name:"list_tasks",ok:true}]);expect(await store.readPath(store.taskDbPath())).toBe(before);
+});
+
+it("keeps checked counts from code and hides prose generated during completion verification",async()=>{
+  const before=await store.readPath(store.taskDbPath()),checked=readDone();checked.content="已经创建99项，继续问你一个无关问题。";
+  responses.push(reply("",[tool("list_tasks",{dueStatus:"overdue",answerMode:"counts"})]),checked);
+  const streamed:string[]=[],result=await new AgentLoop(host).run(input({message:"当前过期几项，只报数。",onText:t=>streamed.push(t)}));
+  expect(result.text).toContain("已逾期 0 项");expect(result.text).not.toContain("99");expect(streamed.join("")).toBe(result.text);expect(result.receipts).toEqual([]);expect(await store.readPath(store.taskDbPath())).toBe(before);
+});
+
+it.each(["cancel","privacy","source"])("does not finish or continue after the read completion check loses %s",async change=>{
+  const controller=new AbortController(),before=await store.readPath(store.taskDbPath()),real=host.aiForRole;
+  responses.push(reply("",[tool("list_tasks",{date:"today",answerMode:"counts"})]),readDone());
+  let sourceChanged=false;host.assertReadOnlyReplyCurrent=()=>{if(sourceChanged)throw Error("虚构来源已变化");};
+  host.aiForRole=role=>({agentTurnStream:async(messages,onText,options)=>{
+    const response=await real(role).agentTurnStream(messages,onText,options);
+    if(options?.tools?.some(t=>t.name==="verify_read_completion")){
+      if(change==="cancel")controller.abort();else if(change==="privacy")store.settings.privacy!.excludedVaultPrefixes=["虚构新增排除"];else sourceChanged=true;
+    }
+    return response;
+  }});
+  const chunks:string[]=[];await expect(new AgentLoop(host).run(input({message:"只查今天任务数。",signal:controller.signal,onText:t=>chunks.push(t)}))).rejects.toThrow();
+  expect(requests).toHaveLength(2);expect(chunks.join("")).toBe("");expect(await store.readPath(store.taskDbPath())).toBe(before);
+});
 
 it.each([false,true])("explains task metric meaning locally with a real sample present=%s",async present=>{
   if(present){const task=await store.createTask({title:"虚构跨日样本",date:"2026-11-03"});
     await store.updateTask(task.id,row=>({...row,status:"completed",createdAt:"2026-11-03T08:00:00+08:00",completedAt:"2026-11-04T17:00:00+08:00"}));}
   const before=await store.readPath(store.taskDbPath());
   responses.push(reply("",[tool("get_stats",{domain:"tasks",range:{from:"2026-11-02",to:"2026-11-08"},directReply:"task_meaning"}),
-    ...(present?[tool("get_stats",{domain:"tasks",range:{from:"2026-11-02",to:"2026-11-08"},groupBy:"day"},"daily-interval-read")]:[])]));
+    ...(present?[tool("get_stats",{domain:"tasks",range:{from:"2026-11-02",to:"2026-11-08"},groupBy:"day"},"daily-interval-read")]:[])]),readDone());
   const result=await new AgentLoop(host).run(input({message:"说明这周计划完成率和平均完成间隔的含义，只查记录。"}));
-  expect(requests).toHaveLength(1);expect(result.text).toContain("不是实测工作工时");
+  expect(requests).toHaveLength(2);expect(result.text).toContain("不是实测工作工时");
   expect(result.text).toContain("不能据此断言拖延或临时需求挤占");expect(result.text).toContain("隔天完成不等于周或月计划外");
   expect(result.text).toContain(present?"1980 分钟":"没有有效登记到完成的间隔样本");
   expect(result.text).toContain(present?"计划完成率 100%":"无法计算计划完成率");
@@ -555,9 +639,9 @@ it("keeps canonical metric definitions when a meaning lookup is accompanied by t
   const task = await store.createTask({title: "虚构同周隔天样本", date: "2026-11-03"});
   await store.updateTask(task.id, row => ({...row, createdAt: "2026-11-03T08:00:00+08:00", status: "completed", completedAt: "2026-11-04T17:00:00+08:00"}));
   responses.push(reply("", [tool("get_stats", {domain: "tasks", range: "2026-11-02..2026-11-08", directReply: "task_meaning"}),
-    tool("get_summaries", {level: "week", range: "2026-11-02..2026-11-08"}, "same-period-summary")]), new Error("Canonical meaning needs no model rewrite"));
+    tool("get_summaries", {level: "week", range: "2026-11-02..2026-11-08"}, "same-period-summary")]),readDone(), new Error("Canonical meaning needs no model rewrite"));
   const result = await new AgentLoop(host).run(input({message: "复盘这周的任务完成口径与登记到完成的间隔，只查记录。"}));
-  expect(requests).toHaveLength(1); expect(result.text).toContain("同周隔天完成仍属该周计划内完成");
+  expect(requests).toHaveLength(2); expect(result.text).toContain("同周隔天完成仍属该周计划内完成");
   expect(result.text).toContain("1980"); expect(result.text).toContain("计划完成率 100%"); expect(result.text).toContain("不是实测工作工时");
   expect(result.receipts).toEqual([]); expect(result.confirmations).toEqual([]);
 });
@@ -636,13 +720,13 @@ it("uses the actual model-group net profit for each currency without asking the 
   }
   const before = (await readTradeDatabase(store)).trades;
   responses.push(reply("", [tool("get_stats", { domain: "trades", groupBy: "model", rankByNetPnl: true,
-    range: { from: "2026-11-01", to: "2026-11-12" } })]));
+    range: { from: "2026-11-01", to: "2026-11-12" } })]),readDone());
   const result = await new AgentLoop(host).run(input({ message: "这个月哪个交易模型最赚钱？人民币和美元分开。" }));
   expect(result.text).toContain("人民币「虚构突破」排名第一，净盈亏 250 CNY。");
   expect(result.text).toContain("美元「虚构回踩」排名第一，净盈亏 120 USD。");
   expect(result.text).not.toContain("180");
   expect(result.toolCalls).toEqual([{ name: "get_stats", ok: true }]);
-  expect(requests).toHaveLength(1);
+  expect(requests).toHaveLength(2);
   expect(result.receipts).toEqual([]);
   expect((await readTradeDatabase(store)).trades).toEqual(before);
 });
@@ -997,11 +1081,11 @@ describe("unified agent loop", () => {
     const date = formatDate(now);
     await store.createTask({ title: "纯虚构待办", date, startTime: "15:00" });
     responses.push(reply("", [tool("list_tasks", { date, directReply: true })]),
-      reply("模型误说有99项任务，详细回答很长。"));
+      readDone(),reply("模型误说有99项任务，详细回答很长。"));
     const chunks: string[] = [];
     const result = await new AgentLoop(host).run(input({ message: "把今天没完成的任务列出来。", onText: delta => chunks.push(delta) }));
     expect(requests).toHaveLength(2);
-    expect(roles).toEqual(["fast", "fast"]);
+    expect(roles).toEqual(["fast", "main"]);
     expect(requests[1].filter(message => message.role === "tool").map(message => message.content).join(" ")).toContain("纯虚构待办");
     expect(result.toolCalls).toEqual([{ name: "list_tasks", ok: true }]);
     expect(result.text).toContain("今天有 1 个未完成任务");
@@ -1107,7 +1191,7 @@ describe("unified agent loop", () => {
       ...(mode === "duplicate" ? [tool("list_tasks", { directReply: true }, "synthetic-count")] : []),
       ...(mode === "also-plan" ? [tool("plan_today", {}, "synthetic-plan")] : []),
       ...(mode === "also-stats" ? [tool("get_stats", {domain:"tasks",range:"today"}, "synthetic-stats")] : [])]));
-    responses.push(reply("模型很长的提醒。".repeat(50)));
+    responses.push(readDone(),reply("模型很长的提醒。".repeat(50)));
     const spoken: string[] = [];
     const result = await new AgentLoop(host).run(input({ message: "今天还剩几项，只说最要紧的两件。", source: source as "text" | "voice",
       onVoiceText: source === "voice" ? text => spoken.push(text) : undefined }));
@@ -1160,11 +1244,11 @@ describe("unified agent loop", () => {
     host.executeTools = async calls => calls.map(call => ({ callId: call.id!, success: true,
       output: call.name === "get_stats" ? JSON.stringify(stats) : "其他虚构交易说明", actions: [] }));
     responses.push(reply("", [tool("get_stats", { domain: "trades", range: "this_month", groupBy: "market" }),
-      tool("inspect_trade_review", { period: "month" }, "additional-read")]));
+      tool("inspect_trade_review", { period: "month" }, "additional-read")]),readDone());
     const result = await new AgentLoop(host).run(input({ message: "这个月各有记录的市场分别是什么胜率？" }));
     expect(result.text).toContain("美股：57.14%（盈利 4 笔，亏损 3 笔）");
     expect(result.text).toContain("外汇：66.67%（盈利 2 笔，亏损 1 笔）");
-    expect(requests).toHaveLength(1);
+    expect(requests).toHaveLength(2);
   });
 
   it("reports the recorded rule version when the model also asks for trading statistics", async () => {
@@ -1176,11 +1260,11 @@ describe("unified agent loop", () => {
     host.executeTools = async calls => calls.map(call => ({ callId: call.id!, success: true,
       output: call.name === "inspect_trade_review" ? JSON.stringify({ evidence, rules }) : "其他虚构统计", actions: [] }));
     responses.push(reply("", [tool("get_stats", { domain: "trades", range: "this_month" }),
-      tool("inspect_trade_review", { period: "month" }, "additional-read")]));
+      tool("inspect_trade_review", { period: "month" }, "additional-read")]),readDone());
     const result = await new AgentLoop(host).run(input({ message: "给交易纪律提一条改进建议，说清楚哪笔违反哪条规则。" }));
     expect(result.text).toContain("虚构合约多单");
     expect(result.text).toContain("「虚构第一版」中的「虚构旧版止损规则」");
-    expect(requests).toHaveLength(1);
+    expect(requests).toHaveLength(2);
   });
 
   it.each([true, false])("keeps verified reading links when requested (present in draft: %s)", async present => {
@@ -1433,9 +1517,9 @@ describe("unified agent loop", () => {
     try{
       const task=await store.createTask({title:'虚构完成统计',date:formatDate(now)});await store.completeTask(task.id);
       const before=await store.readPath(store.taskDbPath());
-      responses.push(reply('',[tool('get_stats',{domain:'tasks',range:'today',directReply:'completed_tasks'})]),new Error('Must not restate verified count'));
+      responses.push(reply('',[tool('get_stats',{domain:'tasks',range:'today',directReply:'completed_tasks'})]),readDone(),new Error('Must not restate verified count'));
       const result=await new AgentLoop(host).run(input({message:'数一下已经做完的事情。'}));
-      expect(result.text).toBe('按登记，今天已完成 1 个任务。');expect(requests).toHaveLength(1);
+      expect(result.text).toBe('按登记，今天已完成 1 个任务。');expect(requests).toHaveLength(2);
       expect(result.receipts).toEqual([]);expect(await store.readPath(store.taskDbPath())).toBe(before);
     }finally{vi.useRealTimers();}
   });
@@ -1449,9 +1533,9 @@ describe("unified agent loop", () => {
 
   it('returns a model-selected completion overview without a speculative second reply or follow-up question',async()=>{
     const before=await store.readPath(store.taskDbPath());
-    responses.push(reply('',[tool('get_stats',{domain:'tasks',range:'last_week',directReply:'task_summary'})]),new Error('Do not invent an interpretation'));
+    responses.push(reply('',[tool('get_stats',{domain:'tasks',range:'last_week',directReply:'task_summary'})]),readDone(),new Error('Do not invent an interpretation'));
     const result=await new AgentLoop(host).run(input({message:'查一下上周任务完成情况。'}));
-    expect(requests).toHaveLength(1);expect(result.text).toContain('任务完成登记');expect(result.text).toContain('不是每天按时完成率');
+    expect(requests).toHaveLength(2);expect(result.text).toContain('任务完成登记');expect(result.text).toContain('不是每天按时完成率');
     expect(result.text).not.toContain('需要我');expect(result.receipts).toEqual([]);expect(result.confirmations).toEqual([]);expect(await store.readPath(store.taskDbPath())).toBe(before);
   });
 
@@ -1464,9 +1548,9 @@ describe("unified agent loop", () => {
       await store.createTask({title:'虚构不应夹带的今日纸袋',date:formatDate(now),dueDate:formatDate(now)});
       const before=await store.readPath(store.taskDbPath());
       responses.push(reply('',[tool('get_stats',{domain:'tasks',range:'last_week',directReply:'task_summary'},'fictional-week-summary'),
-        tool('list_tasks',{dueStatus:'overdue',answerMode},'fictional-current-overdue')]),new Error('Do not reinterpret numeric facts'));
+        tool('list_tasks',{dueStatus:'overdue',answerMode},'fictional-current-overdue')]),readDone(),new Error('Do not reinterpret numeric facts'));
       const result=await new AgentLoop(host).run(input({message:'给我上周任务完成概况，再列目前过期的任务，只查数字和清单。'}));
-      expect(requests).toHaveLength(1);expect(result.text).toContain('2026-11-02 至 2026-11-08');expect(result.text).toContain('区间计划内完成 1 项');
+      expect(requests).toHaveLength(2);expect(result.text).toContain('2026-11-02 至 2026-11-08');expect(result.text).toContain('区间计划内完成 1 项');
       expect(result.text).toContain('不是该区间结束时');expect(result.text).toContain('已逾期 1 项');
       if(answerMode==='facts')expect(result.text).toContain('虚构目前过期纸盒');
       else expect(result.text).not.toContain('虚构目前过期纸盒');
@@ -1481,9 +1565,9 @@ describe("unified agent loop", () => {
     try{
       await store.createTask({title:'虚构只计数纸袋',date:'2026-11-10'});
       const before=await store.readPath(store.taskDbPath());
-      responses.push(reply('',[tool('list_tasks',{dueStatus:'overdue',answerMode:'counts'})]),new Error('No extra count interpretation'));
+      responses.push(reply('',[tool('list_tasks',{dueStatus:'overdue',answerMode:'counts'})]),readDone(),new Error('No extra count interpretation'));
       const result=await new AgentLoop(host).run(input({message:'现在过期几项，只告诉我数量。'}));
-      expect(requests).toHaveLength(1);expect(result.text).toContain('已逾期 1 项');expect(result.text).not.toContain('虚构只计数纸袋');
+      expect(requests).toHaveLength(2);expect(result.text).toContain('已逾期 1 项');expect(result.text).not.toContain('虚构只计数纸袋');
       expect(result.receipts).toEqual([]);expect(result.confirmations).toEqual([]);expect(await store.readPath(store.taskDbPath())).toBe(before);
     }finally{vi.useRealTimers();}
   });
@@ -1776,11 +1860,11 @@ describe("unified agent loop", () => {
     const habit = await store.createHabit({ name: "虚构跑步", frequencyUnit: "day", frequencyInterval: 1, targetCount: 1 });
     await store.recordHabitStatus(habit.id, "done", todayString());
     const onVoiceText = vi.fn();
-    responses.push(reply("", [tool("get_stats", { domain: "habits", range: "today", habitName: "虚构跑步", voiceAnswer: "habit_checkin" })]));
+    responses.push(reply("", [tool("get_stats", { domain: "habits", range: "today", habitName: "虚构跑步", voiceAnswer: "habit_checkin" })]),readDone());
     const result = await new AgentLoop(host).run(input({ source: "voice", message: "今天虚构跑步打卡了吗？", onVoiceText }));
     expect(result.text).toBe("今天已给「虚构跑步」打卡。");
     expect(onVoiceText).toHaveBeenCalledExactlyOnceWith(result.text);
-    expect(roles).toEqual(["fast"]);
+    expect(roles).toEqual(["fast","main"]);
   });
 
   it("speaks the requested top tasks in tool order without another model turn or a write", async () => {
@@ -1790,13 +1874,13 @@ describe("unified agent loop", () => {
     await store.createTask({ title: "虚构核对", date, quadrant: "important-urgent" });
     const before = await store.readTaskDb();
     const onVoiceText = vi.fn();
-    responses.push(reply("", [tool("plan_today", { voicePriorityCount: 2 })]));
+    responses.push(reply("", [tool("plan_today", { voicePriorityCount: 2 })]),readDone());
 
     const result = await new AgentLoop(host).run(input({ source: "voice", message: "今天该先做哪两件事？", onVoiceText }));
 
     expect(result.text).toBe("先做「虚构核对」，今天到期，重要且紧急。然后做「虚构汇总」，今天到期，重要不紧急。");
     expect(onVoiceText).toHaveBeenCalledExactlyOnceWith(result.text);
-    expect(requests).toHaveLength(1);
+    expect(requests).toHaveLength(2);
     expect(await store.readTaskDb()).toEqual(before);
   });
 

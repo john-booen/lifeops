@@ -63,6 +63,7 @@ import { historicalQueryHistoryContext, historicalQueryHistorySelections } from 
 import { bindHistoricalDateReference } from "./historicalDateReference";
 import { requestedMemoryLookup,memoryLookupTool } from "./memoryLookup";
 import { simpleReadOnlyTaskLookup } from "./readOnlyTaskLookup";
+import { READ_COMPLETION_TOOL, CONTINUE_AFTER_READ, readCompletionConfirmed, readCompletionMessages } from "./readCompletion";
 import { preferJournalOriginalReads } from "./journalOriginalRouting";
 import { requiredPlanRepairMessages } from "./requiredPlanRepair";
 import {taskCreationPolicy} from '../features/tasks/creationPolicy';
@@ -418,6 +419,8 @@ export class AgentLoop {
       if(priorQueryDates.length&&attestedHistoricalReads.length)
         state.historicalRecoveryCalls=structuredClone(requestedSummaryTopics(requestedTaskTopics(attestedHistoricalReads,input.message),input.message));
       let taskListAnswer: string | undefined;
+      let readCompletion: boolean | undefined;
+      let continueAfterRead = false;
       for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
         assertPolicy();
         const final = round === MAX_TOOL_ROUNDS || state.confirmations.size > 0;
@@ -537,6 +540,19 @@ export class AgentLoop {
           }
         }
         const results = await this.executeTools(input, state, calls, context.text, availableTools);
+        const mayFinishRead = async (answer: string): Promise<boolean> => {
+          if (readCompletion !== undefined) return readCompletion;
+          this.host.assertReadOnlyReplyCurrent?.();
+          let checked: AiChatResult | undefined;
+          try {
+            checked = await this.callModel(input,state,"main",readCompletionMessages(messages,results,input.message,answer),
+              [READ_COMPLETION_TOOL],false,false,READ_COMPLETION_TOOL.name,{reasoning:"disabled",finite:true});
+          } catch { assertProviderActive(input.signal); assertPolicy(); }
+          assertProviderActive(input.signal); assertPolicy(); this.host.assertReadOnlyReplyCurrent?.();
+          readCompletion = checked !== undefined && readCompletionConfirmed(checked);
+          if (!readCompletion) { state.toolsExpanded = true; taskListAnswer = undefined; continueAfterRead = true; }
+          return readCompletion;
+        };
         const requestedPreview = state.requestedTaskConfirmation && results.find(result => result.success
           && result.actions.some(action => action.type === "tool_batch"));
         if (requestedPreview) return this.localAnswer(input, state, [requestedPreview.output,
@@ -573,7 +589,7 @@ export class AgentLoop {
             : (await import("../features/stats/trades")).formatMarketWinRates(tradeAnswerResult.output);
           assertProviderActive(input.signal);
           assertPolicy();
-          if (reply) return this.localAnswer(input, state, reply);
+          if (reply && await mayFinishRead(reply)) return this.localAnswer(input, state, reply);
         }
         if(input.source==='text'&&!input.voiceBackground&&!state.receipts.size&&!state.confirmations.size
           &&!state.requestedTaskConfirmation&&!exactTitleEdits&&!requiredTool&&!state.errorCode
@@ -581,7 +597,7 @@ export class AgentLoop {
           const reads=state.toolCalls.filter(call=>call.name!==LOAD_TOOLS.name);
           if(reads.length===calls.length&&reads.every(call=>call.ok)){
             const reply=taskReadBatchReply(calls,results,formatDate(input.now));
-            if(reply){assertProviderActive(input.signal);assertPolicy();this.host.assertReadOnlyReplyCurrent?.();return this.localAnswer(input,state,reply);}
+            if(reply&&await mayFinishRead(reply)){assertProviderActive(input.signal);assertPolicy();this.host.assertReadOnlyReplyCurrent?.();return this.localAnswer(input,state,reply);}
           }
         }
         const meaningCall = calls.find(call => call.name === "get_stats" && call.arguments.domain === "tasks" && call.arguments.directReply === "task_meaning");
@@ -598,7 +614,7 @@ export class AgentLoop {
           })) {
           const reply = taskMetricMeaning(meaningResult.output);
           assertProviderActive(input.signal); assertPolicy();
-          if (reply) return this.localAnswer(input, state, reply);
+          if (reply && await mayFinishRead(reply)) return this.localAnswer(input, state, reply);
         }
         const [call] = calls;
         if (calls.length === 1 && call.name === TASK_BATCH_TOOL.name && results[0]) {
@@ -606,15 +622,14 @@ export class AgentLoop {
           return this.localAnswer(input, state, results[0].output);
         }
         const single = calls.length === 1 && results[0]?.success ? results[0] : undefined;
-        taskListAnswer = !input.voiceBackground && !state.requestedTaskConfirmation && single && call.name === "list_tasks" && call.arguments.category === undefined
+        taskListAnswer = !input.voiceBackground && !state.requestedTaskConfirmation && !state.receipts.size && !state.confirmations.size && !state.errorCode
+          && single && call.name === "list_tasks" && call.arguments.category === undefined
           && !(call.arguments.answerMode === "facts" && typeof call.arguments.query === "string" && call.arguments.query.trim())
           && call.arguments.directReply !== false && (["facts", "counts"].includes(String(call.arguments.answerMode)) || call.arguments.directReply === true
             || call.arguments.dueStatus === "overdue_and_today" || call.arguments.order === "priority" && Number.isInteger(call.arguments.limit))
           ? formatTaskListReply(single.output, formatDate(input.now)) : undefined;
-        if (input.source === "text" && taskListAnswer && ["facts", "counts"].includes(String(call.arguments.answerMode))
-          && !state.receipts.size && !state.confirmations.size && !state.errorCode && !exactTitleEdits
-          && !requiredTool && !attestedHistoricalReads.length && !this.needsHistoricalAnswer(input, state)
-          && state.toolCalls.every(tool => tool.ok && tool.name === "list_tasks")) {
+        if (taskListAnswer && !await mayFinishRead(taskListAnswer)) taskListAnswer = undefined;
+        if (taskListAnswer && !exactTitleEdits && !requiredTool && !attestedHistoricalReads.length && !this.needsHistoricalAnswer(input, state)) {
           assertPolicy(); this.host.assertReadOnlyReplyCurrent?.();
           return this.localAnswer(input, state, taskListAnswer);
         }
@@ -660,7 +675,8 @@ export class AgentLoop {
             && (requiredTool === "propose_task_plan" || call.name === "delete_habit" || call.name === "delete_task")) {
             reply = single.output;
           }
-          if (reply) {
+          if (reply && (getLifeOpsTool(call.name)?.safety !== "safe"
+            || single.receipt || single.actions.length || await mayFinishRead(reply))) {
             assertProviderActive(input.signal);
             assertPolicy();
             state.text = reply;
@@ -677,6 +693,7 @@ export class AgentLoop {
             content: fastVoice && result?.success && !result.receipt && !result.actions.length && isBackgroundReadTool(call.name)
               ? this.compactVoiceOutput(output) : output });
         }
+        if (continueAfterRead) { messages.push({role:"system",content:CONTINUE_AFTER_READ}); continueAfterRead=false; }
         if (required?.name === "propose_task_plan" && !results.some(result => result.success)) {
           if (!required.argumentRetry && round < MAX_TOOL_ROUNDS - 1) nextTool = { name: required.name, retry: true, argumentRetry: true };
           else {
