@@ -23,3 +23,11 @@ it('keeps missing and failed reads out of a supposedly complete batch',()=>{
  const failed=results();failed[1].success=false;expect(taskReadBatchReply(calls,failed,today)).toBeUndefined();
  expect(taskReadBatchReply(calls.slice(0,1),results().slice(0,1),today)).toBeUndefined();
 });
+it('composes an overdue quantity without reading or emitting task titles',()=>{
+ const countCall:AiToolCall={id:'fictional-overdue',name:'list_tasks',arguments:{dueStatus:'overdue',answerMode:'counts'}};
+ const countResult:ToolCallResult={callId:countCall.id!,success:true,actions:[],output:JSON.stringify({projection:'counts',date:today,statusAsOf:today,status:'active',count:4,dueStatus:'overdue'})};
+ const reply=taskReadBatchReply([calls[0],countCall],[results()[0],countResult],today)!;
+ expect(reply).toContain('1 个任务（共 2 次完成记录）');expect(reply).toContain('任务数量：');expect(reply).toContain('已逾期 4 项');
+ expect(reply).not.toContain('任务清单');expect(reply).not.toContain('今天硬截止');
+ expect(taskReadBatchReply([calls[0],{...countCall,arguments:{...countCall.arguments,answerMode:'continue'}}],[results()[0],countResult],today)).toBeUndefined();
+});

@@ -24,16 +24,16 @@ async function planningInputs(context: ToolExecutionContext) {
 export const TASK_PLANNING_TOOLS: LifeOpsToolDefinition[] = [
   {
     name: "list_tasks",
-    description: "查任务，默认未完成。query省略date时跨日期，普通列表默认今天。纯查安排、期间方式或截止填answerMode=facts；还要解释、建议或修改填continue。核对日期和ID，按nextOffset续查。",
+    description: "查未完成任务。数量选counts，清单选facts，解释或修改选continue。仅逾期选overdue。query无date跨日，其余默认今天。修改另读ID，沿nextOffset翻页。",
     safety: "safe",
     parameters: { type: "object", additionalProperties: false, properties: {
       date: { type: "string", description: "query查找省略日期时跨日期；普通/优先列表默认今天。" },
       status: { type: "string", enum: ["active", "completed", "all"] },
       category: { type: "string", enum: ["punishment"], description: "查补偿待办时可不限定日期。" },
       habitName: { type: "string", description: "只查这一项习惯的补偿时填写习惯名称。" },
-      dueStatus: { type: "string", enum: ["overdue_and_today"], description: "仅用于明确要求分别列出逾期和今日到期。" },
+      dueStatus: { type: "string", enum: ["overdue", "due_today", "overdue_and_today"], description: "当前记录中逾期、当日硬截止或分别查两组。" },
       directReply: { type: "boolean", description: "兼容旧客户端；查询结果仍交回本轮继续处理。" },
-      answerMode: { type: "string", enum: ["facts", "continue"], description: "facts直接返回日期方式和截止；continue继续解释或处理。" },
+      answerMode: { type: "string", enum: ["counts", "facts", "continue"], description: "counts只返回总数；facts清单；continue继续处理。" },
       order: { type: "string", enum: ["priority"], description: "用户问最要紧的待办时按优先级排序。" },
       limit: { type: "integer", minimum: 1, maximum: 30, description: "列出几项就填几，不改变返回的总数。" },
       query: { type: "string", description: "按标题连续文字查找；省略日期跨日期，优先列表仍今天。" },
@@ -46,17 +46,19 @@ export const TASK_PLANNING_TOOLS: LifeOpsToolDefinition[] = [
       const penalties = args.category === "punishment";
       const ordered = args.order === "priority";
       const dueGroups = args.dueStatus === "overdue_and_today";
+      const dueFilter = args.dueStatus === "overdue" || args.dueStatus === "due_today";
+      const countsOnly = args.answerMode === "counts";
       const offset = args.offset === undefined ? 0 : args.offset;
       const query = typeof args.query === "string" ? args.query.trim() : "";
       const habitName = typeof args.habitName === "string" ? args.habitName.trim().normalize("NFKC") : "";
-      const anyDate = args.date === undefined && (penalties || !!query && !ordered && !dueGroups);
+      const anyDate = args.date === undefined && !dueFilter && (penalties || !!query && !ordered && !dueGroups);
       if (!date || typeof status !== "string" || !["active", "completed", "all"].includes(status)
         || (args.category !== undefined && !penalties)
-        || (args.dueStatus !== undefined && (!dueGroups || status !== "active" || penalties))
+        || (args.dueStatus !== undefined && (!(dueGroups || dueFilter) || status !== "active" || penalties))
         || (args.order !== undefined && (!ordered || status !== "active" || penalties))
         || (args.habitName !== undefined && (!penalties || !habitName || habitName.length > 40))
         || (args.directReply !== undefined && typeof args.directReply !== "boolean")
-        || (args.answerMode !== undefined && !["facts", "continue"].includes(String(args.answerMode)))
+        || (args.answerMode !== undefined && !["counts", "facts", "continue"].includes(String(args.answerMode)))
         || typeof offset !== "number" || !Number.isSafeInteger(offset) || offset < 0 || offset > 100000
         || (args.query !== undefined && (typeof args.query !== "string" || !query || query.length > 1000))
         || (dueGroups && (args.query !== undefined || offset !== 0))
@@ -80,7 +82,7 @@ export const TASK_PLANNING_TOOLS: LifeOpsToolDefinition[] = [
         }
         visible = advanceCompensationDebt(tasks, habits.database.habits, todayString(), context.store.settings.habitCompensation);
       }
-      const estimate = taskEstimates(tasks);
+      const estimate = countsOnly ? undefined : taskEstimates(tasks);
       const orderedItems = (items: typeof tasks) => ordered
         ? prioritizeTasks(items, new Date(), undefined, estimate).map(item => item.task) : items;
       if (dueGroups) {
@@ -88,25 +90,35 @@ export const TASK_PLANNING_TOOLS: LifeOpsToolDefinition[] = [
         const active = tasks.filter(task => task.status === "active");
         const group = (items: typeof tasks) => ({
           count: items.length,
-          tasks: orderedItems(items).slice(0, limit).map(task => ({ title: protect(task.title), time: taskScheduleLabel(task) }))
+          ...(!countsOnly ? { tasks: orderedItems(items).slice(0, limit).map(task => ({ title: protect(task.title), time: taskScheduleLabel(task) })) } : {})
         });
-        return { success: true, output: JSON.stringify({ date, scope, dueGroups: {
+        return { success: true, output: JSON.stringify({ date, scope,
+          ...(countsOnly ? { projection: "counts", statusAsOf: todayString(), status } : {}), dueGroups: {
           overdue: group(active.filter(task => isTaskOverdue(task, date))),
           dueToday: group(active.filter(task => task.dueDate === date))
         } }), actions: [] };
       }
-      const items = visible.filter(task => (anyDate || isTaskOnDate(task, date) || task.dueDate === date)
+      const items = visible.filter(task => (dueFilter ? args.dueStatus === "overdue" ? isTaskOverdue(task, date) : task.dueDate === date
+        : anyDate || isTaskOnDate(task, date) || task.dueDate === date)
         && (status === "all" || task.status === status) && (!penalties || task.category === "punishment")
         && (!selectedHabit || task.habitPunishment?.habitId === selectedHabit)
         && (!query || protect(task.title).toLocaleLowerCase().includes(query.toLocaleLowerCase())));
+      if (countsOnly) {
+        context.assertCurrent?.();
+        return { success: true, output: JSON.stringify({ projection: "counts", date: anyDate ? null : date, statusAsOf: todayString(),
+          status, count: items.length, scope, ...(dueFilter ? { dueStatus: args.dueStatus } : {}),
+          ...(query ? { query } : {}), ...(anyDate ? { dateScope: "all" } : {}),
+          ...(selectedHabit ? { compensationEnabled: enabled } : {}) }), actions: [] };
+      }
       const selected = orderedItems(items);
       return { success: true, output: JSON.stringify({ date: anyDate ? null : date, status, count: items.length, scope, truncated: items.length > offset + limit,
+        ...(dueFilter ? { dueStatus: args.dueStatus, statusAsOf: todayString() } : {}),
         ...(query ? { query } : {}), ...(anyDate && query ? { dateScope: "all" } : {}), ...(offset ? { offset } : {}),
         ...(items.length > offset + limit ? { nextOffset: offset + limit } : {}),
         ...(ordered ? { order: "priority" } : {}),
         ...(selectedHabit ? { compensationEnabled: enabled } : {}),
         tasks: selected.slice(offset, offset + limit).map(task => ({ id: task.id, title: protect(task.title), date: task.date, endDate: task.endDate, time: taskScheduleLabel(task), scheduleMode: taskScheduleMode(task), dueDate: task.dueDate, dueTime: task.dueTime,
-          quadrant: task.quadrant, category: protect(taskCategory(task)), status: task.status, estimateMin: estimate(task),
+          quadrant: task.quadrant, category: protect(taskCategory(task)), status: task.status, estimateMin: estimate!(task),
           ...(task.habitPunishment?.evidence ? { evidence: protect(task.habitPunishment.evidence), dueDate: task.dueDate,
             ...(penalties ? { compensationDue: compensationDueLabel(task.habitPunishment) } : {}) } : {}) })) }), actions: [] };
     }
@@ -237,8 +249,37 @@ function dueGroupLines(label: string, group: TaskListGroup): string[] {
 
 export function formatTaskListReply(output: string, today: string): string | undefined {
   let list: TaskListGroup & { date: string | null; dateScope?: string; status: string; scope?: string; truncated?: boolean; order?: string; query?: string; offset?: number;
+    projection?: string; statusAsOf?: string; dueStatus?: string;
     dueGroups?: { overdue: TaskListGroup; dueToday: TaskListGroup } };
   try { list = JSON.parse(output); } catch { return undefined; }
+  if (list?.projection !== undefined) {
+    const validCount = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
+    const validDate = (value: unknown): value is string => typeof value === "string" && normalizeJournalDate(value) === value;
+    if (list.projection !== "counts" || !validDate(list.statusAsOf)
+      || !["active", "completed", "all"].includes(list.status)) return;
+    const allDates = list.date === null && list.dateScope === "all";
+    if (!allDates && !validDate(list.date)) return;
+    const day = allDates ? "所有日期" : list.date === today ? "今天" : list.date;
+    const prefix = `按截至 ${list.statusAsOf} 的登记状态，`;
+    let body: string;
+    if (list.dueGroups) {
+      if (!validCount(list.dueGroups.overdue?.count) || !validCount(list.dueGroups.dueToday?.count) || allDates || list.status !== "active") return;
+      body = `已逾期 ${list.dueGroups.overdue.count} 项；${day}硬截止 ${list.dueGroups.dueToday.count} 项。`;
+    } else {
+      if (!validCount(list.count)) return;
+      if (list.dueStatus === "overdue" || list.dueStatus === "due_today") {
+        if (allDates || list.status !== "active") return;
+        body = list.dueStatus === "overdue" ? `已逾期 ${list.count} 项。` : `${day}硬截止 ${list.count} 项。`;
+      } else {
+        if (list.dueStatus !== undefined) return;
+        const status = list.status === "active" ? "未完成任务" : list.status === "completed" ? "已完成任务" : "任务";
+        body = `${day}${list.query ? `匹配「${list.query}」的` : ""}有 ${list.count} 项${status}。`;
+      }
+    }
+    const reference = list.dueStatus === "overdue" || list.dueGroups ? `以 ${list.date} 为逾期判断日期。` : "";
+    const historical = !allDates && list.date !== list.statusAsOf ? "这不是历史当天的状态快照。" : "";
+    return prefix + body + reference + historical + (list.scope ? list.scope + "。" : "");
+  }
   if (list?.dueGroups && typeof list.date === "string") {
     const { overdue, dueToday } = list.dueGroups;
     if (!validTaskListGroup(overdue) || !validTaskListGroup(dueToday)) return undefined;
@@ -257,6 +298,11 @@ export function formatTaskListReply(output: string, today: string): string | und
   }
   const lines = [`${day}有 ${list.count} 个${status}。`,
     ...taskListLines(list.tasks, allDates)];
+  if (list.dueStatus === "overdue" || list.dueStatus === "due_today") {
+    if (typeof list.date !== "string" || !list.statusAsOf || list.status !== "active") return;
+    lines[0] = `按截至 ${list.statusAsOf} 的登记状态，${list.dueStatus === "overdue" ? `已逾期 ${list.count} 项（以 ${list.date} 为判断日期）` : `${day}硬截止 ${list.count} 项`}。`;
+    if (list.date !== list.statusAsOf) lines.push("这不是历史当天的状态快照。");
+  }
   if (list.offset) lines.push(list.tasks.length ? `本页为第 ${list.offset + 1}–${list.offset + list.tasks.length} 个。` : "本页没有更多任务。");
   else if (list.truncated) lines.push(`以上是前 ${list.tasks.length} 个。`);
   if (list.scope) lines.push(list.scope + "。");

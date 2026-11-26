@@ -18,9 +18,9 @@ export function taskReadBatchReply(calls:readonly AiToolCall[],results:readonly 
       if(args.directReply==='completed_tasks')text=completedTasksReply(result.output,today);
       else if(args.directReply==='task_summary')text=taskSummaryReply(result.output,today);
       else if(args.directReply==='task_meaning')text=taskMetricMeaning(result.output);
-    }else if(call.name==='list_tasks'&&args.answerMode==='facts'&&args.directReply!==false){
+    }else if(call.name==='list_tasks'&&['facts','counts'].includes(String(args.answerMode))&&args.directReply!==false){
       const body=formatTaskListReply(result.output,today);
-      if(body)text='任务清单：\n'+body;
+      if(body)text=(args.answerMode==='counts'?'任务数量：\n':'任务清单：\n')+body;
     }
     if(!text)return;blocks.push(text);
   }

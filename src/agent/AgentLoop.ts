@@ -594,10 +594,10 @@ export class AgentLoop {
         }
         const single = calls.length === 1 && results[0]?.success ? results[0] : undefined;
         taskListAnswer = !input.voiceBackground && !state.requestedTaskConfirmation && single && call.name === "list_tasks" && call.arguments.category === undefined
-          && call.arguments.directReply !== false && (call.arguments.answerMode === "facts" || call.arguments.directReply === true
+          && call.arguments.directReply !== false && (["facts", "counts"].includes(String(call.arguments.answerMode)) || call.arguments.directReply === true
             || call.arguments.dueStatus === "overdue_and_today" || call.arguments.order === "priority" && Number.isInteger(call.arguments.limit))
           ? formatTaskListReply(single.output, formatDate(input.now)) : undefined;
-        if (input.source === "text" && taskListAnswer && call.arguments.answerMode === "facts"
+        if (input.source === "text" && taskListAnswer && ["facts", "counts"].includes(String(call.arguments.answerMode))
           && !state.receipts.size && !state.confirmations.size && !state.errorCode && !exactTitleEdits
           && !requiredTool && !attestedHistoricalReads.length && !this.needsHistoricalAnswer(input, state)
           && state.toolCalls.every(tool => tool.ok && tool.name === "list_tasks")) {
@@ -811,7 +811,7 @@ export class AgentLoop {
       }
     }
     if (tools.some(tool => tool.name === "list_tasks")) {
-      guidance.push("只查询未完成清单时填所问日期和answerMode=facts，不加用户没要的排序或数量限制；同句还有解释、建议或修改时填continue，继续完成整句要求。");
+      guidance.push("只问任务数量填answerMode=counts，不读任务标题；只问逾期填dueStatus=overdue，不附今日到期。查询清单填facts；同句还有解释、建议或修改填continue，继续完成整句要求。");
       guidance.push("只按名字查找任务而未限定日期时，用query并省略date，查全部日期；用户指定今天或某日时传对应date。逐条使用返回的date/endDate和准确ID，不把跨日期结果当作今天清单；同名对象不明确先核对，不自行选一条改。");
       guidance.push("要求把逾期和今天到期的未完成任务分开时，用 list_tasks 的 dueStatus=overdue_and_today。如另要建议，设 directReply=false。问今天还剩几项和最要紧的 N 项（含今晚未完成提醒）时，用 list_tasks 的 order=priority、limit=N、directReply=true，省略 dueStatus，不用 plan_today。只问今天该先做什么、想知道排序理由或精力影响，用 plan_today，不用 list_tasks。");
     }
