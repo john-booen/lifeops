@@ -563,6 +563,7 @@ export class AgentLoop {
         const meaningCall = calls.find(call => call.name === "get_stats" && call.arguments.domain === "tasks" && call.arguments.directReply === "task_meaning");
         const meaningResult = meaningCall && results.find(result => result.callId === meaningCall.id && result.success);
         if (!input.voiceBackground && !state.receipts.size && !state.confirmations.size && meaningResult
+          && !state.requestedTaskConfirmation && !exactTitleEdits && !requiredTool
           && calls.every(call => {
             if (call.name === "get_stats") return call.arguments.domain === "tasks";
             if (call.name !== "get_summaries") return false;
@@ -807,7 +808,7 @@ export class AgentLoop {
       guidance.push("用户明确要测验或出题时，先调用 start_quiz，按用户指定的学科和题数出题。不要按日记状态更改题数。");
     }
     if (tools.some(tool => tool.name === "get_stats")) {
-      guidance.push("只问任务完成率、登记到完成间隔或估时等统计口径时，用get_stats(domain=tasks,directReply=task_meaning)直接读回定义；另要事件原因或建议时正常查证。");
+      guidance.push("整句只询问指标含义，例如怎么算、什么口径或是否实测工时，才用get_stats(domain=tasks,directReply=task_meaning)读回定义。问实际完成数或完成率只查数，不返回口径说明；同句还有其他查询、建议、修改或确认卡时省略task_meaning并继续完成整句。");
       guidance.push("评价或批评这周表现，先用 get_stats(domain=habits,range=this_week) 查达标次数和漏做日期。");
       guidance.push("完成任务数用get_stats(domain=tasks)和所问范围，含已结束周/月及追问纠正；整句只问数量时可设directReply=completed_tasks，不另报没问的清单或完成率。历史事件、原因或复盘用get_summaries核对原文，不能用摘要代替任务统计。");
       guidance.push("设备睡眠时长、步数、体重等用 get_stats(domain=health)。整句只问设备睡眠天数/小时，设directReply=device_sleep，只报设备记录，不补日记。日记里的主观睡眠、情绪或精力用 get_stats(domain=journal)。只问睡得怎么样时先查同一时段的健康记录，按需要补充日记感受并标明来源。最近三天用 range=last_3d。要找情绪原因、原话或具体事件时，用query_vault查询并读取同一范围的日记正文，不能用数字或摘要代替核对。");

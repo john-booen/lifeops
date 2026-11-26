@@ -1378,6 +1378,16 @@ describe("unified agent loop", () => {
     expect(result.receipts).toEqual([]);expect(await store.readPath(store.taskDbPath())).toBe(before);
   });
 
+  it('continues a requested creation card after metric definitions instead of ending the whole request',async()=>{
+    const before=await store.readPath(store.taskDbPath());
+    responses.push(reply('',[tool('get_stats',{domain:'tasks',range:'today',directReply:'task_meaning'})]),
+      reply('',[tool('create_task',{title:'虚构先确认的纸袋',date:formatDate(now)})]));
+    const result=await new AgentLoop(host).run(input({message:'新建任务“虚构先确认的纸袋”先给确认卡，同时解释任务统计口径，等我确认后再保存。'}));
+    expect(requests).toHaveLength(2);expect(result.confirmations).toHaveLength(1);expect(result.receipts).toEqual([]);
+    expect(result.toolCalls).toEqual([{name:'get_stats',ok:true},{name:'create_task',ok:true}]);
+    expect(await store.readPath(store.taskDbPath())).toBe(before);
+  });
+
   it("returns the exact habit name from the delete confirmation without another model call", async () => {
     const habit = await store.createHabit({ name: "虚构阅读", frequencyUnit: "day", frequencyInterval: 1, targetCount: 1 });
     responses.push(reply("", [tool("delete_habit", { name: habit.name })]));
