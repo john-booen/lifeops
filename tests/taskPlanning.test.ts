@@ -184,11 +184,11 @@ describe("task planning through real files", () => {
     expect(await Promise.all(paths.map(path => vault.bytes(path)))).toEqual(before);
   });
 
-  it("reschedules the existing task and shifts its interval and deadline with an undo receipt", async () => {
+  it("reschedules the existing task while preserving its interval and independent deadline, with an undo receipt", async () => {
     const original = await store.createTask({ title: "虚构周报", date: today, startTime: "15:00", endTime: "16:00", dueDate: today });
     const moved = await runtime.executeAiToolCall({ name: "reschedule_task", arguments: { taskIdOrTitle: original.title, date: "明天" } }, "kimi");
     expect(moved.success, moved.output).toBe(true);
-    expect((await store.readTaskDb()).tasks).toMatchObject([{ id: original.id, date: addDays(today, 1), dueDate: addDays(today, 1),
+    expect((await store.readTaskDb()).tasks).toMatchObject([{ id: original.id, date: addDays(today, 1), dueDate: today,
       startTime: "15:00", endTime: "16:00" }]);
     await runtime.undoOperation(moved.receipt!.operationId);
     expect(await store.getTask(original.id)).toMatchObject({ date: today, dueDate: today });
@@ -229,9 +229,20 @@ describe("task planning through real files", () => {
     } }, "kimi");
     expect(result.success, result.output).toBe(true);
     expect(result.output).toContain("15:15");
-    expect(await store.getTask(original.id)).toMatchObject({ date: addDays(today, 1), time: "15:15", dueDate: addDays(today, 1) });
+    expect(await store.getTask(original.id)).toMatchObject({ date: addDays(today, 1), time: "15:15", dueDate: today });
     await runtime.undoOperation(result.receipt!.operationId);
     expect(await store.getTask(original.id)).toMatchObject({ date: today, time: "15:00", dueDate: today });
+  });
+
+  it("moves both plan and deadline when both fields are explicitly requested", async () => {
+    const original = await store.createTask({title: "虚构明确改两种日期", date: today, endTime: "16:00", dueDate: today, dueTime: "18:00"});
+    const result = await runtime.executeAiToolCall({name: "update_tasks", arguments: {updates: [
+      {taskIdOrTitle: original.id, date: addDays(today, 1), dueDate: addDays(today, 1)}
+    ]}}, "kimi", "计划和必须截止都明确顺延到明天，原时刻保留。");
+    expect(result.success, result.output).toBe(true);
+    expect(await store.getTask(original.id)).toMatchObject({id: original.id, date: addDays(today, 1), dueDate: addDays(today, 1), endTime: "16:00", dueTime: "18:00"});
+    await runtime.undoOperation(result.receipt!.operationId);
+    expect(await store.getTask(original.id)).toEqual(original);
   });
 
   it("preserves a saved task if a combined correction has an invalid time", async () => {

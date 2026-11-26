@@ -201,6 +201,6 @@ describe("suppressed memory in historical context", () => {
     for (let index = 0; index < 40; index += 1) {
       expect(filter(`${unrelated}\n\nSpeaker: Hidden ${"x".repeat(index + 1)} unique detail`)).not.toContain(`Hidden ${"x".repeat(index + 1)} unique detail`);
     }
-  // Forty large independent histories also run under V8 coverage instrumentation.
-  }, 20_000);
+  // Preserve all forty histories and exact SHA assertions under hosted Intel V8 coverage.
+  }, 60_000);
 });
