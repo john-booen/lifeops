@@ -44,7 +44,7 @@ export async function nativeHistoricalStatsFallback(page, root, result) {
     });
     assert.equal(observed.calls, 3); assert.equal(observed.fetches, 0); assert(observed.finalToolsFree);
     assert.equal(observed.before, observed.after); assert.deepEqual(observed.receipts, []); assert.equal(observed.pending, 0);
-    for (const value of ["历史分析未完成", "虚构跨周中断原文", "2007-03-05 至 2007-03-11", "计划 1 项，计划内完成 1 项", "区间内登记完成 1 项", "不是实测工时"]) assert(observed.text.includes(value), value + " missing: " + observed.text);
+    for (const value of ["历史分析未完成", "虚构跨周中断原文", "2007-03-05 至 2007-03-11", "计划 1 项，计划内完成 1 项", "区间内登记完成 1 个任务。", "不是实测工时"]) assert(observed.text.includes(value), value + " missing: " + observed.text);
     for (const value of ["不可采纳草稿", "完成99项", "原因是懒惰"]) assert(!observed.text.includes(value));
     await page.screenshot({ path: join(root, "historical-stats-fallback.png") });
     result.checks.historicalAnalysisFailureRetainsRecheckedNumbersAndOriginals = true;

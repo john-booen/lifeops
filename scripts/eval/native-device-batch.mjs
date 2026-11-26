@@ -249,6 +249,7 @@ export async function exerciseNativeDeviceBatch({ getPage, root, vault, profile,
   await (await import("./native-summary-original-memory.mjs")).nativeSummaryOriginalMemory(page,result);
   await (await import("./native-task-metric-meaning.mjs")).nativeTaskMetricMeaning(page,result);
   await (await import("./native-read-only-recovery.mjs")).nativeReadOnlyRecovery(page,result);
+  await (await import("./native-task-counts.mjs")).nativeTaskCounts(page,root,result);
   await (await import("./native-tool-protocol.mjs")).nativeToolProtocol(page,result);
   await (await import("./native-text-route-cooldown.mjs")).nativeTextRouteCooldown(page,result);
   await (await import("./native-summary-journal-coverage.mjs")).nativeSummaryJournalCoverage(page,result);

@@ -26,7 +26,9 @@ export async function nativeReadOnlyRecovery(page, result) {
     p.settings.privacy = { ...p.settings.privacy, plaintextCredentialStorageAccepted: true };
     const done = await p.store.createTask({ title: "虚构原生二月纸样", date: "2025-02-04" });
     await p.store.updateTask(done.id, row => ({ ...row, createdAt: "2025-02-04T08:00:00+08:00",
-      status: "completed", completedAt: "2025-02-05T17:00:00+08:00" }));
+      status: "completed", completedAt: "2025-02-05T17:00:00+08:00", completionLog: [
+        { completedAt: "2025-02-04T09:00:00+08:00", note: "" }, { completedAt: "2025-02-05T17:00:00+08:00", note: "" }
+      ] }));
     const pending = await p.store.createTask({ title: "虚构原生三月纸盒", date: "2025-03-04" });
     saved.ids = [done.id, pending.id]; globalThis.__readOnlyRecoveryNative = saved;
     return { before: await p.store.readPath(p.store.taskDbPath()) };
@@ -66,6 +68,8 @@ export async function nativeReadOnlyRecovery(page, result) {
   }
   result.checks.readOnlyStatisticsStayVisibleAfterNativeModelInterruption = true;
   result.checks.readOnlyRecoveryChangesNoTasksAndRepeatsNoModelRequest = true;
+  assert(observed.reply.includes("区间内登记完成 1 个任务（共 2 次完成记录）"), observed.reply);
+  result.checks.nativeRecoveredCountsKeepRepeatedEventsSeparate = true;
   await page.waitForFunction(() => { const p = app.plugins.getPlugin("lifeops-assistant"), s = globalThis[Symbol.for("lifeops.fact-operation-state.v1")];
     return !p.sourceChangeTimers?.size && !p.dataFoundationBootstrap && !s?.locks?.has(app.vault) && !s?.activeWrites?.has(app.vault); });
 }
