@@ -110,6 +110,27 @@ async function prepareFictionalScreenshot(currency: "CNY" | "USD") {
   return { preview, confirm: () => confirmTradeScreenshot(host, rows, image.digest, preview, [1], () => {}) };
 }
 
+it.each(["week", "month"] as const)("keeps distinct task IDs and repeat completion events separate in a persisted %s summary", async level => {
+  const first = await store.createTask({ title: "虚构同名跨周任务", date: "2026-11-03" });
+  const second = await store.createTask({ title: "虚构同名跨周任务", date: "2026-11-04" });
+  await store.updateTask(first.id, row => ({ ...row, createdAt: now(3, 8).toISOString(), completionLog: [
+    { completedAt: now(3, 10).toISOString(), note: "" }, { completedAt: now(4, 10).toISOString(), note: "" }
+  ] }));
+  await store.updateTask(second.id, row => ({ ...row, createdAt: now(4, 8).toISOString(), status: "completed", completedAt: now(4, 11).toISOString() }));
+  const tasks = await vault.bytes(store.taskDbPath()), period = summaryPeriod(level, "2026-11-03");
+  const result = await generatePeriodSummary(host, period, now(9)); expect(result.status).toBe("saved");
+  const note = await saved(level, "2026-11-03");
+  expect(note?.properties.metrics).toMatchObject({ tasksCompleted: 2, taskCompletionEvents: 3, taskCompletionPercent: 100 });
+  if (level === "week") expect(note?.text).toContain("完成任务 2 项（共 3 次完成记录）");
+  expect(JSON.parse(ask.mock.calls[0][0][1].content).metrics).toMatchObject({ tasksCompleted: 2, taskCompletionEvents: 3 });
+  expect(await vault.bytes(store.taskDbPath())).toBe(tasks);
+  expect(await generatePeriodSummary(host, period, now(9))).toMatchObject({ status: "existing" }); expect(ask).toHaveBeenCalledOnce();
+  const lookup = await runtime.executeAiToolCall({ name: "get_summaries", arguments: { level, range: { from: period.from, to: note!.properties.through } } }, "kimi");
+  expect(lookup.success, lookup.output).toBe(true);
+  expect(JSON.parse(lookup.output).summaries[0].metrics).toMatchObject({ tasksCompleted: 2, taskCompletionEvents: 3 });
+  expect(await vault.bytes(store.taskDbPath())).toBe(tasks);
+});
+
 const summaryLevels = ["day", "week", "month"] as const;
 
 it.each(summaryLevels)("refreshes a same-day %s health summary after a confirmed record changes", async level => {

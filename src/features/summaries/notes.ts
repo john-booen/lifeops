@@ -11,6 +11,8 @@ const summaryMarker = "lifeops-summary";
 export type SummaryMetrics = {
   taskCompletionPercent: number | null;
   tasksCompleted: number | null;
+  /** Absent on legacy summaries; never infer distinct task IDs from events. */
+  taskCompletionEvents?: number | null;
   energy: number | null;
   tradePnlCny: number | null;
   tradePnlUsd: number | null;

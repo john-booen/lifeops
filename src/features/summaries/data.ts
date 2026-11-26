@@ -56,10 +56,11 @@ export async function collectChildSummaries(store: StoreHost, period: SummaryPer
 
 const numeric = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : null;
 type TradeTotals = Pick<SummaryMetrics, "tradePnlCny" | "tradePnlUsd">;
-type TaskMetrics = Pick<SummaryMetrics, "tasksCompleted" | "taskCompletionPercent">;
+type TaskMetrics = Pick<SummaryMetrics, "tasksCompleted" | "taskCompletionEvents" | "taskCompletionPercent">;
 
-function taskSummaryMetrics(stats: { completedCount?: unknown; completionPercent?: unknown } | null): TaskMetrics {
-  return { tasksCompleted: numeric(stats?.completedCount), taskCompletionPercent: numeric(stats?.completionPercent) };
+function taskSummaryMetrics(stats: { completedTaskCount?: unknown; completedCount?: unknown; completionPercent?: unknown } | null): TaskMetrics {
+  return { tasksCompleted: numeric(stats?.completedTaskCount), taskCompletionEvents: numeric(stats?.completedCount),
+    taskCompletionPercent: numeric(stats?.completionPercent) };
 }
 
 function tradeSummaryTotals(stats: ReturnType<typeof tradeStats> | null): TradeTotals {
@@ -70,7 +71,7 @@ function tradeSummaryTotals(stats: ReturnType<typeof tradeStats> | null): TradeT
 }
 
 export function sameSummaryTaskMetrics(a: TaskMetrics, b: TaskMetrics): boolean {
-  return a.tasksCompleted === b.tasksCompleted && a.taskCompletionPercent === b.taskCompletionPercent;
+  return a.tasksCompleted === b.tasksCompleted && a.taskCompletionEvents === b.taskCompletionEvents && a.taskCompletionPercent === b.taskCompletionPercent;
 }
 
 export function sameSummaryTradeTotals(a: TradeTotals, b: TradeTotals): boolean {

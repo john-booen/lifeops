@@ -7,6 +7,14 @@ export const RECORDED_DATA_SCOPE = {
 export const COMPLETION_INTERVAL_MEANING = "任务登记到完成的经过时间，包含等待和跨日间隔，不是实测工作工时。";
 
 export const TASK_METRIC_DEFINITIONS = {
+  completedTaskCount: {
+    unit: "tasks", identity: "taskId",
+    description: "完成记录落在所问区间的任务编号去重数。同名不同编号仍分别计算；同一任务在多个日期完成，不把分日个数相加作区间总数。"
+  },
+  completedCount: {
+    unit: "completion_events",
+    description: "所问区间的完成登记次数；同一任务可以登记多次，不能将次数当成不同任务个数。"
+  },
   averageCompletionMin: {
     unit: "minutes", from: "createdAt", to: "completedAt", isWorkingTime: false,
     description: "完成事件落在所问区间的有效记录，从任务登记到完成的平均经过时间；可能包含等待、睡眠和跨日间隔，不能据此断言拖延或临时需求挤占计划。"
