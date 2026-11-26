@@ -2,6 +2,8 @@
 
 ## 0.5.133
 
+- Accept a bounded JSON representation of an existing read-only date range, retaining the original date and permission checks; keep activity topics separate from registration and proposed changes, and quote verified original preferences without repeating rejected generated claims.
+
 - Preserve the existing reminder-title form when keeping literal action words after a planned completion time.
 
 - 明确完成时刻后创建任务时保留完整动作原话；同区间摘要补查不改写程序给出的统计口径，同周跨日完成仍计为周计划内。历史事件表校对没有具体时刻的相对日期，保留未完成计划的计划日期与未完成状态。

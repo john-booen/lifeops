@@ -793,6 +793,7 @@ export class AgentLoop {
     if (tools.some(tool => tool.name === "get_summaries")) {
       guidance.push("问上周、上月的整体表现或复盘，先用 get_summaries，分别传 level=week 和 range=last_week，或 level=month 和 range=last_month。包括问做得怎么样或要一条改进。只问某个统计数字时用 get_stats。");
       guidance.push("围绕某个目标或习惯找跨周规律时，get_summaries传所问日期范围、includeOriginals=true和该主题的连续关键词query，读取定位原文；不能只用日记开头的无关片段。");
+      guidance.push("query的多个词必须同时命中，只传所查活动主题；不要把登记指标、被质疑的结论或处置建议混入主题条件。活动主题不确定就省略query，读取所问范围内的原文核对，不把未命中当成没发生。");
     }
     if (input.voiceBackground && tools.some(tool => tool.name === "get_stats" || tool.name === "get_summaries")) {
       guidance.push("日期和范围以用户原话为准。上周用 last_week，上月或上个月用 last_month，按当前日期由工具计算。用户明确指定绝对日期或其他区间时按原意查询。");

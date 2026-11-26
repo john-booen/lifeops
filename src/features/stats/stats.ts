@@ -10,6 +10,7 @@ import { isHealthHabitSource } from "../health/habitSources";
 import type { LearningTrack } from "../learning/model";
 import { tradeStats, type TradeStatGroup, type TradeStatsSettings } from "./trades";
 import { COMPLETION_INTERVAL_MEANING, RECORDED_DATA_SCOPE, TASK_METRIC_DEFINITIONS } from "./definitions";
+import { serializedDateRange } from "./rangeInput";
 
 export type StatsDomain = "tasks" | "habits" | "journal" | "trades" | "ideas" | "learning" | "health";
 export const statsNamedRanges = ["today", "last_3d", "this_week", "last_week", "last_7d", "this_month", "last_month", "last_30d"] as const;
@@ -54,6 +55,7 @@ const dateKey = (date: string, group: DateGrouping) => group === "week" ? startO
 
 export function resolveStatsRange(range: StatsRange, now: Date): DayRange {
   if (!Number.isFinite(now.getTime())) throw Error("统计时间无效。");
+  range = serializedDateRange(range) ?? range;
   const today = formatDate(now);
   if (typeof range === "string") {
     const interval = isoDateInterval.exec(range);

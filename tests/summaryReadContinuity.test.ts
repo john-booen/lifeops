@@ -54,6 +54,23 @@ async function confirmMemory() {
   await store.reviewPersonalMemory(row.id, { decision: "confirm" }); return { row, source, content };
 }
 
+it('reads the same dated originals from a serialized range without changing tasks or personal memory',async()=>{
+ const tasks=await vault.bytes(store.taskDbPath()),memory=await vault.bytes(store.personalMemoryPath());
+ const result=await summary(undefined,{level:'week',range:JSON.stringify(range),includeOriginals:true});
+ expect(result.success,result.output).toBe(true);
+ const facts=JSON.parse(result.output);expect(facts.range).toEqual(range);
+ expect(facts.originalEvidence.notes).toContainEqual(expect.objectContaining({date:'2026-11-04',path,text:original}));
+ expect(await vault.bytes(store.taskDbPath())).toEqual(tasks);expect(await vault.bytes(store.personalMemoryPath())).toEqual(memory);
+});
+
+it('keeps excluded originals private when the same range is serialized',async()=>{
+ store.settings.privacy!.excludedVaultPrefixes=[path];
+ const result=await summary(undefined,{level:'week',range:JSON.stringify(range),includeOriginals:true});
+ expect(result.success,result.output).toBe(true);
+ expect(JSON.parse(result.output).originalEvidence.notes).toEqual([]);
+ expect(result.output).not.toContain(original);
+});
+
 it("reads current originals after a one-time source refresh following statistics, with no model or business write", async () => {
   const tasks = await vault.bytes(store.taskDbPath()), memory = await vault.bytes(store.personalMemoryPath());
   const stats = await runtime.executeAiToolCall({ id: "fictional-continuity-stats", name: "get_stats", arguments: { domain: "tasks", range } }, "kimi");
