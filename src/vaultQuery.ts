@@ -1,5 +1,7 @@
 import type { TFile } from "obsidian";
-import { addDays, formatDate, normalizeJournalDate, startOfWeek } from "./date";
+import {resolveVaultQueryDateRange,type JournalQueryRange} from './vaultQueryDateRange';
+import type {DayRange} from './features/stats/rangeInput';
+export {VaultQueryParameterError} from './vaultQueryDateRange';
 import { findJournalFilesForDate, findLatestJournalFiles, isJournalPath, journalDateFromPath, journalPeriodFromPath, type JournalPeriod } from "./journalResolver";
 import { isVaultPathExcluded } from "./privacy";
 import type { StoreHost } from "./store/settingsSlice";
@@ -10,8 +12,7 @@ import { noteCalendar } from "./features/summaries/noteCalendar";
 
 export type VaultQueryDomain = "journal" | "note" | "trade" | "health" | "memory" | "task" | "habit";
 export type VaultQueryOperation = "get" | "list" | "search";
-/** Curated repair instructions may be returned without exposing read failures. */
-export class VaultQueryParameterError extends Error {}
+import {VaultQueryParameterError} from './vaultQueryDateRange';
 
 export interface VaultQuery {
   domain: VaultQueryDomain;
@@ -25,11 +26,13 @@ export interface VaultQuery {
   maxChars?: number;
   /** Offset in privacy/forgotten-memory filtered text, only exact-path get. */
   offset?: number;
-  range?: "today" | "week";
+  range?: JournalQueryRange;
   vault?: string;
 }
 
 export interface VaultQueryCoverage {
+  /** One owned calendar selection shared by local and external journal reads. */
+  dateRange?: DayRange;
   limitedCatalog: boolean;
   unreadable: number;
   listedPaths: string[];
@@ -56,11 +59,11 @@ export async function executeVaultQuery(store: StoreHost, input: VaultQuery): Pr
 }
 
 export async function readVaultQueryWithSources(store:StoreHost,input:VaultQuery):Promise<VaultQueryRead>{
-  const fixed={...input};
+  const fixed=structuredClone(input),dateRange=resolveVaultQueryDateRange(fixed,new Date());
   const selector = fixed.vault?.trim() || "all";
   const needsExternal = selector !== "local" && (selector !== "all" || !!store.settings.externalVaults?.length);
-  const externalCoverage: VaultQueryCoverage = { limitedCatalog: false, unreadable: 0, listedPaths: [], pages: [] };
-  const external = needsExternal ? await (await import("./features/externalVault/query")).readExternalQuery(store, { ...fixed, vault: selector }, externalCoverage) : undefined;
+  const externalCoverage: VaultQueryCoverage = { limitedCatalog: false, unreadable: 0, listedPaths: [], pages: [],...(dateRange?{dateRange}:{} ) };
+  const external = needsExternal ? await (await import("./features/externalVault/query")).readExternalQuery(store, { ...fixed, vault: selector }, externalCoverage,dateRange) : undefined;
   const local = (selector === "all" || selector === "local") && !(external && fixed.path?.startsWith("external-vault/"));
   const catalog=()=>{
     if (!local) return [];
@@ -73,12 +76,13 @@ export async function readVaultQueryWithSources(store:StoreHost,input:VaultQuery
     const files=path?[store.getFile(path)].filter((file):file is TFile=>!!file):store.app.vault.getMarkdownFiles().filter(file=>allowedSource(store,file.path)&&domainMatches(store,fixed.domain,file.path));
     return path&&!files.length?[{path,version:"absent"}]:files.map(file=>({path:file.path,version:JSON.stringify({path:file.path,basename:file.basename,stat:file.stat})})).sort((a,b)=>a.path.localeCompare(b.path));
   };
-  const coverage: VaultQueryCoverage = { limitedCatalog: false, unreadable: 0, listedPaths: [], pages: [] };
+  const coverage: VaultQueryCoverage = { limitedCatalog: false, unreadable: 0, listedPaths: [], pages: [],...(dateRange?{dateRange}:{} ) };
   const base = await produceVaultQueryRead(store, catalog, async reader => {
-    const localText = local ? await executeVaultQueryCore(store, fixed, reader, coverage) : "";
-    if (!external) return localText;
-    const combined = local && !(external.matches && coverage.missingPaths?.length) ? localText : "";
-    return [combined, external.text || (!local ? "原私人库没有符合条件的内容。" : "")].filter(Boolean).join("\n\n");
+    const localText = local ? await executeVaultQueryCore(store, fixed, reader, coverage,dateRange) : "";
+    const combined = !external||local&&!(external.matches&&coverage.missingPaths?.length)?localText:"";
+    const content=[combined,external?.text||(!local?"原私人库没有符合条件的内容。":"")].filter(Boolean).join("\n\n");
+    const hasSources=coverage.pages.length||coverage.listedPaths.length||externalCoverage.pages.length||externalCoverage.listedPaths.length;
+    return dateRange&&!hasSources?`本次日记查询范围（笔记日期）：${dateRange.from} 至 ${dateRange.to}。\n\n${content}`:content;
   }, !external?.matches);
   const read = external ? Object.freeze({
     ...base, revision: contextSourceHash(base.revision + external.revision), hasExternalSources: external.matches > 0,
@@ -97,13 +101,13 @@ export async function readVaultQueryWithSources(store:StoreHost,input:VaultQuery
   return read;
 }
 
-async function executeVaultQueryCore(store:StoreHost,input:VaultQuery,reader:VaultQueryReader,coverage:VaultQueryCoverage):Promise<string>{
+async function executeVaultQueryCore(store:StoreHost,input:VaultQuery,reader:VaultQueryReader,coverage:VaultQueryCoverage,dateRange?:DayRange):Promise<string>{
   if (input.domain === "task" || input.domain === "habit") return readDailyQuery(store, input, reader);
   const limit = clamp(input.limit, 1, 12, 5);
   const maxChars = clamp(input.maxChars, 500, 18_000, 5_000);
   const query = input.query?.trim() || "";
   const requestedPath = input.path?.trim() || "";
-  const requestedDate = input.date?.trim() || (input.domain === "journal" && input.range ? formatDate(new Date()) : "");
+  const requestedDate = input.date?.trim() || "";
   const paged = input.offset !== undefined;
   if (input.range !== undefined && input.domain !== "journal") throw new VaultQueryParameterError("range 仅适用于任务、习惯和日记。其他资料请用准确 path 或关键词读取。");
   if (paged && (input.operation !== "get" || !requestedPath || input.query?.trim() || input.domain === "memory"
@@ -120,14 +124,10 @@ async function executeVaultQueryCore(store:StoreHost,input:VaultQuery,reader:Vau
     return prepared;
   }
   if (input.operation === "search" && !query) throw new Error("搜索关键词为空；请提供关键词，或使用 list 列出资料。");
-  const date = requestedDate ? normalizeJournalDate(requestedDate) : "";
-  if (requestedDate && !date) throw new Error(`日记日期无效：${requestedDate}。请提供有效日期后再读取。`);
-  const weekFrom = date && input.range === "week" ? startOfWeek(date) : "";
-  const weekTo = weekFrom ? addDays(weekFrom, 6) : "";
-  const dayOnly = !!date && !weekFrom;
+  const dayOnly = !!dateRange&&dateRange.from===dateRange.to;
   const dateMatches = (path: string) => {
     const found = journalDateFromPath(path, store.settings.folders.dailyRoot);
-    return weekFrom ? !!found && found >= weekFrom && found <= weekTo : found === date;
+    return !!dateRange&&!!found&&found>=dateRange.from&&found<=dateRange.to;
   };
   const path = requestedPath.replace(/\\/g, "/");
   if (path && !path.endsWith(".md")) throw new Error("该路径不是受支持的 Markdown 文件；请提供以 .md 结尾的准确路径。");
@@ -138,7 +138,7 @@ async function executeVaultQueryCore(store:StoreHost,input:VaultQuery,reader:Vau
     return `没有找到准确路径：${path}。未使用相似文件替代。`;
   }
   if (exact && !domainMatches(store, input.domain, exact.path)) throw new Error("指定路径不属于所选资料类型，未读取其他资料。");
-  if (exact && date && !dateMatches(exact.path)) throw new Error("指定路径与日记日期不匹配，未读取其他日期。");
+  if (exact && dateRange && !dateMatches(exact.path)) throw new Error("指定路径与日记日期不匹配，未读取其他日期。");
   if (exact && input.period && journalPeriodFromPath(exact.path) && journalPeriodFromPath(exact.path) !== input.period) throw new Error("指定路径与日记早晚时段不匹配，未读取其他时段。");
 
   const [{ createPersonalMemoryContextFilter,MEMORY_CONTEXT_OMISSION }, { readPersonalMemoryWithSources }, { extractTitle }] = await Promise.all([
@@ -150,8 +150,8 @@ async function executeVaultQueryCore(store:StoreHost,input:VaultQuery,reader:Vau
   if (input.domain === "journal" && !exact) {
     const dated = files.filter(file => journalDateFromPath(file.path, store.settings.folders.dailyRoot))
       .map(file => ({ path: file.path, mtime: file.stat.mtime, file }));
-    let selected = weekFrom ? findLatestJournalFiles(dated, store.settings.folders.dailyRoot).filter(entry => dateMatches(entry.path))
-      : date ? findJournalFilesForDate(dated, store.settings.folders.dailyRoot, date)
+    let selected = dateRange&&!dayOnly ? findLatestJournalFiles(dated, store.settings.folders.dailyRoot).filter(entry => dateMatches(entry.path))
+      : dateRange ? findJournalFilesForDate(dated, store.settings.folders.dailyRoot,dateRange.from)
       : findLatestJournalFiles(dated, store.settings.folders.dailyRoot);
     if (input.period) {
       const matchingPeriod = selected.filter(entry => journalPeriodFromPath(entry.path) === input.period);
@@ -169,7 +169,7 @@ async function executeVaultQueryCore(store:StoreHost,input:VaultQuery,reader:Vau
   const bodySearch = input.operation === "search" || (input.domain !== "journal" && input.operation === "get" && !exact && Boolean(query));
   const needle = query.toLocaleLowerCase();
   if (input.operation === "list" && query) files = files.filter(file => protectContext(file.path).toLocaleLowerCase().includes(needle));
-  const selectionLimit = exact ? 1 : input.operation === "get" ? (input.domain === "journal" && date ? 12 : 1) : limit;
+  const selectionLimit = exact ? 1 : input.operation === "get" ? (input.domain === "journal" && dateRange ? 12 : 1) : limit;
   const matchedCount = files.length;
   const blocks: string[] = [];
   let examined = 0, unreadable = 0, found = 0;
@@ -180,14 +180,14 @@ async function executeVaultQueryCore(store:StoreHost,input:VaultQuery,reader:Vau
     if (!allowedSource(store, file.path)) continue;
     if (input.operation === "list") {
       coverage.listedPaths.push(file.path);
-      blocks.push(protectContext(sourceBlock(store, input.domain, file, file.basename)));
+      blocks.push(protectContext(sourceBlock(store, input.domain, file, file.basename,dateRange)));
       continue;
     }
     let raw: string;
     try { raw = await reader.read(file); }
     catch {
       unreadable += 1;
-      if (!bodySearch) blocks.push(protectContext(sourceBlock(store, input.domain, file, file.basename) + "\n- bodyStatus: unreadable\n\n来源读取失败，未用其他文件替代。"));
+      if (!bodySearch) blocks.push(protectContext(sourceBlock(store, input.domain, file, file.basename,dateRange) + "\n- bodyStatus: unreadable\n\n来源读取失败，未用其他文件替代。"));
       continue;
     }
     if (!allowedSource(store, file.path)) continue;
@@ -205,7 +205,7 @@ async function executeVaultQueryCore(store:StoreHost,input:VaultQuery,reader:Vau
     coverage.pages.push({ path: file.path, start, end, total: content.length });
     const pageInfo = paged || (input.operation === "get" && content.length > maxChars)
       ? `\n- protectedTextPage: ${start}-${end}/${content.length}; nextOffset: ${end < content.length ? end : "none"}; rawHash: ${contextSourceHash(raw)}` : "";
-    const block=protectContext(sourceBlock(store, input.domain, file, extractTitle(content, file.basename)) + pageInfo + bodyStatus + `\n\n${body}`);
+    const block=protectContext(sourceBlock(store, input.domain, file, extractTitle(content, file.basename),dateRange) + pageInfo + bodyStatus + `\n\n${body}`);
     blocks.push(block);
     for(const fragment of originalContributions(raw,content,body,start,maxChars,MEMORY_CONTEXT_OMISSION))reader.contributed(file.path,fragment);
     if (bodySearch && found >= selectionLimit) break;
@@ -214,12 +214,12 @@ async function executeVaultQueryCore(store:StoreHost,input:VaultQuery,reader:Vau
   coverage.unreadable = unreadable;
   coverage.limitedCatalog = input.operation === "list" && matchedCount > selectionLimit;
   if (coverage.limitedCatalog && !dayOnly) notices.push(`本次仅列出 ${selectionLimit} 篇，尚有 ${matchedCount - selectionLimit} 篇未列出；清单不是已阅读正文或完整历史分析。`);
-  if (bodySearch && examined < files.length) notices.push(`已按${input.sort === "oldest" || (date && input.sort !== "newest") ? "最旧" : "最新"}顺序检查 ${examined} 篇，尚有 ${files.length - examined} 篇未检查；本次结果不是完整历史清单。可指定日期、路径或更具体关键词缩小范围。`);
+  if (bodySearch && examined < files.length) notices.push(`已按${(dayOnly?input.sort!=="newest":input.sort==="oldest") ? "最旧" : "最新"}顺序检查 ${examined} 篇，尚有 ${files.length - examined} 篇未检查；本次结果不是完整历史清单。可指定日期、路径或更具体关键词缩小范围。`);
   if (unreadable) notices.push(`${unreadable} 篇来源读取失败，不能把本次结果视为完整记录。`);
-  if (!bodySearch && !exact && input.domain === "journal" && date && matchedCount > selectionLimit) {
-    notices.push(`${weekFrom ? "所问周内" : "同日"}共匹配 ${matchedCount} 篇，以下仅展示前 ${selectionLimit} 篇；尚有未展示日记，请指定日期或早晚时段缩小范围，不能将本次片段视为完整${weekFrom ? "该周" : "当日"}记录。`);
+  if (!bodySearch && !exact && input.domain === "journal" && dateRange && matchedCount > selectionLimit) {
+    notices.push(`${dayOnly?"同日":"所问区间内"}共匹配 ${matchedCount} 篇，以下仅展示前 ${selectionLimit} 篇；尚有未展示日记，请指定日期或早晚时段缩小范围，不能将本次片段视为完整${dayOnly?"当日":"该区间"}记录。`);
   }
-  if (!blocks.length) notices.push(date ? `没有找到 ${weekFrom ? weekFrom + " 至 " + weekTo : date}${input.period ? ` ${input.period}间` : ""}的日记。`
+  if (!blocks.length) notices.push(dateRange ? `没有找到 ${dayOnly?dateRange.from:dateRange.from+" 至 "+dateRange.to}${input.period ? ` ${input.period}间` : ""}的日记。`
     : `没有找到${query ? `与“${query}”相关的` : "可用的"} Vault 内容。`);
   return protectContext([...notices, ...blocks].join("\n\n"));
 }
@@ -249,11 +249,12 @@ function domainMatches(store: StoreHost, domain: VaultQueryDomain, path: string)
   return domain === "note";
 }
 
-function sourceBlock(store: StoreHost, domain: VaultQueryDomain, file: TFile, title: string): string {
+function sourceBlock(store: StoreHost, domain: VaultQueryDomain, file: TFile, title: string,dateRange?:DayRange): string {
   const source = `vault:${file.path}`;
   const modified = Number.isFinite(file.stat.mtime) ? new Date(file.stat.mtime).toISOString() : "unknown";
   const date = domain === "journal" ? journalDateFromPath(file.path, store.settings.folders.dailyRoot) : undefined;
   return (domain === "journal" ? ["### Journal Source",
+    ...(dateRange?[`- requestedDates: ${dateRange.from} 至 ${dateRange.to}（按笔记日期筛选；事件日须读原话）`]:[]),
     `- date: ${journalDateFromPath(file.path, store.settings.folders.dailyRoot) || "unknown"}`,
     `- period: ${journalPeriodFromPath(file.path) || "unknown（原文件未标明早晚，不能确认所属时段）"}`,
     ...(date ? [`- calendar: ${JSON.stringify(noteCalendar(date))}`] : []),

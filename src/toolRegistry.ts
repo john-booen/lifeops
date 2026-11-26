@@ -1,4 +1,5 @@
 import {executeStoredQuery} from "./storedQueryRead";
+import {dateRangeParameter,statsNamedRanges} from './features/stats/rangeInput';
 import { saveMemoryNote } from "./memoryNoteWrite";
 import { activityNotePath } from "./activityRecords";
 import { linkedNoteName } from "./linkedNoteSettings";
@@ -191,7 +192,7 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
   },
   {
     name: "query_vault",
-    description: "只读查日记、笔记、交易、健康、记忆、任务和习惯。问整天日记时传日期并省略 period，读全早晚。任务默认列未完成，习惯可查某日或本周。",
+    description: "只读查日记、笔记、交易、健康、记忆、任务和习惯。日记上周last_week、上月last_month；week是date锚定整周。整天日记省略period读早晚；任务默认未完成。",
     safety: "safe",
     parameters: {
       type: "object",
@@ -199,13 +200,13 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
         domain: { type: "string", enum: ["journal", "note", "trade", "health", "memory", "task", "habit"], description: "task查任务，habit查习惯；其余按资料类型。" },
         operation: { type: "string", enum: ["get", "list", "search"], description: "get读原文，list列信息，search搜词；memory仅有效记忆。" },
         query: { type: "string", description: "search填连续关键词；list筛文件名；日记get用日期、时段或路径。" },
-        date: { type: "string", description: "日期或今天/昨天；日记省略取最新，习惯默认今天。" },
-        range: { type: "string", enum: ["today", "week"], description: "任务/习惯查今日或本周；日记查date当天或整周，省略date用今天。" },
+        date: { type: "string", description: "日记单日或today/week锚点；不与其他range同填。" },
+        range: { ...dateRangeParameter(['week',...statsNamedRanges]), description: "日记按范围读；任务习惯仅today/week。" },
         period: { type: "string", enum: ["早", "晚"], description: "日记时段。用户问昨晚、晚间时填晚，问晨间时填早；省略且指定日期时返回同日各篇。" },
         path: { type: "string", description: "准确库内Markdown路径，缺失不替代；排除生成/隐私内容，memory不用。" },
         vault: { type: "string", description: "默认全部。local 只搜日用库，或填外部库名。外部来源注明原私人库。" },
         sort: { type: "string", enum: ["newest", "oldest"], description: "日记按日期/早晚，其余按修改时间；默认最新，同日早到晚；记忆按相关性。" },
-        limit: { type: "number", description: "list/search默认5最多12；get一篇，同日日记/记忆最多12条。" },
+        limit: { type: "number", description: "list/search默认5最多12；get一篇，期间日记/记忆最多12条。" },
         maxChars: { type: "number", description: "每条最多18000字符；截断非全文，准确路径get可用offset续读。" },
         offset: { type: "integer", minimum: 0, description: "任务/习惯按条分页；其余仅准确路径get续读，清单/搜索不可用。" }
       },
@@ -221,7 +222,7 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
         operation,
         query: toolArgString(args, "query"),
         date: toolArgString(args, "date"),
-        ...(args.range === "today" || args.range === "week" ? { range: args.range } : {}),
+        ...(args.range !== undefined ? { range: args.range as import('./vaultQuery').VaultQuery['range'] } : {}),
         period: toolArgString(args, "period") === "早" ? "早" : toolArgString(args, "period") === "晚" ? "晚" : undefined,
         path: toolArgString(args, "path"),
         vault: toolArgString(args, "vault"),

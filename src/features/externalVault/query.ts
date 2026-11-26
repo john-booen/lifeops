@@ -1,4 +1,5 @@
-import { normalizeJournalDate } from "../../date";
+import {resolveVaultQueryDateRange} from '../../vaultQueryDateRange';
+import type {DayRange} from '../stats/rangeInput';
 import { journalDateFromPath, journalPeriodFromPath } from "../../journalResolver";
 import { fileRevision } from "../../operationIdentity";
 import { createPersonalMemoryContextFilter, personalMemoryContextRevision } from "../../personalMemoryContext";
@@ -24,7 +25,8 @@ function matchesDomain(store: StoreHost, input: VaultQuery, path: string): boole
   return input.domain === "note";
 }
 
-export async function readExternalQuery(store: StoreHost, input: VaultQuery, coverage: VaultQueryCoverage): Promise<ExternalQueryResult | undefined> {
+export async function readExternalQuery(store: StoreHost, input: VaultQuery, coverage: VaultQueryCoverage,dateRange?:DayRange): Promise<ExternalQueryResult | undefined> {
+  dateRange??=resolveVaultQueryDateRange(input,new Date());
   const selector = input.vault || "all";
   if (selector === "local") return;
   const configured = externalVaultSettings(store.settings);
@@ -36,12 +38,11 @@ export async function readExternalQuery(store: StoreHost, input: VaultQuery, cov
     return;
   }
   const scope = externalVaultScope(store);
-  const date = input.date ? normalizeJournalDate(input.date) : "";
   const needle = input.query?.trim().toLocaleLowerCase() || "";
   const max = Math.min(18_000, Math.max(500, input.maxChars ?? 5000));
   const limit = Math.min(12, Math.max(1, input.limit ?? 5));
   const path = input.path?.trim();
-  if (input.date && !date || (input.date || input.period) && input.domain !== "journal") throw Error("外部日记日期或时段无效。");
+  if ((input.date || input.period) && input.domain !== "journal") throw Error("外部日记日期或时段无效。");
   if (path && (!isContextSourcePath(path) || !path.endsWith(".md"))) throw Error("外部资料请使用准确的相对 Markdown 路径。");
   if (input.operation === "search" && !needle) throw Error("搜索关键词为空。");
   if (input.offset !== undefined && (!path || input.operation !== "get" || needle || !Number.isSafeInteger(input.offset) || input.offset < 0)) {
@@ -69,7 +70,7 @@ export async function readExternalQuery(store: StoreHost, input: VaultQuery, cov
     (!path || file.path === path || externalSourcePath(config.name, file.path) === path) && matchesDomain(store, input, file.path))
     .map(file => ({ config, reader, file, date: journalDateFromPath(file.path, externalJournalRoot(store.settings, file.path)) || "",
       period: journalPeriodFromPath(file.path) })));
-  const filtered = notes.filter(note => (!date || note.date === date) && (!input.period || note.period === input.period || !note.period)
+  const filtered = notes.filter(note => (!dateRange || !!note.date&&note.date>=dateRange.from&&note.date<=dateRange.to) && (!input.period || note.period === input.period || !note.period)
     && (input.operation !== "list" || !needle || protect(note.file.path).toLocaleLowerCase().includes(needle)));
   const sign = input.sort === "oldest" ? 1 : -1;
   filtered.sort((a, b) => sign * (a.date && b.date ? a.date.localeCompare(b.date) : a.file.mtime - b.file.mtime)
@@ -78,12 +79,13 @@ export async function readExternalQuery(store: StoreHost, input: VaultQuery, cov
   const blocks: string[] = [];
   let unreadable = entries.filter(item => !item.files).length;
   const searchable = input.operation === "search" || input.operation === "get" && !!needle && !path;
-  const count = path ? Math.min(12, filtered.length) : input.operation === "get" ? (date && input.domain === "journal" ? 12 : 1) : limit;
+  const count = path ? Math.min(12, filtered.length) : input.operation === "get" ? (dateRange && input.domain === "journal" ? 12 : 1) : limit;
   for (const item of filtered.slice(0, searchable ? 1000 : count)) {
     assertCurrent();
     const reference = externalSourcePath(item.config.name, item.file.path);
     const title = titles.get(item.config.name)?.get(item.file.path);
     const header = "### 来自原私人库（" + item.config.name + "）\n- path: " + reference + "\n- vault: " + item.config.name
+      + (dateRange?`\n- requestedDates: ${dateRange.from} 至 ${dateRange.to}（按笔记日期筛选；事件日须读原话）`:"")
       + (title ? "\n- title: " + title : "")
       + (item.date ? "\n- date: " + item.date + "\n- period: " + (item.period ?? "unknown") : "");
     if (input.operation === "list") {

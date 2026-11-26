@@ -1,20 +1,16 @@
+import {dateRangeParameter as rangeParameter} from "./rangeInput";
 import type { AiToolDefinition } from "../../ai";
 import { journalDateFromPath } from "../../journalResolver";
 import { formatDate } from "../../date";
 import { isVaultPathExcluded } from "../../privacy";
 import type { LifeOpsToolDefinition, ToolExecutionResult } from "../../toolRegistry";
 import type { StoreHost } from "../../store/settingsSlice";
-import { getStats, resolveStatsRange, statsNamedRanges, ISO_DATE_INTERVAL_PATTERN, type StatsData, type StatsDomain, type StatsGroup, type StatsRange } from "./stats";
+import { getStats, resolveStatsRange, statsNamedRanges, type StatsData, type StatsDomain, type StatsGroup, type StatsRange } from "./stats";
 import { formatTradeModelLeaders, TRADE_STAT_GROUPS } from "./trades";
 
 export const statsDomains: StatsDomain[] = ["tasks", "habits", "journal", "trades", "ideas", "learning", "health"];
 const groups: StatsGroup[] = [...TRADE_STAT_GROUPS, "category"];
 const standardRanges = statsNamedRanges.filter(range => range !== "last_week" && range !== "last_month");
-const rangeParameter = (names: readonly string[]) => ({ anyOf: [{ type: "string", enum: [...names] }, {
-  type: "object", additionalProperties: false,
-  properties: { from: { type: "string" }, to: { type: "string" } }, required: ["from", "to"]
-}, { type: "string", pattern: ISO_DATE_INTERVAL_PATTERN }] });
-
 export const STATS_TOOL: LifeOpsToolDefinition = {
   name: "get_stats",
   description: "近期单领域数字或主观状态先查本工具：主观journal、设备health、目标habits/today。周月整体及多领域跨期对照先get_summaries。任务完成按登记日去重；明确折美元才combineUsd。",

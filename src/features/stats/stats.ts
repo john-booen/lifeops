@@ -10,14 +10,11 @@ import { isHealthHabitSource } from "../health/habitSources";
 import type { LearningTrack } from "../learning/model";
 import { tradeStats, type TradeStatGroup, type TradeStatsSettings } from "./trades";
 import { COMPLETION_INTERVAL_MEANING, RECORDED_DATA_SCOPE, TASK_METRIC_DEFINITIONS } from "./definitions";
-import { serializedDateRange } from "./rangeInput";
+import {resolveStatsRange,type StatsRange,type DayRange} from "./rangeInput";
+export {resolveStatsRange,statsNamedRanges,ISO_DATE_INTERVAL_PATTERN} from "./rangeInput";
+export type {StatsRange} from "./rangeInput";
 
 export type StatsDomain = "tasks" | "habits" | "journal" | "trades" | "ideas" | "learning" | "health";
-export const statsNamedRanges = ["today", "last_3d", "this_week", "last_week", "last_7d", "this_month", "last_month", "last_30d"] as const;
-export const ISO_DATE_INTERVAL_PATTERN = "^(\\d{4}-\\d{2}-\\d{2})(?:\\.\\.|/)(\\d{4}-\\d{2}-\\d{2})$";
-const isoDateInterval = new RegExp(ISO_DATE_INTERVAL_PATTERN);
-type IsoInterval = `${number}-${number}-${number}..${number}-${number}-${number}` | `${number}-${number}-${number}/${number}-${number}-${number}`;
-export type StatsRange = { from: string; to: string } | typeof statsNamedRanges[number] | IsoInterval;
 export type StatsGroup = "category" | TradeStatGroup;
 export interface StatsRequest {
   domain: StatsDomain;
@@ -43,7 +40,6 @@ export interface StatsData {
   learning?: readonly LearningTrack[];
 }
 
-type DayRange = { from: string; to: string };
 type DateGrouping = "day" | "week";
 type Completion = { task: LifeOpsTask; date: string; elapsedMin: number | null };
 
@@ -52,38 +48,6 @@ const mean = (values: number[]) => values.length ? round(values.reduce((sum, val
 const percent = (done: number, target: number) => target ? round(done / target * 100) : null;
 const inRange = (date: string, range: DayRange) => date >= range.from && date <= range.to;
 const dateKey = (date: string, group: DateGrouping) => group === "week" ? startOfWeek(date) : date;
-
-export function resolveStatsRange(range: StatsRange, now: Date): DayRange {
-  if (!Number.isFinite(now.getTime())) throw Error("统计时间无效。");
-  range = serializedDateRange(range) ?? range;
-  const today = formatDate(now);
-  if (typeof range === "string") {
-    const interval = isoDateInterval.exec(range);
-    if (interval) return resolveStatsRange({ from: interval[1], to: interval[2] }, now);
-  }
-  if (typeof range === "object" && range !== null) {
-    const from = typeof range.from === "string" ? normalizeJournalDate(range.from, today) : "";
-    const to = typeof range.to === "string" ? normalizeJournalDate(range.to, today) : "";
-    if (!from || !to || from > to) {
-      throw Error("统计区间需要有效的起止日期，开始日期不能晚于结束日期。");
-    }
-    return { from, to };
-  }
-  if (range === "last_week") {
-    const to = addDays(startOfWeek(today), -1);
-    return { from: addDays(to, -6), to };
-  }
-  if (range === "last_month") {
-    const to = addDays(today.slice(0, 7) + "-01", -1);
-    return { from: to.slice(0, 7) + "-01", to };
-  }
-  const start = {
-    today, last_3d: addDays(today, -2), this_week: startOfWeek(today), last_7d: addDays(today, -6),
-    this_month: today.slice(0, 7) + "-01", last_30d: addDays(today, -29)
-  };
-  if (!Object.hasOwn(start, range)) throw Error("不支持这个统计区间。");
-  return { from: start[range as keyof typeof start], to: today };
-}
 
 export function getStats(request: StatsRequest, data: StatsData, now: Date) {
   const range = resolveStatsRange(request.range, now);
