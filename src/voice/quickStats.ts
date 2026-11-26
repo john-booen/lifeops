@@ -34,12 +34,14 @@ export function formatVoiceStats(output: string, args: Record<string, unknown>):
   const { domain, voiceAnswer, range, habitName } = args;
   const label = typeof range === "string" && Object.hasOwn(labels, range) ? labels[range] : undefined;
   if (!voiceAnswer || !label || args.groupBy !== undefined) return;
-  let stats: { domain: string; completedCount?: number; habits?: HabitRead[]; scope?: string; tradeGoals?: string };
+  let stats: { domain: string; completedTaskCount?: number; completedCount?: number; habits?: HabitRead[]; scope?: string; tradeGoals?: string };
   try { stats = JSON.parse(output); } catch { return; }
   if (!stats || stats.domain !== domain) return;
   const scope = stats.scope ? "。按允许读取的记录计算" : "";
-  if (voiceAnswer === "completed_tasks" && domain === "tasks" && Number.isSafeInteger(stats.completedCount)) {
-    return `${label}已完成 ${stats.completedCount} 个任务${scope}。`;
+  if (voiceAnswer === "completed_tasks" && domain === "tasks") {
+    const tasks=stats.completedTaskCount,events=stats.completedCount;
+    if (!Number.isSafeInteger(tasks)||!Number.isSafeInteger(events)||tasks!<0||events!<tasks!) return;
+    return `${label}已完成 ${tasks} 个任务${tasks!==events?`（共 ${events} 次完成记录）`:""}${scope}。`;
   }
   if (domain !== "habits" || !Array.isArray(stats.habits)) return;
   const selected = typeof habitName === "string" && habitName.trim() ? matchingHabits(stats.habits, habitName) : [];
