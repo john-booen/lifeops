@@ -39,7 +39,7 @@ describe("weekly review preserves evidence, uncertainty and user feedback", () =
     const before=await snapshot(),claim=vi.spyOn(OperationLedger.prototype,"claim"),id="fictional-corrected-weekly-path";
     if(mode==="excluded")store.settings.privacy={excludedVaultPrefixes:[path]};
     const result=await inspect([mode==="missing"?"Notes/2026-10-03.md":path],id);
-    expect(result.success).toBe(false);expect(result.actions).toEqual([]);expect(result.output).toContain("query_vault");
+    expect(result.success).toBe(false);expect(result.actions).toEqual([]);expect(result.output).toContain("准确路径");
     expect(result.output).not.toContain("操作记录无法安全读取");expect(result.output).not.toContain(support);
     expect(claim).not.toHaveBeenCalled();expect(await snapshot()).toEqual(before);
     store.settings.privacy={excludedVaultPrefixes:[]};
@@ -56,7 +56,7 @@ describe("weekly review preserves evidence, uncertainty and user feedback", () =
   it("does not turn a failure during the real ledger claim into a recoverable selection error",async()=>{
     await store.initializeVault();const claim=vi.spyOn(OperationLedger.prototype,"claim").mockRejectedValueOnce(Error("Fictional claim refused"));
     const before=await Promise.all([store.taskDbPath(),store.taskMirrorPath()].map(file=>store.readPath(file)));
-    const result=await inspect([path]);expect(claim).toHaveBeenCalledOnce();expect(result.success).toBe(false);expect(result.output).toContain("操作记录无法安全读取");expect(result.output).not.toContain("query_vault");
+    const result=await inspect([path]);expect(claim).toHaveBeenCalledOnce();expect(result.success).toBe(false);expect(result.output).toContain("操作记录无法安全读取");expect(result.output).not.toContain("准确路径");
     expect(await Promise.all([store.taskDbPath(),store.taskMirrorPath()].map(file=>store.readPath(file)))).toEqual(before);
   });
   it("reads selected fixed originals and keeps preparation separate from saving", async () => {
