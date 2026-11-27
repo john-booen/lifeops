@@ -56,7 +56,9 @@ export function getStats(request: StatsRequest, data: StatsData, now: Date) {
   switch (domain) {
     case "tasks": return { domain, range, ...taskStats(data.tasks ?? [], range, now, group), metricDefinitions: TASK_METRIC_DEFINITIONS, recordScope: RECORDED_DATA_SCOPE };
     case "habits": return { domain, range, ...habitStats(data.habits ?? [], data.checkins ?? [], range, now, group), recordScope: RECORDED_DATA_SCOPE };
-    case "journal": return { domain, range, ...journalStats(data.journal ?? [], range, group), recordScope: RECORDED_DATA_SCOPE };
+    case "journal": return { domain, range, ...journalStats(data.journal ?? [], range, group), recordScope: RECORDED_DATA_SCOPE,
+      metricDefinitions:{signalAverages:{basis:'journal_records_with_finite_values',sampleUnit:'journal_records',distinctDayUnit:'note_calendar_days',
+        explanation:'各项均值只按有有效数值的日记条目计算；同日早晚可分别计条，days按笔记日期去重。缺值未补零；日记自述睡眠不是设备记录或实际睡眠晚数。'}} };
     case "health": return { domain, range, ...healthStats((data.health ?? []).filter(day => inRange(day.date, range))), recordScope: RECORDED_DATA_SCOPE };
     case "trades": return { domain, range, ...tradeStats(data.trades ?? [], range, groupBy as TradeStatGroup | undefined, data.tradeSettings, request.combineUsd), recordScope: RECORDED_DATA_SCOPE };
     case "ideas": return { domain, range, ...ideaStats(data.ideas ?? [], range, group), recordScope: RECORDED_DATA_SCOPE };
@@ -227,11 +229,16 @@ function habitStats(habits: readonly HabitDefinition[], checkins: NonNullable<St
 }
 
 function journalTotals(entries: readonly JournalStatsEntry[]) {
-  return { count: entries.length, signalAverages: Object.fromEntries(JOURNAL_SIGNAL_FIELDS.map(field => [field,
-    mean(entries.flatMap(entry => {
-      const value = entry.signals?.[field];
-      return typeof value === "number" && Number.isFinite(value) ? [value] : [];
-    }))])) };
+  const journalDays=new Set(entries.map(entry=>entry.date)).size;
+  const fields=JOURNAL_SIGNAL_FIELDS.map(field=>{
+    const samples=entries.flatMap(entry=>{const value=entry.signals?.[field];
+      return typeof value==='number'&&Number.isFinite(value)?[{date:entry.date,value}]:[];});
+    const days=new Set(samples.map(sample=>sample.date)).size;
+    return{field,average:mean(samples.map(sample=>sample.value)),samples:{records:samples.length,days,
+      diaryRecordsMissingValue:entries.length-samples.length,diaryDaysMissingValue:journalDays-days}};
+  });
+  return {count:entries.length,journalDays,signalAverages:Object.fromEntries(fields.map(row=>[row.field,row.average])),
+    signalSamples:Object.fromEntries(fields.map(row=>[row.field,row.samples]))};
 }
 
 function journalStats(journal: readonly JournalStatsEntry[], range: DayRange, group: DateGrouping = "day") {
