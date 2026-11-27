@@ -210,7 +210,11 @@ it.each([false, true])("stops excluded permissions before/during editing (mid-sa
 
 async function run(calls: AiToolCall[], message: string, history: Parameters<InstanceType<typeof AgentLoop>["run"]>[0]["history"] = [], lookupFirst: boolean | 'plan' = false) {
   let turns = 0;
-  const model = vi.fn(async () => {
+  const model = vi.fn(async (_messages: unknown, _onText: unknown, options?: {tools?:{name:string}[]}) => {
+    // This fixture still has schedule changes to perform after its list read.
+    // Answer the separate read-completion protocol without consuming that edit.
+    if(options?.tools?.length===1&&options.tools[0].name==='verify_read_completion')
+      return{content:'',toolCalls:[{id:'fictional-content-read-continue',name:'verify_read_completion',arguments:{disposition:'continue'}}]};
     const turn = ++turns;
     if (lookupFirst && turn === 1) return { content: "", toolCalls: [{ id: "fictional-lookup-first", name: "list_tasks", arguments: { date, directReply: true } },
       ...(lookupFirst==='plan'?[{id:'fictional-plan-first',name:'plan_today',arguments:{draftTomorrow:true}}]:[])] };

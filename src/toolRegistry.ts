@@ -200,7 +200,7 @@ export const AGENT_TOOLS: LifeOpsToolDefinition[] = [
         domain: { type: "string", enum: ["journal", "note", "trade", "health", "memory", "task", "habit"], description: "task查任务，habit查习惯；其余按资料类型。" },
         operation: { type: "string", enum: ["get", "list", "search"], description: "get读原文，list列信息，search搜词；memory仅有效记忆。" },
         query: { type: "string", description: "search填连续关键词；list筛文件名；日记get用日期、时段或路径。" },
-        date: { type: "string", description: "日记单日或today/week锚点；不与其他range同填。" },
+        date: { type: "string", description: "日记单日或today/week锚点，支持昨天；与其他range分用。" },
         range: { ...dateRangeParameter(['all','week',...statsNamedRanges]), description: "日记不限定日期用all；任务习惯仅today/week。" },
         period: { type: "string", enum: ["早", "晚"], description: "日记时段。用户问昨晚、晚间时填晚，问晨间时填早；省略且指定日期时返回同日各篇。" },
         path: { type: "string", description: "准确库内Markdown路径，缺失不替代；排除生成/隐私内容，memory不用。" },
